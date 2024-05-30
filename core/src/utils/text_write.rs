@@ -114,7 +114,7 @@ impl<W: TextWrite> TextWrite for &mut W {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut)]
 pub struct TextWriteIoAdapter<W: std::io::Write>(pub W);
 impl<W: std::io::Write> TextWrite for TextWriteIoAdapter<W> {
     unsafe fn write_text_unchecked(
@@ -168,18 +168,8 @@ impl<W: std::io::Write> std::io::Write for TextWriteIoAdapter<W> {
         self.0.write_fmt(fmt)
     }
 }
-impl<W: std::io::Write> Deref for TextWriteIoAdapter<W> {
-    type Target = W;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl<W: std::io::Write> DerefMut for TextWriteIoAdapter<W> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-#[derive(Default, Clone)]
+
+#[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut)]
 pub struct TextWriteFormatAdapter<W: std::fmt::Write>(pub W);
 
 impl<W: std::fmt::Write> TextWrite for TextWriteFormatAdapter<W> {
@@ -223,18 +213,8 @@ impl<W: std::fmt::Write> std::fmt::Write for TextWriteFormatAdapter<W> {
         self.0.write_fmt(args)
     }
 }
-impl<W: std::fmt::Write> Deref for TextWriteFormatAdapter<W> {
-    type Target = W;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl<W: std::fmt::Write> DerefMut for TextWriteFormatAdapter<W> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
+#[derive(derive_more::Deref, derive_more::DerefMut)]
 pub struct TextWriteRefAdapter<'a, W: TextWrite>(pub &'a mut W);
 
 impl<W: TextWrite> TextWrite for TextWriteRefAdapter<'_, W> {
@@ -263,17 +243,6 @@ impl<W: TextWrite> TextWrite for TextWriteRefAdapter<'_, W> {
 impl<'a, W: TextWrite> From<&'a mut W> for TextWriteRefAdapter<'a, W> {
     fn from(base: &'a mut W) -> Self {
         Self(base)
-    }
-}
-impl<'a, W: TextWrite> Deref for TextWriteRefAdapter<'a, W> {
-    type Target = W;
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-impl<'a, W: TextWrite> DerefMut for TextWriteRefAdapter<'a, W> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0
     }
 }
 
@@ -381,6 +350,7 @@ impl<W: MaybeTextWrite> std::io::Write for MaybeTextWriteFlaggedAdapter<W> {
     }
 }
 
+#[derive(Clone)]
 pub struct MaybeTextWritePanicAdapter<W: TextWrite>(pub W);
 
 impl<W: TextWrite> std::io::Write for MaybeTextWritePanicAdapter<W> {

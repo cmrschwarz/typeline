@@ -79,7 +79,7 @@ pub struct TypedRange<'a> {
 // module. Therefore, nobody outside this module can (safely) construct a
 // ValidTypedRange. We can therefore assume all instances to be valid (header
 // matches data)
-#[derive(Default)]
+#[derive(Default, derive_more::Deref)]
 pub struct ValidTypedRange<'a>(pub(super) TypedRange<'a>);
 
 impl<'a> FieldValueRef<'a> {
@@ -508,13 +508,6 @@ impl<'a> TypedRange<'a> {
     }
 }
 
-impl<'a> Deref for ValidTypedRange<'a> {
-    type Target = TypedRange<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 impl<'a> ValidTypedRange<'a> {
     pub unsafe fn new(range: TypedRange<'a>) -> Self {
         Self(range)

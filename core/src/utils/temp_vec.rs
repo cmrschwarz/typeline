@@ -106,9 +106,11 @@ pub fn temp_vec<T, U, R>(
     *v = transmute_vec(tv);
     res
 }
-
+#[derive(derive_more::Deref, derive_more::DerefMut)]
 pub struct BorrowedVec<'a, S, T> {
     source: &'a mut Vec<S>,
+    #[deref]
+    #[deref_mut]
     vec: Vec<T>,
 }
 
@@ -127,19 +129,5 @@ impl<'a, S, T> Drop for BorrowedVec<'a, S, T> {
             self.source,
             transmute_vec::<T, S>(std::mem::take(&mut self.vec)),
         );
-    }
-}
-
-impl<'a, S, T> Deref for BorrowedVec<'a, S, T> {
-    type Target = Vec<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.vec
-    }
-}
-
-impl<'a, S, T> DerefMut for BorrowedVec<'a, S, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.vec
     }
 }

@@ -1,9 +1,10 @@
-use std::{error::Error, fmt, ops::Deref};
+use std::{error::Error, fmt};
 
 pub type CliArgIdx = u32;
 
-#[derive(Clone)]
+#[derive(Clone, derive_more::Deref)]
 pub struct Argument<T: Clone> {
+    #[deref]
     pub value: Option<T>,
     pub cli_arg_idx: Option<CliArgIdx>,
 }
@@ -31,13 +32,6 @@ impl<T: Clone> Default for Argument<T> {
     }
 }
 
-impl<T: Clone> Deref for Argument<T> {
-    type Target = Option<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
 impl<T: Clone> Argument<T> {
     pub const fn new(value: T, cli_arg_idx: Option<CliArgIdx>) -> Self {
         Self {

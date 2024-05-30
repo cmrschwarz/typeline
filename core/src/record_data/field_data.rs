@@ -89,8 +89,19 @@ pub struct FieldValueFormat {
     pub size: FieldValueSize,
 }
 
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    Debug,
+    PartialEq,
+    Eq,
+    derive_more::Deref,
+    derive_more::DerefMut,
+)]
 pub struct FieldValueHeader {
+    #[deref]
+    #[deref_mut]
     pub fmt: FieldValueFormat,
     // this shal never be zero, **even for deleted fields**
     pub run_length: RunLength,
@@ -528,19 +539,6 @@ impl FieldValueFormat {
         self.flags &= !field_value_flags::SAME_VALUE_AS_PREVIOUS;
         self.flags |= FieldValueFlags::from(val)
             << field_value_flags::SAME_VALUE_AS_PREVIOUS_OFFSET;
-    }
-}
-
-impl Deref for FieldValueHeader {
-    type Target = FieldValueFormat;
-    fn deref(&self) -> &Self::Target {
-        &self.fmt
-    }
-}
-
-impl DerefMut for FieldValueHeader {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.fmt
     }
 }
 

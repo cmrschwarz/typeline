@@ -280,7 +280,7 @@ impl Default for TextInfo {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut)]
 pub struct TextInfoWriter(
     MaybeTextWriteFlaggedAdapter<
         TextWriteIoAdapter<LengthAndCharsCountingWriter>,
@@ -298,19 +298,5 @@ impl TextInfoWriter {
     }
     pub fn text_info(&self) -> TextInfo {
         self.clone().into_text_info()
-    }
-}
-
-impl Deref for TextInfoWriter {
-    type Target = MaybeTextWriteFlaggedAdapter<
-        TextWriteIoAdapter<LengthAndCharsCountingWriter>,
-    >;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl DerefMut for TextInfoWriter {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }

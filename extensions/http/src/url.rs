@@ -8,22 +8,10 @@ use scr_core::{
     utils::text_write::TextWrite,
 };
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(
+    Clone, PartialEq, Eq, Debug, derive_more::Deref, derive_more::DerefMut,
+)]
 pub struct UrlValueType(url::Url);
-
-impl Deref for UrlValueType {
-    type Target = url::Url;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for UrlValueType {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
 impl CustomData for UrlValueType {
     fn type_name(&self) -> std::borrow::Cow<str> {
