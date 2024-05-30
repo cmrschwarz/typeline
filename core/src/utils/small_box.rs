@@ -22,6 +22,10 @@ impl<T: ?Sized + Unsize<U>, U: ?Sized, const SPACE: usize>
 macro_rules! smallbox {
     ( $e: expr ) => {{
         let value = $e;
+        // can't use `std::ptr::addr_of!` because it doesn't do the
+        // type deduction that we need here
+        // TODO: send a bugreport for this?
+        #[allow(clippy::borrow_as_ptr)]
         let target_type_ptr = &value as *const _;
         #[allow(unsafe_code)]
         unsafe {
