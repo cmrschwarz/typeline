@@ -1,5 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
 use scr_core::{
     record_data::{
         custom_data::{format_custom_data_padded, CustomData},
