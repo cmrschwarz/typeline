@@ -637,7 +637,10 @@ pub fn parse_cli_retain_args(
         "the 'repl' feature of this crate is disabled"
     );
 
-    if args.is_empty() {
+    // primarily for skipping the executable name
+    let mut arg_idx = usize::from(cli_opts.skip_first_arg);
+
+    if args.len() <= arg_idx {
         return Err(MissingArgumentsError.into());
     }
     let mut ctx_opts = SessionOptions {
@@ -645,8 +648,7 @@ pub fn parse_cli_retain_args(
         extensions,
         ..Default::default()
     };
-    // primarily for skipping the executable name
-    let mut arg_idx = usize::from(cli_opts.skip_first_arg);
+
     let mut curr_aggregate = Vec::new();
     let mut last_non_append_op_id = None;
     let mut curr_op_appendable = true;

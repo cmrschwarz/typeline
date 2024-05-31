@@ -502,6 +502,9 @@ impl Drop for Context {
 impl SessionData {
     pub fn has_no_command(&self, opts: &CliOptions) -> bool {
         let op_count = self.chains[ChainId::zero()].operators.len();
+        // HACK this sucks. we should probably add some bool like
+        // `has_arguments` or some other mechanism that is less hacky
+        // instead
         let implicit_op_count = [
             opts.start_with_stdin,
             opts.print_output,
@@ -512,8 +515,9 @@ impl SessionData {
         .copied()
         .map(usize::from)
         .sum::<usize>();
-        debug_assert!(op_count >= implicit_op_count);
-        op_count == implicit_op_count
+        // smaller is possible if this session is the result of an
+        // NoArgumentsError
+        op_count <= implicit_op_count
     }
     pub fn construct_main_chain_job(
         &self,
