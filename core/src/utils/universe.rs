@@ -168,7 +168,7 @@ impl<I: IndexingType, T> Universe<I, T> {
         };
         let range = self.data.as_ptr_range();
         assert!(range.contains(&ptr));
-        I::from_isize(unsafe { ptr.offset_from(range.start) })
+        I::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
     }
     pub fn get(&self, id: I) -> Option<&T> {
         match self.data.get(id.into_usize()) {

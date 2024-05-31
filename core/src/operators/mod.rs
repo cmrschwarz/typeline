@@ -10,7 +10,6 @@ pub mod foreach;
 pub mod fork;
 pub mod forkcat;
 pub mod format;
-pub mod input_done_eater;
 pub mod join;
 pub mod key;
 pub mod literal;

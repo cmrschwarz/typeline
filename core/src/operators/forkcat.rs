@@ -5,6 +5,7 @@ use bitvec::vec::BitVec;
 use crate::{
     chain::{Chain, SubchainIndex},
     context::SessionData,
+    index_newtype,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, VarLivenessSlotGroup, VarLivenessSlotKind,
@@ -13,10 +14,9 @@ use crate::{
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, VOID_FIELD_ID},
-        group_track::GroupTrackIterRef,
-        match_set::MatchSetId,
+        group_track::GroupTrackId,
     },
-    utils::index_vec::IndexVec,
+    utils::{index_vec::IndexVec, indexing_type::IndexingType},
 };
 
 use super::{
@@ -43,7 +43,7 @@ use super::{
 //              - create / append group length
 //              - append to pseudo data column, inform comsumers
 
-type FcSubchainIdx = u32;
+index_newtype!(pub FcSubchainIdx, u32);
 
 type ContinuationVarIdx = u32;
 
@@ -60,18 +60,18 @@ pub struct OpForkCat {
     continuation_vars: IndexVec<ContinuationVarIdx, Var>,
 }
 
-pub struct TfForkCat<'a> {
-    op: &'a OpForkCat,
-    subchain_match_sets: IndexVec<FcSubchainIdx, MatchSetId>,
-    buffered_record_count: usize,
-    input_size: usize,
-    group_track_iter: GroupTrackIterRef,
-    continuation: TransformId,
+struct SubchainEntry {
+    start_tf: TransformId,
+    group_track_id: GroupTrackId,
 }
 
-pub struct TfForkCatSubchainTerminator<'a> {
+pub struct TfForkCat {
+    subchains: IndexVec<FcSubchainIdx, SubchainEntry>,
+}
+
+pub struct TfForkCatSubchainTrailer<'a> {
     pub op: &'a OpForkCat,
-    continuation_ms_id: MatchSetId,
+    continuation_tf_id: TransformId,
     // field id in subchain -> field id in continuation
     continuation_var_mappings:
         IndexVec<ContinuationVarIdx, (FieldId, FieldId)>,
@@ -186,15 +186,7 @@ pub fn insert_tf_forkcat<'a>(
     };
 
     let tf_data = TransformData::ForkCat(TfForkCat {
-        continuation: cont_inst.tfs_begin,
-        op,
-        input_size: 0,
-        buffered_record_count: 0,
-        group_track_iter: job
-            .job_data
-            .group_track_manager
-            .claim_group_track_iter_ref(tf_state.input_group_track_id),
-        subchain_match_sets: Default::default(),
+        subchains: IndexVec::default(),
     });
     let fc_tf_id = add_transform_to_job(
         &mut job.job_data,
@@ -203,30 +195,30 @@ pub fn insert_tf_forkcat<'a>(
         tf_data,
     );
 
-    let mut subchain_match_sets = IndexVec::new();
+    let mut subchains = IndexVec::new();
 
     for (fc_sc_idx, sc_idx) in
         (op.subchains_start..op.subchains_end).enumerate()
     {
-        let sc_ms_id = setup_subchain(
+        let sc_entry = setup_subchain(
             op,
-            cont_ms_id,
+            cont_inst.tfs_begin,
             sc_count,
             job,
             op_base,
             sc_idx,
-            fc_sc_idx,
+            FcSubchainIdx::from_usize(fc_sc_idx),
             input_field,
             fc_tf_id,
         );
-        subchain_match_sets.push(sc_ms_id);
+        subchains.push(sc_entry);
     }
 
     let TransformData::ForkCat(fc) = &mut job.transform_data[fc_tf_id] else {
         unreachable!()
     };
 
-    fc.subchain_match_sets = subchain_match_sets;
+    fc.subchains = subchains;
 
     OperatorInstantiation {
         tfs_begin: fc_tf_id,
@@ -237,26 +229,28 @@ pub fn insert_tf_forkcat<'a>(
     }
 }
 
-fn setup_subchain(
-    op: &OpForkCat,
-    cont_ms_id: crate::utils::debuggable_nonmax::DebuggableNonMaxUsize,
+fn setup_subchain<'a>(
+    op: &'a OpForkCat,
+    cont_tf_id: TransformId,
     sc_count: usize,
-    job: &mut Job,
+    job: &mut Job<'a>,
     op_base: &OperatorBase,
-    sc_idx: u32,
-    fc_sc_idx: usize,
-    input_field: FieldId,
+    sc_idx: SubchainIndex,
+    fc_sc_idx: FcSubchainIdx,
+    fc_input_field: FieldId,
     fc_tf_id: TransformId,
-) -> MatchSetId {
-    let mut sc_terminator_tf = TfForkCatSubchainTerminator {
+) -> SubchainEntry {
+    let cont_ms_id = job.job_data.tf_mgr.transforms[cont_tf_id].match_set_id;
+
+    let mut terminator_tf = TfForkCatSubchainTrailer::<'a> {
         op,
-        continuation_ms_id: cont_ms_id,
+        continuation_tf_id: cont_tf_id,
         continuation_var_mappings: IndexVec::with_capacity(sc_count),
     };
 
-    let sc_ms_id = job.job_data.match_set_mgr.add_match_set();
+    let ms_id = job.job_data.match_set_mgr.add_match_set();
 
-    let sc_group_track = job.job_data.group_track_manager.add_group_track(
+    let group_track = job.job_data.group_track_manager.add_group_track(
         None,
         cont_ms_id,
         ActorRef::Unconfirmed(0),
@@ -269,51 +263,78 @@ fn setup_subchain(
     let mut sc_input_field = VOID_FIELD_ID;
 
     for (&var, needing_subchains) in &op.input_mappings {
-        if !needing_subchains[fc_sc_idx] {
+        if !needing_subchains[fc_sc_idx.into_usize()] {
             continue;
         }
         let field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
-            sc_ms_id,
-            input_field,
+            ms_id,
+            fc_input_field,
         );
         if var == Var::BBInput {
             sc_input_field = field_id;
         }
     }
 
-    let sc_cont = job.setup_transforms_for_chain(
-        sc_ms_id,
+    let instantiation = job.setup_transforms_for_chain(
+        ms_id,
         sc_chain_id,
         sc_input_field,
-        sc_group_track,
+        group_track,
         Some(fc_tf_id),
         &HashMap::default(),
     );
 
     for var in &op.continuation_vars {
-        let sc_ms = &job.job_data.match_set_mgr.match_sets[sc_ms_id];
-        let field_cow_id = if let Some(field_name) = var.get_name() {
+        let sc_ms = &job.job_data.match_set_mgr.match_sets[ms_id];
+        let field_id = if let Some(field_name) = var.get_name() {
             if let Some(&field_id) = sc_ms.field_name_map.get(&field_name) {
-                job.job_data.field_mgr.get_cross_ms_cow_field(
-                    &mut job.job_data.match_set_mgr,
-                    cont_ms_id,
-                    field_id,
-                )
+                field_id
             } else {
                 // TODO: make this a per match set thing
                 VOID_FIELD_ID
             }
         } else {
-            sc_cont.next_input_field
+            instantiation.next_input_field
         };
 
-        sc_terminator_tf
+        let field_cow_tgt = job.job_data.field_mgr.get_cross_ms_cow_field(
+            &mut job.job_data.match_set_mgr,
+            cont_ms_id,
+            field_id,
+        );
+
+        terminator_tf
             .continuation_var_mappings
-            .push((field_cow_id, 0));
+            .push((field_id, field_cow_tgt));
     }
 
-    sc_ms_id
+    let desired_batch_size = job.job_data.session_data.chains
+        [op_base.chain_id.unwrap()]
+    .settings
+    .default_batch_size;
+
+    let tf_id = add_transform_to_job(
+        &mut job.job_data,
+        &mut job.transform_data,
+        TransformState::new(
+            instantiation.next_input_field,
+            instantiation.next_input_field,
+            ms_id,
+            desired_batch_size,
+            None,
+            instantiation.next_group_track,
+        ),
+        TransformData::ForkCatSubchainTrailer(terminator_tf),
+    );
+
+    job.job_data.tf_mgr.transforms[instantiation.tfs_begin].successor =
+        Some(tf_id);
+
+    SubchainEntry {
+        start_tf: instantiation.tfs_begin,
+        group_track_id: group_track,
+    }
 }
 
 pub fn handle_tf_forkcat(
@@ -322,16 +343,33 @@ pub fn handle_tf_forkcat(
     fc: &mut TfForkCat,
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-    fc.input_size += batch_size;
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    let curr_subchain_start = tf.successor.unwrap();
-    let sc_group_track =
-        jd.tf_mgr.transforms[curr_subchain_start].input_group_track_id;
 
+    for sc in &fc.subchains {
+        // PERF: maybe provide a bulk version of this?
+        jd.tf_mgr.inform_cross_ms_transform_batch_available(
+            &jd.field_mgr,
+            &jd.match_set_mgr,
+            sc.start_tf,
+            batch_size,
+            ps.input_done,
+        );
+    }
+    jd.group_track_manager.copy_all_fields_to_children(
+        jd.tf_mgr.transforms[tf_id].input_group_track_id,
+        fc.subchains.iter().map(|sc| sc.group_track_id),
+    );
+}
+
+pub fn handle_tf_forcat_subchain_trailer(
+    jd: &mut JobData,
+    tf_id: TransformId,
+    fc: &mut TfForkCatSubchainTrailer,
+) {
+    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     jd.tf_mgr.inform_cross_ms_transform_batch_available(
         &jd.field_mgr,
         &jd.match_set_mgr,
-        curr_subchain_start,
+        fc.continuation_tf_id,
         batch_size,
         ps.input_done,
     );

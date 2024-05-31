@@ -114,6 +114,7 @@ pub struct OperatorBase {
     pub argname: StringStoreEntry,
     pub label: Option<StringStoreEntry>,
     pub cli_arg_idx: Option<CliArgIdx>,
+    // TODO: make this non optional if possible. it's annoying
     pub chain_id: Option<ChainId>,
     pub offset_in_chain: OperatorOffsetInChain,
     pub transparent_mode: bool,

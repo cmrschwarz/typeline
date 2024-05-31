@@ -37,11 +37,13 @@ use super::{
         TfForeachTrailer,
     },
     fork::{handle_fork_expansion, handle_tf_fork, TfFork},
-    forkcat::{handle_tf_forkcat, TfForkCat},
+    forkcat::{
+        handle_tf_forcat_subchain_trailer, handle_tf_forkcat, TfForkCat,
+        TfForkCatSubchainTrailer,
+    },
     format::{
         handle_tf_format, handle_tf_format_stream_value_update, TfFormat,
     },
-    input_done_eater::{handle_tf_input_done_eater, TfInputDoneEater},
     join::{
         handle_tf_join, handle_tf_join_stream_producer_update,
         handle_tf_join_stream_value_update, TfJoin,
@@ -73,7 +75,6 @@ pub enum TransformData<'a> {
     Disabled,
     Nop(TfNop),
     NopCopy(TfNopCopy),
-    InputDoneEater(TfInputDoneEater),
     Terminator(TfTerminator),
     Call(TfCall),
     CallConcurrent(TfCallConcurrent<'a>),
@@ -86,7 +87,8 @@ pub enum TransformData<'a> {
     StringSink(TfStringSink<'a>),
     FieldValueSink(TfFieldValueSink<'a>),
     Fork(TfFork<'a>),
-    ForkCat(TfForkCat<'a>),
+    ForkCat(TfForkCat),
+    ForkCatSubchainTrailer(TfForkCatSubchainTrailer<'a>),
     Regex(TfRegex<'a>),
     Format(TfFormat<'a>),
     FileReader(TfFileReader),
@@ -134,7 +136,7 @@ impl TransformData<'_> {
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
             TransformData::ForeachHeader(_) => "each_header",
             TransformData::ForeachTrailer(_) => "each_trailer",
-            TransformData::InputDoneEater(_) => "input_done_eater",
+            TransformData::ForkCatSubchainTrailer(_) => "input_done_eater",
             TransformData::SuccessUpdator(_) => "success_updator",
             TransformData::Custom(tf) => return tf.display_name(),
         }
@@ -257,7 +259,7 @@ pub fn transform_pre_update(
         | TransformData::Nop(_)
         | TransformData::SuccessUpdator(_)
         | TransformData::NopCopy(_)
-        | TransformData::InputDoneEater(_)
+        | TransformData::ForkCatSubchainTrailer(_)
         | TransformData::Count(_)
         | TransformData::Print(_)
         | TransformData::Join(_)
@@ -303,8 +305,8 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
             handle_tf_success_updator(jd, tf_id, tf)
         }
         TransformData::NopCopy(tf) => handle_tf_nop_copy(jd, tf_id, tf),
-        TransformData::InputDoneEater(tf) => {
-            handle_tf_input_done_eater(jd, tf_id, tf);
+        TransformData::ForkCatSubchainTrailer(tf) => {
+            handle_tf_forcat_subchain_trailer(jd, tf_id, tf);
         }
         TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
         TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
@@ -355,7 +357,7 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::Nop(_)
             | TransformData::SuccessUpdator(_)
             | TransformData::NopCopy(_)
-            | TransformData::InputDoneEater(_)
+            | TransformData::ForkCatSubchainTrailer(_)
             | TransformData::Terminator(_)
             | TransformData::Call(_)
             | TransformData::CallConcurrent(_)
@@ -443,7 +445,7 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::Nop(_) |
          TransformData::SuccessUpdator(_) |
         TransformData::NopCopy(_) |
-        TransformData::InputDoneEater(_) |
+        TransformData::ForkCatSubchainTrailer(_) |
         TransformData::Count(_) |
         TransformData::Select(_) |
         TransformData::FileReader(_) |
