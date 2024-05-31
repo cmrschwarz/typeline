@@ -251,6 +251,7 @@ impl ContextBuilder {
                     (*e).clone().into(),
                     None,
                     None,
+                    None,
                     Some(&sess),
                 )
             })?
@@ -260,6 +261,7 @@ impl ContextBuilder {
             sink.get_data().map_err(|e| {
                 ContextualizedScrError::from_scr_error(
                     (*e).clone().into(),
+                    None,
                     None,
                     None,
                     Some(&sess_arc),
@@ -293,6 +295,7 @@ impl ContextBuilder {
                         got: kind,
                     }
                     .into(),
+                    None,
                     None,
                     None,
                     None,

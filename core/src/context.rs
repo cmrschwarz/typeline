@@ -19,6 +19,7 @@ use {
 
 use crate::{
     chain::{Chain, ChainId},
+    cli::CliOptions,
     extension::ExtensionRegistry,
     job::{Job, JobData},
     operators::operator::{OperatorBase, OperatorData, OperatorId},
@@ -51,6 +52,7 @@ pub struct Venture<'a> {
 pub struct SessionSettings {
     pub max_threads: usize,
     pub repl: bool,
+    pub skipped_first_cli_arg: bool,
 }
 
 pub struct SessionData {
@@ -356,15 +358,16 @@ impl Context {
         self.run_job(self.session.construct_main_chain_job(input_data));
     }
     #[cfg(feature = "repl")]
-    pub fn run_repl(&mut self, cli_opts: crate::cli::CliOptions) {
+    pub fn run_repl(&mut self, mut cli_opts: crate::cli::CliOptions) {
         use crate::{
             cli::parse_cli, options::session_options::SessionOptions,
             scr_error::ScrError,
         };
         debug_assert!(cli_opts.allow_repl);
-        if !self.session.has_no_command() {
+        if !self.session.has_no_command(&cli_opts) {
             self.run_main_chain(RecordSet::default());
         }
+        cli_opts.skip_first_arg = false;
         let mut history = Box::<FileBackedHistory>::default();
         if let Some(args) = &self.session.cli_args {
             history
@@ -434,7 +437,7 @@ impl Context {
                         });
                         match sess_opts.and_then(SessionOptions::build_session)
                         {
-                            Ok(opts) => Ok(opts),
+                            Ok(sess) => Ok(sess),
                             Err(e) => match e.err {
                                 ScrError::PrintInfoAndExitError(e) => {
                                     println!("{}", e.get_message());
@@ -450,7 +453,7 @@ impl Context {
                     match sess {
                         Ok(sess) => {
                             self.set_session(sess);
-                            if !self.session.has_no_command() {
+                            if !self.session.has_no_command(&cli_opts) {
                                 self.run_main_chain(RecordSet::default());
                             }
                         }
@@ -472,7 +475,7 @@ impl Context {
                     break;
                 }
                 Err(err) => {
-                    eprintln!("IO Error: {}", err);
+                    eprintln!("REPL IO Error: {}", err);
                     break;
                 }
             }
@@ -497,8 +500,20 @@ impl Drop for Context {
 }
 
 impl SessionData {
-    pub fn has_no_command(&self) -> bool {
-        self.chains[ChainId::zero()].operators.is_empty()
+    pub fn has_no_command(&self, opts: &CliOptions) -> bool {
+        let op_count = self.chains[ChainId::zero()].operators.len();
+        let implicit_op_count = [
+            opts.start_with_stdin,
+            opts.print_output,
+            opts.add_success_updator,
+            true, // for the terminator
+        ]
+        .iter()
+        .copied()
+        .map(usize::from)
+        .sum::<usize>();
+        debug_assert!(op_count >= implicit_op_count);
+        op_count == implicit_op_count
     }
     pub fn construct_main_chain_job(
         &self,

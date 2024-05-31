@@ -61,6 +61,9 @@ use thiserror::Error;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CliOptions {
     pub allow_repl: bool,
+    // useful if this comes from the cli, not the repl,
+    // in which case this is the executable name
+    pub skip_first_arg: bool,
     pub start_with_stdin: bool,
     pub print_output: bool,
     pub add_success_updator: bool,
@@ -642,7 +645,8 @@ pub fn parse_cli_retain_args(
         extensions,
         ..Default::default()
     };
-    let mut arg_idx = 1; // skip executable name
+    // primarily for skipping the executable name
+    let mut arg_idx = usize::from(cli_opts.skip_first_arg);
     let mut curr_aggregate = Vec::new();
     let mut last_non_append_op_id = None;
     let mut curr_op_appendable = true;
@@ -658,12 +662,13 @@ pub fn parse_cli_retain_args(
     }
     while arg_idx < args.len() {
         let arg_str = &args[arg_idx];
-        arg_idx += 1;
 
         let cli_arg = CliArgument {
-            idx: arg_idx as CliArgIdx + 1,
+            idx: arg_idx as CliArgIdx,
             value: arg_str,
         };
+
+        arg_idx += 1;
 
         if try_parse_label(&mut ctx_opts, arg_str) {
             continue;
@@ -799,7 +804,13 @@ pub fn parse_cli(
     extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ContextualizedScrError> {
     parse_cli_raw(args, cli_opts, extensions).map_err(|(args, err)| {
-        ContextualizedScrError::from_scr_error(err, Some(&args), None, None)
+        ContextualizedScrError::from_scr_error(
+            err,
+            Some(&args),
+            Some(&cli_opts),
+            None,
+            None,
+        )
     })
 }
 
@@ -837,7 +848,13 @@ pub fn parse_cli_from_env(
     extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ContextualizedScrError> {
     let args = collect_env_args().map_err(|e| {
-        ContextualizedScrError::from_scr_error(e.into(), None, None, None)
+        ContextualizedScrError::from_scr_error(
+            e.into(),
+            None,
+            Some(&cli_opts),
+            None,
+            None,
+        )
     })?;
     parse_cli(args, cli_opts, extensions)
 }

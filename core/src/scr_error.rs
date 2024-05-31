@@ -4,7 +4,10 @@ use thiserror::Error;
 
 use crate::{
     chain::ChainId,
-    cli::{CliArgumentError, MissingArgumentsError, PrintInfoAndExitError},
+    cli::{
+        CliArgumentError, CliOptions, MissingArgumentsError,
+        PrintInfoAndExitError,
+    },
     context::SessionData,
     operators::{
         errors::{
@@ -97,12 +100,13 @@ impl ContextualizedScrError {
     pub fn from_scr_error(
         err: ScrError,
         args: Option<&Vec<Vec<u8>>>,
+        cli_opts: Option<&CliOptions>,
         ctx_opts: Option<&SessionOptions>,
         sess: Option<&SessionData>,
     ) -> Self {
         Self {
             contextualized_message: err
-                .contextualize_message(args, ctx_opts, sess),
+                .contextualize_message(args, cli_opts, ctx_opts, sess),
             err,
         }
     }
@@ -126,12 +130,13 @@ fn contextualize_cli_arg(
     msg: &str,
     args: Option<&Vec<Vec<u8>>>,
     cli_arg_idx: CliArgIdx,
+    skipped_first_cli_arg: bool,
 ) -> String {
     if let Some(args) = args {
         format!(
             "in cli arg {} `{}`: {}",
-            cli_arg_idx,
-            String::from_utf8_lossy(&args[cli_arg_idx as usize - 2]),
+            cli_arg_idx + u32::from(!skipped_first_cli_arg),
+            String::from_utf8_lossy(&args[cli_arg_idx as usize]),
             msg
         )
     } else {
@@ -139,10 +144,24 @@ fn contextualize_cli_arg(
     }
 }
 
+fn was_first_cli_arg_skipped(
+    cli_opts: Option<&CliOptions>,
+    ctx_opts: Option<&SessionOptions>,
+    sess: Option<&SessionData>,
+) -> bool {
+    cli_opts.map(|o| o.skip_first_arg).unwrap_or(
+        ctx_opts.map(|o| o.skipped_first_cli_arg).unwrap_or(
+            sess.map(|s| s.settings.skipped_first_cli_arg)
+                .unwrap_or(true),
+        ),
+    )
+}
+
 fn contextualize_op_id(
     msg: &str,
     op_id: OperatorId,
     args: Option<&Vec<Vec<u8>>>,
+    cli_opts: Option<&CliOptions>,
     ctx_opts: Option<&SessionOptions>,
     sess: Option<&SessionData>,
 ) -> String {
@@ -152,7 +171,9 @@ fn contextualize_op_id(
             sess.and_then(|sess| sess.operator_bases[op_id].cli_arg_idx)
         });
     if let (Some(args), Some(cli_arg_id)) = (args, cli_arg_id) {
-        contextualize_cli_arg(msg, Some(args), cli_arg_id)
+        let first_arg_skipped =
+            was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
+        contextualize_cli_arg(msg, Some(args), cli_arg_id, first_arg_skipped)
     } else if let Some(sess) = sess {
         let op_base = &sess.operator_bases[op_id];
         // TODO: stringify chain id
@@ -176,16 +197,22 @@ impl ScrError {
     pub fn contextualize_message(
         &self,
         args: Option<&Vec<Vec<u8>>>,
+        cli_opts: Option<&CliOptions>,
         ctx_opts: Option<&SessionOptions>,
         sess: Option<&SessionData>,
     ) -> String {
+        let first_arg_skipped =
+            was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
         let args_gathered = args
             .or_else(|| ctx_opts.and_then(|o| o.cli_args.as_ref()))
             .or_else(|| sess.and_then(|sess| sess.cli_args.as_ref()));
         match self {
-            ScrError::CliArgumentError(e) => {
-                contextualize_cli_arg(&e.message, args_gathered, e.cli_arg_idx)
-            }
+            ScrError::CliArgumentError(e) => contextualize_cli_arg(
+                &e.message,
+                args_gathered,
+                e.cli_arg_idx,
+                first_arg_skipped,
+            ),
             ScrError::ArgumentReassignmentError(e) => {
                 match (args_gathered, e.prev_cli_arg_idx, e.cli_arg_idx) {
                     (Some(args), Some(prev_arg_idx), Some(arg_idx)) => {
@@ -199,6 +226,7 @@ impl ScrError {
                         ARGUMENT_REASSIGNMENT_ERROR_MESSAGE,
                         args_gathered,
                         arg_idx,
+                        first_arg_skipped,
                     ),
                     _ => ARGUMENT_REASSIGNMENT_ERROR_MESSAGE.to_string(),
                 }
@@ -209,6 +237,7 @@ impl ScrError {
                         e.message,
                         args_gathered,
                         cli_arg_idx,
+                        first_arg_skipped,
                     )
                 } else {
                     e.message.to_string()
@@ -220,6 +249,7 @@ impl ScrError {
                 &e.message,
                 e.op_id,
                 args_gathered,
+                cli_opts,
                 ctx_opts,
                 sess,
             ),
@@ -227,6 +257,7 @@ impl ScrError {
                 e.message(),
                 e.op_id(),
                 args_gathered,
+                cli_opts,
                 ctx_opts,
                 sess,
             ),

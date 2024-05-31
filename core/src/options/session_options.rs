@@ -50,6 +50,8 @@ pub struct SessionOptions {
     pub(crate) curr_chain: ChainId,
     pub(crate) allow_repl: bool,
     pub cli_args: Option<Vec<Vec<u8>>>,
+    // needed for reporting the intuitive index in error messages
+    pub skipped_first_cli_arg: bool,
     pub extensions: Arc<ExtensionRegistry>,
 }
 
@@ -65,6 +67,7 @@ impl Default for SessionOptions {
             operator_data: IndexVec::new(),
             string_store: StringStore::default(),
             cli_args: None,
+            skipped_first_cli_arg: false,
             any_threaded_operations: false,
             extensions: Arc::clone(&EMPTY_EXTENSION_REGISTRY),
             allow_repl: true,
@@ -84,6 +87,7 @@ lazy_static! {
         operator_data: IndexVec::new(),
         string_store: StringStore::default(),
         cli_args: None,
+        skipped_first_cli_arg: false,
         curr_chain: ChainId::zero(),
         any_threaded_operations: false,
         extensions: Arc::clone(&EMPTY_EXTENSION_REGISTRY),
@@ -328,6 +332,7 @@ impl SessionOptions {
                 repl: self
                     .repl
                     .unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
+                skipped_first_cli_arg: self.skipped_first_cli_arg,
             },
             chains,
             operator_data: self.operator_data,
@@ -354,6 +359,7 @@ impl SessionOptions {
             self.extensions = sess.extensions;
             return Err(ContextualizedScrError::from_scr_error(
                 e,
+                None,
                 None,
                 Some(&self),
                 None,

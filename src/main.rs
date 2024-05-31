@@ -9,19 +9,24 @@ use scr::{
 use std::{process::ExitCode, sync::Arc};
 
 fn run() -> Result<bool, String> {
-    let args = collect_env_args().map_err(|e| {
-        ScrError::from(e).contextualize_message(None, None, None)
-    })?;
-    let extensions = build_extension_registry();
-
     let repl = cfg!(feature = "repl");
-
     let cli_opts = CliOptions {
         allow_repl: repl,
         start_with_stdin: true,
+        skip_first_arg: true,
         print_output: true,
         add_success_updator: true,
     };
+
+    let args = collect_env_args().map_err(|e| {
+        ScrError::from(e).contextualize_message(
+            None,
+            Some(&cli_opts),
+            None,
+            None,
+        )
+    })?;
+    let extensions = build_extension_registry();
 
     let sess = match parse_cli(args, cli_opts, extensions)
         .and_then(|sess_opts| sess_opts.build_session())
