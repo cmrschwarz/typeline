@@ -1,5 +1,4 @@
 use std::{
-    ffi::OsStr,
     fs::File,
     io::{stdin, BufRead, BufReader, ErrorKind, IsTerminal, Read, Write},
     path::PathBuf,
@@ -453,12 +452,14 @@ pub fn parse_op_file(
     let path = if let Some(value) = value {
         #[cfg(unix)]
         {
+            use std::ffi::OsStr;
             PathBuf::from(
                 <OsStr as std::os::unix::prelude::OsStrExt>::from_bytes(value),
             )
         }
         #[cfg(windows)]
         {
+            use bstr::ByteSlice;
             PathBuf::from(value.to_str().map_err(|_| {
                 OperatorCreationError::new(
                     "failed to parse file path argument as unicode",

@@ -825,19 +825,14 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
     }
     #[cfg(windows)]
     {
-        let args = Vec::new();
+        let mut args = Vec::new();
         for (i, arg) in std::env::args_os().enumerate() {
-            if let (Some(arg)) = arg.to_str() {
+            if let Some(arg) = arg.to_str() {
                 args.push(Vec::<u8>::from(arg));
             } else {
                 return Err(CliArgumentError::new(
-                    "failed to parse byte sequence as unicode".to_owned(),
-                    CliArgument {
-                        arg_index: i + 1,
-                        arg_str: Vec::<u8>::from(
-                            arg.to_string_lossy().as_bytes(),
-                        ),
-                    },
+                    "failed to parse byte sequence as unicode",
+                    i as CliArgIdx
                 ));
             }
         }
