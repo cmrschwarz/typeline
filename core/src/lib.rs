@@ -53,6 +53,7 @@ pub mod job;
 pub mod liveness_analysis;
 pub mod operators;
 pub mod options;
+pub mod repl_prompt;
 pub mod record_data;
 pub mod scr_error;
 pub mod tyson;

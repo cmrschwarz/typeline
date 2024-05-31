@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 #[cfg(feature = "repl")]
 use {
     reedline::{
-        default_emacs_keybindings, DefaultPrompt, DefaultPromptSegment,
+        default_emacs_keybindings,
         EditCommand, Emacs, FileBackedHistory, History, HistoryItem, KeyCode,
         KeyModifiers, Reedline, ReedlineEvent, Signal,
     },
@@ -360,7 +360,7 @@ impl Context {
     #[cfg(feature = "repl")]
     pub fn run_repl(&mut self, mut cli_opts: crate::cli::CliOptions) {
         use crate::{
-            cli::parse_cli, options::session_options::SessionOptions,
+            cli::{parse_cli}, repl_prompt::ScrPrompt, options::session_options::SessionOptions,
             scr_error::ScrError,
         };
         debug_assert!(cli_opts.allow_repl);
@@ -408,10 +408,8 @@ impl Context {
         let mut line_editor = Reedline::create()
             .with_history(history)
             .with_edit_mode(Box::new(edit_mode));
-        let prompt = DefaultPrompt {
-            right_prompt: DefaultPromptSegment::Empty,
-            left_prompt: DefaultPromptSegment::Basic("scr ".to_string()),
-        };
+        let prompt = ScrPrompt::default();
+        
         loop {
             let sig = line_editor.read_line(&prompt);
             match sig {
