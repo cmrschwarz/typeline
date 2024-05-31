@@ -4,7 +4,7 @@ use scr_core::{
     job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect, DYN_VAR_ID,
+        OperatorCallEffect, VarId, DYN_VAR_ID,
     },
     operators::{
         errors::OperatorCreationError,
@@ -21,6 +21,7 @@ use scr_core::{
     record_data::{action_buffer::ActorId, field_action::FieldActionKind},
     smallbox,
     utils::{
+        indexing_type::IndexingType,
         int_string_conversions::parse_int_with_units,
         string_store::StringStoreEntry,
     },
@@ -74,12 +75,12 @@ impl Operator for OpTail {
             return;
         }
         let accessed_vars = ld.accessed_names_afterwards(sess, op_id);
-        if accessed_vars[DYN_VAR_ID as usize] {
+        if accessed_vars[DYN_VAR_ID.into_usize()] {
             self.dyn_var_accessed = true;
             return;
         }
-        for v_id in accessed_vars.iter_ones() {
-            self.accessed_fields_after.push(ld.vars[v_id].get_name());
+        for var_id in accessed_vars.iter_ones().map(VarId::from_usize) {
+            self.accessed_fields_after.push(ld.vars[var_id].get_name());
         }
     }
 

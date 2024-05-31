@@ -8,7 +8,7 @@ use crate::{
     index_newtype,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
-        LivenessData, Var, VarLivenessSlotGroup, VarLivenessSlotKind,
+        LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
     options::argument::CliArgIdx,
     record_data::{
@@ -16,7 +16,10 @@ use crate::{
         field::{FieldId, VOID_FIELD_ID},
         group_track::GroupTrackId,
     },
-    utils::{index_vec::IndexVec, indexing_type::IndexingType},
+    utils::{
+        index_vec::IndexVec,
+        indexing_type::{IndexingType, IndexingTypeRange},
+    },
 };
 
 use super::{
@@ -43,9 +46,10 @@ use super::{
 //              - create / append group length
 //              - append to pseudo data column, inform comsumers
 
-index_newtype!(pub FcSubchainIdx, u32);
-
-type ContinuationVarIdx = u32;
+index_newtype! {
+    pub struct FcSubchainIdx(u32);
+    pub struct ContinuationVarIdx(u32);
+}
 
 #[derive(Clone, Default)]
 pub struct OpForkCat {
@@ -96,8 +100,8 @@ pub fn setup_op_forkcat(
     op: &mut OpForkCat,
     offset_in_chain: OperatorOffsetInChain,
 ) -> Result<(), OperatorSetupError> {
-    if op.subchains_end == 0 {
-        op.subchains_end = chain.subchains.len() as u32;
+    if op.subchains_end == SubchainIndex::zero() {
+        op.subchains_end = chain.subchains.next_free_idx();
     }
     op.continuation =
         chain.operators.get(offset_in_chain as usize + 1).copied();
@@ -110,7 +114,7 @@ pub fn setup_op_forkcat_liveness_data(
     op_id: OperatorId,
     ld: &LivenessData,
 ) {
-    let sc_count = (op.subchains_end - op.subchains_start) as usize;
+    let sc_count = (op.subchains_end - op.subchains_start).into_usize();
     let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
     let bb = &ld.basic_blocks[bb_id];
     let successors = ld.get_var_liveness_ored(
@@ -120,7 +124,7 @@ pub fn setup_op_forkcat_liveness_data(
     // TODO: introduce direct reads (not affected by field refs)
     // to reduce this set here
     let successors_reads = successors.get_slot(VarLivenessSlotKind::Reads);
-    for var_id in successors_reads.iter_ones() {
+    for var_id in successors_reads.iter_ones().map(VarId::from_usize) {
         op.continuation_vars.push(ld.vars[var_id]);
     }
     for (sc_idx, &callee_id) in bb.calls.iter().enumerate() {
@@ -129,9 +133,9 @@ pub fn setup_op_forkcat_liveness_data(
             VarLivenessSlotGroup::Global,
             VarLivenessSlotKind::Reads,
         );
-        for i in call_reads.iter_ones() {
+        for var_id in call_reads.iter_ones().map(VarId::from_usize) {
             op.input_mappings
-                .entry(ld.vars[i])
+                .entry(ld.vars[var_id])
                 .or_insert_with(|| {
                     let mut bv = BitVec::with_capacity(sc_count);
                     bv.resize(sc_count, false);
@@ -149,7 +153,7 @@ pub fn insert_tf_forkcat<'a>(
     tf_state: TransformState,
 ) -> OperatorInstantiation {
     let input_field = tf_state.input_field;
-    let sc_count = (op.subchains_end - op.subchains_start) as usize;
+    let sc_count = (op.subchains_end - op.subchains_start).into_usize();
     let cont_ms_id = job.job_data.match_set_mgr.add_match_set();
 
     let cont_group_track = job.job_data.group_track_manager.add_group_track(
@@ -198,7 +202,8 @@ pub fn insert_tf_forkcat<'a>(
     let mut subchains = IndexVec::new();
 
     for (fc_sc_idx, sc_idx) in
-        (op.subchains_start..op.subchains_end).enumerate()
+        IndexingTypeRange::new(op.subchains_start..op.subchains_end)
+            .enumerate()
     {
         let sc_entry = setup_subchain(
             op,

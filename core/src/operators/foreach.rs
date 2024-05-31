@@ -8,6 +8,7 @@ use crate::{
     record_data::group_track::{
         GroupTrackId, GroupTrackIterId, GroupTrackIterRef,
     },
+    utils::indexing_type::IndexingType,
 };
 
 use super::{
@@ -48,7 +49,7 @@ pub fn setup_op_foreach(
     _chain_id: ChainId,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
-    if op.subchains_end > op.subchains_start + 1 {
+    if op.subchains_end > op.subchains_start + SubchainIndex::from_usize(1) {
         return Err(OperatorSetupError::new(
             "operator `foreach` does not support multiple subchains",
             op_id,

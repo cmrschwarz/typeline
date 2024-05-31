@@ -10,7 +10,7 @@ use crate::{
     context::ContextData,
     job::{Job, JobData},
     liveness_analysis::{
-        LivenessData, VarLivenessSlotGroup, VarLivenessSlotKind,
+        LivenessData, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
     options::argument::CliArgIdx,
     record_data::{
@@ -20,7 +20,11 @@ use crate::{
         iter_hall::IterId,
         match_set::MatchSetId,
     },
-    utils::{index_vec::IndexVec, string_store::StringStoreEntry},
+    utils::{
+        index_vec::IndexVec,
+        indexing_type::{IndexingType, IndexingTypeRange},
+        string_store::StringStoreEntry,
+    },
 };
 
 use super::{
@@ -74,8 +78,8 @@ pub fn parse_op_fork(
         ));
     }
     Ok(OperatorData::Fork(OpFork {
-        subchains_start: 0,
-        subchains_end: 0,
+        subchains_start: SubchainIndex::zero(),
+        subchains_end: SubchainIndex::zero(),
         accessed_fields_per_subchain: IndexVec::new(),
     }))
 }
@@ -86,13 +90,13 @@ pub fn setup_op_fork(
     op: &mut OpFork,
     _op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
-    if op.subchains_end == 0 {
+    if op.subchains_end == SubchainIndex::zero() {
         // TODO: this can happen for ContextBuilder::run_collect
         // throw a decent error instead
         debug_assert!(
             op_base.offset_in_chain as usize + 1 == chain.operators.len()
         );
-        op.subchains_end = chain.subchains.len() as u32;
+        op.subchains_end = chain.subchains.next_free_idx();
     }
     Ok(())
 }
@@ -114,6 +118,7 @@ pub fn setup_op_fork_liveness_data(
                 VarLivenessSlotKind::Reads,
             )
             .iter_ones()
+            .map(VarId::from_usize)
         {
             accessed_vars.insert(ld.vars[var_id].get_name());
         }
@@ -183,10 +188,12 @@ pub(crate) fn handle_fork_expansion(
         .chain_id
         .unwrap();
 
-    for i in 0..sess.job_data.session_data.chains[fork_chain_id]
-        .subchains
-        .next_free_idx()
-    {
+    for i in IndexingTypeRange::new(
+        SubchainIndex::zero()
+            ..sess.job_data.session_data.chains[fork_chain_id]
+                .subchains
+                .next_free_idx(),
+    ) {
         let target = setup_fork_subchain(
             sess,
             fork_chain_id,
@@ -291,8 +298,8 @@ fn setup_fork_subchain(
 
 pub fn create_op_fork() -> OperatorData {
     OperatorData::Fork(OpFork {
-        subchains_start: 0,
-        subchains_end: 0,
+        subchains_start: SubchainIndex::zero(),
+        subchains_end: SubchainIndex::zero(),
         accessed_fields_per_subchain: IndexVec::new(),
     })
 }

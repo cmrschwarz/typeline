@@ -4,6 +4,7 @@ use smallstr::SmallString;
 
 use crate::{
     context::{ContextData, VentureDescription},
+    index_newtype,
     job::{Job, JobData},
     record_data::{
         field::FieldId,
@@ -68,8 +69,11 @@ use super::{
 };
 
 pub type DefaultTransformName = SmallString<[u8; 16]>;
-pub type TransformId = DebuggableNonMaxUsize;
-pub type StreamProducerIndex = DebuggableNonMaxUsize;
+
+index_newtype! {
+    pub struct TransformId(DebuggableNonMaxUsize);
+    pub struct StreamProducerIndex(DebuggableNonMaxUsize);
+}
 
 pub enum TransformData<'a> {
     Disabled,

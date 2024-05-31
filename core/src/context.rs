@@ -496,13 +496,13 @@ impl Drop for Context {
 
 impl SessionData {
     pub fn has_no_command(&self) -> bool {
-        self.chains[0].operators.is_empty()
+        self.chains[ChainId::zero()].operators.is_empty()
     }
     pub fn construct_main_chain_job(
         &self,
         input_data: RecordSet,
     ) -> JobDescription {
-        let operator = self.chains[0].operators[0];
+        let operator = self.chains[ChainId::zero()].operators[0];
         JobDescription {
             operator,
             data: input_data,

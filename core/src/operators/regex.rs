@@ -33,6 +33,7 @@ use crate::{
         varying_type_inserter::VaryingTypeInserter,
     },
     utils::{
+        indexing_type::IndexingType,
         int_string_conversions::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
@@ -479,9 +480,10 @@ pub fn build_tf_regex<'a>(
             let field_id = if i == op.output_group_id {
                 Some(tf_state.output_field)
             } else if let Some(name) = name {
-                let field_id = if let Some(field_id) = prebound_outputs
-                    .get(&(op_base.outputs_start + i as OpOutputIdx))
-                {
+                let field_id = if let Some(field_id) =
+                    prebound_outputs.get(&OpOutputIdx::from_usize(
+                        op_base.outputs_start.into_usize() + i,
+                    )) {
                     debug_assert!(
                         jd.field_mgr.fields[*field_id].borrow().name
                             == Some(*name)

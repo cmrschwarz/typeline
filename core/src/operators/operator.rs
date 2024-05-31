@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Write};
 use smallstr::SmallString;
 
 use crate::{
-    chain::ChainId,
+    chain::{ChainId, SubchainIndex},
     context::SessionData,
     job::{add_transform_to_job, Job},
     liveness_analysis::{
@@ -16,8 +16,8 @@ use crate::{
     },
     record_data::{field::FieldId, group_track::GroupTrackId},
     utils::{
-        identity_hasher::BuildIdentityHasher, small_box::SmallBox,
-        string_store::StringStoreEntry,
+        identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
+        small_box::SmallBox, string_store::StringStoreEntry,
     },
 };
 
@@ -493,10 +493,12 @@ impl OperatorData {
         op_id: OperatorId,
         bb_id: BasicBlockId,
         input_field: OpOutputIdx,
-        outputs_offset: OpOutputIdx,
+        outputs_offset: usize,
     ) -> (OpOutputIdx, OperatorCallEffect) {
-        let output_field = sess.operator_bases[op_id].outputs_start
-            + outputs_offset as OpOutputIdx;
+        let output_field = OpOutputIdx::from_usize(
+            sess.operator_bases[op_id].outputs_start.into_usize()
+                + outputs_offset,
+        );
         match &self {
             OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
@@ -523,34 +525,42 @@ impl OperatorData {
                 // resolve rebinds
                 loop {
                     let field = ld.vars_to_op_outputs_map[var];
-                    if field >= ld.vars.len() as OpOutputIdx {
+                    if field.into_usize() >= ld.vars.len() {
                         break;
                     }
                     // var points to itself
-                    if field == var {
+                    if field.into_usize() == var.into_usize() {
                         break;
                     }
                     // OpOutput indices below vars.len() are the vars
-                    var = field as VarId;
+                    var = VarId::from_usize(field.into_usize());
                 }
-                return (var, OperatorCallEffect::NoCall);
+                return (var.natural_output_idx(), OperatorCallEffect::NoCall);
             }
             OperatorData::Regex(re) => {
                 flags.may_dup_or_drop =
                     !re.opts.non_mandatory || re.opts.multimatch;
                 flags.non_stringified_input_access = false;
                 for i in 0..re.capture_group_names.len() {
-                    ld.op_outputs[output_field + i as OpOutputIdx]
-                        .field_references
-                        .push(input_field);
+                    ld.op_outputs[OpOutputIdx::from_usize(
+                        output_field.into_usize() + i,
+                    )]
+                    .field_references
+                    .push(input_field);
                 }
 
-                for (cgi, cgn) in re.capture_group_names.iter().enumerate() {
-                    if let Some(name) = cgn {
+                for (cg_idx, cg_name) in
+                    re.capture_group_names.iter().enumerate()
+                {
+                    if let Some(name) = cg_name {
                         let tgt_var_name = ld.var_names[name];
                         ld.vars_to_op_outputs_map[tgt_var_name] =
-                            sess.operator_bases[op_id].outputs_start
-                                + cgi as OpOutputIdx;
+                            OpOutputIdx::from_usize(
+                                sess.operator_bases[op_id]
+                                    .outputs_start
+                                    .into_usize()
+                                    + cg_idx,
+                            );
                     }
                 }
             }
@@ -734,12 +744,13 @@ impl OperatorData {
                 subchains_start, ..
             }) => {
                 *subchains_start = so.chains[so.curr_chain].subchain_count;
-                so.chains[so.curr_chain].subchain_count += 1;
+                so.chains[so.curr_chain].subchain_count +=
+                    SubchainIndex::from_usize(1);
                 let new_chain = ChainOptions {
                     parent: so.curr_chain,
                     ..Default::default()
                 };
-                so.curr_chain = so.chains.len() as ChainId;
+                so.curr_chain = so.chains.next_free_idx();
                 so.chains.push(new_chain);
             }
             OperatorData::Next(_) => {
@@ -747,12 +758,13 @@ impl OperatorData {
                     chain_opts.operators.pop();
                 }
                 let parent = so.chains[so.curr_chain].parent;
-                so.chains[parent].subchain_count += 1;
+                so.chains[parent].subchain_count +=
+                    SubchainIndex::from_usize(1);
                 let new_chain = ChainOptions {
                     parent,
                     ..Default::default()
                 };
-                so.curr_chain = so.chains.len() as ChainId;
+                so.curr_chain = so.chains.next_free_idx();
                 so.chains.push(new_chain);
                 op_base_opts.chain_id = None;
             }
@@ -962,7 +974,7 @@ pub trait Operator: Send + Sync {
         _add_to_chain: bool,
     ) {
     }
-    fn on_subchains_added(&mut self, _current_subchain_count: u32) {}
+    fn on_subchains_added(&mut self, _curr_subchains_end: SubchainIndex) {}
     fn register_output_var_names(
         &self,
         _ld: &mut LivenessData,
@@ -987,7 +999,7 @@ pub trait Operator: Send + Sync {
     fn setup(
         &mut self,
         _sess: &mut SessionData,
-        _chain_id: OperatorId,
+        _chain_id: ChainId,
         _op_id: OperatorId,
     ) -> Result<(), OperatorSetupError> {
         Ok(())

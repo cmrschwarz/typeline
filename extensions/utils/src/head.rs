@@ -4,7 +4,7 @@ use scr_core::{
     job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect, DYN_VAR_ID,
+        OperatorCallEffect, VarId, DYN_VAR_ID,
     },
     operators::{
         errors::OperatorCreationError,
@@ -20,7 +20,7 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{action_buffer::ActorId, field_action::FieldActionKind},
     smallbox,
-    utils::string_store::StringStoreEntry,
+    utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
 
 #[derive(Default)]
@@ -70,11 +70,11 @@ impl Operator for OpHead {
             return;
         }
         let accessed_vars = ld.accessed_names_afterwards(sess, op_id);
-        if accessed_vars[DYN_VAR_ID as usize] {
+        if accessed_vars[DYN_VAR_ID.into_usize()] {
             self.dyn_var_accessed = true;
             return;
         }
-        for v_id in accessed_vars.iter_ones() {
+        for v_id in accessed_vars.iter_ones().map(VarId::from_usize) {
             self.accessed_fields_after.push(ld.vars[v_id].get_name());
         }
     }

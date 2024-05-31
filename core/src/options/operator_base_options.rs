@@ -1,5 +1,6 @@
 use crate::{
     chain::ChainId,
+    liveness_analysis::OpOutputIdx,
     operators::operator::{OperatorBase, OperatorId, OperatorOffsetInChain},
     utils::string_store::StringStoreEntry,
 };
@@ -51,8 +52,8 @@ impl OperatorBaseOptions {
             desired_batch_size: self.desired_batch_size,
             offset_in_chain: self.offset_in_chain,
             // set during setup
-            outputs_start: 0,
-            outputs_end: 0,
+            outputs_start: OpOutputIdx::zero(),
+            outputs_end: OpOutputIdx::zero(),
         }
     }
 }

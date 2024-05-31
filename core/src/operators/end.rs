@@ -1,5 +1,6 @@
 use crate::{
-    chain::ChainId, cli::reject_operator_argument,
+    chain::{ChainId, SubchainIndex},
+    cli::reject_operator_argument,
     options::argument::CliArgIdx,
 };
 
@@ -8,19 +9,26 @@ use super::{
     operator::{OperatorData, OperatorId},
 };
 
+use crate::utils::indexing_type::IndexingType;
+
 #[derive(Clone)]
 pub struct OpEnd {
     pub chain_id_before: ChainId,
-    // number of subchains that `chain_id_after` has after the `end` operator
     pub chain_id_after: ChainId,
-    pub subchain_count_after: u32,
+    // number of subchains that `chain_id_after` has after the `end` operator
+    pub subchain_count_after: SubchainIndex,
 }
 
 pub fn create_op_end() -> OperatorData {
+    let invalid_chain_id =
+        ChainId::new(<ChainId as IndexingType>::IndexBaseType::MAX);
+    let invalid_subchain_id = SubchainIndex::new(
+        <SubchainIndex as IndexingType>::IndexBaseType::MAX,
+    );
     OperatorData::End(OpEnd {
-        subchain_count_after: u32::MAX,
-        chain_id_before: ChainId::MAX,
-        chain_id_after: ChainId::MAX,
+        subchain_count_after: invalid_subchain_id,
+        chain_id_before: invalid_chain_id,
+        chain_id_after: invalid_chain_id,
     })
 }
 
@@ -36,7 +44,7 @@ pub fn setup_op_end(
     op: &OpEnd,
     op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
-    if op.chain_id_before == 0 {
+    if op.chain_id_before == ChainId::zero() {
         return Err(OperatorSetupError::new(
             "`end` operator is outside of a subchain",
             op_id,

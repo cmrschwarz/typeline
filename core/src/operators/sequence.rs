@@ -11,8 +11,11 @@ use crate::{
         iter_hall::IterId,
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
-    utils::int_string_conversions::{
-        i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
+    utils::{
+        indexing_type::IndexingType,
+        int_string_conversions::{
+            i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
+        },
     },
 };
 
@@ -118,7 +121,7 @@ pub fn setup_op_sequence_concurrent_liveness_data(
     let output_id = sess.operator_bases[op_id].outputs_start;
     op.non_string_reads = ld
         .op_outputs_data
-        .get_slot(VarLivenessSlotKind::NonStringReads)[output_id as usize];
+        .get_slot(VarLivenessSlotKind::NonStringReads)[output_id.into_usize()];
 }
 
 pub fn update_op_sequence_variable_liveness(

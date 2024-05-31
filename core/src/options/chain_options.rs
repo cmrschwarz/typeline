@@ -1,5 +1,8 @@
 use crate::{
-    chain::{BufferingMode, Chain, ChainId, ChainSettings, TextEncoding},
+    chain::{
+        BufferingMode, Chain, ChainId, ChainSettings, SubchainIndex,
+        TextEncoding,
+    },
     operators::operator::{OperatorId, OperatorOffsetInChain},
     utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
@@ -19,7 +22,7 @@ pub struct ChainOptions {
     pub stream_size_threshold: Argument<usize>,
     pub buffering_mode: Argument<BufferingMode>,
     pub parent: ChainId,
-    pub subchain_count: u32,
+    pub subchain_count: SubchainIndex,
     pub operators: IndexVec<OperatorOffsetInChain, OperatorId>,
 }
 
@@ -34,8 +37,8 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     stream_buffer_size: Argument::new_v(1024),
     stream_size_threshold: Argument::new_v(1024),
     buffering_mode: Argument::new_v(BufferingMode::LineBufferStdinIfTTY),
-    parent: 0,
-    subchain_count: 0,
+    parent: ChainId(0),
+    subchain_count: SubchainIndex(0),
     operators: IndexVec::new(),
 };
 impl ChainOptions {

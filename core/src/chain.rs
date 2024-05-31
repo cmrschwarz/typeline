@@ -1,10 +1,14 @@
 use crate::{
+    index_newtype,
     operators::operator::{OperatorId, OperatorOffsetInChain},
     utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
 
-pub type ChainId = u32;
-pub type SubchainIndex = u32;
+index_newtype! {
+    pub struct ChainId (pub(crate) u32);
+    #[derive(derive_more::Add, derive_more::Sub, derive_more::AddAssign, derive_more::SubAssign)]
+    pub struct SubchainIndex(pub(crate) u32);
+}
 
 #[derive(Clone, Copy)]
 pub enum BufferingMode {

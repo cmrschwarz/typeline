@@ -7,6 +7,7 @@ use pyo3::{
     Py, PyAny, Python,
 };
 use scr_core::{
+    chain::ChainId,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -106,7 +107,7 @@ impl Operator for OpPy {
     fn setup(
         &mut self,
         sess: &mut SessionData,
-        _chain_id: OperatorId,
+        _chain_id: ChainId,
         _op_id: OperatorId,
     ) -> Result<(), OperatorSetupError> {
         let mut string_store = sess.string_store.write().unwrap();

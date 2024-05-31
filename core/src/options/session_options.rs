@@ -8,7 +8,7 @@ use std::{
 use lazy_static::lazy_static;
 
 use crate::{
-    chain::{Chain, ChainId},
+    chain::{Chain, ChainId, SubchainIndex},
     context::{SessionData, SessionSettings},
     extension::ExtensionRegistry,
     liveness_analysis::{self, LivenessData},
@@ -24,7 +24,11 @@ use crate::{
     scr_error::{
         result_into, ChainSetupError, ContextualizedScrError, ScrError,
     },
-    utils::{index_vec::IndexVec, string_store::StringStore},
+    utils::{
+        index_vec::IndexVec,
+        indexing_type::{IndexingType, IndexingTypeRange},
+        string_store::StringStore,
+    },
 };
 
 use super::{
@@ -56,7 +60,7 @@ impl Default for SessionOptions {
             repl: Argument::default(),
             exit_repl: Argument::default(),
             chains: IndexVec::from(vec![ChainOptions::default()]),
-            curr_chain: 0,
+            curr_chain: ChainId::zero(),
             operator_base_options: IndexVec::new(),
             operator_data: IndexVec::new(),
             string_store: StringStore::default(),
@@ -80,7 +84,7 @@ lazy_static! {
         operator_data: IndexVec::new(),
         string_store: StringStore::default(),
         cli_args: None,
-        curr_chain: 0,
+        curr_chain: ChainId::zero(),
         any_threaded_operations: false,
         extensions: Arc::clone(&EMPTY_EXTENSION_REGISTRY),
         allow_repl: true,
@@ -133,7 +137,7 @@ impl SessionOptions {
         op_id
     }
     pub fn add_label(&mut self, label: String) {
-        let new_chain_id = self.chains.len() as ChainId;
+        let new_chain_id = self.chains.next_free_idx();
         let curr_chain = &mut self.chains[self.curr_chain];
         let new_chain = ChainOptions {
             parent: curr_chain.parent,
@@ -162,13 +166,15 @@ impl SessionOptions {
             }
             .into());
         }
-        if sess.chains.len() >= ChainId::MAX as usize {
+        const MAX_CHAIN_ID: usize =
+            <ChainId as IndexingType>::IndexBaseType::MAX as usize;
+        if sess.chains.len() >= MAX_CHAIN_ID {
             return Err(ChainSetupError {
                 message: Cow::Owned(format!(
                     "cannot have more than {} chains",
-                    ChainId::MAX - 1
+                    MAX_CHAIN_ID - 1
                 )),
-                chain_id: ChainId::MAX,
+                chain_id: ChainId::from_usize(MAX_CHAIN_ID),
             }
             .into());
         }
@@ -176,16 +182,16 @@ impl SessionOptions {
     }
     pub fn on_operator_subchains_ended(
         op: &mut OperatorData,
-        sc_count_after: u32,
+        scs_end: SubchainIndex,
     ) {
         match op {
             OperatorData::Fork(OpFork { subchains_end, .. })
             | OperatorData::Foreach(OpForeach { subchains_end, .. })
             | OperatorData::ForkCat(OpForkCat { subchains_end, .. }) => {
-                *subchains_end = sc_count_after;
+                *subchains_end = scs_end;
             }
-            OperatorData::Custom(op) => op.on_subchains_added(sc_count_after),
-            OperatorData::MultiOp(op) => op.on_subchains_added(sc_count_after),
+            OperatorData::Custom(op) => op.on_subchains_added(scs_end),
+            OperatorData::MultiOp(op) => op.on_subchains_added(scs_end),
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::ToStr(_)
@@ -250,15 +256,19 @@ impl SessionOptions {
         Ok(())
     }
     pub fn setup_chain_labels(sess: &mut SessionData) {
-        for i in 0..sess.chains.next_free_idx() {
-            if let Some(label) = sess.chains[i].label {
-                sess.chain_labels.insert(label, i as ChainId);
+        for chain_id in IndexingTypeRange::new(
+            ChainId::zero()..sess.chains.next_free_idx(),
+        ) {
+            if let Some(label) = sess.chains[chain_id].label {
+                sess.chain_labels.insert(label, chain_id);
             }
         }
     }
     pub fn setup_chains(sess: &SessionData) -> Result<(), ChainSetupError> {
-        for i in 0..sess.chains.len() {
-            Self::validate_chain(sess, i as ChainId)?;
+        for cn_id in IndexingTypeRange::new(
+            ChainId::zero()..sess.chains.next_free_idx(),
+        ) {
+            Self::validate_chain(sess, cn_id)?;
         }
         Ok(())
     }
@@ -298,15 +308,17 @@ impl SessionOptions {
         };
 
         let mut chains = IndexVec::with_capacity(self.chains.len());
-        for i in 0..self.chains.next_free_idx() {
-            let parent = if i == 0 {
+        for cn_id in IndexingTypeRange::new(
+            ChainId::zero()..self.chains.next_free_idx(),
+        ) {
+            let parent = if cn_id == ChainId::zero() {
                 None
             } else {
-                let p: &mut Chain = &mut chains[self.chains[i].parent];
-                p.subchains.push(i);
+                let p: &mut Chain = &mut chains[self.chains[cn_id].parent];
+                p.subchains.push(cn_id);
                 Some(&*p)
             };
-            let chain = self.chains[i].build_chain(parent);
+            let chain = self.chains[cn_id].build_chain(parent);
             chains.push(chain);
         }
 

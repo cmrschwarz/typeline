@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use rstest::rstest;
 use scr::{
+    chain::ChainId,
     operators::{
         foreach::create_op_foreach,
         print::{create_op_print_with_opts, PrintOptions},
@@ -539,7 +540,7 @@ fn tf_file_yields_to_cont(
 
 #[test]
 fn error_on_sbs_0() {
-    assert!(matches!(
+    assert_eq!(
         ContextBuilder::default()
             .set_stream_buffer_size(0)
             .add_op(create_op_int_n(1, 3))
@@ -547,9 +548,9 @@ fn error_on_sbs_0() {
             .map_err(|e| e.err),
         Err(ScrError::ChainSetupError(ChainSetupError {
             message: Cow::Borrowed("stream buffer size cannot be zero"),
-            chain_id: 0
+            chain_id: ChainId::zero()
         }))
-    ));
+    );
 }
 
 #[test]

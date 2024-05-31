@@ -1555,14 +1555,17 @@ impl<'a> StreamValueManager<'a> {
         let sv = &mut self.stream_values[sv_id];
 
         #[cfg(feature = "stream_logging")]
-        eprintln!(
-            ":: tf {:02} dropping stream value subscription to sv {sv_id:02} (subs: {:?}) [{}done, rc {}, {:?}]",
-            tf_id_to_remove.map(|v|v.get() as i64).unwrap_or(-1),
-            sv.subscribers.iter().map(|svs|svs.tf_id).collect::<Vec<_>>(),
-            if sv.done {""} else {"not "},
-            sv.ref_count,
-            sv.data
-        );
+        {
+            use crate::utils::indexing_type::IndexingType;
+            eprintln!(
+                ":: tf {:02} dropping stream value subscription to sv {sv_id:02} (subs: {:?}) [{}done, rc {}, {:?}]",
+                tf_id_to_remove.map(|v|v.into_usize() as i64).unwrap_or(-1),
+                sv.subscribers.iter().map(|svs|svs.tf_id).collect::<Vec<_>>(),
+                if sv.done {""} else {"not "},
+                sv.ref_count,
+                sv.data
+            );
+        }
         sv.ref_count -= 1;
         if sv.ref_count == 0 {
             self.release_stream_value(sv_id);

@@ -1,4 +1,5 @@
 use crate::{
+    chain::{ChainId, SubchainIndex},
     context::SessionData,
     job::Job,
     liveness_analysis::{
@@ -79,7 +80,7 @@ impl Operator for OpMultiOp {
                 outputs_offset,
             );
             i += 1;
-            outputs_offset += op.output_count(sess, op_id) as OpOutputIdx;
+            outputs_offset += op.output_count(sess, op_id);
             next_input = output;
             if i == self.ops.len() {
                 return Some((output, ce));
@@ -149,7 +150,7 @@ impl Operator for OpMultiOp {
         }
     }
 
-    fn on_subchains_added(&mut self, _current_subchain_count: u32) {}
+    fn on_subchains_added(&mut self, _current_subchain_count: SubchainIndex) {}
 
     fn register_output_var_names(
         &self,
@@ -165,7 +166,7 @@ impl Operator for OpMultiOp {
     fn setup(
         &mut self,
         sess: &mut SessionData,
-        chain_id: OperatorId,
+        chain_id: ChainId,
         op_id: OperatorId,
     ) -> Result<(), super::errors::OperatorSetupError> {
         for op in &mut self.ops {

@@ -93,6 +93,26 @@ macro_rules! debuggable_nonmax {
                 Ok(())
             }
 
+            pub const fn checked_add(&self, rhs: $nonmax) -> Option<$nonmax> {
+                let Some(res) = self.get().checked_add(rhs.get()) else {
+                    return None;
+                };
+                if res == $primitive::MAX {
+                    return None;
+                }
+                Some(unsafe { Self::new_unchecked(res) })
+            }
+
+            pub const fn checked_sub(&self, rhs: $nonmax) -> Option<$nonmax> {
+                let Some(res) = self.get().checked_sub(rhs.get()) else {
+                    return None;
+                };
+                if res == $primitive::MAX {
+                    return None;
+                }
+                Some(unsafe { Self::new_unchecked(res) })
+            }
+
             pub const fn wrapping_add(&self, rhs: $nonmax) -> $nonmax {
                 let mut res = self.get().wrapping_add(rhs.get());
                 if res == $primitive::MAX {
@@ -155,6 +175,21 @@ macro_rules! debuggable_nonmax {
         impl Default for $nonmax {
             fn default() -> Self {
                 Self::ZERO
+            }
+        }
+
+        impl std::ops::Add for $nonmax {
+            type Output = $nonmax;
+
+            fn add(self, rhs: Self) -> Self::Output {
+                self.checked_add(rhs).unwrap()
+            }
+        }
+        impl std::ops::Sub for $nonmax {
+            type Output = $nonmax;
+
+            fn sub(self, rhs: Self) -> Self::Output {
+                self.checked_sub(rhs).unwrap()
             }
         }
     };

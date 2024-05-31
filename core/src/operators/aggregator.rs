@@ -1,4 +1,5 @@
 use crate::{
+    chain::ChainId,
     context::SessionData,
     job::{add_transform_to_job, Job, JobData},
     options::{
@@ -77,7 +78,7 @@ pub fn create_op_aggregator_append_leader(
 pub fn setup_op_aggregator(
     agg: &mut OpAggregator,
     sess: &mut SessionData,
-    chain_id: u32,
+    chain_id: ChainId,
 ) -> Result<(), OperatorSetupError> {
     for i in 0..agg.sub_ops.len() {
         let sub_op_id = agg.sub_ops[i];

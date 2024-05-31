@@ -10,7 +10,7 @@ use crate::{
     context::{ContextData, SessionSettings, VentureDescription},
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
-        LivenessData, Var, VarLivenessSlotGroup, VarLivenessSlotKind,
+        LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
     options::argument::CliArgIdx,
     record_data::{
@@ -28,6 +28,7 @@ use crate::{
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
+        indexing_type::IndexingType,
         string_store::{StringStore, StringStoreEntry},
     },
 };
@@ -145,13 +146,14 @@ pub fn setup_op_call_concurrent_liveness_data(
     debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
     let succ_var_data =
         ld.get_var_liveness(bb_id, VarLivenessSlotGroup::Succession);
-    for i in succ_var_data
+    for var_id in succ_var_data
         .get_slot(VarLivenessSlotKind::Reads)
         .iter_ones()
+        .map(VarId::from_usize)
     {
-        let writes =
-            succ_var_data.get_slot(VarLivenessSlotKind::HeaderWrites)[i];
-        match ld.vars[i] {
+        let writes = succ_var_data.get_slot(VarLivenessSlotKind::HeaderWrites)
+            [var_id.into_usize()];
+        match ld.vars[var_id] {
             Var::Named(name) => {
                 op.target_accessed_fields.push((Some(name), writes))
             }
