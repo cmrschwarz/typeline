@@ -17,9 +17,9 @@ doctest = false
 scr_core = { path = "../../core" }
 bstr = { version = "1.9.1", default-features = false }
 primes = "0.3.0"
-num = "0.4.2"
+num = "0.4.3"
 indexmap = "2.2.6"
 
 [dev-dependencies]
 scr = { path = "../../", features = ["utils"] }
-rstest = "0.19.0"
+rstest = "0.20.0"

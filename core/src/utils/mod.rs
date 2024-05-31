@@ -63,16 +63,6 @@ pub fn divide_by_char_len(len: usize, char_len: usize) -> usize {
     }
 }
 
-pub trait ValueProducingCallable<T> {
-    fn call(&mut self) -> T;
-}
-
-impl<T, F: FnMut() -> T> ValueProducingCallable<T> for F {
-    fn call(&mut self) -> T {
-        self()
-    }
-}
-
 pub fn get_two_distinct_mut<T>(
     slice: &mut [T],
     idx1: usize,

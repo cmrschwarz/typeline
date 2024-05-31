@@ -387,16 +387,18 @@ impl Context {
         keybindings.add_binding(
             KeyModifiers::CONTROL,
             KeyCode::Left,
-            ReedlineEvent::Edit(vec![EditCommand::MoveBigWordLeft]),
+            ReedlineEvent::Edit(vec![EditCommand::MoveBigWordLeft {
+                select: false,
+            }]),
         );
         keybindings.add_binding(
             KeyModifiers::CONTROL,
             KeyCode::Right,
             ReedlineEvent::Edit(vec![
-                EditCommand::MoveBigWordRightEnd,
+                EditCommand::MoveBigWordRightEnd { select: false },
                 // move right one more character so we start typing *after*
                 // the word, not before the last character
-                EditCommand::MoveRight,
+                EditCommand::MoveRight { select: false },
             ]),
         );
         let edit_mode = Emacs::new(keybindings);
