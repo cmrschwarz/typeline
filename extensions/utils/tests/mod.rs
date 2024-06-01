@@ -1,7 +1,7 @@
 use rstest::rstest;
 use scr::{
     cli::CliOptions, operators::sequence::create_op_enum,
-    parse_cli_from_strings,
+    parse_cli_from_strings, record_data::array::Array,
 };
 use scr_core::{
     operators::{
@@ -11,7 +11,7 @@ use scr_core::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
-    record_data::field_value::{Array, FieldValue},
+    record_data::field_value::FieldValue,
     scr_error::ScrError,
 };
 use scr_ext_utils::{

@@ -1,4 +1,5 @@
 pub mod action_buffer;
+pub mod array;
 pub mod bytes_insertion_stream;
 pub mod custom_data;
 pub mod field;
@@ -18,7 +19,7 @@ pub mod push_interface;
 pub mod record_buffer;
 pub mod record_set;
 pub mod ref_iter;
+pub mod spot_value;
 pub mod stream_value;
 pub mod variable_sized_type_inserter;
 pub mod varying_type_inserter;
-pub mod spot_value;

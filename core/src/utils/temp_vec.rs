@@ -80,6 +80,20 @@ impl<T, U> LayoutCompatible<T, U> {
     const ASSERT_COMPATIBLE: () = assert!(Self::COMPATIBLE);
 }
 
+pub fn convert_vec_cleared<T, U>(mut v: Vec<T>) -> Vec<U> {
+    let same_align = align_of::<T>() == align_of::<U>();
+    let space = v.capacity() * size_of::<T>();
+    let capacity_new = space / size_of::<U>();
+    let capacity_compatible = capacity_new * size_of::<U>() == space;
+
+    if !(same_align && capacity_compatible) {
+        return Vec::new();
+    }
+    v.clear();
+    let mut v = ManuallyDrop::new(v);
+    unsafe { Vec::from_raw_parts(v.as_mut_ptr().cast(), 0, capacity_new) }
+}
+
 pub fn transmute_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
     #[allow(clippy::let_unit_value)]
     let () = LayoutCompatible::<T, U>::ASSERT_COMPATIBLE;

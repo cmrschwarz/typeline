@@ -9,6 +9,7 @@ use crate::{
 };
 
 use super::{
+    array::Array,
     custom_data::CustomDataBox,
     field::FieldRefOffset,
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
@@ -49,10 +50,7 @@ pub enum FieldValue {
     Undefined,
     Null,
     Int(i64),
-    // this is the only field that's allowed to be 32 bytes large
-    // this still keeps FieldValue at 32 bytes due to Rust's
-    // cool enum layout optimizations
-    BigInt(BigInt),
+    BigInt(Box<BigInt>),
     Float(f64),
     Rational(Box<BigRational>),
     // PERF: better to use a custom version of Arc<String> for this with only
@@ -61,6 +59,9 @@ pub enum FieldValue {
     // the end so we can convert to `String` without realloc or memcpy
     Text(String),
     Bytes(Vec<u8>), // TODO: same as for `Text`
+    // this is the only field that's allowed to be 32 bytes large
+    // this still keeps FieldValue at 32 bytes due to Rust's
+    // cool enum layout optimizations
     Array(Array),
     Object(Object),
     Custom(CustomDataBox),
@@ -81,22 +82,6 @@ pub struct GroupSeparator;
 pub enum Object {
     KeysStored(Box<IndexMap<Box<str>, FieldValue>>),
     KeysInterned(Box<IndexMap<StringStoreEntry, FieldValue>>),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Array {
-    Null(usize),
-    Undefined(usize),
-    Int(Box<[i64]>),
-    Bytes(Box<[Box<[u8]>]>),
-    String(Box<[Box<str>]>),
-    Error(Box<[OperatorApplicationError]>),
-    Array(Box<[Array]>),
-    Object(Box<[Object]>),
-    FieldReference(Box<[FieldReference]>),
-    SlicedFieldReference(Box<[SlicedFieldReference]>),
-    Custom(Box<[CustomDataBox]>),
-    Mixed(Box<[FieldValue]>),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -127,27 +112,6 @@ impl SlicedFieldReference {
 impl FieldReference {
     pub fn new(field_ref_offset: FieldRefOffset) -> Self {
         Self { field_ref_offset }
-    }
-}
-
-impl Array {
-    pub fn len(&self) -> usize {
-        match self {
-            Array::Null(len) | Array::Undefined(len) => *len,
-            Array::Int(a) => a.len(),
-            Array::Bytes(a) => a.len(),
-            Array::String(a) => a.len(),
-            Array::Error(a) => a.len(),
-            Array::Array(a) => a.len(),
-            Array::Object(a) => a.len(),
-            Array::FieldReference(a) => a.len(),
-            Array::SlicedFieldReference(a) => a.len(),
-            Array::Custom(a) => a.len(),
-            Array::Mixed(a) => a.len(),
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 }
 
@@ -240,24 +204,25 @@ impl PartialEq for FieldValue {
 }
 
 impl FieldValue {
-    pub fn kind(&self) -> FieldValueKind {
+    pub fn repr(&self) -> FieldValueRepr {
         match self {
-            FieldValue::Null => FieldValueKind::Null,
-            FieldValue::Undefined => FieldValueKind::Undefined,
-            FieldValue::Int(_) | FieldValue::BigInt(_) => FieldValueKind::Int,
-            FieldValue::Float(_) => FieldValueKind::Float,
-            FieldValue::Rational(_) => FieldValueKind::Rational,
-            FieldValue::Bytes(_) => FieldValueKind::Bytes,
-            FieldValue::Text(_) => FieldValueKind::Text,
-            FieldValue::Error(_) => FieldValueKind::Error,
-            FieldValue::Array(_) => FieldValueKind::Array,
-            FieldValue::Object(_) => FieldValueKind::Object,
-            FieldValue::FieldReference(_) => FieldValueKind::FieldReference,
+            FieldValue::Null => FieldValueRepr::Null,
+            FieldValue::Undefined => FieldValueRepr::Undefined,
+            FieldValue::Int(_) => FieldValueRepr::Int,
+            FieldValue::BigInt(_) => FieldValueRepr::BigInt,
+            FieldValue::Float(_) => FieldValueRepr::Float,
+            FieldValue::Rational(_) => FieldValueRepr::Rational,
+            FieldValue::Bytes(_) => FieldValueRepr::BytesBuffer,
+            FieldValue::Text(_) => FieldValueRepr::TextBuffer,
+            FieldValue::Error(_) => FieldValueRepr::Error,
+            FieldValue::Array(_) => FieldValueRepr::Array,
+            FieldValue::Object(_) => FieldValueRepr::Object,
+            FieldValue::FieldReference(_) => FieldValueRepr::FieldReference,
             FieldValue::SlicedFieldReference(_) => {
-                FieldValueKind::SlicedFieldReference
+                FieldValueRepr::SlicedFieldReference
             }
-            FieldValue::Custom(_) => FieldValueKind::Custom,
-            FieldValue::StreamValueId(_) => FieldValueKind::StreamValueId,
+            FieldValue::Custom(_) => FieldValueRepr::Custom,
+            FieldValue::StreamValueId(_) => FieldValueRepr::StreamValueId,
         }
     }
     pub fn downcast_ref<R: FieldValueType>(&self) -> Option<&R> {
@@ -348,9 +313,7 @@ impl FieldValue {
             _ => None,
         }
     }
-    pub fn from_fixed_sized_type<T: FixedSizeFieldValueType + Sized>(
-        v: T,
-    ) -> Self {
+    pub fn from_fixed_sized_type<T: FixedSizeFieldValueType>(v: T) -> Self {
         // SAFETY: this is the almighty 'cast anything into anything' function.
         // We only use it for the special circumstance below
         // where we *know* that `T` and `Q` will be *identical* because of the
@@ -398,6 +361,9 @@ impl FieldValue {
     }
     pub fn is_error(&self) -> bool {
         matches!(self, FieldValue::Error(_))
+    }
+    pub fn kind(&self) -> FieldValueKind {
+        self.repr().kind()
     }
     pub fn is_valid_utf8(&self) -> bool {
         self.kind().is_valid_utf8()

@@ -3,6 +3,7 @@ use std::mem::ManuallyDrop;
 use num::{BigInt, BigRational};
 
 use super::{
+    array::Array,
     bytes_insertion_stream::{
         BytesInsertionStream, MaybeTextInsertionStream, TextInsertionStream,
     },
@@ -13,9 +14,7 @@ use super::{
         FieldValueHeader, FieldValueRepr, FieldValueSize, FieldValueType,
         RunLength,
     },
-    field_value::{
-        Array, FieldReference, FieldValue, Object, SlicedFieldReference,
-    },
+    field_value::{FieldReference, FieldValue, Object, SlicedFieldReference},
     field_value_ref::FieldValueSlice,
     field_value_slice_iter::FieldValueSliceIter,
     formattable::{Formattable, FormattingContext, RealizedFormatKey},
@@ -496,7 +495,7 @@ pub unsafe trait PushInterface {
                 self.push_int(v, run_length, try_header_rle, try_data_rle)
             }
             FieldValue::BigInt(v) => self.push_fixed_size_type(
-                v.clone(),
+                *v,
                 run_length,
                 try_header_rle,
                 try_data_rle,

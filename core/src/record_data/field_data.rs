@@ -6,10 +6,11 @@ use std::{
 };
 
 use super::{
+    array::Array,
     custom_data::CustomDataBox,
     field_value::{
-        Array, FieldReference, FieldValueKind, Null, Object,
-        SlicedFieldReference, Undefined,
+        FieldReference, FieldValueKind, Null, Object, SlicedFieldReference,
+        Undefined,
     },
     field_value_ref::value_as_bytes,
     match_set::MatchSetManager,

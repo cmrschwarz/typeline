@@ -5,7 +5,8 @@ use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
 use crate::{
     operators::errors::OperatorApplicationError,
     record_data::{
-        field_value::{Array, Object, Undefined},
+        array::Array,
+        field_value::{Object, Undefined},
         stream_value::StreamValueData,
     },
     utils::{
@@ -463,12 +464,19 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
                 w,
             ),
             Array::Int(v) => format_array::<i64, _, _>(&**v, &mut fc.rfk, w),
+            Array::BigInt(v) => {
+                format_array::<BigInt, _, _>(&**v, &mut fc.rfk, w)
+            }
+            Array::Float(v) => format_array::<f64, _, _>(&**v, &mut fc.rfk, w),
+            Array::Rational(v) => {
+                format_array::<BigRational, _, _>(&**v, fc, w)
+            }
             Array::Bytes(v) => format_array::<[u8], _, _>(
                 v.iter().map(|v| &**v),
                 &mut ValueFormattingOpts::for_nested_value(),
                 w,
             ),
-            Array::String(v) => format_array::<str, _, _>(
+            Array::Text(v) => format_array::<str, _, _>(
                 v.iter().map(|v| &**v),
                 &mut ValueFormattingOpts::for_nested_value(),
                 w,
@@ -491,6 +499,8 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
             Array::Mixed(v) => fc.for_nested_values(|fc| {
                 format_array(v.iter().map(|v| v.as_ref()), fc, w)
             }),
+
+            Array::StreamValueId(_) => todo!(),
         }
     }
 }

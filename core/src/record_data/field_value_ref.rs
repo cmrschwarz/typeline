@@ -3,13 +3,14 @@ use std::{mem::ManuallyDrop, ops::Range, ptr::NonNull};
 use num::{BigInt, BigRational};
 
 use super::{
+    array::Array,
     custom_data::CustomDataBox,
     field_data::{
         FieldValueFormat, FieldValueHeader, FieldValueRepr, FieldValueType,
         RunLength, TextBufferFile,
     },
     field_value::{
-        Array, FieldReference, FieldValue, Null, Object, SlicedFieldReference,
+        FieldReference, FieldValue, Null, Object, SlicedFieldReference,
         Undefined,
     },
     iters::FieldDataRef,
@@ -184,7 +185,9 @@ impl<'a> FieldValueRef<'a> {
             FieldValueRef::Undefined => FieldValue::Undefined,
             FieldValueRef::Null => FieldValue::Null,
             FieldValueRef::Int(v) => FieldValue::Int(*v),
-            FieldValueRef::BigInt(v) => FieldValue::BigInt(v.clone()),
+            FieldValueRef::BigInt(v) => {
+                FieldValue::BigInt(Box::new(v.clone()))
+            }
             FieldValueRef::Float(v) => FieldValue::Float(*v),
             FieldValueRef::Rational(v) => {
                 FieldValue::Rational(Box::new(v.clone()))

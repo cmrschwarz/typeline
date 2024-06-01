@@ -10,7 +10,10 @@ use thiserror::Error;
 
 use crate::{
     extension::ExtensionRegistry,
-    record_data::field_value::{Array, FieldValue, Object},
+    record_data::{
+        array::Array,
+        field_value::{FieldValue, Object},
+    },
     utils::{
         int_string_conversions::I64_MAX_DECIMAL_DIGITS,
         io::{
@@ -546,9 +549,9 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     return Ok(FieldValue::Int(v));
                 }
             }
-            return Ok(FieldValue::BigInt(
+            return Ok(FieldValue::BigInt(Box::new(
                 BigInt::parse_bytes(buf.as_bytes(), 10).unwrap(),
-            ));
+            )));
         }
         if self.use_floating_point {
             if let Ok(v) = buf.parse::<f64>() {
@@ -595,13 +598,13 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 Err(TysonParseError::InvalidSyntax {
                     kind: TysonParseErrorKind::StrayToken(']'),
                     ..
-                }) => return Ok(FieldValue::Array(Array::Mixed(arr.into()))),
+                }) => return Ok(FieldValue::Array(Array::Mixed(arr))),
                 Err(e) => return Err(e),
             };
             arr.push(value);
             let c = self.read_char_eat_whitespace()?;
             if c == ']' {
-                return Ok(FieldValue::Array(Array::Mixed(arr.into())));
+                return Ok(FieldValue::Array(Array::Mixed(arr)));
             }
             if c != ',' {
                 return self.err(TysonParseErrorKind::StrayToken(c));
@@ -753,7 +756,7 @@ mod test {
     use num::BigInt;
     use rstest::rstest;
 
-    use crate::record_data::field_value::{Array, FieldValue};
+    use crate::record_data::{array::Array, field_value::FieldValue};
 
     use super::{parse_tyson_str, TysonParseError, TysonParseErrorKind};
 
@@ -849,15 +852,12 @@ mod test {
     fn array() {
         assert_eq!(
             parse(r#" [1,2,3,"4"] "#),
-            Ok(FieldValue::Array(Array::Mixed(
-                vec![
-                    FieldValue::Int(1),
-                    FieldValue::Int(2),
-                    FieldValue::Int(3),
-                    FieldValue::Text("4".into())
-                ]
-                .into()
-            )))
+            Ok(FieldValue::Array(Array::Mixed(vec![
+                FieldValue::Int(1),
+                FieldValue::Int(2),
+                FieldValue::Int(3),
+                FieldValue::Text("4".into())
+            ])))
         );
     }
     #[test]
@@ -885,9 +885,9 @@ mod test {
     fn big_int(#[case] v: &str) {
         assert_eq!(
             parse(v),
-            Ok(FieldValue::BigInt(
+            Ok(FieldValue::BigInt(Box::new(
                 BigInt::parse_bytes(v.as_bytes(), 10).unwrap()
-            ))
+            )))
         );
     }
     #[rstest]

@@ -23,10 +23,11 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
+        array::Array,
         field::FieldRefOffset,
         field_action::FieldActionKind,
         field_data::FieldData,
-        field_value::{Array, FieldValue, Object},
+        field_value::{FieldValue, Object},
         field_value_ref::FieldValueSlice,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
@@ -135,20 +136,9 @@ fn insert_object_entry(
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     let arr = if let FieldValue::Text(str) = value {
-        Array::String(
-            [
-                key.to_string().into_boxed_str(),
-                str.clone().into_boxed_str(),
-            ]
-            .to_vec()
-            .into_boxed_slice(),
-        )
+        Array::Text(vec![key.to_string(), str.clone()])
     } else {
-        Array::Mixed(
-            [FieldValue::Text(key.to_string()), value.clone()]
-                .to_vec()
-                .into_boxed_slice(),
-        )
+        Array::Mixed(vec![FieldValue::Text(key.to_string()), value.clone()])
     };
     inserter.push_array(arr, 1, true, false);
 }
@@ -289,12 +279,27 @@ impl TfFlatten {
                                     true,
                                     false,
                                 ),
+                                Array::Float(vals) => inserter.extend(
+                                    vals.iter().copied(),
+                                    true,
+                                    false,
+                                ),
+                                Array::BigInt(vals) => inserter.extend(
+                                    vals.iter().cloned(),
+                                    true,
+                                    false,
+                                ),
+                                Array::Rational(vals) => inserter.extend(
+                                    vals.iter().cloned(),
+                                    true,
+                                    false,
+                                ),
                                 Array::Bytes(vals) => inserter.extend(
                                     vals.iter().map(|v| v.to_vec()),
                                     true,
                                     false,
                                 ),
-                                Array::String(vals) => inserter
+                                Array::Text(vals) => inserter
                                     .extend_from_strings(
                                         vals.iter().map(|v| v.to_string()),
                                         true,
@@ -334,6 +339,8 @@ impl TfFlatten {
                                         );
                                     }
                                 }
+
+                                Array::StreamValueId(_) => todo!(),
                             }
                         }
                     }
