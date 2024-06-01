@@ -17,6 +17,13 @@ pub trait IndexingType:
     // (might conflict in future if `From` is added ...).
     fn from_usize(v: usize) -> Self;
     fn into_usize(self) -> usize;
+    fn max_value() -> Self;
+    fn zero() -> Self {
+        <Self as IndexingType>::from_usize(0)
+    }
+    fn one() -> Self {
+        <Self as IndexingType>::from_usize(1)
+    }
 }
 
 pub struct IndexingTypeRange<I> {
@@ -24,11 +31,17 @@ pub struct IndexingTypeRange<I> {
     pub end: I,
 }
 
-impl<I> IndexingTypeRange<I> {
+impl<I: IndexingType> IndexingTypeRange<I> {
     pub fn new(r: Range<I>) -> Self {
         Self {
             start: r.start,
             end: r.end,
+        }
+    }
+    pub fn from_zero(end: I) -> Self {
+        Self {
+            start: I::from_usize(0),
+            end,
         }
     }
 }
@@ -46,6 +59,16 @@ impl<I: IndexingType> Iterator for IndexingTypeRange<I> {
     }
 }
 
+impl<I: IndexingType> DoubleEndedIterator for IndexingTypeRange<I> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.start == self.end {
+            return None;
+        }
+        self.end = I::from_usize(self.end.into_usize() - 1);
+        Some(self.end)
+    }
+}
+
 impl IndexingType for usize {
     type IndexBaseType = Self;
     #[inline(always)]
@@ -55,6 +78,10 @@ impl IndexingType for usize {
     #[inline(always)]
     fn from_usize(v: usize) -> Self {
         v
+    }
+    #[inline(always)]
+    fn max_value() -> Self {
+        usize::MAX
     }
 }
 
@@ -68,6 +95,10 @@ impl IndexingType for u32 {
     fn from_usize(v: usize) -> Self {
         v as Self
     }
+    #[inline(always)]
+    fn max_value() -> Self {
+        u32::MAX
+    }
 }
 
 impl IndexingType for u64 {
@@ -79,6 +110,10 @@ impl IndexingType for u64 {
     #[inline(always)]
     fn from_usize(v: usize) -> Self {
         v as Self
+    }
+    #[inline(always)]
+    fn max_value() -> Self {
+        u64::MAX
     }
 }
 
@@ -93,6 +128,10 @@ macro_rules! indexing_type_for_nonmax {
             #[inline(always)]
             fn from_usize(v: usize) -> Self {
                 $nonmax::new(v as $primitive).unwrap()
+            }
+            #[inline(always)]
+            fn max_value() -> Self {
+                $nonmax::MAX
             }
         }
     };
@@ -120,14 +159,15 @@ macro_rules! index_newtype {
             fn from_usize(v: usize) -> Self {
                 $name(<$base_type as $crate::utils::indexing_type::IndexingType>::from_usize(v))
             }
+            #[inline(always)]
+            fn max_value() -> Self {
+                $name(<$base_type as $crate::utils::indexing_type::IndexingType>::max_value())
+            }
         }
 
         impl $name {
             pub const fn new(v: $base_type) -> Self {
                 $name(v)
-            }
-            pub fn zero() -> Self {
-                <$name as $crate::utils::indexing_type::IndexingType>::from_usize(0)
             }
         }
 

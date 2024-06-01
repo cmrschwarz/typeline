@@ -11,6 +11,7 @@ use crate::{
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
+        indexing_type::IndexingType,
         string_store::{StringStore, StringStoreEntry},
     },
 };
@@ -19,6 +20,7 @@ use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
         OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
+        OperatorOffsetInChain,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -122,7 +124,7 @@ pub(crate) fn handle_eager_call_expansion(
         &sess.job_data.session_data.chains[op.target_resolved.unwrap()];
     sess.setup_transforms_from_op(
         ms_id,
-        chain.operators[0],
+        chain.operators[OperatorOffsetInChain::zero()],
         input_field,
         group_track,
         predecessor_tf,
@@ -143,7 +145,8 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
     // field?
     let instantiation = sess.setup_transforms_from_op(
         ms_id,
-        sess.job_data.session_data.chains[call.target].operators[0],
+        sess.job_data.session_data.chains[call.target].operators
+            [OperatorOffsetInChain::zero()],
         input_field,
         input_group_track,
         Some(tf_id),

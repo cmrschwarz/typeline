@@ -8,7 +8,7 @@ use scr::{
         print::{create_op_print_with_opts, PrintOptions},
         sequence::create_op_enum_unbounded,
     },
-    utils::test_utils::DummyWritableTarget,
+    utils::{indexing_type::IndexingType, test_utils::DummyWritableTarget},
 };
 use scr_core::{
     operators::{

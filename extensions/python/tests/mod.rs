@@ -2,10 +2,12 @@ use scr_core::{
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
         literal::create_op_int,
+        operator::OperatorId,
         sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
+    utils::indexing_type::IndexingType,
 };
 use scr_ext_python::py::create_op_py;
 
@@ -66,7 +68,7 @@ fn python_undefined_var() -> Result<(), ScrError> {
         res,
         [OperatorApplicationError::new(
             "Python: NameError: name 'foo' is not defined",
-            0
+            OperatorId::zero()
         )]
     );
     Ok(())

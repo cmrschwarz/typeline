@@ -1,5 +1,8 @@
 use rstest::rstest;
-use scr::operators::sequence::create_op_enum;
+use scr::{
+    operators::{operator::OperatorId, sequence::create_op_enum},
+    utils::indexing_type::IndexingType,
+};
 use scr_core::{
     operators::{
         errors::OperatorApplicationError,
@@ -377,7 +380,7 @@ fn null_format_error() -> Result<(), ScrError> {
         res.err,
         ScrError::OperationApplicationError(OperatorApplicationError::new(
             "unexpected type `null` in format key #1",
-            1,
+            OperatorId::one(),
         ))
     );
     Ok(())

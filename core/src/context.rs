@@ -10,9 +10,9 @@ use smallvec::SmallVec;
 #[cfg(feature = "repl")]
 use {
     reedline::{
-        default_emacs_keybindings,
-        EditCommand, Emacs, FileBackedHistory, History, HistoryItem, KeyCode,
-        KeyModifiers, Reedline, ReedlineEvent, Signal,
+        default_emacs_keybindings, EditCommand, Emacs, FileBackedHistory,
+        History, HistoryItem, KeyCode, KeyModifiers, Reedline, ReedlineEvent,
+        Signal,
     },
     shlex::Shlex,
 };
@@ -22,11 +22,14 @@ use crate::{
     cli::CliOptions,
     extension::ExtensionRegistry,
     job::{Job, JobData},
-    operators::operator::{OperatorBase, OperatorData, OperatorId},
+    operators::operator::{
+        OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
+    },
     record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
     utils::{
         identity_hasher::BuildIdentityHasher,
         index_vec::IndexVec,
+        indexing_type::IndexingType,
         maybe_boxed::MaybeBoxed,
         string_store::{StringStore, StringStoreEntry},
     },
@@ -360,8 +363,8 @@ impl Context {
     #[cfg(feature = "repl")]
     pub fn run_repl(&mut self, mut cli_opts: crate::cli::CliOptions) {
         use crate::{
-            cli::{parse_cli}, repl_prompt::ScrPrompt, options::session_options::SessionOptions,
-            scr_error::ScrError,
+            cli::parse_cli, options::session_options::SessionOptions,
+            repl_prompt::ScrPrompt, scr_error::ScrError,
         };
         debug_assert!(cli_opts.allow_repl);
         if !self.session.has_no_command(&cli_opts) {
@@ -409,7 +412,7 @@ impl Context {
             .with_history(history)
             .with_edit_mode(Box::new(edit_mode));
         let prompt = ScrPrompt::default();
-        
+
         loop {
             let sig = line_editor.read_line(&prompt);
             match sig {
@@ -521,7 +524,8 @@ impl SessionData {
         &self,
         input_data: RecordSet,
     ) -> JobDescription {
-        let operator = self.chains[ChainId::zero()].operators[0];
+        let operator = self.chains[ChainId::zero()].operators
+            [OperatorOffsetInChain::zero()];
         JobDescription {
             operator,
             data: input_data,

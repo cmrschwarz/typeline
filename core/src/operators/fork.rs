@@ -12,6 +12,7 @@ use crate::{
     liveness_analysis::{
         LivenessData, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
+    operators::operator::OperatorOffsetInChain,
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorRef,
@@ -94,9 +95,10 @@ pub fn setup_op_fork(
         // TODO: this can happen for ContextBuilder::run_collect
         // throw a decent error instead
         debug_assert!(
-            op_base.offset_in_chain as usize + 1 == chain.operators.len()
+            op_base.offset_in_chain + OperatorOffsetInChain::one()
+                == chain.operators.next_idx()
         );
-        op.subchains_end = chain.subchains.next_free_idx();
+        op.subchains_end = chain.subchains.next_idx();
     }
     Ok(())
 }
@@ -192,7 +194,7 @@ pub(crate) fn handle_fork_expansion(
         SubchainIndex::zero()
             ..sess.job_data.session_data.chains[fork_chain_id]
                 .subchains
-                .next_free_idx(),
+                .next_idx(),
     ) {
         let target = setup_fork_subchain(
             sess,
@@ -275,8 +277,8 @@ fn setup_fork_subchain(
         drop(src_field);
     }
     let input_field = chain_input_field.unwrap_or(VOID_FIELD_ID);
-    let start_op_id =
-        sess.job_data.session_data.chains[subchain_id].operators[0];
+    let start_op_id = sess.job_data.session_data.chains[subchain_id].operators
+        [OperatorOffsetInChain::zero()];
     let instantiation = sess.setup_transforms_from_op(
         target_ms_id,
         start_op_id,

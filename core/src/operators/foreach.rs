@@ -63,7 +63,7 @@ pub fn insert_tf_foreach(
     op: &OpForeach,
     mut tf_state: TransformState,
     chain_id: ChainId,
-    op_id: u32,
+    op_id: OperatorId,
     prebound_outputs: &PreboundOutputsMap,
 ) -> OperatorInstantiation {
     let subchain_id = job.job_data.session_data.chains[chain_id].subchains

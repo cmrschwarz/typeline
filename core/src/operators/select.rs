@@ -4,7 +4,10 @@ use crate::{
     job::JobData,
     liveness_analysis::{LivenessData, VarLivenessSlotKind},
     options::argument::CliArgIdx,
-    utils::string_store::{StringStore, StringStoreEntry},
+    utils::{
+        indexing_type::IndexingType,
+        string_store::{StringStore, StringStoreEntry},
+    },
 };
 
 use super::{
@@ -58,7 +61,7 @@ pub fn setup_op_select_liveness_data(
     ld: &LivenessData,
 ) {
     op.field_is_read = ld.op_outputs_data.get_slot(VarLivenessSlotKind::Reads)
-        [op_id as usize];
+        [op_id.into_usize()];
 }
 
 pub fn create_op_select(key: String) -> OperatorData {

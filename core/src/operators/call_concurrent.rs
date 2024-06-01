@@ -37,6 +37,7 @@ use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
         OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
+        OperatorOffsetInChain,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -307,11 +308,14 @@ pub(crate) fn handle_call_concurrent_expansion(
     };
     call.expanded = true;
     setup_target_field_mappings(&mut job.job_data, tf_id, call);
-    let starting_op =
-        job.job_data.session_data.chains[call.target_chain].operators[0];
+    let starting_op = job.job_data.session_data.chains[call.target_chain]
+        .operators[OperatorOffsetInChain::zero()];
     let mut venture_desc = VentureDescription {
         participans_needed: 2,
-        starting_points: smallvec::smallvec![OperatorId::MAX, starting_op],
+        starting_points: smallvec::smallvec![
+            OperatorId::max_value(),
+            starting_op
+        ],
         buffer: call.buffer.clone(),
     };
     let ctx = ctx.unwrap();

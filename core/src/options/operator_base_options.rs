@@ -2,7 +2,7 @@ use crate::{
     chain::ChainId,
     liveness_analysis::OpOutputIdx,
     operators::operator::{OperatorBase, OperatorId, OperatorOffsetInChain},
-    utils::string_store::StringStoreEntry,
+    utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
 
 use super::argument::CliArgIdx;
@@ -35,7 +35,7 @@ impl OperatorBaseOptions {
             desired_batch_size: 0,
             chain_id: None,
             op_id: None,
-            offset_in_chain: 0,
+            offset_in_chain: OperatorOffsetInChain::zero(),
         }
     }
     pub fn from_name(argname: StringStoreEntry) -> OperatorBaseOptions {

@@ -117,7 +117,7 @@ pub fn insert_tf_aggregator(
     job: &mut Job,
     op: &OpAggregator,
     mut tf_state: TransformState,
-    op_id: u32,
+    op_id: OperatorId,
     prebound_outputs: &PreboundOutputsMap,
 ) -> OperatorInstantiation {
     let op_count = op.sub_ops.len();

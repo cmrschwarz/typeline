@@ -1370,7 +1370,7 @@ unsafe fn insert_output_target(
     output_idx: usize,
     ss: &StringStore,
     output_field: &mut RefMut<'_, Field>,
-    op_id: u32,
+    op_id: OperatorId,
     sv_mgr: &mut StreamValueManager,
 ) -> Option<NonNull<u8>> {
     let os = &mut fmt.output_states[output_idx];

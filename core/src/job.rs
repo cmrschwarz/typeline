@@ -278,7 +278,7 @@ impl TransformManager {
 // (plus add a check refcount func)
 pub fn add_transform_to_job<'a>(
     jd: &mut JobData<'a>,
-    tf_data: &mut Vec<TransformData<'a>>,
+    tf_data: &mut IndexVec<TransformId, TransformData<'a>>,
     state: TransformState,
     data: TransformData<'a>,
 ) -> TransformId {
@@ -288,7 +288,7 @@ pub fn add_transform_to_job<'a>(
             TransformData::Disabled
         });
     }
-    tf_data[usize::from(id)] = data;
+    tf_data[id] = data;
     id
 }
 

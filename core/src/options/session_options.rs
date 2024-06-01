@@ -115,12 +115,11 @@ impl SessionOptions {
         let chain_opts = &mut self.chains[self.curr_chain];
         op_base_opts.chain_id = Some(self.curr_chain);
         if add_to_chain {
-            op_base_opts.offset_in_chain =
-                chain_opts.operators.len() as OperatorOffsetInChain;
+            op_base_opts.offset_in_chain = chain_opts.operators.next_idx();
             chain_opts.operators.push(op_id);
         } else {
             op_base_opts.offset_in_chain =
-                chain_opts.operators.len() as OperatorOffsetInChain - 1;
+                chain_opts.operators.last_idx().unwrap();
         }
         let mut op_data_ext = std::mem::take(op_data);
         op_data_ext.on_op_added(self, op_id, add_to_chain);
@@ -131,7 +130,7 @@ impl SessionOptions {
         op_base_opts: OperatorBaseOptions,
         op_data: OperatorData,
     ) -> OperatorId {
-        let op_id = self.operator_data.len() as OperatorId;
+        let op_id = self.operator_data.next_idx();
         self.operator_base_options.push(op_base_opts);
         self.operator_data.push(op_data);
         op_id
@@ -146,7 +145,7 @@ impl SessionOptions {
         op_id
     }
     pub fn add_label(&mut self, label: String) {
-        let new_chain_id = self.chains.next_free_idx();
+        let new_chain_id = self.chains.next_idx();
         let curr_chain = &mut self.chains[self.curr_chain];
         let new_chain = ChainOptions {
             parent: curr_chain.parent,
@@ -165,13 +164,18 @@ impl SessionOptions {
         self.chains.push(new_chain);
     }
     pub fn verify_bounds(sess: &SessionData) -> Result<(), ScrError> {
-        if sess.operator_bases.len() >= OperatorOffsetInChain::MAX as usize {
+        let offset_max =
+            <OperatorOffsetInChain as IndexingType>::IndexBaseType::MAX
+                as usize;
+        if sess.operator_bases.len() >= offset_max {
             return Err(OperatorSetupError {
                 message: Cow::Owned(format!(
                     "cannot have more than {} operators",
-                    OperatorOffsetInChain::MAX - 1
+                    offset_max - 1
                 )),
-                op_id: OperatorOffsetInChain::MAX,
+                op_id: OperatorId::new(
+                    <OperatorId as IndexingType>::IndexBaseType::MAX,
+                ),
             }
             .into());
         }
@@ -237,7 +241,7 @@ impl SessionOptions {
     pub fn setup_operators(
         sess: &mut SessionData,
     ) -> Result<(), OperatorSetupError> {
-        for op_id in 0..sess.operator_bases.next_free_idx() {
+        for op_id in sess.operator_bases.indices() {
             let op_base = &mut sess.operator_bases[op_id];
             let Some(chain_id) = op_base.chain_id else {
                 continue;
@@ -265,18 +269,18 @@ impl SessionOptions {
         Ok(())
     }
     pub fn setup_chain_labels(sess: &mut SessionData) {
-        for chain_id in IndexingTypeRange::new(
-            ChainId::zero()..sess.chains.next_free_idx(),
-        ) {
+        for chain_id in
+            IndexingTypeRange::new(ChainId::zero()..sess.chains.next_idx())
+        {
             if let Some(label) = sess.chains[chain_id].label {
                 sess.chain_labels.insert(label, chain_id);
             }
         }
     }
     pub fn setup_chains(sess: &SessionData) -> Result<(), ChainSetupError> {
-        for cn_id in IndexingTypeRange::new(
-            ChainId::zero()..sess.chains.next_free_idx(),
-        ) {
+        for cn_id in
+            IndexingTypeRange::new(ChainId::zero()..sess.chains.next_idx())
+        {
             Self::validate_chain(sess, cn_id)?;
         }
         Ok(())
@@ -292,8 +296,9 @@ impl SessionOptions {
     }
     pub fn compute_liveness(sess: &mut SessionData) {
         let ld = liveness_analysis::compute_liveness_data(sess);
-        for i in 0..sess.operator_bases.len() {
-            let op_id = i as OperatorId;
+        for op_id in
+            IndexingTypeRange::from_zero(sess.operator_bases.next_idx())
+        {
             Self::setup_op_liveness(sess, &ld, op_id);
         }
     }
@@ -317,9 +322,9 @@ impl SessionOptions {
         };
 
         let mut chains = IndexVec::with_capacity(self.chains.len());
-        for cn_id in IndexingTypeRange::new(
-            ChainId::zero()..self.chains.next_free_idx(),
-        ) {
+        for cn_id in
+            IndexingTypeRange::new(ChainId::zero()..self.chains.next_idx())
+        {
             let parent = if cn_id == ChainId::zero() {
                 None
             } else {

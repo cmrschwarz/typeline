@@ -96,15 +96,17 @@ pub fn parse_op_forkcat(
 
 pub fn setup_op_forkcat(
     chain: &Chain,
-    _op_base: &OperatorBase,
+    op_base: &OperatorBase,
     op: &mut OpForkCat,
-    offset_in_chain: OperatorOffsetInChain,
+    _op_id: OperatorId,
 ) -> Result<(), OperatorSetupError> {
     if op.subchains_end == SubchainIndex::zero() {
-        op.subchains_end = chain.subchains.next_free_idx();
+        op.subchains_end = chain.subchains.next_idx();
     }
-    op.continuation =
-        chain.operators.get(offset_in_chain as usize + 1).copied();
+    op.continuation = chain
+        .operators
+        .get(op_base.offset_in_chain + OperatorOffsetInChain::one())
+        .copied();
     Ok(())
 }
 

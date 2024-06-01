@@ -5,6 +5,7 @@ use smallstr::SmallString;
 use crate::{
     chain::{ChainId, SubchainIndex},
     context::SessionData,
+    index_newtype,
     job::{add_transform_to_job, Job},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
@@ -73,8 +74,11 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-pub type OperatorId = u32;
-pub type OperatorOffsetInChain = u32;
+index_newtype! {
+    pub struct OperatorId(u32);
+    #[derive(derive_more::Add, derive_more::Sub)]
+    pub struct OperatorOffsetInChain(u32);
+}
 
 pub type PreboundOutputsMap =
     HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>;
@@ -750,7 +754,7 @@ impl OperatorData {
                     parent: so.curr_chain,
                     ..Default::default()
                 };
-                so.curr_chain = so.chains.next_free_idx();
+                so.curr_chain = so.chains.next_idx();
                 so.chains.push(new_chain);
             }
             OperatorData::Next(_) => {
@@ -764,7 +768,7 @@ impl OperatorData {
                     parent,
                     ..Default::default()
                 };
-                so.curr_chain = so.chains.next_free_idx();
+                so.curr_chain = so.chains.next_idx();
                 so.chains.push(new_chain);
                 op_base_opts.chain_id = None;
             }
