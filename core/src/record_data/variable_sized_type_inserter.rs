@@ -14,14 +14,15 @@ pub struct RawVariableSizedTypeInserter<'a> {
     data_ptr: *mut u8,
 }
 
+// TODO: setup better default reservation
 impl<'a> RawVariableSizedTypeInserter<'a> {
     fn new(fd: &'a mut FieldData) -> Self {
         Self {
-            fd,
             count: 0,
             max: 0,
             expected_size: 0,
-            data_ptr: std::ptr::null_mut(),
+            data_ptr: fd.data.tail_ptr_mut(),
+            fd,
         }
     }
     unsafe fn commit(&mut self, fmt: FieldValueFormat) {

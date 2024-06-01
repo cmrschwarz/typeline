@@ -31,7 +31,8 @@ use super::{
         handle_tf_field_value_sink_stream_value_update, TfFieldValueSink,
     },
     file_reader::{
-        handle_tf_file_reader, handle_tf_file_reader_stream, TfFileReader,
+        handle_tf_file_reader, handle_tf_file_reader_stream_producer_update,
+        TfFileReader,
     },
     foreach::{
         handle_tf_foreach_header, handle_tf_foreach_trailer, TfForeachHeader,
@@ -389,7 +390,7 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
                 )
             }
             TransformData::FileReader(f) => {
-                handle_tf_file_reader_stream(&mut job.job_data, tf_id, f)
+                handle_tf_file_reader_stream_producer_update(&mut job.job_data, tf_id, f)
             }
             TransformData::Custom(c) => {
                 c.stream_producer_update(&mut job.job_data, tf_id)

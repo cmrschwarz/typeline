@@ -398,12 +398,13 @@ impl FieldValueRepr {
             FieldValueRepr::Custom => "custom",
         }
     }
-    pub const fn kind(&self) -> Option<FieldValueKind> {
-        Some(match self {
+    pub const fn kind(&self) -> FieldValueKind {
+        match self {
             FieldValueRepr::Undefined => FieldValueKind::Undefined,
             FieldValueRepr::Null => FieldValueKind::Null,
-            FieldValueRepr::Int => FieldValueKind::Int,
-            FieldValueRepr::BigInt => FieldValueKind::BigInt,
+            FieldValueRepr::Int | FieldValueRepr::BigInt => {
+                FieldValueKind::Int
+            }
             FieldValueRepr::Float => FieldValueKind::Float,
             FieldValueRepr::Rational => FieldValueKind::Rational,
             FieldValueRepr::StreamValueId => FieldValueKind::StreamValueId,
@@ -423,7 +424,7 @@ impl FieldValueRepr {
             FieldValueRepr::Object => FieldValueKind::Object,
             FieldValueRepr::Array => FieldValueKind::Array,
             FieldValueRepr::Custom => FieldValueKind::Custom,
-        })
+        }
     }
     pub fn to_format(&self) -> FieldValueFormat {
         FieldValueFormat {

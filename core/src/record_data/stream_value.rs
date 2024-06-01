@@ -1011,7 +1011,7 @@ impl<'a> StreamValueData<'a> {
         self.as_field_value_ref().to_field_value()
     }
     pub fn kind(&self) -> FieldValueKind {
-        self.as_field_value_ref().repr().kind().unwrap()
+        self.as_field_value_ref().repr().kind()
     }
     pub fn len(&self) -> usize {
         match self {

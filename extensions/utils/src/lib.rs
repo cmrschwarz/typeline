@@ -17,6 +17,7 @@ use string_utils::{
 };
 use sum::create_op_sum;
 use tail::parse_op_tail;
+use typename::create_op_typename;
 
 extern crate scr_core;
 
@@ -29,6 +30,7 @@ pub mod primes;
 pub mod string_utils;
 pub mod sum;
 pub mod tail;
+pub mod typename;
 
 #[derive(Default)]
 pub struct MiscCmdsExtension {}
@@ -59,6 +61,7 @@ impl Extension for MiscCmdsExtension {
             "primes" => Some(create_op_primes),
             "lines" | "l" => Some(create_op_lines),
             "chars" => Some(create_op_chars),
+            "typename" => Some(create_op_typename),
             "trim" => Some(create_op_trim),
             "from_tyson" => Some(create_op_from_tyson),
             "to_tyson" => Some(create_op_to_tyson),

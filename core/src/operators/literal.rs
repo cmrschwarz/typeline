@@ -310,16 +310,19 @@ pub fn parse_op_int(
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value_str = parse_arg_value_as_str("int", value, arg_idx)?;
-    let parsed_value = str::parse::<i64>(value_str).map_err(|_| {
-        OperatorCreationError::new(
-            "failed to parse value as an integer",
-            arg_idx,
-        )
-    })?;
-    Ok(OperatorData::Literal(OpLiteral {
-        data: Literal::Int(parsed_value),
-        insert_count,
-    }))
+
+    let data = if let Ok(i) = str::parse::<i64>(value_str) {
+        Literal::Int(i)
+    } else {
+        let Ok(big_int) = str::parse::<BigInt>(value_str) else {
+            return Err(OperatorCreationError::new(
+                "failed to parse value as an integer",
+                arg_idx,
+            ));
+        };
+        Literal::BigInt(big_int)
+    };
+    Ok(OperatorData::Literal(OpLiteral { data, insert_count }))
 }
 pub fn parse_op_bytes(
     value: Option<&[u8]>,
@@ -440,7 +443,7 @@ pub fn parse_op_tyson_value(
 
 static ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"^(?<type>int|integer|float|rational|~?bytes|~?str|~?error|null|undefined|object|array|v|tyson)(?<insert_count>[0-9]+)?$"
+        r"^(?<type>int|float|rational|~?bytes|~?str|~?error|null|undefined|object|array|v|tyson)(?<insert_count>[0-9]+)?$"
     ).unwrap()
 });
 
@@ -492,13 +495,6 @@ pub fn parse_op_literal(
             insert_count,
             arg_idx,
             FieldValueKind::Array,
-            sess,
-        ),
-        "integer" => parse_op_tyson(
-            value,
-            insert_count,
-            arg_idx,
-            FieldValueKind::BigInt,
             sess,
         ),
         "float" => parse_op_tyson(
@@ -579,6 +575,9 @@ pub fn create_op_stream_error(str: &str) -> OperatorData {
 }
 pub fn create_op_int(v: i64) -> OperatorData {
     create_op_literal(Literal::Int(v))
+}
+pub fn create_op_int_big(v: BigInt) -> OperatorData {
+    create_op_literal(Literal::BigInt(v))
 }
 pub fn create_op_null() -> OperatorData {
     create_op_literal(Literal::Null)

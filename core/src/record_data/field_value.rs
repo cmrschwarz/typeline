@@ -24,7 +24,6 @@ pub enum FieldValueKind {
     Undefined,
     Null,
     Int,
-    BigInt,
     Float,
     Rational,
     Error,
@@ -172,54 +171,11 @@ impl Object {
 }
 
 impl FieldValueKind {
-    pub fn to_preferred_data_repr(self) -> FieldValueRepr {
-        match self {
-            FieldValueKind::Undefined => FieldValueRepr::Undefined,
-            FieldValueKind::Null => FieldValueRepr::Null,
-            FieldValueKind::Int => FieldValueRepr::Int,
-            FieldValueKind::BigInt => FieldValueRepr::BigInt,
-            FieldValueKind::Float => FieldValueRepr::Float,
-            FieldValueKind::Rational => FieldValueRepr::Rational,
-            FieldValueKind::Error => FieldValueRepr::Error,
-            FieldValueKind::Bytes => FieldValueRepr::BytesInline,
-            FieldValueKind::Text => FieldValueRepr::TextInline,
-            FieldValueKind::Object => FieldValueRepr::Object,
-            FieldValueKind::Custom => FieldValueRepr::Custom,
-            FieldValueKind::Array => FieldValueRepr::Array,
-            FieldValueKind::FieldReference => FieldValueRepr::FieldReference,
-            FieldValueKind::SlicedFieldReference => {
-                FieldValueRepr::SlicedFieldReference
-            }
-            FieldValueKind::StreamValueId => FieldValueRepr::StreamValueId,
-        }
-    }
-    pub fn to_guaranteed_data_repr(self) -> FieldValueRepr {
-        match self {
-            FieldValueKind::Undefined => FieldValueRepr::Undefined,
-            FieldValueKind::Null => FieldValueRepr::Null,
-            FieldValueKind::Int => FieldValueRepr::Int,
-            FieldValueKind::BigInt => FieldValueRepr::BigInt,
-            FieldValueKind::Float => FieldValueRepr::Float,
-            FieldValueKind::Rational => FieldValueRepr::Rational,
-            FieldValueKind::Error => FieldValueRepr::Error,
-            FieldValueKind::Bytes => FieldValueRepr::BytesBuffer,
-            FieldValueKind::Text => FieldValueRepr::TextBuffer,
-            FieldValueKind::Object => FieldValueRepr::Object,
-            FieldValueKind::Custom => FieldValueRepr::Custom,
-            FieldValueKind::Array => FieldValueRepr::Array,
-            FieldValueKind::FieldReference => FieldValueRepr::FieldReference,
-            FieldValueKind::SlicedFieldReference => {
-                FieldValueRepr::SlicedFieldReference
-            }
-            FieldValueKind::StreamValueId => FieldValueRepr::StreamValueId,
-        }
-    }
     pub fn to_str(self) -> &'static str {
         match self {
             FieldValueKind::Undefined => "undefined",
             FieldValueKind::Null => "null",
             FieldValueKind::Int => "int",
-            FieldValueKind::BigInt => "integer",
             FieldValueKind::Float => "float",
             FieldValueKind::Rational => "rational",
             FieldValueKind::Error => "error",
@@ -238,7 +194,6 @@ impl FieldValueKind {
             FieldValueKind::Undefined
             | FieldValueKind::Null
             | FieldValueKind::Int
-            | FieldValueKind::BigInt
             | FieldValueKind::Float
             | FieldValueKind::Rational
             | FieldValueKind::Error
@@ -289,8 +244,7 @@ impl FieldValue {
         match self {
             FieldValue::Null => FieldValueKind::Null,
             FieldValue::Undefined => FieldValueKind::Undefined,
-            FieldValue::Int(_) => FieldValueKind::Int,
-            FieldValue::BigInt(_) => FieldValueKind::BigInt,
+            FieldValue::Int(_) | FieldValue::BigInt(_) => FieldValueKind::Int,
             FieldValue::Float(_) => FieldValueKind::Float,
             FieldValue::Rational(_) => FieldValueKind::Rational,
             FieldValue::Bytes(_) => FieldValueKind::Bytes,

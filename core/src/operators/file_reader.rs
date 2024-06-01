@@ -323,7 +323,7 @@ fn start_streaming_file(
     jd.tf_mgr.make_stream_producer(tf_id);
 }
 
-pub fn handle_tf_file_reader_stream(
+pub fn handle_tf_file_reader_stream_producer_update(
     jd: &mut JobData,
     tf_id: TransformId,
     fr: &mut TfFileReader,
