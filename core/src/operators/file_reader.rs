@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use smallstr::SmallString;
 
@@ -403,9 +404,9 @@ pub fn handle_tf_file_reader(
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 
-lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^(?<kind>~bytes|~str|file|stdin|in)(?<insert_count>[0-9]+)?(?<lines>-l)?$").unwrap();
-}
+static ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^(?<kind>~bytes|~str|file|stdin|in)(?<insert_count>[0-9]+)?(?<lines>-l)?$").unwrap()
+});
 
 pub fn argument_matches_op_file_reader(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)

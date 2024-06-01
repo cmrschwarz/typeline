@@ -5,7 +5,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc, RwLock},
 };
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 
 use crate::{
     chain::{Chain, ChainId, SubchainIndex},
@@ -55,10 +55,10 @@ pub struct SessionOptions {
     pub extensions: Arc<ExtensionRegistry>,
 }
 
-lazy_static! {
-    static ref EMPTY_EXTENSION_REGISTRY: Arc<ExtensionRegistry> =
-        Arc::new(ExtensionRegistry::default());
-    static ref DEFAULT_CONTEXT_OPTIONS: SessionOptions = SessionOptions {
+static EMPTY_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
+    Lazy::new(|| Arc::new(ExtensionRegistry::default()));
+static DEFAULT_CONTEXT_OPTIONS: Lazy<SessionOptions> =
+    Lazy::new(|| SessionOptions {
         max_threads: Argument::new_v(0),
         repl: Argument::new_v(false),
         exit_repl: Argument::new_v(false),
@@ -72,8 +72,7 @@ lazy_static! {
         any_threaded_operations: false,
         extensions: Arc::clone(&EMPTY_EXTENSION_REGISTRY),
         allow_repl: true,
-    };
-}
+    });
 
 impl Default for SessionOptions {
     fn default() -> Self {

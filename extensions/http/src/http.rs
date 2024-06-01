@@ -7,6 +7,7 @@ use std::{
 };
 
 use mio::{event::Event, net::TcpStream, Events, Interest, Poll, Token};
+use once_cell::sync::Lazy;
 use pki_types::InvalidDnsNameError;
 use rustls::ClientConfig;
 use scr_core::{
@@ -560,11 +561,14 @@ fn process_event(
     Ok(eof)
 }
 
-lazy_static::lazy_static! {
-    static ref CONTENT_LENGTH_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
-        r"^\s*Content-Length\s*:\s*([0-9]+)\s*\r?$"
-    ).case_insensitive(true).build().unwrap();
-}
+pub static CONTENT_LENGTH_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
+    regex::bytes::RegexBuilder::new(
+        r"^\s*Content-Length\s*:\s*([0-9]+)\s*\r?$",
+    )
+    .case_insensitive(true)
+    .build()
+    .unwrap()
+});
 
 fn header_completed(req: &mut Connection, buf: &[u8]) -> bool {
     let mut parsed_until = req.header_parsed_until as usize;

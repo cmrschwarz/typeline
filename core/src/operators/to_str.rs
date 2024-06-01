@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bstr::ByteSlice;
+use once_cell::sync::Lazy;
 use regex::Regex;
 
 use crate::{
@@ -40,9 +41,8 @@ impl OpToStr {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^to_str(?<force>-f)?$").unwrap();
-}
+static ARG_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^to_str(?<force>-f)?$").unwrap());
 
 pub fn argument_matches_op_to_str(arg: &str, value: Option<&[u8]>) -> bool {
     ARG_REGEX.is_match(arg) && value.is_none()

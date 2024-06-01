@@ -1,5 +1,6 @@
 use std::io::{IsTerminal, Write};
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::{
@@ -80,10 +81,9 @@ pub struct TfPrint {
     opts: PrintOptions,
 }
 
-lazy_static::lazy_static! {
-    static ref PRINT_CLI_ARG_REGEX: Regex =Regex::new("^(p|print)(-((?<n>n)|(?<e>e))*)?$")
-        .unwrap();
-}
+pub static PRINT_CLI_ARG_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new("^(p|print)(-((?<n>n)|(?<e>e))*)?$").unwrap());
+
 pub fn argument_matches_op_print(arg: &str) -> Option<PrintOptions> {
     PRINT_CLI_ARG_REGEX.captures(arg).map(|c| PrintOptions {
         ignore_nulls: c.name("n").is_some(),

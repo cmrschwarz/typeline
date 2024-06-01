@@ -47,8 +47,8 @@ use crate::{
 };
 use bstr::ByteSlice;
 
-use lazy_static::lazy_static;
 use num::{FromPrimitive, PrimInt};
+use once_cell::sync::Lazy;
 
 use std::{
     borrow::Cow,
@@ -138,25 +138,31 @@ pub struct ParsedCliArgumentParts<'a> {
     pub transparent_mode: bool,
 }
 
-lazy_static! {
-    static ref TRUTHY_REGEX: regex::bytes::Regex =
-        regex::bytes::RegexBuilder::new("^true|tru|tr|t|yes|ye|y|1$")
-            .case_insensitive(true)
-            .build()
-            .unwrap();
-    static ref FALSY_REGEX: regex::bytes::Regex =
-        regex::bytes::RegexBuilder::new("^false|fal|fa|f|no|n|0$")
-            .case_insensitive(true)
-            .build()
-            .unwrap();
-    static ref LABEL_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
-        r"^(?<label>\p{XID_Start}\p{XID_Continue}*):$"
-    ).build().unwrap();
-    static ref CLI_ARG_REGEX: regex::bytes::Regex = regex::bytes::RegexBuilder::new(
+static TRUTHY_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
+    regex::bytes::RegexBuilder::new("^true|tru|tr|t|yes|ye|y|1$")
+        .case_insensitive(true)
+        .build()
+        .unwrap()
+});
+static FALSY_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
+    regex::bytes::RegexBuilder::new("^false|fal|fa|f|no|n|0$")
+        .case_insensitive(true)
+        .build()
+        .unwrap()
+});
+static LABEL_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
+    regex::bytes::RegexBuilder::new(
+        r"^(?<label>\p{XID_Start}\p{XID_Continue}*):$",
+    )
+    .build()
+    .unwrap()
+});
+static CLI_ARG_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
+    regex::bytes::RegexBuilder::new(
         r"^(?<modes>(?:(?<append_mode>\+)|(?<transparent_mode>_))*)(?<argname>[^@=]+)(@(?<label>[^@=]+))?(=(?<value>(?:.|[\r\n])*))?$"
     ).build()
-    .unwrap();
-}
+    .unwrap()
+});
 
 pub fn reject_operator_argument(
     argname: &str,

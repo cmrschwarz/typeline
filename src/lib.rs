@@ -1,9 +1,8 @@
 pub extern crate scr_core;
 
-extern crate lazy_static;
-
 use std::sync::Arc;
 
+use once_cell::sync::Lazy;
 use options::context_builder::ContextBuilder;
 // we reexport the scr_core interface from this lib
 pub use scr_core::*;
@@ -15,9 +14,8 @@ use scr_core::{
     scr_error::ContextualizedScrError,
 };
 
-lazy_static::lazy_static! {
-    pub static ref DEFAULT_EXTENSION_REGISTRY: Arc<ExtensionRegistry> = build_extension_registry();
-}
+pub static DEFAULT_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
+    Lazy::new(build_extension_registry);
 
 pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
     #[allow(unused_mut)]

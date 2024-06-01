@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bstr::ByteSlice;
 use num::{BigInt, BigRational};
+use once_cell::sync::Lazy;
 use regex::Regex;
 use smallstr::SmallString;
 
@@ -437,11 +438,11 @@ pub fn parse_op_tyson_value(
     }))
 }
 
-lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(
+static ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
         r"^(?<type>int|integer|float|rational|~?bytes|~?str|~?error|null|undefined|object|array|v|tyson)(?<insert_count>[0-9]+)?$"
-    ).unwrap();
-}
+    ).unwrap()
+});
 
 pub fn argument_matches_op_literal(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)

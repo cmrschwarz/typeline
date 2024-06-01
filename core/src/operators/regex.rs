@@ -1,6 +1,6 @@
 use arrayvec::ArrayString;
 
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use regex::{bytes, Regex, RegexBuilder};
 use smallstr::SmallString;
 use smallvec::SmallVec;
@@ -166,12 +166,11 @@ impl OpRegex {
 }
 
 const MAX_DEFAULT_CAPTURE_GROUP_NAME_LEN: usize = USIZE_MAX_DECIMAL_DIGITS + 1;
-lazy_static! {
-    static ref REGEX_CLI_ARG_REGEX: Regex =
-        RegexBuilder::new("^(r|regex)(-((?<a>a)|(?<b>b)|(?<d>d)|(?<f>f)|(?<i>i)|(?<l>l)|(?<m>m)|(?<n>n)|(?<o>o)|(?<u>u)|(?<v>v))*)?$")
+static REGEX_CLI_ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
+    RegexBuilder::new("^(r|regex)(-((?<a>a)|(?<b>b)|(?<d>d)|(?<f>f)|(?<i>i)|(?<l>l)|(?<m>m)|(?<n>n)|(?<o>o)|(?<u>u)|(?<v>v))*)?$")
             .build()
-            .unwrap();
-}
+            .unwrap()
+});
 pub fn try_match_regex_cli_argument(
     argname: &str,
     idx: Option<CliArgIdx>,

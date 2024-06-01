@@ -1,5 +1,6 @@
 use std::{collections::VecDeque, sync::Arc};
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use smallstr::SmallString;
 
@@ -127,9 +128,12 @@ pub struct TfJoin<'a> {
     producing_batches: Vec<GroupBatchId>,
 }
 
-lazy_static::lazy_static! {
-    static ref ARG_REGEX: Regex = Regex::new(r"^(?:join|j)(?<insert_count>[0-9]+)?(-(?<drop_incomplete>d))?$").unwrap();
-}
+static ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"^(?:join|j)(?<insert_count>[0-9]+)?(-(?<drop_incomplete>d))?$",
+    )
+    .unwrap()
+});
 pub fn argument_matches_op_join(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)
 }
