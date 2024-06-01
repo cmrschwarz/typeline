@@ -251,76 +251,71 @@ impl Array {
         &mut self,
         iter: impl Iterator<Item = T>,
     ) {
-        // SAFETY: this is the almighty 'cast anything into anything' function.
-        // We only use it for the special circumstance below
-        // where we *know* that `T` and `Q` will be *identical* because of the
-        // check on `T::REPR`. `FixedSizeFieldValueType` is an unsafe
-        // trait, so assuming that nobody gave us an incorrect `REPR`
-        // is sound.
-        #[allow(clippy::needless_pass_by_value)]
-        unsafe fn xx<T, Q>(v: T) -> Q {
-            unsafe { std::ptr::read(std::ptr::addr_of!(v).cast::<Q>()) }
-        }
-        match (self, T::REPR) {
-            (Array::Undefined(n), FieldValueRepr::Undefined)
-            | (Array::Null(n), FieldValueRepr::Null) => {
-                *n += iter.count();
-            }
-            (Array::Int(a), FieldValueRepr::Int) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, i64>(v) }));
-            }
-            (Array::BigInt(a), FieldValueRepr::BigInt) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, BigInt>(v) }));
-            }
-            (Array::Float(a), FieldValueRepr::Float) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, f64>(v) }));
-            }
-            (Array::Rational(a), FieldValueRepr::Rational) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, BigRational>(v) }));
-            }
-            (Array::Bytes(a), FieldValueRepr::BytesBuffer) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, Vec<u8>>(v) }));
-            }
-            (Array::Text(a), FieldValueRepr::TextBuffer) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, String>(v) }));
-            }
-            (Array::Error(a), FieldValueRepr::Error) => {
-                a.extend(
-                    iter.map(|v| unsafe {
-                        xx::<T, OperatorApplicationError>(v)
-                    }),
-                );
-            }
-            (Array::Array(a), FieldValueRepr::Array) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, Array>(v) }));
-            }
-            (Array::Object(a), FieldValueRepr::Object) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, Object>(v) }));
-            }
-            (Array::StreamValueId(a), FieldValueRepr::StreamValueId) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, StreamValueId>(v) }));
-            }
-            (Array::FieldReference(a), FieldValueRepr::FieldReference) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, FieldReference>(v) }));
-            }
-            (
-                Array::SlicedFieldReference(a),
-                FieldValueRepr::SlicedFieldReference,
-            ) => {
-                a.extend(
-                    iter.map(|v| unsafe { xx::<T, SlicedFieldReference>(v) }),
-                );
-            }
-            (Array::Custom(a), FieldValueRepr::Custom) => {
-                a.extend(iter.map(|v| unsafe { xx::<T, CustomDataBox>(v) }));
-            }
-            (Array::Mixed(a), _) => {
-                a.extend(iter.map(|v| FieldValue::from_fixed_sized_type(v)));
-            }
-            (arr, _) => {
-                arr.make_mixed().extend(
-                    iter.map(|v| FieldValue::from_fixed_sized_type(v)),
-                );
+        // SAFETY: We *know* that `T` and `Q` will be *identical* because of
+        // the check on `T::REPR`. `FixedSizeFieldValueType` is an
+        // unsafe trait, so assuming that nobody gave us an incorrect
+        // `REPR` is sound.
+        use crate::utils::force_cast as xx;
+        unsafe {
+            match (self, T::REPR) {
+                (Array::Undefined(n), FieldValueRepr::Undefined)
+                | (Array::Null(n), FieldValueRepr::Null) => {
+                    *n += iter.count();
+                }
+                (Array::Int(a), FieldValueRepr::Int) => {
+                    a.extend(iter.map(|v| xx::<T, i64>(v)));
+                }
+                (Array::BigInt(a), FieldValueRepr::BigInt) => {
+                    a.extend(iter.map(|v| xx::<T, BigInt>(v)));
+                }
+                (Array::Float(a), FieldValueRepr::Float) => {
+                    a.extend(iter.map(|v| xx::<T, f64>(v)));
+                }
+                (Array::Rational(a), FieldValueRepr::Rational) => {
+                    a.extend(iter.map(|v| xx::<T, BigRational>(v)));
+                }
+                (Array::Bytes(a), FieldValueRepr::BytesBuffer) => {
+                    a.extend(iter.map(|v| xx::<T, Vec<u8>>(v)));
+                }
+                (Array::Text(a), FieldValueRepr::TextBuffer) => {
+                    a.extend(iter.map(|v| xx::<T, String>(v)));
+                }
+                (Array::Error(a), FieldValueRepr::Error) => {
+                    a.extend(
+                        iter.map(|v| xx::<T, OperatorApplicationError>(v)),
+                    );
+                }
+                (Array::Array(a), FieldValueRepr::Array) => {
+                    a.extend(iter.map(|v| xx::<T, Array>(v)));
+                }
+                (Array::Object(a), FieldValueRepr::Object) => {
+                    a.extend(iter.map(|v| xx::<T, Object>(v)));
+                }
+                (Array::StreamValueId(a), FieldValueRepr::StreamValueId) => {
+                    a.extend(iter.map(|v| xx::<T, StreamValueId>(v)));
+                }
+                (Array::FieldReference(a), FieldValueRepr::FieldReference) => {
+                    a.extend(iter.map(|v| xx::<T, FieldReference>(v)));
+                }
+                (
+                    Array::SlicedFieldReference(a),
+                    FieldValueRepr::SlicedFieldReference,
+                ) => {
+                    a.extend(iter.map(|v| xx::<T, SlicedFieldReference>(v)));
+                }
+                (Array::Custom(a), FieldValueRepr::Custom) => {
+                    a.extend(iter.map(|v| xx::<T, CustomDataBox>(v)));
+                }
+                (Array::Mixed(a), _) => {
+                    a.extend(
+                        iter.map(|v| FieldValue::from_fixed_sized_type(v)),
+                    );
+                }
+                (arr, _) => {
+                    arr.make_mixed().extend(
+                        iter.map(|v| FieldValue::from_fixed_sized_type(v)),
+                    );
+                }
             }
         }
     }

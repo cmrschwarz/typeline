@@ -314,16 +314,11 @@ impl FieldValue {
         }
     }
     pub fn from_fixed_sized_type<T: FixedSizeFieldValueType>(v: T) -> Self {
-        // SAFETY: this is the almighty 'cast anything into anything' function.
-        // We only use it for the special circumstance below
-        // where we *know* that `T` and `Q` will be *identical* because of the
+        // SAFETY: We *know* that `T` and `Q` will be *identical* because of the
         // check on `T::REPR`. `FixedSizeFieldValueType` is an unsafe
         // trait, so assuming that nobody gave us an incorrect `REPR`
         // is sound.
-        #[allow(clippy::needless_pass_by_value)]
-        unsafe fn xx<T, Q>(v: T) -> Q {
-            unsafe { std::ptr::read(std::ptr::addr_of!(v).cast::<Q>()) }
-        }
+        use crate::utils::force_cast as xx;
         unsafe {
             match T::REPR {
                 FieldValueRepr::Null => FieldValue::Null,

@@ -223,3 +223,12 @@ pub fn insert_str_cow<'a>(
         }
     }
 }
+
+// SAFETY: this is the almighty 'cast anything into anything' function.
+// This is generally only useful if T and Q are known to be the same
+// at runtime, but this cannot be proven to the typechecker / might not hold in
+// a dynamically unreachable branch. Use with extreme caution!
+#[allow(clippy::needless_pass_by_value)]
+pub unsafe fn force_cast<T, Q>(v: T) -> Q {
+    unsafe { std::ptr::read(std::ptr::addr_of!(v).cast::<Q>()) }
+}
