@@ -1,4 +1,7 @@
-use super::https_mock_server::IpSupport;
+use super::https_mock_server::{
+    abort_https_test_server, spawn_https_echo_server, HttpsTestServerOpts,
+    IpSupport, TEST_CA_CERT,
+};
 use reqwest::{Certificate, ClientBuilder};
 use scr_core::{
     operators::{format::create_op_format, sequence::create_op_seqn},
@@ -6,11 +9,6 @@ use scr_core::{
     scr_error::ScrError,
 };
 use scr_ext_http::{http::create_op_GET_with_opts, tls_client::TlsSettings};
-
-use super::https_mock_server::{
-    abort_https_test_server, spawn_https_echo_server, HttpsTestServerOpts,
-    TEST_CA_CERT,
-};
 
 #[tokio::test]
 async fn tls_server_sanity_check() {

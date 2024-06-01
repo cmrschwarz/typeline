@@ -1,5 +1,3 @@
-
-
 use crate::{
     chain::BufferingMode,
     extension::ExtensionRegistry,
@@ -645,11 +643,8 @@ pub fn parse_cli_retain_args(
     if args.len() <= arg_idx {
         return Err(MissingArgumentsError.into());
     }
-    let mut ctx_opts = SessionOptions {
-        allow_repl: cli_opts.allow_repl,
-        extensions,
-        ..Default::default()
-    };
+    let mut ctx_opts = SessionOptions::with_extensions(extensions);
+    ctx_opts.allow_repl = cli_opts.allow_repl;
 
     let mut curr_aggregate = Vec::new();
     let mut last_non_append_op_id = None;
@@ -834,7 +829,7 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
             } else {
                 return Err(CliArgumentError::new(
                     "failed to parse byte sequence as unicode",
-                    i as CliArgIdx
+                    i as CliArgIdx,
                 ));
             }
         }

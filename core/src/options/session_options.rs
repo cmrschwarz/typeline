@@ -55,26 +55,6 @@ pub struct SessionOptions {
     pub extensions: Arc<ExtensionRegistry>,
 }
 
-impl Default for SessionOptions {
-    fn default() -> Self {
-        Self {
-            max_threads: Argument::default(),
-            repl: Argument::default(),
-            exit_repl: Argument::default(),
-            chains: IndexVec::from(vec![ChainOptions::default()]),
-            curr_chain: ChainId::zero(),
-            operator_base_options: IndexVec::new(),
-            operator_data: IndexVec::new(),
-            string_store: StringStore::default(),
-            cli_args: None,
-            skipped_first_cli_arg: false,
-            any_threaded_operations: false,
-            extensions: Arc::clone(&EMPTY_EXTENSION_REGISTRY),
-            allow_repl: true,
-        }
-    }
-}
-
 lazy_static! {
     static ref EMPTY_EXTENSION_REGISTRY: Arc<ExtensionRegistry> =
         Arc::new(ExtensionRegistry::default());
@@ -93,6 +73,32 @@ lazy_static! {
         extensions: Arc::clone(&EMPTY_EXTENSION_REGISTRY),
         allow_repl: true,
     };
+}
+
+impl Default for SessionOptions {
+    fn default() -> Self {
+        Self::with_extensions(EMPTY_EXTENSION_REGISTRY.clone())
+    }
+}
+
+impl SessionOptions {
+    pub fn with_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
+        Self {
+            max_threads: Argument::default(),
+            repl: Argument::default(),
+            exit_repl: Argument::default(),
+            chains: IndexVec::from(vec![ChainOptions::default()]),
+            curr_chain: ChainId::zero(),
+            operator_base_options: IndexVec::new(),
+            operator_data: IndexVec::new(),
+            string_store: StringStore::default(),
+            cli_args: None,
+            skipped_first_cli_arg: false,
+            any_threaded_operations: false,
+            extensions,
+            allow_repl: cfg!(feature = "repl"),
+        }
+    }
 }
 
 impl SessionOptions {

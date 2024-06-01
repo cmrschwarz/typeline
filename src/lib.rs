@@ -1,6 +1,10 @@
 pub extern crate scr_core;
+
+extern crate lazy_static;
+
 use std::sync::Arc;
 
+use options::context_builder::ContextBuilder;
 // we reexport the scr_core interface from this lib
 pub use scr_core::*;
 
@@ -10,6 +14,10 @@ use scr_core::{
     options::session_options::SessionOptions,
     scr_error::ContextualizedScrError,
 };
+
+lazy_static::lazy_static! {
+    pub static ref DEFAULT_EXTENSION_REGISTRY: Arc<ExtensionRegistry> = build_extension_registry();
+}
 
 pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
     #[allow(unused_mut)]
@@ -37,6 +45,16 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
 
     extensions.setup();
     Arc::new(extensions)
+}
+
+pub trait ContextBuilderWithDefaultExts {
+    fn with_default_exts() -> Self;
+}
+
+impl ContextBuilderWithDefaultExts for ContextBuilder {
+    fn with_default_exts() -> Self {
+        Self::from_extensions(DEFAULT_EXTENSION_REGISTRY.clone())
+    }
 }
 
 pub fn parse_cli_from_strings<'a>(

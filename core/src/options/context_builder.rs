@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     context::{Context, SessionData},
+    extension::ExtensionRegistry,
     operators::{
         aggregator::{
             add_aggregate_to_sess_opts_uninit, create_op_aggregate,
@@ -24,6 +25,7 @@ use super::{
     session_options::SessionOptions,
 };
 
+#[derive(Default)]
 pub struct ContextBuilder {
     opts: SessionOptions,
     input_data: RecordSet,
@@ -32,23 +34,17 @@ pub struct ContextBuilder {
     curr_op_appendable: bool,
 }
 
-impl Default for ContextBuilder {
-    fn default() -> Self {
+impl ContextBuilder {
+    pub fn from_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
+        Self::from_session_opts(SessionOptions::with_extensions(extensions))
+    }
+    pub fn from_session_opts(opts: SessionOptions) -> Self {
         Self {
-            opts: SessionOptions::default(),
+            opts,
             input_data: RecordSet::default(),
             pending_aggregate: Vec::new(),
             last_non_append_op_id: None,
             curr_op_appendable: true,
-        }
-    }
-}
-
-impl ContextBuilder {
-    pub fn from_session_opts(opts: SessionOptions) -> Self {
-        Self {
-            opts,
-            ..Default::default()
         }
     }
     fn create_op_base_opts<F: FnOnce() -> DefaultOperatorName>(
