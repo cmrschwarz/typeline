@@ -41,6 +41,7 @@ scr_ext_http = { path = "./extensions/http", optional = true }
 scr_ext_utils = { path = "./extensions/utils", optional = true }
 once_cell = "1.19.0"
 
+
 [profile.release]
 panic = "abort"
 lto = "thin"

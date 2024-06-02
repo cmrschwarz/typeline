@@ -102,7 +102,7 @@ impl<'a, T: FieldValueType + 'static> FieldValueSliceIter<'a, T> {
             )
         }
     }
-    pub fn peek(&self) -> Option<<Self as Iterator>::Item> {
+    pub fn peek(&self) -> Option<(&'a T, RunLength)> {
         if self.header == self.header_end {
             return None;
         }
@@ -380,22 +380,23 @@ impl<'a> InlineBytesIter<'a> {
         Some(value)
     }
     #[inline]
-    pub fn next_n_fields(&mut self, mut n: usize) {
+    pub fn next_n_fields(&mut self, n: usize) -> usize {
+        let mut skip_rem = n;
         loop {
             if self.header == self.header_end {
-                return;
+                return n - skip_rem;
             }
-            if self.header_rl_rem as usize > n {
-                self.header_rl_rem -= n as RunLength;
+            if self.header_rl_rem as usize > skip_rem {
+                self.header_rl_rem -= skip_rem as RunLength;
                 unsafe {
                     let h = *self.header;
                     if !h.shared_value() {
-                        self.advance_value(n * h.size as usize);
+                        self.advance_value(skip_rem * h.size as usize);
                     }
                 }
-                return;
+                return n;
             }
-            n -= self.header_rl_rem as usize;
+            skip_rem -= self.header_rl_rem as usize;
             self.next_header();
         }
     }
@@ -531,7 +532,7 @@ impl<'a> InlineTextIter<'a> {
         let v = self.iter.next_no_sv()?;
         Some(unsafe { std::str::from_utf8_unchecked(v) })
     }
-    pub fn next_n_fields(&mut self, n: usize) {
+    pub fn next_n_fields(&mut self, n: usize) -> usize {
         self.iter.next_n_fields(n)
     }
     pub fn next_header(&mut self) {

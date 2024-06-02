@@ -614,8 +614,8 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RangeOffsets {
-    pub begin: usize,
-    pub end: usize,
+    pub from_begin: usize,
+    pub from_end: usize,
 }
 
 pub struct AutoDerefValueRefIter<'a, I> {
@@ -698,8 +698,8 @@ impl<'a> Iterator for RefAwareInlineBytesIter<'a> {
                     &data[fr.begin..fr.end],
                     run_len,
                     RangeOffsets {
-                        begin: fr.begin,
-                        end: data.len() - fr.end,
+                        from_begin: fr.begin,
+                        from_end: data.len() - fr.end,
                     },
                 ))
             }
@@ -812,8 +812,8 @@ impl<'a> Iterator for RefAwareBytesBufferIter<'a> {
                     &data[fr.begin..fr.end],
                     run_len,
                     RangeOffsets {
-                        begin: fr.begin,
-                        end: data.len() - fr.end,
+                        from_begin: fr.begin,
+                        from_end: data.len() - fr.end,
                     },
                 ))
             }
@@ -882,8 +882,8 @@ impl<'a> Iterator for RefAwareTextBufferIter<'a> {
                 refs_iter.next_n_fields(run_len as usize);
                 Some((&data[fr.begin..fr.end], run_len, {
                     RangeOffsets {
-                        begin: fr.begin,
-                        end: data.len() - fr.end,
+                        from_begin: fr.begin,
+                        from_end: data.len() - fr.end,
                     }
                 }))
             }
@@ -1164,9 +1164,30 @@ mod ref_iter_tests {
             fd,
             fdr,
             &[
-                ("aa", 1, RangeOffsets { begin: 1, end: 0 }),
-                ("bb", 2, RangeOffsets { begin: 1, end: 1 }),
-                ("cc", 3, RangeOffsets { begin: 1, end: 2 }),
+                (
+                    "aa",
+                    1,
+                    RangeOffsets {
+                        from_begin: 1,
+                        from_end: 0,
+                    },
+                ),
+                (
+                    "bb",
+                    2,
+                    RangeOffsets {
+                        from_begin: 1,
+                        from_end: 1,
+                    },
+                ),
+                (
+                    "cc",
+                    3,
+                    RangeOffsets {
+                        from_begin: 1,
+                        from_end: 2,
+                    },
+                ),
             ],
         );
     }

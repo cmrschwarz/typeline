@@ -29,6 +29,7 @@ extern crate arrayvec;
 extern crate bitvec;
 extern crate encoding_rs;
 extern crate memchr;
+extern crate metamatch;
 extern crate once_cell;
 extern crate regex;
 extern crate regex_syntax;

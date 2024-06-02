@@ -786,8 +786,8 @@ pub unsafe trait PushInterface {
                             self.push_sliced_field_reference(
                                 SlicedFieldReference::new(
                                     range.field_ref_offset.unwrap(),
-                                    offsets.begin,
-                                    offsets.begin + v.len(),
+                                    offsets.from_begin,
+                                    offsets.from_begin + v.len(),
                                 ),
                                 rl as usize,
                                 try_header_rle,
@@ -820,8 +820,8 @@ pub unsafe trait PushInterface {
                             self.push_sliced_field_reference(
                                 SlicedFieldReference::new(
                                     range.field_ref_offset.unwrap(),
-                                    offsets.begin,
-                                    offsets.end + v.len(),
+                                    offsets.from_begin,
+                                    offsets.from_end + v.len(),
                                 ),
                                 rl as usize,
                                 try_header_rle,

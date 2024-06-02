@@ -82,6 +82,12 @@ pub struct TypedRange<'a> {
 #[derive(Default, derive_more::Deref)]
 pub struct ValidTypedRange<'a>(pub(super) TypedRange<'a>);
 
+impl<'a> ValidTypedRange<'a> {
+    pub unsafe fn new_unchecked(range: TypedRange<'a>) -> Self {
+        ValidTypedRange(range)
+    }
+}
+
 impl<'a> FieldValueRef<'a> {
     pub unsafe fn new<R: FieldDataRef<'a>>(
         fdr: R,

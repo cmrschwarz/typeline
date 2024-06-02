@@ -755,8 +755,8 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
                     inserter.push_fixed_size_type(
                         SlicedFieldReference {
                             field_ref_offset: rmis.input_field_ref_offset,
-                            begin: offsets.begin + cg_begin,
-                            end: offsets.begin + cg_end,
+                            begin: offsets.from_begin + cg_begin,
+                            end: offsets.from_begin + cg_end,
                         },
                         rl,
                         true,
@@ -852,8 +852,8 @@ fn push_full<const PUSH_REF: bool, R: AnyRegex>(
     inserter.push_fixed_size_type(
         SlicedFieldReference {
             field_ref_offset: input_field_ref_offset,
-            begin: offsets.begin,
-            end: offsets.begin + R::data_len(data),
+            begin: offsets.from_begin,
+            end: offsets.from_begin + R::data_len(data),
         },
         rl,
         true,
