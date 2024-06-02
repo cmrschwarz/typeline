@@ -641,7 +641,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 return self.err(TysonParseErrorKind::StrayToken(c));
             }
             let value = self.parse_value()?;
-            map.insert(key.into(), value);
+            map.insert(key, value);
             c = self.consume_char_eat_whitespace()?;
             if c == ',' {
                 c = self.consume_char_eat_whitespace()?;
@@ -918,7 +918,7 @@ mod test {
         assert_eq!(
             parse(input),
             Ok(FieldValue::Object(Object::KeysStored(Box::new(indexmap![
-                key_name.to_string().into_boxed_str() => FieldValue::Int(3)
+                key_name.to_string() => FieldValue::Int(3)
             ])))),
         );
     }

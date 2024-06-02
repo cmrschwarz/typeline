@@ -191,6 +191,37 @@ pub fn handle_tf_field_value_sink(
                     );
                 }
             }
+            FieldValueSlice::Float(vals) => {
+                for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
+                    push_field_values(
+                        &mut fvs,
+                        FieldValue::Float(*v),
+                        rl as usize,
+                    );
+                }
+            }
+            FieldValueSlice::BigInt(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                {
+                    push_field_values(
+                        &mut fvs,
+                        FieldValue::BigInt(Box::new(v.clone())),
+                        rl as usize,
+                    );
+                }
+            }
+            FieldValueSlice::Rational(vals) => {
+                for (v, rl) in
+                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                {
+                    push_field_values(
+                        &mut fvs,
+                        FieldValue::Rational(Box::new(v.clone())),
+                        rl as usize,
+                    );
+                }
+            }
             FieldValueSlice::Custom(custom_types) => {
                 for (v, rl) in RefAwareFieldValueSliceIter::from_range(
                     &range,
@@ -258,11 +289,6 @@ pub fn handle_tf_field_value_sink(
                     }
                     push_field_values(&mut fvs, sv.to_field_value(), run_len);
                 }
-            }
-            FieldValueSlice::BigInt(_)
-            | FieldValueSlice::Float(_)
-            | FieldValueSlice::Rational(_) => {
-                todo!();
             }
             FieldValueSlice::Array(arrays) => {
                 for (v, rl) in

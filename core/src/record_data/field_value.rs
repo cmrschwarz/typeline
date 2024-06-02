@@ -78,10 +78,13 @@ pub struct Undefined;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GroupSeparator;
 
+pub type ObjectKeysStored = Box<IndexMap<String, FieldValue>>;
+pub type ObjectKeysInterned = Box<IndexMap<StringStoreEntry, FieldValue>>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Object {
-    KeysStored(Box<IndexMap<Box<str>, FieldValue>>),
-    KeysInterned(Box<IndexMap<StringStoreEntry, FieldValue>>),
+    KeysStored(ObjectKeysStored),
+    KeysInterned(ObjectKeysInterned),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -116,6 +119,9 @@ impl FieldReference {
 }
 
 impl Object {
+    pub fn new_keys_stored() -> Object {
+        Object::KeysStored(Box::default())
+    }
     pub fn len(&self) -> usize {
         match self {
             Object::KeysStored(d) => d.len(),
@@ -131,6 +137,21 @@ impl Object {
             Object::KeysStored(o) => o.clear(),
             Object::KeysInterned(o) => o.clear(),
         }
+    }
+    pub fn push_stored_key(&mut self, key: String, value: FieldValue) {
+        if let Object::KeysStored(o) = self {
+            o.insert(key, value);
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+impl FromIterator<(String, FieldValue)> for Object {
+    fn from_iter<I: IntoIterator<Item = (String, FieldValue)>>(
+        iter: I,
+    ) -> Self {
+        Object::KeysStored(Box::new(IndexMap::from_iter(iter)))
     }
 }
 
@@ -314,10 +335,10 @@ impl FieldValue {
         }
     }
     pub fn from_fixed_sized_type<T: FixedSizeFieldValueType>(v: T) -> Self {
-        // SAFETY: We *know* that `T` and `Q` will be *identical* because of the
-        // check on `T::REPR`. `FixedSizeFieldValueType` is an unsafe
-        // trait, so assuming that nobody gave us an incorrect `REPR`
-        // is sound.
+        // SAFETY: We *know* that `T` and `Q` will be *identical* because of
+        // the check on `T::REPR`. `FixedSizeFieldValueType` is an
+        // unsafe trait, so assuming that nobody gave us an incorrect
+        // `REPR` is sound.
         use crate::utils::force_cast as xx;
         unsafe {
             match T::REPR {

@@ -1,10 +1,13 @@
 use std::ffi::{CStr, CString};
 
-use num::BigInt;
+use num::{BigInt, BigRational};
 use pyo3::{
+    conversion::{FromPyObject, ToPyObject},
     ffi::{PyObject, PyTypeObject},
-    types::{PyAnyMethods, PyBytes, PyCode, PyDict, PyString},
-    Py, PyAny, Python,
+    types::{
+        PyAnyMethods, PyBytes, PyCode, PyDict, PyList, PyString, PyTypeMethods,
+    },
+    Bound, Py, PyAny, Python,
 };
 use scr_core::{
     chain::ChainId,
@@ -30,7 +33,9 @@ use scr_core::{
     },
     options::argument::CliArgIdx,
     record_data::{
+        array::Array,
         field::{CowFieldDataRef, FieldIterRef},
+        field_value::{FieldValue, Object, ObjectKeysStored},
         field_value_ref::FieldValueRef,
         iter_hall::IterKind,
         iters::{DestructuredFieldDataRef, Iter},
@@ -51,6 +56,9 @@ struct PyTypes {
     float_type: Py<PyTypeObject>,
     str_type: Py<PyTypeObject>,
     bytes_type: Py<PyTypeObject>,
+    list_type: Py<PyTypeObject>,
+    dict_type: Py<PyTypeObject>,
+    rational_type: Option<Py<PyTypeObject>>,
 }
 
 pub struct OpPy {
@@ -225,13 +233,137 @@ impl Operator for OpPy {
     }
 }
 
+enum PythonValue<'a> {
+    InlineText(&'a str),
+    InlineBytes(&'a [u8]),
+    BigInt(BigInt),
+    Rational(BigRational),
+    Other(FieldValue),
+}
+
+impl PythonValue<'_> {
+    pub fn into_field_value(self) -> FieldValue {
+        match self {
+            PythonValue::InlineText(v) => FieldValue::Text(v.to_string()),
+            PythonValue::InlineBytes(v) => FieldValue::Bytes(v.to_vec()),
+            PythonValue::BigInt(v) => FieldValue::BigInt(Box::new(v)),
+            PythonValue::Rational(v) => FieldValue::Rational(Box::new(v)),
+            PythonValue::Other(v) => v,
+        }
+    }
+}
+
+fn python_type_name(value: Bound<PyAny>) -> String {
+    value
+        .get_type()
+        .name()
+        .map(|v| v.to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string())
+}
+
+fn try_extract_rational(
+    _py: Python,
+    py_val: &Bound<PyAny>,
+) -> Option<BigRational> {
+    let numerator =
+        BigInt::extract_bound(&py_val.getattr("numerator").ok()?).ok()?;
+    let denominator =
+        BigInt::extract_bound(&py_val.getattr("denominator").ok()?).ok()?;
+    Some(BigRational::new_raw(numerator, denominator))
+}
+
+fn get_python_value<'a>(
+    py: Python,
+    py_types: &PyTypes,
+    py_val: Bound<'a, PyAny>,
+    op_id: OperatorId,
+) -> PythonValue<'a> {
+    let type_ptr = py_val.get_type_ptr().cast::<PyObject>();
+    if type_ptr == py_types.none_type.as_ptr() {
+        return PythonValue::Other(FieldValue::Null);
+    }
+    if type_ptr == py_types.int_type.as_ptr() {
+        if let Ok(i) = i64::extract_bound(&py_val) {
+            return PythonValue::Other(FieldValue::Int(i));
+        }
+        if let Ok(i) = BigInt::extract_bound(&py_val) {
+            return PythonValue::BigInt(i);
+        }
+    }
+    if type_ptr == py_types.float_type.as_ptr() {
+        if let Ok(f) = f64::extract_bound(&py_val) {
+            return PythonValue::Other(FieldValue::Float(f));
+        }
+    }
+    if type_ptr == py_types.str_type.as_ptr() {
+        if let Ok(s) = <&str>::extract_bound(&py_val) {
+            return PythonValue::InlineText(s);
+        }
+    }
+    if type_ptr == py_types.bytes_type.as_ptr() {
+        if let Ok(b) = <&[u8]>::extract_bound(&py_val) {
+            return PythonValue::InlineBytes(b);
+        }
+    }
+    if type_ptr == py_types.list_type.as_ptr() {
+        let list = py_val.downcast_into::<PyList>().unwrap();
+        let mut arr = Array::default();
+        for v in &list {
+            // PERF: this will potentially box and unbox BigInts.
+            arr.push(
+                get_python_value(py, py_types, v, op_id).into_field_value(),
+            );
+        }
+        return PythonValue::Other(FieldValue::Array(arr));
+    }
+    if type_ptr == py_types.dict_type.as_ptr() {
+        let py_dict = py_val.downcast_into::<PyDict>().unwrap();
+        let mut result = ObjectKeysStored::default();
+        for (k, v) in &py_dict {
+            let Ok(key) = String::extract_bound(&k) else {
+                return PythonValue::Other(FieldValue::Error(
+                    OperatorApplicationError::new_s(
+                        format!(
+                            "dict keys must be string, not `{}`",
+                            python_type_name(k)
+                        ),
+                        op_id,
+                    ),
+                ));
+            };
+            let value =
+                get_python_value(py, py_types, v, op_id).into_field_value();
+            // PERF: this will potentially box and unbox BigInts.
+            result.insert(key.to_string(), value);
+        }
+        return PythonValue::Other(FieldValue::Object(Object::KeysStored(
+            result,
+        )));
+    }
+    if Some(type_ptr) == py_types.rational_type.as_ref().map(|v| v.as_ptr()) {
+        if let Some(rational) = try_extract_rational(py, &py_val) {
+            return PythonValue::Rational(rational);
+        }
+        return PythonValue::Other(FieldValue::Error(OperatorApplicationError::new_s(
+            format!("failed to convert python object of type `{}` into Rational", python_type_name(py_val)),
+            op_id,
+        )));
+    }
+    PythonValue::Other(FieldValue::Error(OperatorApplicationError::new_s(
+        format!(
+            "unsupported python result type: {}",
+            python_type_name(py_val)
+        ),
+        op_id,
+    )))
+}
+
 impl<'a> Transform<'a> for TfPy<'a> {
     fn display_name(&self) -> DefaultTransformName {
         "py".into()
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        use pyo3::conversion::{FromPyObject, ToPyObject};
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];
         let op_id = tf.op_id.unwrap();
@@ -356,59 +488,25 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         continue;
                     }
                 };
-                let type_ptr = res.get_type_ptr().cast::<PyObject>();
-                let pv = &self.op.py_types;
-                if type_ptr == pv.none_type.as_ptr() {
-                    inserter.push_null(1, true);
-                    continue;
-                }
-                if type_ptr == pv.int_type.as_ptr() {
-                    if let Ok(i) = i64::extract_bound(&res) {
-                        inserter.push_int(i, 1, true, true);
-                        continue;
+                let value =
+                    get_python_value(py, &self.op.py_types, res, op_id);
+                match value {
+                    PythonValue::InlineText(v) => {
+                        inserter.push_str(v, 1, true, false)
                     }
-                    if let Ok(i) = BigInt::extract_bound(&res) {
-                        inserter.push_big_int(i, 1, true, true);
-                        continue;
+                    PythonValue::InlineBytes(v) => {
+                        inserter.push_bytes(v, 1, true, false)
                     }
-                }
-                if type_ptr == pv.float_type.as_ptr() {
-                    if let Ok(f) = f64::extract_bound(&res) {
-                        inserter.push_float(f, 1, true, true);
-                        continue;
+                    PythonValue::BigInt(v) => {
+                        inserter.push_big_int(v, 1, true, false)
+                    }
+                    PythonValue::Rational(v) => {
+                        inserter.push_rational(v, 1, true, false)
+                    }
+                    PythonValue::Other(v) => {
+                        inserter.push_field_value_unpacked(v, 1, true, false)
                     }
                 }
-                if type_ptr == pv.str_type.as_ptr() {
-                    if let Ok(s) = <&str>::extract_bound(&res) {
-                        inserter.push_str(s, 1, true, true);
-                        continue;
-                    }
-                }
-                if type_ptr == pv.bytes_type.as_ptr() {
-                    if let Ok(b) = <&[u8]>::extract_bound(&res) {
-                        // PERF: maybe force inline
-                        inserter.push_bytes(b, 1, true, true);
-                        continue;
-                    }
-                }
-                // TODO:  Handle objects as dicts
-                inserter.push_error(
-                    OperatorApplicationError::new_s(
-                        format!(
-                            "unsupported python result type: {}",
-                            unsafe {
-                                CStr::from_ptr(pyo3::ffi::PyUnicode_AsUTF8(
-                                    pyo3::ffi::PyObject_Str(type_ptr.cast()),
-                                ))
-                                .to_string_lossy()
-                            }
-                        ),
-                        op_id,
-                    ),
-                    1,
-                    true,
-                    false,
-                );
             }
         });
 
@@ -489,6 +587,12 @@ pub fn parse_op_py(
                 .cast(),
             )
         }
+        let fractions_class = py
+            .import_bound("fractions")
+            .ok()
+            .and_then(|v| v.getattr("Fraction").ok())
+            .map(|v| v.downcast_into_unchecked().unbind());
+
         let py_types = PyTypes {
             none_type: pyo3::Py::from_borrowed_ptr(
                 py,
@@ -498,6 +602,9 @@ pub fn parse_op_py(
             float_type: get_builtin_type(py, builtins, "float\0"),
             str_type: get_builtin_type(py, builtins, "str\0"),
             bytes_type: get_builtin_type(py, builtins, "bytes\0"),
+            list_type: get_builtin_type(py, builtins, "list\0"),
+            dict_type: get_builtin_type(py, builtins, "dict\0"),
+            rational_type: fractions_class,
         };
 
         let dunder_builtins_str = pyo3::intern!(py, "__builtins__").as_ptr();

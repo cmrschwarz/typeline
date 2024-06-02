@@ -1,3 +1,4 @@
+use num::BigRational;
 use scr_core::{
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
@@ -6,6 +7,10 @@ use scr_core::{
         sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
+    record_data::{
+        array::Array,
+        field_value::{FieldValue, Object},
+    },
     scr_error::ScrError,
     utils::indexing_type::IndexingType,
 };
@@ -81,5 +86,54 @@ fn python_multi_invocation() -> Result<(), ScrError> {
         .add_op(create_op_py("foo * 2").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "4", "6"]);
+    Ok(())
+}
+
+#[test]
+fn python_array() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_py("[1, 2, \"foo\"]").unwrap())
+        .run_collect()?;
+    assert_eq!(
+        res,
+        [FieldValue::Array(Array::Mixed(vec![
+            FieldValue::Int(1),
+            FieldValue::Int(2),
+            FieldValue::Text("foo".to_string())
+        ]))]
+    );
+    Ok(())
+}
+
+#[test]
+fn python_dict() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_py("{'asdf': 3}").unwrap())
+        .run_collect()?;
+    assert_eq!(
+        res,
+        [FieldValue::Object(Object::from_iter([(
+            "asdf".to_string(),
+            FieldValue::Int(3)
+        )]))]
+    );
+    Ok(())
+}
+
+#[test]
+fn python_rational() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(
+            create_op_py("import fractions; fractions.Fraction(1, 3)")
+                .unwrap(),
+        )
+        .run_collect()?;
+    assert_eq!(
+        res,
+        [FieldValue::Rational(Box::new(BigRational::new_raw(
+            1.into(),
+            3.into()
+        )))]
+    );
     Ok(())
 }
