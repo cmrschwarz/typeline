@@ -338,7 +338,7 @@ impl Array {
         iter: impl Iterator<Item = T>,
     ) {
         self.canonicalize_for_repr(T::REPR);
-        self.extend_raw(iter);
+        self.extend_raw(iter.into_iter());
     }
 
     pub fn push(&mut self, value: FieldValue) {

@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::primes::create_op_primes;
+use collect::create_op_collect;
 use dup::{parse_op_drop, parse_op_dup};
 use explode::parse_op_explode;
 use flatten::parse_op_flatten;
@@ -21,6 +22,7 @@ use typename::create_op_typename;
 
 extern crate scr_core;
 
+pub mod collect;
 pub mod dup;
 pub mod explode;
 pub mod flatten;
@@ -65,6 +67,7 @@ impl Extension for MiscCmdsExtension {
             "trim" => Some(create_op_trim),
             "from_tyson" => Some(create_op_from_tyson),
             "to_tyson" => Some(create_op_to_tyson),
+            "collect" => Some(create_op_collect),
             _ => None,
         };
         if let Some(ctor) = ctor_without_arg {
