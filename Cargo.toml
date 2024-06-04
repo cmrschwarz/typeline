@@ -30,7 +30,7 @@ test = false
 path = "src/main.rs" # the default, workaround https://github.com/webern/cargo-readme/issues/32
 
 [dev-dependencies]
-rstest = "0.20.0"
+rstest = "0.21.0"
 regex = "1.10"
 scr_ext_utils = { path = "./extensions/utils" }
 
