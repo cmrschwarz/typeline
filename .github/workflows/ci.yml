@@ -52,6 +52,17 @@ jobs:
           components: rustfmt
       - run: cargo fmt --check --all
 
+  readme:
+    name: "Readme"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-readme
+      - run: cargo readme > README.md
+      - run: git diff --exit-code
+
   outdated:
     name: Outdated
     runs-on: ubuntu-latest
