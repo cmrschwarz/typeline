@@ -18,7 +18,9 @@ async fn tls_server_sanity_check() {
         let server = spawn_https_echo_server(HttpsTestServerOpts {
             port: 1234,
             ip_support,
-        });
+        })
+        .await
+        .unwrap();
 
         let client = ClientBuilder::new()
             .add_root_certificate(Certificate::from_pem(TEST_CA_CERT).unwrap())
@@ -46,7 +48,9 @@ async fn multi_get_https() -> Result<(), ScrError> {
         let server = spawn_https_echo_server(HttpsTestServerOpts {
             port: 8080,
             ip_support,
-        });
+        })
+        .await
+        .unwrap();
 
         let mut tls_settings = TlsSettings::default();
         tls_settings

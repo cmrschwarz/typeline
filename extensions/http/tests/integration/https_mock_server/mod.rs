@@ -62,7 +62,7 @@ impl Default for HttpsTestServerOpts {
     }
 }
 
-pub async fn run_https_test_server<
+pub async fn spawn_https_test_server<
     E: std::error::Error + Send + Sync + 'static,
     D: Send + 'static,
     B: Body<Error = E, Data = D> + Send + 'static,
@@ -71,7 +71,10 @@ pub async fn run_https_test_server<
 >(
     request_handler: F,
     opts: HttpsTestServerOpts,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<
+    tokio::task::JoinHandle<()>,
+    Box<dyn std::error::Error + Send + Sync>,
+> {
     let mut certs_file = std::io::Cursor::new(TEST_HOST_CERT);
     let certs = rustls_pemfile::certs(&mut certs_file)
         .collect::<std::io::Result<Vec<_>>>()?;
@@ -104,44 +107,47 @@ pub async fn run_https_test_server<
     let acceptor = TlsAcceptor::from(Arc::new(server_config));
     let service = service_fn(request_handler);
 
-    let mut futures = FuturesUnordered::new();
-
     let mut prev_listener = None;
 
-    loop {
-        for (i, listener) in listeners.iter().enumerate() {
-            if Some(i) == prev_listener || prev_listener.is_none() {
-                futures.push(async move { (i, listener.accept().await) });
-            }
-        }
-        let (listener_idx, res) = futures.next().await.unwrap();
-        let (tcp_stream, _remote_addr) = res?;
-        prev_listener = Some(listener_idx);
-        let acceptor = acceptor.clone();
-        tokio::spawn(async move {
-            let tls_stream = match acceptor.accept(tcp_stream).await {
-                Ok(tls_stream) => tls_stream,
-                Err(err) => {
-                    panic!("tls handshake failed: {err:?}");
+    Ok(tokio::spawn(async move {
+        let mut futures = FuturesUnordered::new();
+        loop {
+            for (i, listener) in listeners.iter().enumerate() {
+                if Some(i) == prev_listener || prev_listener.is_none() {
+                    futures.push(async move { (i, listener.accept().await) });
                 }
-            };
-            // Aborting the server might raise an error, so we ignore it.
-            let _ = Builder::new(TokioExecutor::new())
-                .serve_connection_with_upgrades(
-                    TokioIo::new(tls_stream),
-                    service,
-                )
-                .await;
-        });
-    }
+            }
+            let (listener_idx, res) = futures.next().await.unwrap();
+            let (tcp_stream, _remote_addr) =
+                res.expect("accept() should succeed");
+            prev_listener = Some(listener_idx);
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                let tls_stream = match acceptor.accept(tcp_stream).await {
+                    Ok(tls_stream) => tls_stream,
+                    Err(err) => {
+                        panic!("tls handshake failed: {err:?}");
+                    }
+                };
+                // Aborting the server might raise an error, so we ignore it.
+                let _ = Builder::new(TokioExecutor::new())
+                    .serve_connection_with_upgrades(
+                        TokioIo::new(tls_stream),
+                        service,
+                    )
+                    .await;
+            });
+        }
+    }))
 }
 
-pub fn spawn_https_echo_server(
+pub async fn spawn_https_echo_server(
     opts: HttpsTestServerOpts,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        run_https_test_server(echo_handler, opts).await.unwrap();
-    })
+) -> Result<
+    tokio::task::JoinHandle<()>,
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    spawn_https_test_server(echo_handler, opts).await
 }
 
 pub async fn abort_https_test_server(server: tokio::task::JoinHandle<()>) {
