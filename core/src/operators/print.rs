@@ -21,7 +21,7 @@ use crate::{
         field::{Field, FieldManager},
         field_data::field_value_flags,
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
+        field_value_slice_iter::FieldValueRangeIter,
         formattable::{
             format_error_raw, format_rational_as_decimals_raw, Formattable,
             FormattingContext, RealizedFormatKey, RATIONAL_DIGITS,
@@ -32,7 +32,7 @@ use crate::{
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
-            RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
+            RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareTextBufferIter,
             RefAwareUnfoldIterRunLength,
         },
@@ -260,7 +260,7 @@ pub fn handle_tf_print_raw(
                 }
             }
             FieldValueSlice::Int(ints) => {
-                for (v, rl) in FieldValueSliceIter::from_range(&range, ints) {
+                for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
                     let v = i64_to_str(false, *v);
                     for _ in 0..rl {
                         stream.write_all(v.as_bytes())?;
@@ -270,7 +270,7 @@ pub fn handle_tf_print_raw(
                 }
             }
             FieldValueSlice::Error(errs) => {
-                for v in RefAwareFieldValueSliceIter::from_range(&range, errs)
+                for v in RefAwareFieldValueRangeIter::from_range(&range, errs)
                     .unfold_rl()
                 {
                     stream
@@ -289,7 +289,7 @@ pub fn handle_tf_print_raw(
                 }
             }
             FieldValueSlice::Custom(custom_types) => {
-                for v in RefAwareFieldValueSliceIter::from_range(
+                for v in RefAwareFieldValueRangeIter::from_range(
                     &range,
                     custom_types,
                 )
@@ -316,7 +316,7 @@ pub fn handle_tf_print_raw(
 
             FieldValueSlice::StreamValueId(svs) => {
                 let mut pos = *handled_field_count;
-                let mut sv_iter = FieldValueSliceIter::from_range(&range, svs);
+                let mut sv_iter = FieldValueRangeIter::from_range(&range, svs);
                 while let Some((&sv_id, rl)) = sv_iter.next() {
                     pos += rl as usize;
                     *handled_field_count += rl as usize;
@@ -368,7 +368,7 @@ pub fn handle_tf_print_raw(
             }
             FieldValueSlice::BigInt(big_ints) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, big_ints)
+                    RefAwareFieldValueRangeIter::from_range(&range, big_ints)
                 {
                     for _ in 0..rl {
                         stream.write_fmt(format_args!("{v}\n"))?;
@@ -377,7 +377,7 @@ pub fn handle_tf_print_raw(
                 }
             }
             FieldValueSlice::Float(floats) => {
-                for (v, rl) in FieldValueSliceIter::from_range(&range, floats)
+                for (v, rl) in FieldValueRangeIter::from_range(&range, floats)
                 {
                     for _ in 0..rl {
                         stream.write_fmt(format_args!("{v}\n"))?;
@@ -387,7 +387,7 @@ pub fn handle_tf_print_raw(
             }
             FieldValueSlice::Rational(rationals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, rationals)
+                    RefAwareFieldValueRangeIter::from_range(&range, rationals)
                 {
                     for _ in 0..rl {
                         if print.print_rationals_raw {
@@ -414,7 +414,7 @@ pub fn handle_tf_print_raw(
                     rfk: RealizedFormatKey::default(),
                 };
                 for a in
-                    RefAwareFieldValueSliceIter::from_range(&range, arrays)
+                    RefAwareFieldValueRangeIter::from_range(&range, arrays)
                         .unfold_rl()
                 {
                     a.format(&mut fc, &mut TextWriteIoAdapter(&mut stream))?;
@@ -432,7 +432,7 @@ pub fn handle_tf_print_raw(
                     rfk: RealizedFormatKey::default(),
                 };
                 for o in
-                    RefAwareFieldValueSliceIter::from_range(&range, objects)
+                    RefAwareFieldValueRangeIter::from_range(&range, objects)
                         .unfold_rl()
                 {
                     o.format(&mut fc, &mut TextWriteIoAdapter(&mut stream))?;

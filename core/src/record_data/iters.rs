@@ -86,7 +86,7 @@ impl<'a> DestructuredFieldDataRef<'a> {
 pub trait FieldIterator<'a>: Sized + Clone {
     type FieldDataRefType: FieldDataRef<'a>;
     fn field_data_ref(&self) -> &Self::FieldDataRefType;
-    fn into_base_iter(self) -> Iter<'a, Self::FieldDataRefType>;
+    fn into_base_iter(self) -> FieldIter<'a, Self::FieldDataRefType>;
     fn get_next_field_pos(&self) -> usize;
     fn is_next_valid(&self) -> bool;
     fn is_prev_valid(&self) -> bool;
@@ -224,7 +224,7 @@ pub trait FieldIterator<'a>: Sized + Clone {
 
 #[repr(C)]
 #[derive(Clone)]
-pub struct Iter<'a, R: FieldDataRef<'a>> {
+pub struct FieldIter<'a, R: FieldDataRef<'a>> {
     pub(super) fdr: R,
     pub(super) field_pos: usize,
     pub(super) data: usize,
@@ -235,7 +235,7 @@ pub struct Iter<'a, R: FieldDataRef<'a>> {
     pub(super) _phantom_data: PhantomData<&'a ()>,
 }
 
-impl<'a, R: FieldDataRef<'a>> Iter<'a, R> {
+impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
     pub fn from_start(fdr: R) -> Self {
         let first_header = fdr.headers().front();
         let mut res = Self {
@@ -269,7 +269,7 @@ impl<'a, R: FieldDataRef<'a>> Iter<'a, R> {
         }
     }
 }
-impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
+impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
     type FieldDataRefType = R;
     fn field_data_ref(&self) -> &Self::FieldDataRefType {
         &self.fdr
@@ -695,7 +695,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for Iter<'a, R> {
         .into()
     }
 
-    fn into_base_iter(self) -> Iter<'a, R> {
+    fn into_base_iter(self) -> FieldIter<'a, R> {
         self
     }
 }
@@ -907,12 +907,12 @@ where
             .typed_range_bwd(limit.min(self.range_bwd()), flag_mask)
     }
 
-    fn into_base_iter(self) -> Iter<'a, Self::FieldDataRefType> {
+    fn into_base_iter(self) -> FieldIter<'a, Self::FieldDataRefType> {
         self.iter.into_base_iter()
     }
 }
 impl<'a, R: FieldDataRef<'a>, I: FieldIterator<'a, FieldDataRefType = R>>
-    From<BoundedIter<'a, I>> for Iter<'a, R>
+    From<BoundedIter<'a, I>> for FieldIter<'a, R>
 {
     fn from(value: BoundedIter<'a, I>) -> Self {
         value.into_base_iter()

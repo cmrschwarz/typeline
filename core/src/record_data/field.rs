@@ -16,8 +16,8 @@ use super::{
     },
     iter_hall::{CowDataSource, FieldDataSource, IterHall, IterId, IterKind},
     iters::{
-        BoundedIter, DestructuredFieldDataRef, FieldDataRef, FieldIterator,
-        Iter,
+        BoundedIter, DestructuredFieldDataRef, FieldDataRef, FieldIter,
+        FieldIterator,
     },
     match_set::{MatchSetId, MatchSetManager},
     record_buffer::RecordBufferField,
@@ -108,11 +108,11 @@ impl<'a> CowFieldDataRef<'a> {
         }
     }
     #[allow(clippy::iter_not_returning_iterator)]
-    pub fn iter(&'a self) -> Iter<'a, &'a CowFieldDataRef<'a>> {
-        Iter::from_start(self)
+    pub fn iter(&'a self) -> FieldIter<'a, &'a CowFieldDataRef<'a>> {
+        FieldIter::from_start(self)
     }
-    pub fn iter_from_end(&'a self) -> Iter<'a, &'a CowFieldDataRef<'a>> {
-        Iter::from_end(self)
+    pub fn iter_from_end(&'a self) -> FieldIter<'a, &'a CowFieldDataRef<'a>> {
+        FieldIter::from_end(self)
     }
     pub fn headers(&'a self) -> &'a VecDeque<FieldValueHeader> {
         &self.headers_ref
@@ -540,7 +540,8 @@ impl FieldManager {
             })
             | FieldDataSource::Alias(src_field_id) => {
                 let fr = self.get_cow_field_ref_raw(src_field_id);
-                let mut iter = Iter::from_start(fr.destructured_field_ref());
+                let mut iter =
+                    FieldIter::from_start(fr.destructured_field_ref());
                 FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
             FieldDataSource::DataCow(cds) => {
@@ -553,7 +554,7 @@ impl FieldManager {
                     &mut src.iter_hall.field_data.headers,
                 );
                 let fr = self.get_cow_field_ref_raw(cds.src_field_id);
-                let iter = Iter::from_start(fr.destructured_field_ref());
+                let iter = FieldIter::from_start(fr.destructured_field_ref());
                 unsafe {
                     FieldData::copy_data(iter, &mut |f| f(tgt));
                 }
@@ -669,7 +670,7 @@ impl FieldManager {
         input_field_id: FieldId,
         input_field: &'a CowFieldDataRef<'a>,
         input_iter_id: IterId,
-    ) -> AutoDerefIter<'a, Iter<DestructuredFieldDataRef<'a>>> {
+    ) -> AutoDerefIter<'a, FieldIter<DestructuredFieldDataRef<'a>>> {
         AutoDerefIter::new(
             self,
             input_field_id,
@@ -682,7 +683,7 @@ impl FieldManager {
         input_field: &'a CowFieldDataRef<'a>,
         input_iter_id: IterId,
         batch_size: usize,
-    ) -> AutoDerefIter<'a, BoundedIter<Iter<DestructuredFieldDataRef<'a>>>>
+    ) -> AutoDerefIter<'a, BoundedIter<FieldIter<DestructuredFieldDataRef<'a>>>>
     {
         AutoDerefIter::new(
             self,
@@ -696,7 +697,7 @@ impl FieldManager {
         mut field_id: FieldId,
         cfdr: &'a CowFieldDataRef<'a>,
         iter_id: IterId,
-    ) -> Iter<'a, DestructuredFieldDataRef<'a>> {
+    ) -> FieldIter<'a, DestructuredFieldDataRef<'a>> {
         let field = self.borrow_field_dealiased(&mut field_id);
         // PERF: maybe write a custom compare instead of doing this traversal?
         assert!(cfdr.destructured_field_ref().equals(
@@ -716,7 +717,7 @@ impl FieldManager {
         &self,
         mut field_id: FieldId,
         iter_id: IterId,
-        iter: impl Into<Iter<'a, R>>,
+        iter: impl Into<FieldIter<'a, R>>,
     ) {
         let iter_base = iter.into();
         let field = self.borrow_field_dealiased(&mut field_id);

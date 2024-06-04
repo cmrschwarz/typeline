@@ -23,7 +23,7 @@ use super::{
         RunLength,
     },
     fixed_sized_type_inserter::FixedSizeTypeInserter,
-    iters::{FieldDataRef, FieldIterator, Iter},
+    iters::{FieldDataRef, FieldIter, FieldIterator},
     match_set::MatchSetManager,
     push_interface::PushInterface,
     ref_iter::AutoDerefIter,
@@ -271,9 +271,9 @@ impl IterHall {
         &self,
         fr: R,
         mut state: IterState,
-    ) -> Iter<'a, R> {
+    ) -> FieldIter<'a, R> {
         let h = Self::calculate_start_header(&fr, &mut state);
-        let mut res = Iter {
+        let mut res = FieldIter {
             fdr: fr,
             field_pos: state.field_pos,
             data: state.data + h.leading_padding(),
@@ -291,7 +291,7 @@ impl IterHall {
         &self,
         #[allow(unused)] field_id: FieldId,
         iter_id: IterId,
-        mut iter: Iter<'a, R>,
+        mut iter: FieldIter<'a, R>,
     ) {
         let mut state = self.iters[iter_id].get();
         state.field_pos = iter.field_pos;

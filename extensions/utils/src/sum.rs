@@ -22,11 +22,11 @@ use scr_core::{
         action_buffer::{ActorId, ActorRef},
         field_data::{FieldData, FieldValueRepr},
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::{FieldValueBlock, FieldValueSliceIter},
+        field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
         group_track::GroupTrackIterRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
-        ref_iter::RefAwareFieldValueSliceIter,
+        ref_iter::RefAwareFieldValueRangeIter,
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
@@ -201,7 +201,7 @@ impl TfSum {
             match range.base.data {
                 FieldValueSlice::Int(ints) => {
                     let mut iter =
-                        FieldValueSliceIter::from_range(&range, ints);
+                        FieldValueRangeIter::from_range(&range, ints);
                     while let Some(b) = iter.next_block() {
                         match b {
                             FieldValueBlock::Plain(v) => {
@@ -215,20 +215,20 @@ impl TfSum {
                 }
                 FieldValueSlice::BigInt(ints) => {
                     for (v, rl) in
-                        RefAwareFieldValueSliceIter::from_range(&range, ints)
+                        RefAwareFieldValueRangeIter::from_range(&range, ints)
                     {
                         self.aggregate.add_big_int(v, rl, fpm)
                     }
                 }
                 FieldValueSlice::Float(floats) => {
                     for (v, rl) in
-                        FieldValueSliceIter::from_range(&range, floats)
+                        FieldValueRangeIter::from_range(&range, floats)
                     {
                         self.aggregate.add_float(*v, rl, fpm)
                     }
                 }
                 FieldValueSlice::Rational(rationals) => {
-                    for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                    for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                         &range, rationals,
                     ) {
                         self.aggregate.add_rational(v, rl, fpm)

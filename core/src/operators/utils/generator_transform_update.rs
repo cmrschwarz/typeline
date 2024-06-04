@@ -8,7 +8,7 @@ use crate::{
         field_data::FieldValueRepr,
         group_track::{GroupTrackIterRef, GroupTrackManager},
         iter_hall::IterId,
-        iters::{DestructuredFieldDataRef, FieldIterator, Iter},
+        iters::{DestructuredFieldDataRef, FieldIterator, FieldIter},
         match_set::{MatchSetId, MatchSetManager},
     },
 };
@@ -47,7 +47,7 @@ pub struct GeneratorBatchState<'a, 'b, G: GeneratorSequence> {
     rgt: &'a mut GroupTrackManager,
     fm: &'a FieldManager,
     tf_mgr: &'a mut TransformManager,
-    iter: Iter<'b, DestructuredFieldDataRef<'b>>,
+    iter: FieldIter<'b, DestructuredFieldDataRef<'b>>,
     batch_size: usize,
     desired_batch_size: usize,
     ps: PipelineState,

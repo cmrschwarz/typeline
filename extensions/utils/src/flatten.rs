@@ -31,7 +31,7 @@ use scr_core::{
         field_value_ref::FieldValueSlice,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
-        ref_iter::RefAwareFieldValueSliceIter,
+        ref_iter::RefAwareFieldValueRangeIter,
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
@@ -183,7 +183,7 @@ impl TfFlatten {
                         [bud.match_set_id]
                         .action_buffer
                         .borrow_mut();
-                    for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                    for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                         &range, objects,
                     ) {
                         let rl = rl as usize;
@@ -243,7 +243,7 @@ impl TfFlatten {
                         .action_buffer
                         .borrow_mut();
                     for (v, rl) in
-                        RefAwareFieldValueSliceIter::from_range(&range, arrays)
+                        RefAwareFieldValueRangeIter::from_range(&range, arrays)
                     {
                         let rl = rl as usize;
                         let len = v.len();

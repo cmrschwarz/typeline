@@ -430,22 +430,22 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         }
         space_back - self.len
     }
-    pub fn range(&self, range: Range<usize>) -> Iter {
+    pub fn range(&self, range: Range<usize>) -> RingBufIter {
         let (s1, s2) = self.as_slices();
         let l1 = s1.len();
         if range.end >= l1 {
-            return Iter {
+            return RingBufIter {
                 s1: s1[range].iter(),
                 s2: [].iter(),
             };
         }
         if range.start >= l1 {
-            return Iter {
+            return RingBufIter {
                 s1: s2[range.start - l1..range.end - l1].iter(),
                 s2: [].iter(),
             };
         }
-        Iter {
+        RingBufIter {
             s1: s1[range.start..range.end.min(l1)].iter(),
             s2: s2[range.start - l1..range.end - l1].iter(),
         }
@@ -497,12 +497,12 @@ impl<const ALIGN: usize> Write for RingBuf<ALIGN> {
     }
 }
 
-pub struct Iter<'a> {
+pub struct RingBufIter<'a> {
     s1: std::slice::Iter<'a, u8>,
     s2: std::slice::Iter<'a, u8>,
 }
 
-impl<'a> Iterator for Iter<'a> {
+impl<'a> Iterator for RingBufIter<'a> {
     type Item = &'a u8;
 
     fn next(&mut self) -> Option<Self::Item> {

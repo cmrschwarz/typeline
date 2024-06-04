@@ -6,7 +6,7 @@ use crate::{
         field::{FieldId, FieldManager},
         group_track::GroupTrackManager,
         iter_hall::IterId,
-        iters::{BoundedIter, DestructuredFieldDataRef, Iter},
+        iters::{BoundedIter, DestructuredFieldDataRef, FieldIter},
         match_set::{MatchSetId, MatchSetManager},
         ref_iter::AutoDerefIter,
         stream_value::StreamValueManager,
@@ -33,7 +33,7 @@ pub struct BasicUpdateData<'a, 'b, 'c> {
     pub tf_id: TransformId,
     pub iter: &'a mut AutoDerefIter<
         'c,
-        BoundedIter<'c, Iter<'c, DestructuredFieldDataRef<'c>>>,
+        BoundedIter<'c, FieldIter<'c, DestructuredFieldDataRef<'c>>>,
     >,
 }
 

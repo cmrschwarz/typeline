@@ -15,7 +15,7 @@ use super::{
     field_value_ref::value_as_bytes,
     match_set::MatchSetManager,
     ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareFieldValueSliceIter,
+        AutoDerefIter, RefAwareBytesBufferIter, RefAwareFieldValueRangeIter,
         RefAwareInlineBytesIter, RefAwareInlineTextIter,
         RefAwareTextBufferIter,
     },
@@ -30,7 +30,7 @@ use num::{BigInt, BigRational};
 
 use super::{
     field_value_ref::FieldValueSlice,
-    iters::{FieldIterator, Iter},
+    iters::{FieldIter, FieldIterator},
     push_interface::PushInterface,
     stream_value::StreamValueId,
 };
@@ -834,7 +834,7 @@ impl FieldData {
                     }
                     FieldValueSlice::BigInt(data) => {
                         for (v, rl) in
-                            RefAwareFieldValueSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueRangeIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_big_int(
@@ -848,7 +848,7 @@ impl FieldData {
                     }
                     FieldValueSlice::Rational(data) => {
                         for (v, rl) in
-                            RefAwareFieldValueSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueRangeIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_rational(
@@ -864,7 +864,7 @@ impl FieldData {
                     // references?
                     FieldValueSlice::Object(data) => {
                         for (v, rl) in
-                            RefAwareFieldValueSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueRangeIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_object(
@@ -878,7 +878,7 @@ impl FieldData {
                     }
                     FieldValueSlice::Array(data) => {
                         for (v, rl) in
-                            RefAwareFieldValueSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueRangeIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_array(
@@ -892,7 +892,7 @@ impl FieldData {
                     }
                     FieldValueSlice::Custom(data) => {
                         for (v, rl) in
-                            RefAwareFieldValueSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueRangeIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_custom(
@@ -906,7 +906,7 @@ impl FieldData {
                     }
                     FieldValueSlice::Error(data) => {
                         for (v, rl) in
-                            RefAwareFieldValueSliceIter::from_range(&tr, data)
+                            RefAwareFieldValueRangeIter::from_range(&tr, data)
                         {
                             targets_applicator(&mut |fd| {
                                 fd.push_error(
@@ -935,8 +935,8 @@ impl FieldData {
         copied_fields
     }
     #[allow(clippy::iter_not_returning_iterator)]
-    pub fn iter(&self) -> Iter<'_, &'_ FieldData> {
-        Iter::from_start(self)
+    pub fn iter(&self) -> FieldIter<'_, &'_ FieldData> {
+        FieldIter::from_start(self)
     }
     pub unsafe fn internals_mut(&mut self) -> FieldDataInternalsMut {
         FieldDataInternalsMut {

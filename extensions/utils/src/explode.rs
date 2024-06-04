@@ -29,7 +29,7 @@ use scr_core::{
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
-        ref_iter::RefAwareFieldValueSliceIter,
+        ref_iter::RefAwareFieldValueRangeIter,
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
@@ -266,7 +266,7 @@ impl Transform<'_> for TfExplode {
                 }
                 FieldValueSlice::Object(objects) => {
                     let mut string_store = None;
-                    for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                    for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                         &range, objects,
                     ) {
                         match v {

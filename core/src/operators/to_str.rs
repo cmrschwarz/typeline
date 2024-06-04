@@ -12,7 +12,7 @@ use crate::{
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
-        ref_iter::{AutoDerefIter, RefAwareFieldValueSliceIter},
+        ref_iter::{AutoDerefIter, RefAwareFieldValueRangeIter},
         stream_value::{StreamValueData, StreamValueUpdate},
     },
     utils::{
@@ -194,7 +194,7 @@ pub fn handle_tf_to_str(jd: &mut JobData, tf_id: TransformId, tfc: &TfToStr) {
                 if tfc.convert_errors {
                 } else {
                     for (v, rl) in
-                        RefAwareFieldValueSliceIter::from_range(&range, errs)
+                        RefAwareFieldValueRangeIter::from_range(&range, errs)
                     {
                         ofd.push_error(v.clone(), rl as usize, true, true);
                     }

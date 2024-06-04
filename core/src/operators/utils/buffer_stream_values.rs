@@ -1,7 +1,7 @@
 use crate::record_data::{
     field_data::field_value_flags,
     field_value_ref::FieldValueSlice,
-    field_value_slice_iter::FieldValueSliceIter,
+    field_value_slice_iter::FieldValueRangeIter,
     iters::FieldIterator,
     match_set::MatchSetManager,
     ref_iter::AutoDerefIter,
@@ -10,7 +10,7 @@ use crate::record_data::{
 
 pub fn buffer_remaining_stream_values_in_sv_iter(
     sv_mgr: &mut StreamValueManager,
-    iter: FieldValueSliceIter<StreamValueId>,
+    iter: FieldValueRangeIter<StreamValueId>,
     contiguous: bool,
 ) -> usize {
     let mut lines = 0;
@@ -44,7 +44,7 @@ pub fn buffer_remaining_stream_values_in_auto_deref_iter<
         if let FieldValueSlice::StreamValueId(svs) = range.base.data {
             lines += buffer_remaining_stream_values_in_sv_iter(
                 sv_mgr,
-                FieldValueSliceIter::from_range(&range, svs),
+                FieldValueRangeIter::from_range(&range, svs),
                 contiguous,
             );
         }

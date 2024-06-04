@@ -12,7 +12,7 @@ pub enum FieldValueBlock<'a, T> {
 }
 
 #[derive(Clone)]
-pub struct FieldValueSliceIter<'a, T> {
+pub struct FieldValueRangeIter<'a, T> {
     values: NonNull<T>,
     header: *const FieldValueHeader,
     header_end: *const FieldValueHeader,
@@ -36,7 +36,7 @@ pub struct InlineTextIter<'a> {
     iter: InlineBytesIter<'a>,
 }
 
-impl<'a, T> Default for FieldValueSliceIter<'a, T> {
+impl<'a, T> Default for FieldValueRangeIter<'a, T> {
     fn default() -> Self {
         Self {
             values: NonNull::dangling(),
@@ -49,7 +49,7 @@ impl<'a, T> Default for FieldValueSliceIter<'a, T> {
     }
 }
 
-impl<'a, T: FieldValueType + 'static> FieldValueSliceIter<'a, T> {
+impl<'a, T: FieldValueType + 'static> FieldValueRangeIter<'a, T> {
     pub unsafe fn new(
         values: &'a [T],
         headers: &'a [FieldValueHeader],
@@ -253,7 +253,7 @@ impl<'a, T: FieldValueType + 'static> FieldValueSliceIter<'a, T> {
     }
 }
 
-impl<'a, T: FieldValueType + 'static> Iterator for FieldValueSliceIter<'a, T> {
+impl<'a, T: FieldValueType + 'static> Iterator for FieldValueRangeIter<'a, T> {
     type Item = (&'a T, RunLength);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -565,7 +565,7 @@ mod test_slice_iter {
         push_interface::PushInterface,
     };
 
-    use super::FieldValueSliceIter;
+    use super::FieldValueRangeIter;
 
     fn compare_iter_output<
         T: Eq + std::fmt::Debug + Clone + FieldValueType + 'static,
@@ -576,7 +576,7 @@ mod test_slice_iter {
         fd.headers.make_contiguous();
         fd.data.make_contiguous();
         let iter = unsafe {
-            FieldValueSliceIter::new(
+            FieldValueRangeIter::new(
                 std::slice::from_raw_parts(
                     fd.data.head_ptr().cast::<T>(),
                     fd.data.len() / std::mem::size_of::<T>(),

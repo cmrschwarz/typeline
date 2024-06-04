@@ -230,10 +230,10 @@ impl SizeClassedVecDeque {
             SizeClassedVecDeque::Sc64(v) => slices2ranges(v.as_mut_slices()),
         }
     }
-    pub fn iter(&self) -> Iter {
+    pub fn iter(&self) -> SizeClassedVecDequeIter {
         let (range_1, range_2) = self.as_ptr_ranges();
         let stride = (self.size_class() / 8) as u8;
-        Iter {
+        SizeClassedVecDequeIter {
             range_1,
             range_2,
             stride,
@@ -300,20 +300,20 @@ impl SizeClassedVecDeque {
 
 impl<'a> IntoIterator for &'a SizeClassedVecDeque {
     type Item = usize;
-    type IntoIter = Iter<'a>;
+    type IntoIter = SizeClassedVecDequeIter<'a>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-pub struct Iter<'a> {
+pub struct SizeClassedVecDequeIter<'a> {
     range_1: Range<*const u8>,
     range_2: Range<*const u8>,
     stride: u8,
     _phantom_data: PhantomData<&'a usize>,
 }
 
-impl<'a> Iterator for Iter<'a> {
+impl<'a> Iterator for SizeClassedVecDequeIter<'a> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -362,7 +362,7 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for Iter<'a> {
+impl<'a> ExactSizeIterator for SizeClassedVecDequeIter<'a> {
     fn len(&self) -> usize {
         let size = pointer_range_len(&self.range_1)
             + pointer_range_len(&self.range_2);
@@ -371,7 +371,7 @@ impl<'a> ExactSizeIterator for Iter<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for Iter<'a> {
+impl<'a> DoubleEndedIterator for SizeClassedVecDequeIter<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.range_2.end == self.range_2.start {
             if self.range_1.is_empty() {

@@ -1,18 +1,16 @@
-use std::{mem::ManuallyDrop, ops::Range, ptr::NonNull};
+use std::{mem::ManuallyDrop, ops::Range};
 
 use num::{BigInt, BigRational};
 
 use super::{
     array::Array,
     custom_data::CustomDataBox,
+    dyn_ref_iter::FieldValueSliceIter,
     field_data::{
         FieldValueFormat, FieldValueHeader, FieldValueRepr, FieldValueType,
         RunLength, TextBufferFile,
     },
-    field_value::{
-        FieldReference, FieldValue, Null, Object, SlicedFieldReference,
-        Undefined,
-    },
+    field_value::{FieldReference, FieldValue, Object, SlicedFieldReference},
     iters::FieldDataRef,
     stream_value::StreamValueId,
 };
@@ -42,8 +40,8 @@ pub enum FieldValueRef<'a> {
 
 #[derive(Clone, Copy)]
 pub enum FieldValueSlice<'a> {
-    Null(&'a [Null]),
-    Undefined(&'a [Undefined]),
+    Null(usize),
+    Undefined(usize),
     Int(&'a [i64]),
     BigInt(&'a [BigInt]),
     Float(&'a [f64]),
@@ -159,10 +157,8 @@ impl<'a> FieldValueRef<'a> {
     pub fn as_slice(&self) -> FieldValueSlice<'a> {
         use std::slice::from_ref;
         match self {
-            FieldValueRef::Undefined => {
-                FieldValueSlice::Undefined(&[Undefined])
-            }
-            FieldValueRef::Null => FieldValueSlice::Null(&[Null]),
+            FieldValueRef::Undefined => FieldValueSlice::Undefined(1),
+            FieldValueRef::Null => FieldValueSlice::Null(1),
             FieldValueRef::Int(v) => FieldValueSlice::Int(from_ref(v)),
             FieldValueRef::BigInt(v) => FieldValueSlice::BigInt(from_ref(v)),
             FieldValueRef::Float(v) => FieldValueSlice::Float(from_ref(v)),
@@ -257,7 +253,7 @@ impl<'a> TypedField<'a> {
 
 impl<'a> Default for FieldValueSlice<'a> {
     fn default() -> Self {
-        FieldValueSlice::Null(&[])
+        FieldValueSlice::Null(0)
     }
 }
 
@@ -298,11 +294,9 @@ impl<'a> FieldValueSlice<'a> {
         unsafe {
             match fmt.repr {
                 FieldValueRepr::Undefined => {
-                    FieldValueSlice::Undefined(to_zst_slice(field_count))
+                    FieldValueSlice::Undefined(field_count)
                 }
-                FieldValueRepr::Null => {
-                    FieldValueSlice::Null(to_zst_slice(field_count))
-                }
+                FieldValueRepr::Null => FieldValueSlice::Null(field_count),
                 FieldValueRepr::BytesInline => FieldValueSlice::BytesInline(
                     to_slice(fdr, data_begin, data_end),
                 ),
@@ -413,8 +407,7 @@ impl<'a> FieldValueSlice<'a> {
     }
     pub fn len(&self) -> usize {
         match self {
-            FieldValueSlice::Undefined(v) => v.len(),
-            FieldValueSlice::Null(v) => v.len(),
+            FieldValueSlice::Undefined(v) | FieldValueSlice::Null(v) => *v,
             FieldValueSlice::Int(v) => v.len(),
             FieldValueSlice::BigInt(v) => v.len(),
             FieldValueSlice::Float(v) => v.len(),
@@ -430,6 +423,16 @@ impl<'a> FieldValueSlice<'a> {
             FieldValueSlice::Object(v) => v.len(),
             FieldValueSlice::Array(v) => v.len(),
             FieldValueSlice::Custom(v) => v.len(),
+        }
+    }
+    // like `len`, but 1 for `TextInline` and `BytesInline`,
+    // as those don't can't really carry multiple entries
+    pub fn run_len(&self) -> usize {
+        match self {
+            FieldValueSlice::Undefined(v) | FieldValueSlice::Null(v) => *v,
+            FieldValueSlice::TextInline(_)
+            | FieldValueSlice::BytesInline(_) => 1,
+            _ => self.len(),
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -485,6 +488,16 @@ impl<'a> FieldValueSlice<'a> {
     }
 }
 
+impl<'a> IntoIterator for FieldValueSlice<'a> {
+    type Item = FieldValueRef<'a>;
+
+    type IntoIter = FieldValueSliceIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        FieldValueSliceIter::new(self)
+    }
+}
+
 impl<'a> TypedRange<'a> {
     pub unsafe fn new<R: FieldDataRef<'a>>(
         fdr: R,
@@ -519,12 +532,6 @@ impl<'a> TypedRange<'a> {
 impl<'a> ValidTypedRange<'a> {
     pub unsafe fn new(range: TypedRange<'a>) -> Self {
         Self(range)
-    }
-}
-
-unsafe fn to_zst_slice<T: Sized>(len: usize) -> &'static [T] {
-    unsafe {
-        std::slice::from_raw_parts(NonNull::<T>::dangling().as_ptr(), len)
     }
 }
 

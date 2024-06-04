@@ -340,6 +340,18 @@ impl Array {
         self.canonicalize_for_repr(T::REPR);
         self.extend_raw(iter.into_iter());
     }
+    pub fn extend_from_field_value(
+        &mut self,
+        mut iter: impl Iterator<Item = FieldValue>,
+    ) {
+        let Some(first) = iter.next() else {
+            return;
+        };
+        self.push(first);
+        for v in iter {
+            self.push_raw(v);
+        }
+    }
 
     pub fn push(&mut self, value: FieldValue) {
         self.canonicalize_for_repr(value.repr());

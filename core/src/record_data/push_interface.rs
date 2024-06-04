@@ -16,11 +16,11 @@ use super::{
     },
     field_value::{FieldReference, FieldValue, Object, SlicedFieldReference},
     field_value_ref::FieldValueSlice,
-    field_value_slice_iter::FieldValueSliceIter,
+    field_value_slice_iter::FieldValueRangeIter,
     formattable::{Formattable, FormattingContext, RealizedFormatKey},
     match_set::MatchSetManager,
     ref_iter::{
-        AnyRefSliceIter, RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
+        AnyRefSliceIter, RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
         RefAwareInlineTextIter, RefAwareTypedRange,
     },
     stream_value::{StreamValueId, StreamValueManager},
@@ -579,7 +579,7 @@ pub unsafe trait PushInterface {
                 self.push_undefined(fc, try_header_rle)
             }
             FieldValueSlice::Int(vals) => {
-                for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
+                for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
                     self.push_int(
                         *v,
                         rl as usize,
@@ -590,7 +590,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::BigInt(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_big_int(
                         v.clone(),
@@ -602,7 +602,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::Float(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_float(
                         *v,
@@ -614,7 +614,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::Rational(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_rational(
                         v.clone(),
@@ -652,7 +652,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::TextBuffer(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_text_buffer(
                         v.clone(),
@@ -664,7 +664,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::BytesBuffer(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_bytes_buffer(
                         v.clone(),
@@ -676,7 +676,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::Object(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_object(
                         v.clone(),
@@ -688,7 +688,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::Array(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_array(
                         v.clone(),
@@ -700,7 +700,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::Custom(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_custom(
                         v.clone(),
@@ -712,7 +712,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::Error(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_error(
                         v.clone(),
@@ -723,7 +723,7 @@ pub unsafe trait PushInterface {
                 }
             }
             FieldValueSlice::StreamValueId(vals) => {
-                for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
+                for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
                     self.push_stream_value_id(
                         *v,
                         rl as usize,
@@ -888,7 +888,7 @@ pub unsafe trait PushInterface {
                 try_data_rle,
             ),
             FieldValueSlice::Int(vals) => {
-                for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
+                for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
                     self.push_inline_str(
                         &i64_to_str(false, *v),
                         rl as usize,
@@ -900,7 +900,7 @@ pub unsafe trait PushInterface {
             FieldValueSlice::BigInt(vals) => {
                 let mut rfk = RealizedFormatKey::default();
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     let stream = self.text_insertion_stream(rl as usize);
                     v.format(
@@ -912,7 +912,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::Float(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_str(
                         &f64_to_str(*v),
@@ -932,7 +932,7 @@ pub unsafe trait PushInterface {
                     rfk: RealizedFormatKey::default(),
                 };
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     let stream = self.text_insertion_stream(rl as usize);
                     v.format(&mut fc, &mut MaybeTextWritePanicAdapter(stream))
@@ -950,7 +950,7 @@ pub unsafe trait PushInterface {
                     rfk: RealizedFormatKey::default(),
                 };
                 for (o, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     o.format(
                         &mut fc,
@@ -969,7 +969,7 @@ pub unsafe trait PushInterface {
                     rfk: RealizedFormatKey::default(),
                 };
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     let mut stream =
                         self.maybe_text_insertion_stream(rl as usize);
@@ -979,7 +979,7 @@ pub unsafe trait PushInterface {
             FieldValueSlice::Custom(vals) => {
                 let rfk = RealizedFormatKey::default();
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     let mut stream =
                         self.maybe_text_insertion_stream(rl as usize);
@@ -988,7 +988,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::Error(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
                     self.push_error(
                         v.clone(),
@@ -999,7 +999,7 @@ pub unsafe trait PushInterface {
                 }
             }
             FieldValueSlice::StreamValueId(vals) => {
-                for (v, rl) in FieldValueSliceIter::from_range(&range, vals) {
+                for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
                     let sv = &sv_mgr.stream_values[*v];
                     if let Some(e) = &sv.error {
                         debug_assert!(sv.done);

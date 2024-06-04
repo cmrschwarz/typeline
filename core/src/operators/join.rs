@@ -16,7 +16,7 @@ use crate::{
             INLINE_STR_MAX_LEN,
         },
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
+        field_value_slice_iter::FieldValueRangeIter,
         formattable::RealizedFormatKey,
         group_track::GroupTrackIterRef,
         iter_hall::{IterId, IterKind},
@@ -24,7 +24,7 @@ use crate::{
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
-            RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
+            RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareTextBufferIter,
             RefAwareTypedRange,
         },
@@ -708,7 +708,7 @@ pub fn handle_tf_join<'a>(
                 }
             }
             FieldValueSlice::Int(ints) => {
-                for (v, rl) in FieldValueSliceIter::from_range(&range, ints) {
+                for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
                     let v = i64_to_str(false, *v);
                     push_join_data(
                         join,
@@ -719,7 +719,7 @@ pub fn handle_tf_join<'a>(
                 }
             }
             FieldValueSlice::Custom(custom_data) => {
-                for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                     &range,
                     custom_data,
                 ) {
@@ -808,7 +808,7 @@ fn try_consume_stream_values<'a>(
     range: &RefAwareTypedRange<'_>,
     svs: &[StreamValueId],
 ) -> Result<(), ()> {
-    let sv_iter = FieldValueSliceIter::from_range(range, svs);
+    let sv_iter = FieldValueRangeIter::from_range(range, svs);
     for (&sv_id, rl) in sv_iter {
         let sv = &mut sv_mgr.stream_values[sv_id];
         if let Some(err) = &sv.error {

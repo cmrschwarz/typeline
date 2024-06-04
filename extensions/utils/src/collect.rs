@@ -20,9 +20,10 @@ use scr_core::{
     record_data::{
         action_buffer::{ActorId, ActorRef},
         array::Array,
+        dyn_ref_iter::{DynFieldValueBlock, RefAwareDynFieldValueRangeIter},
         field_data::{FieldData, FieldValueRepr},
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::{FieldValueBlock, FieldValueSliceIter},
+        field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
         group_track::GroupTrackIterRef,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
@@ -183,7 +184,7 @@ impl TfCollect {
             match range.base.data {
                 FieldValueSlice::Int(ints) => {
                     let mut iter =
-                        FieldValueSliceIter::from_range(&range, ints);
+                        FieldValueRangeIter::from_range(&range, ints);
                     while let Some(b) = iter.next_block() {
                         match b {
                             FieldValueBlock::Plain(v) => {
@@ -197,23 +198,26 @@ impl TfCollect {
                         }
                     }
                 }
-                FieldValueSlice::Null(_)
-                | FieldValueSlice::Undefined(_)
-                | FieldValueSlice::BytesInline(_)
-                | FieldValueSlice::TextInline(_)
-                | FieldValueSlice::TextBuffer(_)
-                | FieldValueSlice::BytesBuffer(_)
-                | FieldValueSlice::Array(_)
-                | FieldValueSlice::Object(_)
-                | FieldValueSlice::Custom(_)
-                | FieldValueSlice::StreamValueId(_)
-                | FieldValueSlice::Error(_)
-                | FieldValueSlice::FieldReference(_)
-                | FieldValueSlice::SlicedFieldReference(_)
-                | FieldValueSlice::BigInt(_)
-                | FieldValueSlice::Float(_)
-                | FieldValueSlice::Rational(_) => {
-                    todo!()
+                _ => {
+                    // PERF: `extend_from_field_value` is not the most
+                    // efficient way to do this, should use metamatch instead
+                    let mut iter = RefAwareDynFieldValueRangeIter::new(range);
+                    while let Some(b) = iter.next_block() {
+                        match b {
+                            DynFieldValueBlock::Plain(v) => {
+                                self.aggregate.extend_from_field_value(
+                                    v.into_iter()
+                                        .map(|fvr| fvr.to_field_value()),
+                                );
+                            }
+                            DynFieldValueBlock::WithRunLength(v, rl) => {
+                                self.aggregate.extend_from_field_value(
+                                    std::iter::repeat(v.to_field_value())
+                                        .take(rl as usize),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

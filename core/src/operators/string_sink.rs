@@ -14,14 +14,14 @@ use crate::{
         field::Field,
         field_data::field_value_flags,
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
+        field_value_slice_iter::FieldValueRangeIter,
         formattable::{Formattable, FormattingContext, RealizedFormatKey},
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
-            RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
+            RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareTextBufferIter,
         },
         stream_value::{
@@ -340,13 +340,13 @@ pub fn handle_tf_string_sink(
                 }
             }
             FieldValueSlice::Int(ints) => {
-                for (v, rl) in FieldValueSliceIter::from_range(&range, ints) {
+                for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
                     let v = i64_to_str(false, *v);
                     push_str(&mut out, v.as_str(), rl as usize);
                 }
             }
             FieldValueSlice::Custom(custom_types) => {
-                for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                     &range,
                     custom_types,
                 ) {
@@ -397,7 +397,7 @@ pub fn handle_tf_string_sink(
             FieldValueSlice::Error(errs) => {
                 let mut pos = field_pos;
                 for (v, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, errs)
+                    RefAwareFieldValueRangeIter::from_range(&range, errs)
                 {
                     push_errors(
                         &mut out,
@@ -422,7 +422,7 @@ pub fn handle_tf_string_sink(
             }
             FieldValueSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
-                for (sv_id, rl) in FieldValueSliceIter::from_range(&range, svs)
+                for (sv_id, rl) in FieldValueRangeIter::from_range(&range, svs)
                 {
                     let rl = rl as usize;
                     let sv = &mut jd.sv_mgr.stream_values[*sv_id];
@@ -477,7 +477,7 @@ pub fn handle_tf_string_sink(
                     rfk: RealizedFormatKey::default(),
                 };
                 for (a, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, arrays)
+                    RefAwareFieldValueRangeIter::from_range(&range, arrays)
                 {
                     let mut data = Vec::new();
                     a.format(&mut fc, &mut TextWriteIoAdapter(&mut data))
@@ -501,7 +501,7 @@ pub fn handle_tf_string_sink(
                     rfk: RealizedFormatKey::default(),
                 };
                 for (a, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, object)
+                    RefAwareFieldValueRangeIter::from_range(&range, object)
                 {
                     let mut data = Vec::new();
                     a.format(&mut fc, &mut TextWriteIoAdapter(&mut data))

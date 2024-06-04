@@ -19,14 +19,14 @@ use crate::{
         },
         field_value::{FieldReference, SlicedFieldReference},
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
+        field_value_slice_iter::FieldValueRangeIter,
         formattable::RealizedFormatKey,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RangeOffsets, RefAwareBytesBufferIter,
-            RefAwareFieldValueSliceIter, RefAwareInlineBytesIter,
+            RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareTextBufferIter,
         },
         stream_value::{StorageAgnosticStreamValueDataRef, StreamValueId},
@@ -1078,7 +1078,7 @@ pub fn handle_tf_regex(
                 }
             }
             FieldValueSlice::Custom(custom_types) => {
-                for (v, rl) in RefAwareFieldValueSliceIter::from_range(
+                for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                     &range,
                     custom_types,
                 ) {
@@ -1117,7 +1117,7 @@ pub fn handle_tf_regex(
             FieldValueSlice::Int(ints) => {
                 if let Some(tr) = &mut text_regex {
                     for (v, rl) in
-                        FieldValueSliceIter::from_range(&range, ints)
+                        FieldValueRangeIter::from_range(&range, ints)
                     {
                         match_regex_inner::<false, _>(
                             &mut rmis,
@@ -1132,7 +1132,7 @@ pub fn handle_tf_regex(
                     }
                 } else {
                     for (v, rl) in
-                        FieldValueSliceIter::from_range(&range, ints)
+                        FieldValueRangeIter::from_range(&range, ints)
                     {
                         match_regex_inner::<false, _>(
                             &mut rmis,
@@ -1148,7 +1148,7 @@ pub fn handle_tf_regex(
                 };
             }
             FieldValueSlice::StreamValueId(svs) => {
-                let mut sv_iter = FieldValueSliceIter::from_range(&range, svs);
+                let mut sv_iter = FieldValueRangeIter::from_range(&range, svs);
                 while let Some((&sv_id, rl)) = sv_iter.next() {
                     let sv = &mut jd.sv_mgr.stream_values[sv_id];
                     if re.streams_kept_alive > 0 {
@@ -1279,7 +1279,7 @@ pub fn handle_tf_regex(
             }
             FieldValueSlice::Error(errs) => {
                 for (e, rl) in
-                    RefAwareFieldValueSliceIter::from_range(&range, errs)
+                    RefAwareFieldValueRangeIter::from_range(&range, errs)
                 {
                     let count = rbs.consume_fields(rl as usize);
                     for inserter in rbs.inserters.iter_mut().flatten() {

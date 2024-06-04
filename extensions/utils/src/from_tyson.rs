@@ -26,7 +26,7 @@ use scr_core::{
         action_buffer::ActorRef,
         field_data::{FieldData, RunLength},
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueSliceIter,
+        field_value_slice_iter::FieldValueRangeIter,
         iter_hall::{IterId, IterKind},
         push_interface::PushInterface,
         ref_iter::{
@@ -200,7 +200,7 @@ impl TfFromTyson {
                 }
                 FieldValueSlice::StreamValueId(vals) => {
                     for (&sv_id, rl) in
-                        FieldValueSliceIter::from_range(&range, vals)
+                        FieldValueRangeIter::from_range(&range, vals)
                     {
                         let sv = &mut bud.sv_mgr.stream_values[sv_id];
                         if let Some(err) = &sv.error {

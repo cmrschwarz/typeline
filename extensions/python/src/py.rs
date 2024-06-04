@@ -38,7 +38,7 @@ use scr_core::{
         field_value::{FieldValue, Object, ObjectKeysStored},
         field_value_ref::FieldValueRef,
         iter_hall::IterKind,
-        iters::{DestructuredFieldDataRef, Iter},
+        iters::{DestructuredFieldDataRef, FieldIter},
         push_interface::PushInterface,
         ref_iter::AutoDerefIter,
     },
@@ -83,7 +83,7 @@ pub struct TfPy<'a> {
         PhantomSlot<
             AutoDerefIter<
                 'static,
-                Iter<'static, DestructuredFieldDataRef<'static>>,
+                FieldIter<'static, DestructuredFieldDataRef<'static>>,
             >,
         >,
     >,
