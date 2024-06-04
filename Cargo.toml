@@ -22,10 +22,12 @@ name = "scr"
 # tests are all in scr_core, no need to bloat the output of `cargo test --all`
 test = false
 doctest = false
+path = "src/lib.rs" # the default, workaround https://github.com/webern/cargo-readme/issues/32
 
 [[bin]]
 name = "scr"
 test = false
+path = "src/main.rs" # the default, workaround https://github.com/webern/cargo-readme/issues/32
 
 [dev-dependencies]
 rstest = "0.20.0"
