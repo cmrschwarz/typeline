@@ -1,10 +1,3 @@
-use std::{
-    any::Any,
-    collections::VecDeque,
-    fmt::{Debug, Display},
-    mem::{align_of, size_of, size_of_val, ManuallyDrop},
-};
-
 use super::{
     array::Array,
     custom_data::CustomDataBox,
@@ -22,6 +15,13 @@ use super::{
 };
 use crate::{
     operators::errors::OperatorApplicationError, utils::ringbuf::RingBuf,
+};
+use metamatch::metamatch;
+use std::{
+    any::Any,
+    collections::VecDeque,
+    fmt::{Debug, Display},
+    mem::{align_of, size_of, size_of_val, ManuallyDrop},
 };
 
 use self::field_value_flags::SHARED_VALUE;
@@ -400,32 +400,27 @@ impl FieldValueRepr {
         }
     }
     pub const fn kind(&self) -> FieldValueKind {
-        match self {
-            FieldValueRepr::Undefined => FieldValueKind::Undefined,
-            FieldValueRepr::Null => FieldValueKind::Null,
+        metamatch!(match self {
+            FieldValueRepr::TextInline
+            | FieldValueRepr::TextBuffer
+            | FieldValueRepr::TextFile => {
+                FieldValueKind::Text
+            }
+            FieldValueRepr::BytesInline
+            | FieldValueRepr::BytesBuffer
+            | FieldValueRepr::BytesFile => {
+                FieldValueKind::Bytes
+            }
             FieldValueRepr::Int | FieldValueRepr::BigInt => {
                 FieldValueKind::Int
             }
-            FieldValueRepr::Float => FieldValueKind::Float,
-            FieldValueRepr::Rational => FieldValueKind::Rational,
-            FieldValueRepr::StreamValueId => FieldValueKind::StreamValueId,
-            FieldValueRepr::FieldReference => FieldValueKind::FieldReference,
-            FieldValueRepr::SlicedFieldReference => {
-                FieldValueKind::SlicedFieldReference
-            }
-            FieldValueRepr::Error => FieldValueKind::Error,
-            FieldValueRepr::TextInline | FieldValueRepr::TextBuffer => {
-                FieldValueKind::Text
-            }
-            FieldValueRepr::BytesInline | FieldValueRepr::BytesBuffer => {
-                FieldValueKind::Bytes
-            }
-            FieldValueRepr::TextFile => FieldValueKind::Text,
-            FieldValueRepr::BytesFile => FieldValueKind::Bytes,
-            FieldValueRepr::Object => FieldValueKind::Object,
-            FieldValueRepr::Array => FieldValueKind::Array,
-            FieldValueRepr::Custom => FieldValueKind::Custom,
-        }
+            #[expand(KIND in [
+                Undefined, Null, Float, Rational, StreamValueId,
+                FieldReference, SlicedFieldReference,
+                Error, Object, Array, Custom,
+            ])]
+            FieldValueRepr::KIND => FieldValueKind::KIND,
+        })
     }
     pub fn to_format(&self) -> FieldValueFormat {
         FieldValueFormat {
@@ -776,160 +771,107 @@ impl FieldData {
                         targets_applicator(&mut |fd| f(&mut fd.data))
                     })
                 };
-            } else {
-                match tr.base.data {
-                    FieldValueSlice::BytesInline(data) => {
-                        for (v, rl, _offset) in
-                            RefAwareInlineBytesIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                // PERF: maybe do a little rle here?
-                                fd.headers.push_back(FieldValueHeader {
-                                    fmt: FieldValueFormat {
-                                        repr: FieldValueRepr::BytesInline,
-                                        flags: SHARED_VALUE,
-                                        size: v.len() as FieldValueSize,
-                                    },
-                                    run_length: rl,
-                                });
-                                fd.data.extend_from_slice(v);
+                continue;
+            }
+            metamatch!(match tr.base.data {
+                FieldValueSlice::BytesInline(data) => {
+                    for (v, rl, _offset) in
+                        RefAwareInlineBytesIter::from_range(&tr, data)
+                    {
+                        targets_applicator(&mut |fd| {
+                            // PERF: maybe do a little rle here?
+                            fd.headers.push_back(FieldValueHeader {
+                                fmt: FieldValueFormat {
+                                    repr: FieldValueRepr::BytesInline,
+                                    flags: SHARED_VALUE,
+                                    size: v.len() as FieldValueSize,
+                                },
+                                run_length: rl,
                             });
-                        }
-                    }
-                    FieldValueSlice::TextInline(data) => {
-                        for (v, rl, _offset) in
-                            RefAwareInlineTextIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                // PERF: maybe do a little rle here?
-                                fd.headers.push_back(FieldValueHeader {
-                                    fmt: FieldValueFormat {
-                                        repr: FieldValueRepr::TextInline,
-                                        flags: SHARED_VALUE,
-                                        size: v.len() as FieldValueSize,
-                                    },
-                                    run_length: rl,
-                                });
-                                fd.data.extend_from_slice(v.as_bytes());
-                            });
-                        }
-                    }
-                    FieldValueSlice::BytesBuffer(data) => {
-                        for (v, rl, _offset) in
-                            RefAwareBytesBufferIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                fd.push_bytes(v, rl as usize, true, false);
-                            });
-                        }
-                    }
-                    FieldValueSlice::TextBuffer(data) => {
-                        for (v, rl, _offset) in
-                            RefAwareTextBufferIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                fd.push_str(v, rl as usize, true, false);
-                            });
-                        }
-                    }
-                    FieldValueSlice::BigInt(data) => {
-                        for (v, rl) in
-                            RefAwareFieldValueRangeIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                fd.push_big_int(
-                                    v.clone(),
-                                    rl as usize,
-                                    true,
-                                    false,
-                                );
-                            });
-                        }
-                    }
-                    FieldValueSlice::Rational(data) => {
-                        for (v, rl) in
-                            RefAwareFieldValueRangeIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                fd.push_rational(
-                                    v.clone(),
-                                    rl as usize,
-                                    true,
-                                    false,
-                                );
-                            });
-                        }
-                    }
-                    // TODO: do we have to worry about internal field
-                    // references?
-                    FieldValueSlice::Object(data) => {
-                        for (v, rl) in
-                            RefAwareFieldValueRangeIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                fd.push_object(
-                                    v.clone(),
-                                    rl as usize,
-                                    true,
-                                    false,
-                                );
-                            });
-                        }
-                    }
-                    FieldValueSlice::Array(data) => {
-                        for (v, rl) in
-                            RefAwareFieldValueRangeIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                fd.push_array(
-                                    v.clone(),
-                                    rl as usize,
-                                    true,
-                                    false,
-                                );
-                            });
-                        }
-                    }
-                    FieldValueSlice::Custom(data) => {
-                        for (v, rl) in
-                            RefAwareFieldValueRangeIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                fd.push_custom(
-                                    v.clone_dyn(),
-                                    rl as usize,
-                                    true,
-                                    false,
-                                );
-                            });
-                        }
-                    }
-                    FieldValueSlice::Error(data) => {
-                        for (v, rl) in
-                            RefAwareFieldValueRangeIter::from_range(&tr, data)
-                        {
-                            targets_applicator(&mut |fd| {
-                                fd.push_error(
-                                    v.clone(),
-                                    rl as usize,
-                                    true,
-                                    false,
-                                );
-                            });
-                        }
-                    }
-                    // these types don't support field references
-                    FieldValueSlice::Undefined(_)
-                    | FieldValueSlice::Null(_)
-                    | FieldValueSlice::Int(_)
-                    | FieldValueSlice::Float(_)
-                    | FieldValueSlice::StreamValueId(_)
-                    | FieldValueSlice::FieldReference(_)
-                    | FieldValueSlice::SlicedFieldReference(_) => {
-                        unreachable!();
+                            fd.data.extend_from_slice(v);
+                        });
                     }
                 }
-            }
+                FieldValueSlice::TextInline(data) => {
+                    for (v, rl, _offset) in
+                        RefAwareInlineTextIter::from_range(&tr, data)
+                    {
+                        targets_applicator(&mut |fd| {
+                            // PERF: maybe do a little rle here?
+                            fd.headers.push_back(FieldValueHeader {
+                                fmt: FieldValueFormat {
+                                    repr: FieldValueRepr::TextInline,
+                                    flags: SHARED_VALUE,
+                                    size: v.len() as FieldValueSize,
+                                },
+                                run_length: rl,
+                            });
+                            fd.data.extend_from_slice(v.as_bytes());
+                        });
+                    }
+                }
+                FieldValueSlice::BytesBuffer(data) => {
+                    for (v, rl, _offset) in
+                        RefAwareBytesBufferIter::from_range(&tr, data)
+                    {
+                        targets_applicator(&mut |fd| {
+                            fd.push_bytes(v, rl as usize, true, false);
+                        });
+                    }
+                }
+                FieldValueSlice::TextBuffer(data) => {
+                    for (v, rl, _offset) in
+                        RefAwareTextBufferIter::from_range(&tr, data)
+                    {
+                        targets_applicator(&mut |fd| {
+                            fd.push_str(v, rl as usize, true, false);
+                        });
+                    }
+                }
+                #[expand((REPR, PUSH_FN) in [
+                    (BigInt, push_big_int),
+                    (Rational, push_rational),
+                    // TODO: do we have to worry about internal field references?
+                    (Object, push_object),
+                    (Array, push_array),
+                    (Error, push_error),
+                ])]
+                FieldValueSlice::REPR(data) => {
+                    for (v, rl) in
+                        RefAwareFieldValueRangeIter::from_range(&tr, data)
+                    {
+                        targets_applicator(&mut |fd| {
+                            fd.PUSH_FN(v.clone(), rl as usize, true, false);
+                        });
+                    }
+                }
+
+                FieldValueSlice::Custom(data) => {
+                    for (v, rl) in
+                        RefAwareFieldValueRangeIter::from_range(&tr, data)
+                    {
+                        targets_applicator(&mut |fd| {
+                            fd.push_custom(
+                                v.clone_dyn(),
+                                rl as usize,
+                                true,
+                                false,
+                            );
+                        });
+                    }
+                }
+
+                // these types don't support field references
+                FieldValueSlice::Undefined(_)
+                | FieldValueSlice::Null(_)
+                | FieldValueSlice::Int(_)
+                | FieldValueSlice::Float(_)
+                | FieldValueSlice::StreamValueId(_)
+                | FieldValueSlice::FieldReference(_)
+                | FieldValueSlice::SlicedFieldReference(_) => {
+                    unreachable!();
+                }
+            })
         }
         targets_applicator(&mut |fd| fd.field_count += copied_fields);
         copied_fields
@@ -992,50 +934,27 @@ unsafe fn append_data(
     target_applicator: &mut impl FnMut(&mut dyn Fn(&mut FieldDataBuffer)),
 ) {
     unsafe {
-        match ts {
+        metamatch!(match ts {
             FieldValueSlice::Null(_) | FieldValueSlice::Undefined(_) => (),
-            FieldValueSlice::Int(v) => extend_raw(target_applicator, v),
-            FieldValueSlice::BigInt(v) => {
-                extend_with_clones(target_applicator, v)
-            }
-            FieldValueSlice::Float(v) => extend_raw(target_applicator, v),
-            FieldValueSlice::Rational(v) => {
-                extend_with_clones(target_applicator, v)
-            }
-            FieldValueSlice::StreamValueId(v) => {
+            FieldValueSlice::TextInline(v) =>
+                extend_raw(target_applicator, v.as_bytes()),
+
+            #[expand(REPR in [
+                Int, Float, BytesInline,
+                StreamValueId, FieldReference, SlicedFieldReference,
+            ])]
+            FieldValueSlice::REPR(v) => {
                 extend_raw(target_applicator, v)
             }
-            FieldValueSlice::FieldReference(v) => {
-                extend_raw(target_applicator, v)
-            }
-            FieldValueSlice::SlicedFieldReference(v) => {
-                extend_raw(target_applicator, v)
-            }
-            FieldValueSlice::BytesInline(v) => {
-                extend_raw(target_applicator, v)
-            }
-            FieldValueSlice::TextInline(v) => {
-                extend_raw(target_applicator, v.as_bytes())
-            }
-            FieldValueSlice::TextBuffer(v) => {
+
+            #[expand(REPR in [
+                BigInt, Rational, TextBuffer, BytesBuffer,
+                Error, Object, Array, Custom
+            ])]
+            FieldValueSlice::REPR(v) => {
                 extend_with_clones(target_applicator, v)
             }
-            FieldValueSlice::BytesBuffer(v) => {
-                extend_with_clones(target_applicator, v)
-            }
-            FieldValueSlice::Error(v) => {
-                extend_with_clones(target_applicator, v)
-            }
-            FieldValueSlice::Object(v) => {
-                extend_with_clones(target_applicator, v)
-            }
-            FieldValueSlice::Array(v) => {
-                extend_with_clones(target_applicator, v)
-            }
-            FieldValueSlice::Custom(v) => {
-                extend_with_clones(target_applicator, v)
-            }
-        };
+        });
     }
 }
 

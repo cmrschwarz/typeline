@@ -1,5 +1,6 @@
 use std::{mem::ManuallyDrop, ops::Range};
 
+use metamatch::metamatch;
 use num::{BigInt, BigRational};
 
 use super::{
@@ -93,7 +94,7 @@ impl<'a> FieldValueRef<'a> {
         data_begin: usize,
     ) -> Self {
         unsafe {
-            match fmt.repr {
+            metamatch!(match fmt.repr {
                 FieldValueRepr::Null => FieldValueRef::Null,
                 FieldValueRepr::Undefined => FieldValueRef::Undefined,
                 FieldValueRepr::BytesInline => FieldValueRef::Bytes(to_slice(
@@ -108,41 +109,6 @@ impl<'a> FieldValueRef<'a> {
                         data_begin + fmt.size as usize,
                     )),
                 ),
-                FieldValueRepr::Int => {
-                    FieldValueRef::Int(to_ref(fdr, data_begin))
-                }
-                FieldValueRepr::BigInt => {
-                    FieldValueRef::BigInt(to_ref(fdr, data_begin))
-                }
-                FieldValueRepr::Float => {
-                    FieldValueRef::Float(to_ref(fdr, data_begin))
-                }
-                FieldValueRepr::Rational => {
-                    FieldValueRef::Rational(to_ref(fdr, data_begin))
-                }
-                FieldValueRepr::StreamValueId => {
-                    FieldValueRef::StreamValueId(to_ref(fdr, data_begin))
-                }
-                FieldValueRepr::FieldReference => {
-                    FieldValueRef::FieldReference(to_ref(fdr, data_begin))
-                }
-                FieldValueRepr::SlicedFieldReference => {
-                    FieldValueRef::SlicedFieldReference(to_ref(
-                        fdr, data_begin,
-                    ))
-                }
-                FieldValueRepr::Error => {
-                    FieldValueRef::Error(to_ref(fdr, data_begin))
-                }
-                FieldValueRepr::Object => {
-                    FieldValueRef::Object(to_ref(fdr, data_begin))
-                }
-                FieldValueRepr::Array => {
-                    FieldValueRef::Array(to_ref(fdr, data_begin))
-                }
-                FieldValueRepr::Custom => {
-                    FieldValueRef::Custom(to_ref(fdr, data_begin))
-                }
                 FieldValueRepr::BytesBuffer => {
                     FieldValueRef::Bytes(to_ref::<Vec<u8>, R>(fdr, data_begin))
                 }
@@ -151,36 +117,33 @@ impl<'a> FieldValueRef<'a> {
                 }
                 FieldValueRepr::BytesFile => todo!(),
                 FieldValueRepr::TextFile => todo!(),
-            }
+
+                #[expand(REPR in [
+                    Int, BigInt, Float, Rational, StreamValueId, FieldReference,
+                    SlicedFieldReference, Error,
+                    Object, Array, Custom
+                ])]
+                FieldValueRepr::REPR => {
+                    FieldValueRef::REPR(to_ref(fdr, data_begin))
+                }
+            })
         }
     }
     pub fn as_slice(&self) -> FieldValueSlice<'a> {
         use std::slice::from_ref;
-        match self {
+
+        metamatch!(match self {
             FieldValueRef::Undefined => FieldValueSlice::Undefined(1),
             FieldValueRef::Null => FieldValueSlice::Null(1),
-            FieldValueRef::Int(v) => FieldValueSlice::Int(from_ref(v)),
-            FieldValueRef::BigInt(v) => FieldValueSlice::BigInt(from_ref(v)),
-            FieldValueRef::Float(v) => FieldValueSlice::Float(from_ref(v)),
-            FieldValueRef::Rational(v) => {
-                FieldValueSlice::Rational(from_ref(v))
-            }
-            FieldValueRef::StreamValueId(v) => {
-                FieldValueSlice::StreamValueId(from_ref(v))
-            }
-            FieldValueRef::FieldReference(v) => {
-                FieldValueSlice::FieldReference(from_ref(v))
-            }
-            FieldValueRef::SlicedFieldReference(v) => {
-                FieldValueSlice::SlicedFieldReference(from_ref(v))
-            }
-            FieldValueRef::Error(v) => FieldValueSlice::Error(from_ref(v)),
             FieldValueRef::Text(v) => FieldValueSlice::TextInline(v),
             FieldValueRef::Bytes(v) => FieldValueSlice::BytesInline(v),
-            FieldValueRef::Object(v) => FieldValueSlice::Object(from_ref(v)),
-            FieldValueRef::Array(v) => FieldValueSlice::Array(from_ref(v)),
-            FieldValueRef::Custom(v) => FieldValueSlice::Custom(from_ref(v)),
-        }
+            #[expand(REPR in [
+                Int, BigInt, Float, Rational, StreamValueId, FieldReference,
+                SlicedFieldReference, Error,
+                Object, Array, Custom
+            ])]
+            FieldValueRef::REPR(v) => FieldValueSlice::REPR(from_ref(v)),
+        })
     }
     pub fn to_field_value(&self) -> FieldValue {
         match *self {
@@ -292,138 +255,69 @@ impl<'a> FieldValueSlice<'a> {
         field_count: usize,
     ) -> FieldValueSlice<'a> {
         unsafe {
-            match fmt.repr {
+            metamatch!(match fmt.repr {
                 FieldValueRepr::Undefined => {
                     FieldValueSlice::Undefined(field_count)
                 }
                 FieldValueRepr::Null => FieldValueSlice::Null(field_count),
-                FieldValueRepr::BytesInline => FieldValueSlice::BytesInline(
-                    to_slice(fdr, data_begin, data_end),
-                ),
                 FieldValueRepr::TextInline => {
                     FieldValueSlice::TextInline(std::str::from_utf8_unchecked(
                         to_slice(fdr, data_begin, data_end),
                     ))
                 }
-                FieldValueRepr::Int => {
-                    FieldValueSlice::Int(to_slice(fdr, data_begin, data_end))
-                }
-                FieldValueRepr::BigInt => FieldValueSlice::BigInt(to_slice(
-                    fdr, data_begin, data_end,
-                )),
-                FieldValueRepr::Float => {
-                    FieldValueSlice::Float(to_slice(fdr, data_begin, data_end))
-                }
-                FieldValueRepr::Rational => FieldValueSlice::Rational(
-                    to_slice(fdr, data_begin, data_end),
-                ),
-                FieldValueRepr::FieldReference => {
-                    FieldValueSlice::FieldReference(to_slice(
-                        fdr, data_begin, data_end,
-                    ))
-                }
-                FieldValueRepr::SlicedFieldReference => {
-                    FieldValueSlice::SlicedFieldReference(to_slice(
-                        fdr, data_begin, data_end,
-                    ))
-                }
-                FieldValueRepr::Error => {
-                    FieldValueSlice::Error(to_slice(fdr, data_begin, data_end))
-                }
-                FieldValueRepr::Object => FieldValueSlice::Object(to_slice(
-                    fdr, data_begin, data_end,
-                )),
-                FieldValueRepr::Array => {
-                    FieldValueSlice::Array(to_slice(fdr, data_begin, data_end))
-                }
-                FieldValueRepr::Custom => FieldValueSlice::Custom(to_slice(
-                    fdr, data_begin, data_end,
-                )),
-                FieldValueRepr::StreamValueId => {
-                    FieldValueSlice::StreamValueId(to_slice(
-                        fdr, data_begin, data_end,
-                    ))
-                }
-                FieldValueRepr::BytesBuffer => FieldValueSlice::BytesBuffer(
-                    to_slice(fdr, data_begin, data_end),
-                ),
-                FieldValueRepr::TextBuffer => FieldValueSlice::TextBuffer(
-                    to_slice(fdr, data_begin, data_end),
-                ),
                 FieldValueRepr::BytesFile | FieldValueRepr::TextFile => {
                     todo!()
                 }
-            }
+                #[expand(REPR in [
+                    Int, BigInt, Float, Rational, TextBuffer, BytesInline,
+                    BytesBuffer, Object, Array, Custom, Error, StreamValueId,
+                    FieldReference, SlicedFieldReference
+                ])]
+                FieldValueRepr::REPR => {
+                    FieldValueSlice::REPR(to_slice(fdr, data_begin, data_end))
+                }
+            })
         }
     }
     pub fn as_bytes(&self) -> &'a [u8] {
         unsafe {
-            match *self {
+            metamatch!(match *self {
                 FieldValueSlice::Undefined(_) | FieldValueSlice::Null(_) => {
                     &[]
                 }
-                FieldValueSlice::Int(v) => slice_as_bytes(v),
-                FieldValueSlice::BigInt(v) => slice_as_bytes(v),
-                FieldValueSlice::Float(v) => slice_as_bytes(v),
-                FieldValueSlice::Rational(v) => slice_as_bytes(v),
-                FieldValueSlice::StreamValueId(v) => slice_as_bytes(v),
-                FieldValueSlice::FieldReference(v) => slice_as_bytes(v),
-                FieldValueSlice::SlicedFieldReference(v) => slice_as_bytes(v),
-                FieldValueSlice::Error(v) => slice_as_bytes(v),
                 FieldValueSlice::BytesInline(v) => v,
                 FieldValueSlice::TextInline(v) => v.as_bytes(),
-                FieldValueSlice::BytesBuffer(v) => slice_as_bytes(v),
-                FieldValueSlice::TextBuffer(v) => slice_as_bytes(v),
-                FieldValueSlice::Object(v) => slice_as_bytes(v),
-                FieldValueSlice::Array(v) => slice_as_bytes(v),
-                FieldValueSlice::Custom(v) => slice_as_bytes(v),
-            }
+                #[expand(REPR in [
+                    Int, BigInt, Float, Rational, StreamValueId,
+                    FieldReference, SlicedFieldReference, Error,
+                    BytesBuffer, TextBuffer, Object, Array, Custom
+                ])]
+                FieldValueSlice::REPR(v) => slice_as_bytes(v),
+            })
         }
     }
     pub fn repr(&self) -> FieldValueRepr {
-        match self {
-            FieldValueSlice::Undefined(_) => FieldValueRepr::Undefined,
-            FieldValueSlice::Null(_) => FieldValueRepr::Null,
-            FieldValueSlice::Int(_) => FieldValueRepr::Int,
-            FieldValueSlice::BigInt(_) => FieldValueRepr::BigInt,
-            FieldValueSlice::Float(_) => FieldValueRepr::Float,
-            FieldValueSlice::Rational(_) => FieldValueRepr::Rational,
-            FieldValueSlice::StreamValueId(_) => FieldValueRepr::StreamValueId,
-            FieldValueSlice::FieldReference(_) => {
-                FieldValueRepr::FieldReference
-            }
-            FieldValueSlice::SlicedFieldReference(_) => {
-                FieldValueRepr::SlicedFieldReference
-            }
-            FieldValueSlice::Error(_) => FieldValueRepr::Error,
-            FieldValueSlice::TextInline(_) => FieldValueRepr::TextInline,
-            FieldValueSlice::BytesInline(_) => FieldValueRepr::BytesInline,
-            FieldValueSlice::BytesBuffer(_) => FieldValueRepr::BytesBuffer,
-            FieldValueSlice::TextBuffer(_) => FieldValueRepr::TextBuffer,
-            FieldValueSlice::Object(_) => FieldValueRepr::Object,
-            FieldValueSlice::Array(_) => FieldValueRepr::Array,
-            FieldValueSlice::Custom(_) => FieldValueRepr::Custom,
-        }
+        metamatch!(match self {
+            #[expand(REPR in [
+                Undefined, Null, BytesInline, TextInline,
+                Int, BigInt, Float, Rational, StreamValueId, FieldReference,
+                SlicedFieldReference, Error,
+                BytesBuffer, TextBuffer, Object, Array, Custom
+            ])]
+            FieldValueSlice::REPR(_) => FieldValueRepr::REPR,
+        })
     }
     pub fn len(&self) -> usize {
-        match self {
+        metamatch!(match self {
             FieldValueSlice::Undefined(v) | FieldValueSlice::Null(v) => *v,
-            FieldValueSlice::Int(v) => v.len(),
-            FieldValueSlice::BigInt(v) => v.len(),
-            FieldValueSlice::Float(v) => v.len(),
-            FieldValueSlice::Rational(v) => v.len(),
-            FieldValueSlice::StreamValueId(v) => v.len(),
-            FieldValueSlice::FieldReference(v) => v.len(),
-            FieldValueSlice::SlicedFieldReference(v) => v.len(),
-            FieldValueSlice::Error(v) => v.len(),
-            FieldValueSlice::BytesInline(v) => v.len(),
-            FieldValueSlice::TextInline(v) => v.len(),
-            FieldValueSlice::TextBuffer(v) => v.len(),
-            FieldValueSlice::BytesBuffer(v) => v.len(),
-            FieldValueSlice::Object(v) => v.len(),
-            FieldValueSlice::Array(v) => v.len(),
-            FieldValueSlice::Custom(v) => v.len(),
-        }
+            #[expand(REPR in [
+                BytesInline, TextInline,
+                Int, BigInt, Float, Rational, StreamValueId, FieldReference,
+                SlicedFieldReference, Error,
+                BytesBuffer, TextBuffer, Object, Array, Custom
+            ])]
+            FieldValueSlice::REPR(v) => v.len(),
+        })
     }
     // like `len`, but 1 for `TextInline` and `BytesInline`,
     // as those don't can't really carry multiple entries
@@ -453,27 +347,20 @@ impl<'a> FieldValueSlice<'a> {
         kind: FieldValueRepr,
     ) {
         unsafe {
-            match kind {
-                FieldValueRepr::BigInt => drop_slice::<BigInt>(ptr, len),
-                FieldValueRepr::Rational => {
-                    drop_slice::<BigRational>(ptr, len)
-                }
-                FieldValueRepr::TextBuffer => drop_slice::<String>(ptr, len),
-                FieldValueRepr::TextFile => {
-                    drop_slice::<TextBufferFile>(ptr, len)
-                }
-                FieldValueRepr::BytesBuffer => drop_slice::<Vec<u8>>(ptr, len),
-                FieldValueRepr::BytesFile => {
-                    drop_slice::<BytesBufferFile>(ptr, len)
-                }
-                FieldValueRepr::Object => drop_slice::<Object>(ptr, len),
-                FieldValueRepr::Array => drop_slice::<Array>(ptr, len),
-                FieldValueRepr::Custom => {
-                    drop_slice::<CustomDataBox>(ptr, len)
-                }
-                FieldValueRepr::Error => {
-                    drop_slice::<OperatorApplicationError>(ptr, len)
-                }
+            metamatch!(match kind {
+                #[expand((REPR, TYPE) in [
+                    (BigInt, BigInt),
+                    (Rational, BigRational),
+                    (TextBuffer, String),
+                    (BytesBuffer, Vec<u8>),
+                    (TextFile, TextBufferFile),
+                    (BytesFile, BytesBufferFile),
+                    (Object, Object),
+                    (Array, Array),
+                    (Custom, CustomDataBox),
+                    (Error, OperatorApplicationError)
+                ])]
+                FieldValueRepr::REPR => drop_slice::<TYPE>(ptr, len),
                 FieldValueRepr::Undefined
                 | FieldValueRepr::Null
                 | FieldValueRepr::Int
@@ -483,7 +370,7 @@ impl<'a> FieldValueSlice<'a> {
                 | FieldValueRepr::StreamValueId
                 | FieldValueRepr::FieldReference
                 | FieldValueRepr::SlicedFieldReference => (),
-            }
+            })
         }
     }
 }
