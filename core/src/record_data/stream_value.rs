@@ -1588,6 +1588,7 @@ impl<'a> StreamValueManager<'a> {
         &mut self,
         sv: StreamValue<'a>,
     ) -> StreamValueId {
+        #[allow(clippy::let_and_return)]
         let sv_id = self.stream_values.claim_with_value(sv);
         #[cfg(feature = "stream_logging")]
         eprintln!(

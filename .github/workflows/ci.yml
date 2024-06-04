@@ -11,14 +11,15 @@ env:
 
 jobs:
   test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt clippy
-      - run: cargo check --all-features
-      - run: cargo test --all-features --all
+      - run: cargo check --all-features --workspace
+      - run: cargo test --all-features --workspace
 
   doc:
     name: Documentation
@@ -28,7 +29,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rust-docs
-      - run: cargo doc --all-features
+      - run: cargo doc --all-features --workspace
 
   clippy:
     name: Clippy
@@ -38,7 +39,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --all-features
+      - run: cargo clippy --all-features --workspace
 
   rustfmt:
     name: Rustfmt
@@ -49,7 +50,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-      - run: cargo fmt --check
+      - run: cargo fmt --check --all
 
   outdated:
     name: Outdated

@@ -1,5 +1,8 @@
-#![cfg(feature="repl")]
-use reedline::{Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus, PromptViMode};
+#![cfg(feature = "repl")]
+use reedline::{
+    Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus,
+    PromptViMode,
+};
 
 use std::borrow::Cow;
 
@@ -10,7 +13,7 @@ pub static DEFAULT_VI_NORMAL_PROMPT_INDICATOR: &str = ">";
 pub static DEFAULT_MULTILINE_INDICATOR: &str = "::: ";
 
 #[derive(Default)]
-pub struct ScrPrompt {} 
+pub struct ScrPrompt {}
 
 impl Prompt for ScrPrompt {
     fn render_prompt_left(&self) -> Cow<str> {
@@ -23,10 +26,16 @@ impl Prompt for ScrPrompt {
 
     fn render_prompt_indicator(&self, edit_mode: PromptEditMode) -> Cow<str> {
         match edit_mode {
-            PromptEditMode::Default | PromptEditMode::Emacs => DEFAULT_PROMPT_INDICATOR.into(),
+            PromptEditMode::Default | PromptEditMode::Emacs => {
+                DEFAULT_PROMPT_INDICATOR.into()
+            }
             PromptEditMode::Vi(vi_mode) => match vi_mode {
-                PromptViMode::Normal => DEFAULT_VI_NORMAL_PROMPT_INDICATOR.into(),
-                PromptViMode::Insert => DEFAULT_VI_INSERT_PROMPT_INDICATOR.into(),
+                PromptViMode::Normal => {
+                    DEFAULT_VI_NORMAL_PROMPT_INDICATOR.into()
+                }
+                PromptViMode::Insert => {
+                    DEFAULT_VI_INSERT_PROMPT_INDICATOR.into()
+                }
             },
             PromptEditMode::Custom(str) => format!("({str})").into(),
         }
@@ -44,8 +53,8 @@ impl Prompt for ScrPrompt {
             PromptHistorySearchStatus::Passing => "",
             PromptHistorySearchStatus::Failing => "failing ",
         };
-        // NOTE: magic strings, given there is logic on how these compose I am not sure if it
-        // is worth extracting in to static constant
+        // NOTE: magic strings, given there is logic on how these compose I am
+        // not sure if it is worth extracting in to static constant
         Cow::Owned(format!(
             "({}reverse-search: {}) ",
             prefix, history_search.term

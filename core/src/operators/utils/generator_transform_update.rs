@@ -8,7 +8,7 @@ use crate::{
         field_data::FieldValueRepr,
         group_track::{GroupTrackIterRef, GroupTrackManager},
         iter_hall::IterId,
-        iters::{DestructuredFieldDataRef, FieldIterator, FieldIter},
+        iters::{DestructuredFieldDataRef, FieldIter, FieldIterator},
         match_set::{MatchSetId, MatchSetManager},
     },
 };
