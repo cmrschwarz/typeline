@@ -1223,6 +1223,7 @@ impl ActionBuffer {
                 panic!("cannot execute commands on Alias iter hall")
             }
             FieldDataSource::FullCow(_)
+            | FieldDataSource::SameMsCow(_)
             | FieldDataSource::RecordBufferFullCow(_) => {
                 panic!("cannot execute commands on FullCow iter hall")
             }
