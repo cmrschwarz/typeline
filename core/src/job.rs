@@ -150,7 +150,10 @@ impl TransformManager {
         batch_size: usize,
         predecessor_done: bool,
     ) {
-        msm.update_cow_targets(fm, self.transforms[tf_id].match_set_id);
+        msm.update_cross_ms_cow_targets(
+            fm,
+            self.transforms[tf_id].match_set_id,
+        );
         self.inform_transform_batch_available(
             tf_id,
             batch_size,

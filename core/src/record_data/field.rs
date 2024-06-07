@@ -465,6 +465,9 @@ impl FieldManager {
         drop(src_field);
         let tgt_field_id =
             self.add_field(msm, ms_id, tgt_name, ActorRef::default());
+        msm.match_sets[ms_id]
+            .same_ms_cow_mappings
+            .push((src_field_id, tgt_field_id));
 
         let mut src_field = self.fields[src_field_id].borrow_mut();
         src_field.ref_count += 1;

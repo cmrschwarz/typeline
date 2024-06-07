@@ -1,8 +1,10 @@
-// TODO: disable forkcat tests for now
-#![cfg(any())]
-
+#![allow(unused_imports)] //TODO
 use rstest::rstest;
-use scr::utils::maybe_text::MaybeText;
+use scr::{
+    cli::CliOptions,
+    parse_cli_from_strings,
+    utils::{maybe_text::MaybeText, test_utils::int_sequence_strings},
+};
 use scr_core::{
     operators::{
         end::create_op_end,
@@ -20,18 +22,7 @@ use scr_core::{
     scr_error::ScrError,
 };
 
-#[test]
-fn parse_forkcat() -> Result<(), ScrError> {
-    let sess_opts = parse_cli_from_strings(
-        CliOptions::default(),
-        ["scr", "seqn=10", "forkcat", "r=.*", "end"],
-    )?;
-    let res = ContextBuilder::from_session_opts(sess_opts)
-        .run_collect_stringified()?;
-    assert_eq!(res, int_sequence_strings(1..11));
-    Ok(())
-}
-
+#[cfg(any())] //TODO
 #[test]
 fn basic_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -47,6 +38,7 @@ fn basic_forkcat() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_with_input() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::default();
@@ -65,6 +57,7 @@ fn forkcat_with_input() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_dup() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -81,6 +74,7 @@ fn forkcat_dup() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_sandwiched_write() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -99,6 +93,7 @@ fn forkcat_sandwiched_write() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -120,6 +115,7 @@ fn forkcat_into_join() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_build_sql_insert() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -145,6 +141,7 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -159,6 +156,7 @@ fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_surviving_vars() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -179,6 +177,7 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -196,6 +195,7 @@ fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_with_batches() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -211,6 +211,7 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[test]
 fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -229,6 +230,7 @@ fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[cfg(any())] //TODO
 #[rstest]
 #[case(1)]
 #[case(2)]
@@ -249,5 +251,18 @@ fn forkcat_on_unapplied_commands(
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["24"]);
+    Ok(())
+}
+
+#[cfg(any())] //TODO
+#[test]
+fn parse_forkcat() -> Result<(), ScrError> {
+    let sess_opts = parse_cli_from_strings(
+        CliOptions::default(),
+        ["scr", "seqn=10", "forkcat", "r=.*", "end"],
+    )?;
+    let res = ContextBuilder::from_session_opts(sess_opts)
+        .run_collect_stringified()?;
+    assert_eq!(res, int_sequence_strings(1..11));
     Ok(())
 }

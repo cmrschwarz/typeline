@@ -417,6 +417,10 @@ pub fn handle_tf_forcat_subchain_trailer(
             true,
             true,
         );
+    jd.match_set_mgr.update_same_ms_cow_targets(
+        &jd.field_mgr,
+        jd.tf_mgr.transforms[fc.continuation_tf_id].match_set_id,
+    );
 }
 
 pub fn create_op_forkcat() -> OperatorData {

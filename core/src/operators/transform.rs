@@ -69,7 +69,7 @@ use super::{
     },
 };
 
-pub type DefaultTransformName = SmallString<[u8; 16]>;
+pub type DefaultTransformName = SmallString<[u8; 32]>;
 
 index_newtype! {
     pub struct TransformId(DebuggableNonMaxUsize);
@@ -141,7 +141,9 @@ impl TransformData<'_> {
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
             TransformData::ForeachHeader(_) => "each_header",
             TransformData::ForeachTrailer(_) => "each_trailer",
-            TransformData::ForkCatSubchainTrailer(_) => "input_done_eater",
+            TransformData::ForkCatSubchainTrailer(_) => {
+                "forkcat_subchain_trailer"
+            }
             TransformData::SuccessUpdator(_) => "success_updator",
             TransformData::Custom(tf) => return tf.display_name(),
         }
