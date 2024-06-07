@@ -6,7 +6,11 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::utils::{string_store::StringStoreEntry, universe::Universe};
+use crate::utils::{
+    string_store::{StringStore, StringStoreEntry},
+    text_write::TextWrite,
+    universe::Universe,
+};
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
@@ -73,6 +77,17 @@ pub const VOID_FIELD_ID: FieldId = FieldId::MIN;
 impl Field {
     pub fn has_cow_targets(&self) -> bool {
         !self.iter_hall.cow_targets.is_empty()
+    }
+    pub fn write_to_html_table(
+        &self,
+        id: FieldId,
+        string_store: &StringStore,
+        w: &mut impl TextWrite,
+    ) -> Result<(), std::io::Error> {
+        self.iter_hall.field_data.write_to_html_table(
+            Some((id as usize, self.name.map(|id| string_store.lookup(id)))),
+            w,
+        )
     }
 }
 

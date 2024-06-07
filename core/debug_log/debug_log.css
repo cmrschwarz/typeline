@@ -1,0 +1,59 @@
+body {
+    background-color: linen;
+}
+h1 {
+    color: maroon;
+}
+th {
+    background-color: darkgray;
+    border: 1px solid black;
+    height: 25px;
+}
+td {
+    background-color: darkgray;
+    border: 1px solid black;
+    height: 25px;
+}
+.meta_head {
+    background-color: #bf819e;
+}
+.data_head {
+    background-color: #ffb66c;
+}
+.field {
+    background-color: black;
+}
+.data {
+    text-align: center;
+}
+.meta {
+    text-align: center;
+}
+.meta_main {
+    background-color: lightgray;
+    width: 50px;
+}
+.meta_padding {
+    background-color: rgb(48, 46, 46);
+    color: white;
+    width: 10px;
+    text-align: center;
+}
+.meta.flag {
+    width: 3px;
+}
+.flag_unset {
+    background-color: gray;
+}
+.flag_same_as_prev {
+    background-color: cornflowerblue;
+}
+.flag_shared {
+    background-color: green;
+}
+.flag_deleted {
+    background-color: red;
+}
+.flag_shadow {
+    opacity: 0.5;
+}

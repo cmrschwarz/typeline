@@ -22,7 +22,6 @@ use scr_core::{
     scr_error::ScrError,
 };
 
-#[cfg(any())] //TODO
 #[test]
 fn basic_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();

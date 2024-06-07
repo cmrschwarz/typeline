@@ -14,7 +14,8 @@ use super::{
     },
 };
 use crate::{
-    operators::errors::OperatorApplicationError, utils::ringbuf::RingBuf,
+    operators::errors::OperatorApplicationError,
+    utils::{ringbuf::RingBuf, text_write::TextWrite},
 };
 use metamatch::metamatch;
 use std::{
@@ -896,6 +897,124 @@ impl FieldData {
     }
     pub fn field_count(&self) -> usize {
         self.field_count
+    }
+    pub fn write_to_html_table(
+        &self,
+        heading: Option<(usize, Option<&str>)>,
+        w: &mut impl TextWrite,
+    ) -> Result<(), std::io::Error> {
+        let mut iter = self.iter();
+        w.write_text_fmt(format_args!(
+            r#"
+        <table class="field">
+            <thead>
+                <th colspan="2">Field {}</th>
+            </thead>
+            <thead>
+                <th class="meta_head">Meta</th>
+                <th class="data_head">Data</th>
+            </thead>
+            <tbody>
+        "#,
+            match heading {
+                Some((id, None)) => id.to_string(),
+                Some((id, Some(name))) => format!("{id} (`{name}`)"),
+                None => todo!(),
+            },
+        ))?;
+        let mut header_idx = 0;
+        let mut header_offset = 0;
+        while header_idx < self.headers.len() {
+            let h = self.headers[header_idx];
+            let shadow = if header_offset == 0 {
+                ""
+            } else {
+                " flag_shadow"
+            };
+            w.write_all_text(
+                r#"
+                <tr>
+                    <td>
+                        <table>
+                            <tbody>
+                                <tr>
+            "#,
+            )?;
+            w.write_text_fmt(format_args!(
+                r#"
+                                    <td class="meta meta_main{shadow}">{}</td>
+            "#,
+                h.fmt.repr.to_string()
+            ))?;
+            w.write_text_fmt(format_args!(
+                r#"
+                                    <td class="meta meta_padding{shadow}">{}</td>
+            "#,
+                h.fmt.leading_padding()
+            ))?;
+            w.write_text_fmt(format_args!(
+                r#"
+                                    <td class="meta {}{shadow}"></td>
+            "#,
+                if h.same_value_as_previous() {
+                    "flag_same_as_prev"
+                } else {
+                    "flag_disabled"
+                }
+            ))?;
+            w.write_text_fmt(format_args!(
+                r#"
+                                    <td class="meta {}{shadow}"></td>
+            "#,
+                if h.shared_value() {
+                    "flag_shared"
+                } else {
+                    "flag_disabled"
+                }
+            ))?;
+            w.write_text_fmt(format_args!(
+                r#"
+                                    <td class="meta {}{shadow}"></td>
+            "#,
+                if h.deleted() {
+                    "flag_deleted"
+                } else {
+                    "flag_disabled"
+                }
+            ))?;
+            w.write_text_fmt(format_args!(
+                r#"
+                                </tr>
+                            </tbody>
+                        </table>
+                    </td>
+                    <td class="data">{}
+            "#,
+                iter.get_next_typed_field()
+                    .value
+                    .to_field_value()
+                    .to_string()
+            ))?;
+
+            w.write_all_text(
+                r#"
+                </tr>
+            "#,
+            )?;
+            if h.run_length >= header_offset {
+                header_idx += 1;
+                header_offset = 0;
+            }
+        }
+
+        w.write_all_text(
+            r#"
+            </tbody>
+        </table>
+        "#,
+        )?;
+
+        Ok(())
     }
 }
 

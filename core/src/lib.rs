@@ -27,6 +27,7 @@ extern crate static_assertions;
 
 extern crate arrayvec;
 extern crate bitvec;
+extern crate bstr;
 extern crate encoding_rs;
 extern crate memchr;
 extern crate metamatch;
