@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     io::{stdout, Write},
+    path::PathBuf,
     sync::{atomic::AtomicBool, Arc, Condvar, Mutex, RwLock},
     thread::JoinHandle,
 };
@@ -56,6 +57,7 @@ pub struct SessionSettings {
     pub max_threads: usize,
     pub repl: bool,
     pub skipped_first_cli_arg: bool,
+    pub debug_log_path: Option<PathBuf>,
 }
 
 pub struct SessionData {

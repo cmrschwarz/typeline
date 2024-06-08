@@ -53,6 +53,7 @@ use once_cell::sync::Lazy;
 use std::{
     borrow::Cow,
     fmt::Display,
+    path::PathBuf,
     str::{from_utf8, FromStr},
     sync::Arc,
 };
@@ -377,6 +378,29 @@ fn try_parse_as_chain_opt(
     let chain = &mut ctx_opts.chains[ctx_opts.curr_chain];
     let arg_idx = Some(arg.cli_arg.idx);
     match arg.argname {
+        "debug_log" => {
+            if let Some(val) = &arg.value {
+                match val.to_str().ok().and_then(|v| PathBuf::from_str(v).ok())
+                {
+                    Some(path) => {
+                        ctx_opts.debug_log_path.set(path, arg_idx)?;
+                    }
+                    None => {
+                        return Err(CliArgumentError::new(
+                            "invalid path for debug log",
+                            arg.cli_arg.idx,
+                        )
+                        .into());
+                    }
+                }
+            } else {
+                return Err(CliArgumentError::new(
+                    "missing argument for debug log path",
+                    arg.cli_arg.idx,
+                )
+                .into());
+            }
+        }
         "denc" => {
             if let Some(_val) = &arg.value {
                 todo!("parse text encoding");

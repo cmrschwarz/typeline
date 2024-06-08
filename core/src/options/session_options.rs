@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     num::NonZeroUsize,
+    path::PathBuf,
     sync::{atomic::AtomicBool, Arc, RwLock},
 };
 
@@ -38,6 +39,7 @@ use super::{
 };
 
 pub struct SessionOptions {
+    pub debug_log_path: Argument<PathBuf>,
     pub max_threads: Argument<usize>,
     pub any_threaded_operations: bool,
     pub repl: Argument<bool>,
@@ -60,6 +62,7 @@ static EMPTY_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
 static DEFAULT_CONTEXT_OPTIONS: Lazy<SessionOptions> =
     Lazy::new(|| SessionOptions {
         max_threads: Argument::new_v(0),
+        debug_log_path: Argument::default(),
         repl: Argument::new_v(false),
         exit_repl: Argument::new_v(false),
         chains: IndexVec::new(),
@@ -85,6 +88,7 @@ impl SessionOptions {
         Self {
             max_threads: Argument::default(),
             repl: Argument::default(),
+            debug_log_path: Argument::default(),
             exit_repl: Argument::default(),
             chains: IndexVec::from(vec![ChainOptions::default()]),
             curr_chain: ChainId::zero(),
@@ -343,6 +347,7 @@ impl SessionOptions {
                     .repl
                     .unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
                 skipped_first_cli_arg: self.skipped_first_cli_arg,
+                debug_log_path: self.debug_log_path.get(),
             },
             chains,
             operator_data: self.operator_data,

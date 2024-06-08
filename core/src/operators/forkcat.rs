@@ -21,7 +21,6 @@ use crate::{
     utils::{
         index_vec::{IndexSlice, IndexVec},
         indexing_type::{IndexingType, IndexingTypeRange},
-        text_write::TextWriteIoAdapter,
     },
 };
 
@@ -422,9 +421,6 @@ pub fn handle_tf_forcat_subchain_trailer(
         &jd.field_mgr,
         jd.tf_mgr.transforms[fc.continuation_tf_id].match_set_id,
     );
-    jd.field_mgr
-        .write_fields_to_html(&jd, &mut TextWriteIoAdapter(std::io::stdout()))
-        .unwrap();
 }
 
 pub fn create_op_forkcat() -> OperatorData {
