@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    fs::File,
     sync::Arc,
 };
 
@@ -31,7 +32,10 @@ use crate::{
         record_buffer::RecordBuffer,
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
-    utils::{index_vec::IndexVec, universe::Universe},
+    utils::{
+        index_vec::IndexVec, text_write::TextWriteIoAdapter,
+        universe::Universe,
+    },
 };
 
 // a helper type so we can pass a transform handler typed
@@ -50,6 +54,7 @@ pub struct Job<'a> {
     pub job_data: JobData<'a>,
     pub transform_data: IndexVec<TransformId, TransformData<'a>>,
     pub temp_vec: Vec<FieldId>,
+    debug_log: Option<File>,
 }
 
 #[derive(Default)]
@@ -800,6 +805,15 @@ impl<'a> Job<'a> {
                 .print_field_iter_data(output_field_id, 4);
             eprintln!();
         }
+        if let Some(f) = &mut self.debug_log {
+            self.job_data
+                .field_mgr
+                .write_fields_to_html(
+                    &self.job_data,
+                    &mut TextWriteIoAdapter(f),
+                )
+                .expect("debug log write must succeed"); //TODO: handle this better
+        }
         Ok(())
     }
 
@@ -877,10 +891,22 @@ impl<'a> Job<'a> {
 }
 impl<'a> Job<'a> {
     pub fn new(sess_data: &'a SessionData) -> Self {
+        Self::from_job_data(JobData::new(sess_data))
+    }
+    pub fn from_job_data(job_data: JobData<'a>) -> Self {
         Job {
-            job_data: JobData::new(sess_data),
             transform_data: IndexVec::new(),
             temp_vec: Vec::new(),
+            //TODO: nicer error handling for this
+            debug_log: job_data
+                .session_data
+                .settings
+                .debug_log_path
+                .as_ref()
+                .map(|p| {
+                    File::create(p).expect("debug log path must be valid")
+                }),
+            job_data,
         }
     }
 }

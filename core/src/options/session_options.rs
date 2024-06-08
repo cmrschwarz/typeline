@@ -3,6 +3,7 @@ use std::{
     collections::HashMap,
     num::NonZeroUsize,
     path::PathBuf,
+    str::FromStr,
     sync::{atomic::AtomicBool, Arc, RwLock},
 };
 
@@ -62,7 +63,10 @@ static EMPTY_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
 static DEFAULT_CONTEXT_OPTIONS: Lazy<SessionOptions> =
     Lazy::new(|| SessionOptions {
         max_threads: Argument::new_v(0),
-        debug_log_path: Argument::default(),
+        debug_log_path: Argument::new_opt(
+            option_env!("SCR_DEBUG_LOG_PATH")
+                .map(|p| PathBuf::from_str(p).expect("valid debug log path")),
+        ),
         repl: Argument::new_v(false),
         exit_repl: Argument::new_v(false),
         chains: IndexVec::new(),
@@ -347,7 +351,10 @@ impl SessionOptions {
                     .repl
                     .unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
                 skipped_first_cli_arg: self.skipped_first_cli_arg,
-                debug_log_path: self.debug_log_path.get(),
+                debug_log_path: self
+                    .debug_log_path
+                    .get()
+                    .or(DEFAULT_CONTEXT_OPTIONS.debug_log_path.get()),
             },
             chains,
             operator_data: self.operator_data,

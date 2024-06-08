@@ -45,6 +45,12 @@ impl<T: Clone> Argument<T> {
             cli_arg_idx: None,
         }
     }
+    pub const fn new_opt(value: Option<T>) -> Self {
+        Self {
+            value,
+            cli_arg_idx: None,
+        }
+    }
     pub fn set(
         &mut self,
         value: T,

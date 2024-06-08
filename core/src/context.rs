@@ -535,11 +535,7 @@ impl SessionData {
     }
     pub fn run_job_unthreaded(&self, job: JobDescription) {
         assert!(!self.settings.repl);
-        let mut js = Job {
-            transform_data: IndexVec::new(),
-            job_data: JobData::new(self),
-            temp_vec: Vec::default(),
-        };
+        let mut js = Job::from_job_data(JobData::new(self));
         js.setup_job(job);
         if let Err(_venture) = js.run(None) {
             unreachable!()
