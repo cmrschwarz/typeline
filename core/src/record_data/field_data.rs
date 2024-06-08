@@ -908,11 +908,11 @@ impl FieldData {
             r#"
         <table class="field">
             <thead>
-                <th colspan="2">Field {}</th>
+                <th class="field_cell field_desc" colspan="2">Field {}</th>
             </thead>
             <thead>
-                <th class="meta_head">Meta</th>
-                <th class="data_head">Data</th>
+                <th class="field_cell meta_head">Meta</th>
+                <th class="field_cell data_head">Data</th>
             </thead>
             <tbody>
         "#,
@@ -933,8 +933,8 @@ impl FieldData {
             };
             w.write_all_text(
                 r#"
-                <tr>
-                    <td>
+                <tr class="field_row">
+                    <td class="field_cell">
                         <table>
                             <tbody>
                                 <tr>
@@ -954,7 +954,7 @@ impl FieldData {
             ))?;
             w.write_text_fmt(format_args!(
                 r#"
-                                    <td class="meta {}{shadow}"></td>
+                                    <td class="meta flag {}{shadow}"></td>
             "#,
                 if h.same_value_as_previous() {
                     "flag_same_as_prev"
@@ -964,7 +964,7 @@ impl FieldData {
             ))?;
             w.write_text_fmt(format_args!(
                 r#"
-                                    <td class="meta {}{shadow}"></td>
+                                    <td class="meta flag {}{shadow}"></td>
             "#,
                 if h.shared_value() {
                     "flag_shared"
@@ -974,7 +974,7 @@ impl FieldData {
             ))?;
             w.write_text_fmt(format_args!(
                 r#"
-                                    <td class="meta {}{shadow}"></td>
+                                    <td class="meta flag {}{shadow}"></td>
             "#,
                 if h.deleted() {
                     "flag_deleted"
@@ -1001,7 +1001,16 @@ impl FieldData {
                 </tr>
             "#,
             )?;
-            if h.run_length >= header_offset {
+            header_offset += 1;
+            iter.next_n_fields_with_fmt(
+                1,
+                [],
+                true,
+                field_value_flags::NONE,
+                field_value_flags::DEFAULT,
+                true,
+            );
+            if header_offset >= h.run_length {
                 header_idx += 1;
                 header_offset = 0;
             }

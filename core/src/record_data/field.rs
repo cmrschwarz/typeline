@@ -1004,7 +1004,9 @@ impl FieldManager {
             include_str!("./debug_log.css")
         ))?;
         for (i, f) in self.fields.iter_enumerated() {
-            w.write_all_text("                <td>\n")?;
+            w.write_all_text(
+                "                <td class=\"field_list_entry\">\n",
+            )?;
             f.borrow().write_to_html_table(
                 i,
                 &jd.session_data.string_store.borrow().read().unwrap(),

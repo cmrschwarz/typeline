@@ -1,15 +1,18 @@
 body {
     background-color: linen;
 }
-h1 {
-    color: maroon;
+.field_list_entry {
+    vertical-align: top;
 }
-th {
+.field_desc {
+    background-color: darkgray;
+}
+.field_cell {
     background-color: darkgray;
     border: 1px solid black;
     height: 25px;
 }
-td {
+.field_row {
     background-color: darkgray;
     border: 1px solid black;
     height: 25px;
@@ -40,10 +43,11 @@ td {
     text-align: center;
 }
 .meta.flag {
-    width: 3px;
+    width: 2px;
+    border: 1px solid black;
 }
-.flag_unset {
-    background-color: gray;
+.flag_disabled {
+    background-color: transparent;
 }
 .flag_same_as_prev {
     background-color: cornflowerblue;
