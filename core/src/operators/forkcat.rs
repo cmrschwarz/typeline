@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashMap};
+use std::collections::HashMap;
 
 use bitvec::vec::BitVec;
 
@@ -422,13 +422,8 @@ pub fn handle_tf_forcat_subchain_trailer(
         &jd.field_mgr,
         jd.tf_mgr.transforms[fc.continuation_tf_id].match_set_id,
     );
-    let field = jd.field_mgr.fields[fc.continuation_input_field].borrow();
-    field
-        .write_to_html_table(
-            fc.continuation_input_field,
-            &jd.session_data.string_store.borrow().read().unwrap(),
-            &mut TextWriteIoAdapter(std::io::stdout()),
-        )
+    jd.field_mgr
+        .write_fields_to_html(&jd, &mut TextWriteIoAdapter(std::io::stdout()))
         .unwrap();
 }
 

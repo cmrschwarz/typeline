@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     cell::{Ref, RefCell, RefMut},
     collections::{hash_map::Entry, VecDeque},
     marker::PhantomData,
@@ -6,10 +7,13 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::utils::{
-    string_store::{StringStore, StringStoreEntry},
-    text_write::TextWrite,
-    universe::Universe,
+use crate::{
+    job::JobData,
+    utils::{
+        string_store::{StringStore, StringStoreEntry},
+        text_write::TextWrite,
+        universe::Universe,
+    },
 };
 
 use super::{
@@ -979,6 +983,44 @@ impl FieldManager {
     }
     pub fn print_field_report(&self, id: FieldId) {
         self.print_field_report_for_ref(&self.fields[id].borrow(), id);
+    }
+    pub fn write_fields_to_html(
+        &self,
+        jd: &JobData,
+        w: &mut impl TextWrite,
+    ) -> Result<(), std::io::Error> {
+        w.write_text_fmt(format_args!(
+            r#"
+<html>
+    <head>
+        <style>
+        {}
+        </style>
+    </head>
+    <body>
+        <table>
+            <tbody>
+        "#,
+            include_str!("./debug_log.css")
+        ))?;
+        for (i, f) in self.fields.iter_enumerated() {
+            w.write_all_text("                <td>\n")?;
+            f.borrow().write_to_html_table(
+                i,
+                &jd.session_data.string_store.borrow().read().unwrap(),
+                w,
+            )?;
+            w.write_all_text("                </td>\n")?;
+        }
+        w.write_all_text(
+            r#"
+            </tbody>
+        </table>
+    </body>
+</html>
+        "#,
+        )?;
+        Ok(())
     }
 }
 

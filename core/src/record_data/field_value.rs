@@ -5,11 +5,7 @@ use num::{BigInt, BigRational};
 
 use crate::{
     operators::errors::OperatorApplicationError,
-    utils::{
-        maybe_text::MaybeText,
-        string_store::StringStoreEntry,
-        text_write::{MaybeTextWriteFlaggedAdapter, TextWriteFormatAdapter},
-    },
+    utils::{maybe_text::MaybeText, string_store::StringStoreEntry},
     NULL_STR, UNDEFINED_STR,
 };
 
@@ -399,9 +395,9 @@ impl FieldValue {
             FieldValue::Rational(v) => v.to_string(),
             FieldValue::Text(v) => v.clone(),
             FieldValue::Bytes(v) => String::from_utf8_lossy(&v).to_string(),
-            FieldValue::Array(v) => todo!(),
-            FieldValue::Object(v) => todo!(),
-            FieldValue::Custom(v) => todo!(),
+            FieldValue::Array(_) => todo!(),
+            FieldValue::Object(_) => todo!(),
+            FieldValue::Custom(_) => todo!(),
             FieldValue::Error(v) => v.to_string(),
             FieldValue::StreamValueId(v) => v.to_string(),
             FieldValue::FieldReference(v) => format!("{v:?}"),
