@@ -11,6 +11,12 @@ use super::{
     iters::FieldIterator,
 };
 
+fn escape_text(text: &str) -> String {
+    text.replace("&", "&amp")
+        .replace('<', "&lt")
+        .replace(">", "&gt")
+}
+
 pub fn write_debug_log_html_head(
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
@@ -44,7 +50,8 @@ pub fn write_transform_update_to_html(
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
     w.write_text_fmt(format_args!(
-        "<div class=\"transform_update\">{tf}</div>\n"
+        "<div class=\"transform_update\">{}</div>\n",
+        escape_text(tf)
     ))
 }
 
@@ -112,9 +119,24 @@ pub fn write_field_to_html_table(
     dead_slots: &[usize],
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
+    let field_name = {
+        let id = id;
+        let given_name = field.name.map(|id| string_store.lookup(id));
+        let mut res = if let Some(name) = given_name {
+            format!("Field {id} '{name}'")
+        } else {
+            format!("Field {id}")
+        };
+        #[cfg(feature = "debug_logging")]
+        {
+            let tf_name = &field.producing_transform_arg;
+            res = format!("{res} (`{tf_name}`)");
+        }
+        res
+    };
     write_field_data_to_html_table(
         &field.iter_hall.field_data,
-        Some((id as usize, field.name.map(|id| string_store.lookup(id)))),
+        &field_name,
         dead_slots,
         w,
     )
@@ -122,7 +144,7 @@ pub fn write_field_to_html_table(
 
 pub fn write_field_data_to_html_table(
     fd: &FieldData,
-    heading: Option<(usize, Option<&str>)>,
+    heading: &str,
     dead_slots: &[usize],
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
@@ -131,7 +153,7 @@ pub fn write_field_data_to_html_table(
         r#"
     <table class="field">
         <thead>
-            <th class="field_cell field_desc" colspan="4">Field {}</th>
+            <th class="field_cell field_desc" colspan="4">{}</th>
         </thead>
         <thead>
             <th class="field_cell meta_head">Meta</th>
@@ -141,11 +163,7 @@ pub fn write_field_data_to_html_table(
         </thead>
         <tbody>
     "#,
-        match heading {
-            Some((id, None)) => id.to_string(),
-            Some((id, Some(name))) => format!("{id} (`{name}`)"),
-            None => todo!(),
-        },
+        escape_text(heading)
     ))?;
     let mut del_count = 0;
 
@@ -176,7 +194,7 @@ pub fn write_field_data_to_html_table(
             r#"
                                 <td class="meta meta_main{flag_shadow}">{}</td>
         "#,
-            h.fmt.repr.to_string()
+            escape_text(&h.fmt.repr.to_string())
         ))?;
         w.write_text_fmt(format_args!(
             r#"
@@ -230,10 +248,13 @@ pub fn write_field_data_to_html_table(
             } else {
                 h.run_length.to_string()
             },
-            iter.get_next_typed_field()
-                .value
-                .to_field_value()
-                .to_string()
+            escape_text(
+                &iter
+                    .get_next_typed_field()
+                    .value
+                    .to_field_value()
+                    .to_string()
+            )
         ))?;
 
         w.write_all_text(
