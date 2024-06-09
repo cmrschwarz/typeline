@@ -757,9 +757,9 @@ impl<'a> Job<'a> {
         tf_id: TransformId,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
-        let tf = &self.job_data.tf_mgr.transforms[tf_id];
         #[cfg(feature = "debug_logging")]
         {
+            let tf = &self.job_data.tf_mgr.transforms[tf_id];
             eprintln!(
                 "> transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
                 format!("`{}`", self.transform_data[tf_id].display_name()),

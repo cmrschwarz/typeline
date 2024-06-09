@@ -581,10 +581,10 @@ pub fn handle_tf_join<'a>(
                 desired_group_len_rem != 0 && should_drop_group(join);
             let drop_count = (field_pos - last_group_end
                 + usize::from(prebuffered_record))
-            .saturating_sub(1);
+            .saturating_sub(usize::from(!should_drop));
             record_group_iter.drop_before(
                 record_group_iter.field_pos() - drop_count,
-                drop_count.saturating_sub(usize::from(!should_drop)),
+                drop_count,
             );
             prebuffered_record = false;
             if join.curr_group_len == 0 && !should_drop {
