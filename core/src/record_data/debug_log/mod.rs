@@ -48,10 +48,33 @@ pub fn write_transform_update_to_html(
     ))
 }
 
+fn add_field_data_dead_slots(fd: &FieldData, dead_slots: &mut [usize]) {
+    let mut iter = super::iters::FieldIter::from_start_allow_dead(fd);
+    for i in 0..dead_slots.len() {
+        dead_slots[i] = dead_slots[i].max(iter.skip_dead_fields());
+        iter.next_field_allow_dead();
+    }
+}
+
 pub fn write_fields_to_html(
     jd: &JobData,
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
+    let mut dead_slots = Vec::<usize>::new();
+    for (i, f) in jd.field_mgr.fields.iter_enumerated() {
+        if i == VOID_FIELD_ID {
+            continue;
+        }
+        jd.field_mgr.apply_field_actions(&jd.match_set_mgr, i);
+        let f = f.borrow();
+        let fc = f.iter_hall.field_data.field_count;
+        dead_slots.resize(dead_slots.len().max(fc), 0);
+        add_field_data_dead_slots(
+            &f.iter_hall.field_data,
+            &mut dead_slots[0..fc],
+        );
+    }
+
     w.write_text_fmt(format_args!(
         r#"
     <table>
@@ -62,12 +85,13 @@ pub fn write_fields_to_html(
         if i == VOID_FIELD_ID {
             continue;
         }
-        jd.field_mgr.apply_field_actions(&jd.match_set_mgr, i);
+
         w.write_all_text("                <td class=\"field_list_entry\">\n")?;
         write_field_to_html_table(
             &f.borrow(),
             i,
             &jd.session_data.string_store.borrow().read().unwrap(),
+            &dead_slots,
             w,
         )?;
         w.write_all_text("                </td>\n")?;
@@ -85,11 +109,13 @@ pub fn write_field_to_html_table(
     field: &Field,
     id: FieldId,
     string_store: &StringStore,
+    dead_slots: &[usize],
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
     write_field_data_to_html_table(
         &field.iter_hall.field_data,
         Some((id as usize, field.name.map(|id| string_store.lookup(id)))),
+        dead_slots,
         w,
     )
 }
@@ -97,9 +123,10 @@ pub fn write_field_to_html_table(
 pub fn write_field_data_to_html_table(
     fd: &FieldData,
     heading: Option<(usize, Option<&str>)>,
+    dead_slots: &[usize],
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
-    let mut iter = fd.iter();
+    let mut iter = super::iters::FieldIter::from_start_allow_dead(fd);
     w.write_text_fmt(format_args!(
         r#"
     <table class="field">
@@ -120,12 +147,22 @@ pub fn write_field_data_to_html_table(
             None => todo!(),
         },
     ))?;
-    let mut header_idx = 0;
-    let mut header_offset = 0;
-    while header_idx < fd.headers.len() {
-        let h = fd.headers[header_idx];
-        let shadow_elem = header_offset == 0;
-        let flag_shadow = if shadow_elem { "" } else { " flag_shadow" };
+    let mut del_count = 0;
+
+    while iter.is_next_valid() {
+        let h = fd.headers[iter.header_idx];
+        if h.deleted() {
+            del_count += 1;
+        } else {
+            for _ in del_count..dead_slots[iter.field_pos] {
+                w.write_all_text(
+                    "<tr class=\"field_row dead_row\"><td colspan=4></td></tr>\n",
+                )?;
+            }
+            del_count = 0;
+        }
+        let shadow_elem = iter.header_rl_offset != 0;
+        let flag_shadow = if shadow_elem { " flag_shadow" } else { "" };
         w.write_all_text(
             r#"
             <tr class="field_row">
@@ -189,9 +226,9 @@ pub fn write_field_data_to_html_table(
         "#,
             h.size,
             if shadow_elem {
-                h.run_length.to_string()
-            } else {
                 " ".to_string()
+            } else {
+                h.run_length.to_string()
             },
             iter.get_next_typed_field()
                 .value
@@ -204,12 +241,7 @@ pub fn write_field_data_to_html_table(
             </tr>
         "#,
         )?;
-        header_offset += 1;
         iter.next_field_allow_dead();
-        if header_offset >= h.run_length {
-            header_idx += 1;
-            header_offset = 0;
-        }
     }
 
     w.write_all_text(

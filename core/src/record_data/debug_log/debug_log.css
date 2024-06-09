@@ -16,6 +16,9 @@ body {
     border: 1px solid black;
     height: 25px;
 }
+.dead_row {
+    height: 32px;
+}
 .meta_head {
     background-color: #daa4bd;
 }

@@ -236,9 +236,9 @@ pub struct FieldIter<'a, R: FieldDataRef<'a>> {
 }
 
 impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
-    pub fn from_start(fdr: R) -> Self {
+    pub fn from_start_allow_dead(fdr: R) -> Self {
         let first_header = fdr.headers().front();
-        let mut res = Self {
+        let res = Self {
             field_pos: 0,
             data: 0,
             header_idx: 0,
@@ -248,6 +248,10 @@ impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
             fdr,
             _phantom_data: PhantomData,
         };
+        res
+    }
+    pub fn from_start(fdr: R) -> Self {
+        let mut res = Self::from_start_allow_dead(fdr);
         res.skip_dead_fields();
         res
     }
@@ -263,23 +267,53 @@ impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
             _phantom_data: PhantomData,
         }
     }
-    pub(super) fn skip_dead_fields(&mut self) {
-        while self.header_fmt.deleted() && self.is_next_valid() {
-            self.next_header();
+    pub(super) fn skip_dead_fields(&mut self) -> usize {
+        if !self.header_fmt.deleted() {
+            return 0;
         }
+        let mut skip_count =
+            (self.header_rl_total - self.header_rl_offset) as usize;
+        let headers = self.fdr.headers();
+        let mut prev_header_size = headers[self.header_idx].data_size();
+        loop {
+            self.header_idx += 1;
+            if self.header_idx == headers.len() {
+                self.header_rl_total = 0;
+                // to make sure there's no padding
+                self.header_fmt = FieldValueFormat::default();
+                self.data += prev_header_size;
+                break;
+            }
+            let h = headers[self.header_idx];
+            if !h.same_value_as_previous() {
+                self.data += prev_header_size;
+            }
+            if h.deleted() {
+                skip_count += h.run_length as usize;
+                prev_header_size = h.total_size();
+                continue;
+            }
+
+            self.data += h.leading_padding();
+            self.header_fmt = h.fmt;
+            self.header_rl_total = h.run_length;
+            break;
+        }
+        skip_count
     }
     pub(super) fn next_field_allow_dead(&mut self) {
         assert!(self.is_next_valid());
+        if !self.header_fmt.deleted() {
+            self.field_pos += 1;
+        }
         if self.header_rl_offset + 1 < self.header_rl_total {
             self.header_rl_offset += 1;
-            if !self.header_fmt.deleted() {
-                self.field_pos += 1;
-            }
             return;
         }
         let headers = self.fdr.headers();
         let prev_header_size = headers[self.header_idx].data_size();
         self.header_idx += 1;
+        self.header_rl_offset = 0;
         if self.header_idx == headers.len() {
             self.header_rl_total = 0;
             // to make sure there's no padding
