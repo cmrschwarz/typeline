@@ -268,6 +268,33 @@ impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
             self.next_header();
         }
     }
+    pub(super) fn next_field_allow_dead(&mut self) {
+        assert!(self.is_next_valid());
+        if self.header_rl_offset + 1 < self.header_rl_total {
+            self.header_rl_offset += 1;
+            if !self.header_fmt.deleted() {
+                self.field_pos += 1;
+            }
+            return;
+        }
+        let headers = self.fdr.headers();
+        let prev_header_size = headers[self.header_idx].data_size();
+        self.header_idx += 1;
+        if self.header_idx == headers.len() {
+            self.header_rl_total = 0;
+            // to make sure there's no padding
+            self.header_fmt = FieldValueFormat::default();
+            self.data += prev_header_size;
+            return;
+        }
+        let h = headers[self.header_idx];
+        if !h.same_value_as_previous() {
+            self.data += prev_header_size;
+        }
+        self.data += h.leading_padding();
+        self.header_fmt = h.fmt;
+        self.header_rl_total = h.run_length;
+    }
 }
 impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
     type FieldDataRefType = R;

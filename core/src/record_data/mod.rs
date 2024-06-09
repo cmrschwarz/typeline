@@ -2,6 +2,7 @@ pub mod action_buffer;
 pub mod array;
 pub mod bytes_insertion_stream;
 pub mod custom_data;
+pub mod debug_log;
 pub mod dyn_ref_iter;
 pub mod field;
 pub mod field_action;

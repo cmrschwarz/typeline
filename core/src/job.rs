@@ -23,6 +23,10 @@ use crate::{
     },
     record_data::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
+        debug_log::{
+            write_debug_log_html_head, write_debug_log_html_tail,
+            write_fields_to_html, write_transform_update_to_html,
+        },
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
         group_track::{GroupTrackId, GroupTrackManager},
@@ -753,9 +757,9 @@ impl<'a> Job<'a> {
         tf_id: TransformId,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
+        let tf = &self.job_data.tf_mgr.transforms[tf_id];
         #[cfg(feature = "debug_logging")]
         {
-            let tf = &self.job_data.tf_mgr.transforms[tf_id];
             eprintln!(
                 "> transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
                 format!("`{}`", self.transform_data[tf_id].display_name()),
@@ -765,6 +769,13 @@ impl<'a> Job<'a> {
                 tf.done,
                 self.job_data.tf_mgr.ready_stack
             );
+        }
+        if let Some(dl) = &mut self.debug_log {
+            write_transform_update_to_html(
+                &self.transform_data[tf_id].display_name(),
+                &mut TextWriteIoAdapter(dl),
+            )
+            .expect("debug log succeeds");
         }
         transform_pre_update(self, tf_id, ctx)?;
         transform_update(self, tf_id);
@@ -806,12 +817,7 @@ impl<'a> Job<'a> {
             eprintln!();
         }
         if let Some(f) = &mut self.debug_log {
-            self.job_data
-                .field_mgr
-                .write_fields_to_html(
-                    &self.job_data,
-                    &mut TextWriteIoAdapter(f),
-                )
+            write_fields_to_html(&self.job_data, &mut TextWriteIoAdapter(f))
                 .expect("debug log write must succeed"); //TODO: handle this better
         }
         Ok(())
@@ -837,6 +843,10 @@ impl<'a> Job<'a> {
         &mut self,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
+        if let Some(dl) = &mut self.debug_log {
+            write_debug_log_html_head(&mut TextWriteIoAdapter(dl))
+                .expect("debug log write succeeds");
+        }
         // NOTE: we should consider adding a pipeline position attribute on
         // each transform (in a fork both subchains would start at the
         // same pipeline position,  continuation would have position
@@ -885,6 +895,10 @@ impl<'a> Job<'a> {
                 break;
             }
             self.job_data.tf_mgr.pre_stream_transform_stack_cutoff = 0;
+        }
+        if let Some(dl) = &mut self.debug_log {
+            write_debug_log_html_tail(&mut TextWriteIoAdapter(dl))
+                .expect("debug log write succeeds");
         }
         Ok(())
     }
