@@ -244,8 +244,10 @@ pub fn insert_tf_forkcat<'a>(
 
     fc.subchains = subchains;
 
-    job.job_data.tf_mgr.transforms[fc_tf_id].successor =
-        Some(cont_inst.tfs_begin);
+    let tf = &mut job.job_data.tf_mgr.transforms[fc_tf_id];
+    tf.successor = Some(cont_inst.tfs_begin);
+    tf.output_field = cont_input_field;
+    job.job_data.field_mgr.bump_field_refcount(cont_input_field);
 
     OperatorInstantiation {
         tfs_begin: fc_tf_id,

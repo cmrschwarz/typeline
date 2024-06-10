@@ -22,6 +22,7 @@ enum DisplayElem {
     SubchainExpansion(Vec<DisplayOrder>),
 }
 
+#[derive(Default)]
 struct DisplayOrder {
     elems: Vec<DisplayElem>,
     dead_slots: Vec<usize>,
@@ -98,16 +99,14 @@ fn setup_dead_slots(display_order: &mut DisplayOrder, jd: &JobData) {
     }
 }
 
-fn setup_display_order(
+fn setup_display_order_elems(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
     start_tf: TransformId,
-) -> DisplayOrder {
+    display_order: &mut DisplayOrder,
+) {
     let mut fields_temp = Vec::new();
-    let mut display_order = DisplayOrder {
-        elems: Vec::new(),
-        dead_slots: Vec::new(),
-    };
+
     let mut tf_id = start_tf;
     loop {
         display_order.elems.push(DisplayElem::Transform(tf_id));
@@ -117,11 +116,25 @@ fn setup_display_order(
         if let TransformData::ForkCat(fc) = &tf_data[tf_id] {
             let mut subchains = Vec::new();
             for sce in &fc.subchains {
-                subchains.push(setup_display_order(jd, tf_data, sce.start_tf));
+                let mut sc_disp_order = DisplayOrder::default();
+                push_field_elem_with_refs(
+                    jd,
+                    jd.tf_mgr.transforms[sce.start_tf].input_field,
+                    &mut sc_disp_order,
+                );
+                setup_display_order_elems(
+                    jd,
+                    tf_data,
+                    sce.start_tf,
+                    &mut sc_disp_order,
+                );
+                setup_dead_slots(&mut sc_disp_order, jd);
+                subchains.push(sc_disp_order);
             }
             display_order
                 .elems
                 .push(DisplayElem::SubchainExpansion(subchains));
+            push_field_elem_with_refs(jd, tf.output_field, display_order);
         } else {
             tf_data[tf_id].get_out_fields(tf, &mut fields_temp);
             for &field in &fields_temp {
@@ -135,8 +148,17 @@ fn setup_display_order(
             break;
         }
     }
-    setup_dead_slots(&mut display_order, jd);
-    display_order
+}
+
+fn push_field_elem_with_refs(
+    jd: &JobData,
+    field: FieldId,
+    sc_disp_order: &mut DisplayOrder,
+) {
+    for &fr in &jd.field_mgr.fields[field].borrow().field_refs {
+        sc_disp_order.elems.push(DisplayElem::Field(fr));
+    }
+    sc_disp_order.elems.push(DisplayElem::Field(field));
 }
 
 fn write_display_order_to_html(
@@ -209,7 +231,9 @@ pub fn write_debug_log_to_html(
     start_tf: TransformId,
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
-    let display_order = setup_display_order(jd, tf_data, start_tf);
+    let mut display_order = DisplayOrder::default();
+    setup_display_order_elems(jd, tf_data, start_tf, &mut display_order);
+    setup_dead_slots(&mut display_order, jd);
     write_display_order_to_html(jd, tf_data, &display_order, w)
 }
 
