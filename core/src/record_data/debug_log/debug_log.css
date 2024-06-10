@@ -1,5 +1,9 @@
 body {
     background-color: linen;
+    overflow: scroll;
+}
+th, td {
+    white-space: nowrap;
 }
 .field_list_entry {
     vertical-align: top;
