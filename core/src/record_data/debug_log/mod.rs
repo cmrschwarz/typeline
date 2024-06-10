@@ -11,8 +11,7 @@ use crate::{
 
 use super::{
     field::{Field, FieldId, FieldManager},
-    field_data::FieldData,
-    iters::FieldIterator,
+    iters::{FieldDataRef, FieldIterator},
 };
 
 enum DisplayElem {
@@ -72,7 +71,10 @@ pub fn write_transform_update_to_html(
     ))
 }
 
-fn add_field_data_dead_slots(fd: &FieldData, dead_slots: &mut [usize]) {
+fn add_field_data_dead_slots<'a>(
+    fd: impl FieldDataRef<'a>,
+    dead_slots: &mut [usize],
+) {
     let mut iter = super::iters::FieldIter::from_start_allow_dead(fd);
     for i in 0..dead_slots.len() {
         dead_slots[i] = dead_slots[i].max(iter.skip_dead_fields());
@@ -87,15 +89,12 @@ fn setup_dead_slots(display_order: &mut DisplayOrder, jd: &JobData) {
         };
         jd.field_mgr
             .apply_field_actions(&jd.match_set_mgr, *field_id);
-        let f = jd.field_mgr.fields[*field_id].borrow();
-        let fc = f.iter_hall.field_data.field_count;
+        let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
+        let fc = cfr.destructured_field_ref().field_count;
         display_order
             .dead_slots
             .resize(display_order.dead_slots.len().max(fc), 0);
-        add_field_data_dead_slots(
-            &f.iter_hall.field_data,
-            &mut display_order.dead_slots[0..fc],
-        );
+        add_field_data_dead_slots(&cfr, &mut display_order.dead_slots[0..fc]);
     }
 }
 
@@ -240,13 +239,13 @@ pub fn write_debug_log_to_html(
 pub fn write_field_to_html_table(
     fm: &FieldManager,
     field: &Field,
-    id: FieldId,
+    field_id: FieldId,
     string_store: &StringStore,
     dead_slots: &[usize],
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
     let field_name = {
-        let id = id;
+        let id = field_id;
         let given_name = field.name.map(|id| string_store.lookup(id));
         #[allow(unused_mut)]
         let mut res = if let Some(name) = given_name {
@@ -276,8 +275,9 @@ pub fn write_field_to_html_table(
     } else {
         "".to_string()
     };
+    let cfr = fm.get_cow_field_ref_raw(field_id);
     write_field_data_to_html_table(
-        &field.iter_hall.field_data,
+        &cfr,
         &field_name,
         &cow_src_str,
         &field.field_refs,
@@ -286,15 +286,15 @@ pub fn write_field_to_html_table(
     )
 }
 
-pub fn write_field_data_to_html_table(
-    fd: &FieldData,
+pub fn write_field_data_to_html_table<'a>(
+    fd: impl FieldDataRef<'a>,
     heading: &str,
     cow_src_str: &str,
     field_refs: &[FieldId],
     dead_slots: &[usize],
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
-    let mut iter = super::iters::FieldIter::from_start_allow_dead(fd);
+    let mut iter = super::iters::FieldIter::from_start_allow_dead(&fd);
     w.write_text_fmt(format_args!(
         r#"
     <table class="field">
@@ -316,8 +316,8 @@ pub fn write_field_data_to_html_table(
     ))?;
     let mut del_count = 0;
 
-    while iter.is_next_valid() {
-        let h = fd.headers[iter.header_idx];
+    while iter.is_next_valid() && iter.field_pos < fd.field_count() {
+        let h = fd.headers()[iter.header_idx];
         if h.deleted() {
             del_count += 1;
         } else {
