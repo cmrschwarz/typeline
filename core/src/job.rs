@@ -25,7 +25,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         debug_log::{
             write_debug_log_html_head, write_debug_log_html_tail,
-            write_fields_to_html, write_transform_update_to_html,
+            write_debug_log_to_html, write_transform_update_to_html,
         },
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
@@ -51,6 +51,7 @@ pub struct JobData<'a> {
     pub group_track_manager: GroupTrackManager,
     pub field_mgr: FieldManager,
     pub sv_mgr: StreamValueManager<'a>,
+    pub start_tf: Option<TransformId>,
     pub temp_vec: Vec<u8>,
 }
 
@@ -316,6 +317,7 @@ impl<'a> JobData<'a> {
             group_track_manager: GroupTrackManager::default(),
             sv_mgr: StreamValueManager::default(),
             temp_vec: Vec::default(),
+            start_tf: None,
         }
     }
     pub fn unlink_transform(
@@ -415,6 +417,8 @@ impl<'a> Job<'a> {
             None,
             &HashMap::default(),
         );
+
+        self.job_data.start_tf = Some(instantiation.tfs_begin);
 
         add_terminator_tf_cont_dependant(
             self,
@@ -816,9 +820,16 @@ impl<'a> Job<'a> {
                 .print_field_iter_data(output_field_id, 4);
             eprintln!();
         }
-        if let Some(f) = &mut self.debug_log {
-            write_fields_to_html(&self.job_data, &mut TextWriteIoAdapter(f))
-                .expect("debug log write must succeed"); //TODO: handle this better
+        if let (Some(f), Some(start_tf)) =
+            (&mut self.debug_log, self.job_data.start_tf)
+        {
+            write_debug_log_to_html(
+                &self.job_data,
+                &self.transform_data,
+                start_tf,
+                &mut TextWriteIoAdapter(f),
+            )
+            .expect("debug log write must succeed"); //TODO: handle this better
         }
         Ok(())
     }

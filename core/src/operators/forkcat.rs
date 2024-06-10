@@ -66,13 +66,13 @@ pub struct OpForkCat {
     continuation_vars: IndexVec<ContinuationVarIdx, Var>,
 }
 
-struct SubchainEntry {
-    start_tf: TransformId,
-    group_track_id: GroupTrackId,
+pub struct SubchainEntry {
+    pub start_tf: TransformId,
+    pub group_track_id: GroupTrackId,
 }
 
 pub struct TfForkCat {
-    subchains: IndexVec<FcSubchainIdx, SubchainEntry>,
+    pub subchains: IndexVec<FcSubchainIdx, SubchainEntry>,
 }
 
 pub struct TfForkCatSubchainTrailer<'a> {
@@ -243,6 +243,9 @@ pub fn insert_tf_forkcat<'a>(
     };
 
     fc.subchains = subchains;
+
+    job.job_data.tf_mgr.transforms[fc_tf_id].successor =
+        Some(cont_inst.tfs_begin);
 
     OperatorInstantiation {
         tfs_begin: fc_tf_id,

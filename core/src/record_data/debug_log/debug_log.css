@@ -60,6 +60,9 @@ th, td {
     width: 10px;
     text-align: center;
 }
+.transform_entry{
+    background-color: lightgray;
+}
 .meta.flag {
     width: 2px;
     border: 1px solid black;

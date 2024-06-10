@@ -2,14 +2,30 @@ use std::borrow::Borrow;
 
 use crate::{
     job::JobData,
-    utils::{string_store::StringStore, text_write::TextWrite},
+    operators::transform::{TransformData, TransformId},
+    utils::{
+        index_vec::IndexSlice, string_store::StringStore,
+        text_write::TextWrite,
+    },
 };
 
 use super::{
-    field::{Field, FieldId, VOID_FIELD_ID},
+    field::{Field, FieldId, FieldManager},
     field_data::FieldData,
     iters::FieldIterator,
 };
+
+enum DisplayElem {
+    Field(FieldId),
+    Transform(TransformId),
+    #[allow(unused)] //TODO
+    SubchainExpansion(Vec<DisplayOrder>),
+}
+
+struct DisplayOrder {
+    elems: Vec<DisplayElem>,
+    dead_slots: Vec<usize>,
+}
 
 fn escape_text(text: &str) -> String {
     text.replace("&", "&amp")
@@ -63,45 +79,117 @@ fn add_field_data_dead_slots(fd: &FieldData, dead_slots: &mut [usize]) {
     }
 }
 
-pub fn write_fields_to_html(
-    jd: &JobData,
-    w: &mut impl TextWrite,
-) -> Result<(), std::io::Error> {
-    let mut dead_slots = Vec::<usize>::new();
-    for (i, f) in jd.field_mgr.fields.iter_enumerated() {
-        if i == VOID_FIELD_ID {
+fn setup_dead_slots(display_order: &mut DisplayOrder, jd: &JobData) {
+    for elem in &display_order.elems {
+        let DisplayElem::Field(field_id) = elem else {
             continue;
-        }
-        jd.field_mgr.apply_field_actions(&jd.match_set_mgr, i);
-        let f = f.borrow();
+        };
+        jd.field_mgr
+            .apply_field_actions(&jd.match_set_mgr, *field_id);
+        let f = jd.field_mgr.fields[*field_id].borrow();
         let fc = f.iter_hall.field_data.field_count;
-        dead_slots.resize(dead_slots.len().max(fc), 0);
+        display_order
+            .dead_slots
+            .resize(display_order.dead_slots.len().max(fc), 0);
         add_field_data_dead_slots(
             &f.iter_hall.field_data,
-            &mut dead_slots[0..fc],
+            &mut display_order.dead_slots[0..fc],
         );
     }
+}
 
+fn setup_display_order(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    start_tf: TransformId,
+) -> DisplayOrder {
+    let mut display_order = DisplayOrder {
+        elems: Vec::new(),
+        dead_slots: Vec::new(),
+    };
+    let mut tf_id = start_tf;
+    loop {
+        display_order.elems.push(DisplayElem::Transform(tf_id));
+        let tf = &jd.tf_mgr.transforms[tf_id];
+        //TODO: handle multiple output fields
+
+        if let TransformData::ForkCat(fc) = &tf_data[tf_id] {
+            let mut subchains = Vec::new();
+            for sce in &fc.subchains {
+                subchains.push(setup_display_order(jd, tf_data, sce.start_tf));
+            }
+            display_order
+                .elems
+                .push(DisplayElem::SubchainExpansion(subchains));
+        } else {
+            display_order
+                .elems
+                .push(DisplayElem::Field(tf.output_field));
+        }
+        if let Some(succ) = tf.successor {
+            tf_id = succ;
+        } else {
+            break;
+        }
+    }
+    setup_dead_slots(&mut display_order, jd);
+    display_order
+}
+
+fn write_display_order_to_html(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    display_order: &DisplayOrder,
+    w: &mut impl TextWrite,
+) -> Result<(), std::io::Error> {
     w.write_text_fmt(format_args!(
         r#"
     <table>
         <tbody>
     "#
     ))?;
-    for (i, f) in jd.field_mgr.fields.iter_enumerated() {
-        if i == VOID_FIELD_ID {
-            continue;
+    for elem in &display_order.elems {
+        match elem {
+            DisplayElem::Field(field_id) => {
+                w.write_all_text(
+                    "                <td class=\"field_list_entry\">\n",
+                )?;
+                write_field_to_html_table(
+                    &jd.field_mgr,
+                    &jd.field_mgr.fields[*field_id].borrow(),
+                    *field_id,
+                    &jd.session_data.string_store.borrow().read().unwrap(),
+                    &display_order.dead_slots,
+                    w,
+                )?;
+                w.write_all_text("                </td>\n")?;
+            }
+            DisplayElem::Transform(tf_id) => {
+                w.write_all_text(
+                    "                <td class=\"transform_entry\">\n",
+                )?;
+                let tf_data = &tf_data[*tf_id];
+                w.write_text_fmt(format_args!(
+                    "tf {tf_id} `{}`",
+                    tf_data.display_name()
+                ))?;
+                w.write_all_text("                </td>\n")?;
+            }
+            DisplayElem::SubchainExpansion(subchains) => {
+                w.write_all_text(
+                    "                <td class=\"transform_entry\">\n",
+                )?;
+                for sc_display_order in subchains {
+                    write_display_order_to_html(
+                        jd,
+                        tf_data,
+                        sc_display_order,
+                        w,
+                    )?;
+                }
+                w.write_all_text("                </td>\n")?;
+            }
         }
-
-        w.write_all_text("                <td class=\"field_list_entry\">\n")?;
-        write_field_to_html_table(
-            &f.borrow(),
-            i,
-            &jd.session_data.string_store.borrow().read().unwrap(),
-            &dead_slots,
-            w,
-        )?;
-        w.write_all_text("                </td>\n")?;
     }
     w.write_all_text(
         r#"
@@ -112,7 +200,18 @@ pub fn write_fields_to_html(
     Ok(())
 }
 
+pub fn write_debug_log_to_html(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    start_tf: TransformId,
+    w: &mut impl TextWrite,
+) -> Result<(), std::io::Error> {
+    let display_order = setup_display_order(jd, tf_data, start_tf);
+    write_display_order_to_html(jd, tf_data, &display_order, w)
+}
+
 pub fn write_field_to_html_table(
+    fm: &FieldManager,
     field: &Field,
     id: FieldId,
     string_store: &StringStore,
@@ -134,9 +233,26 @@ pub fn write_field_to_html_table(
         }
         res
     };
+    let cow_src_str = if let (cow_src_field, Some(data_cow)) =
+        field.iter_hall.cow_source_field(fm)
+    {
+        format!(
+            " {} cow{}; ",
+            if data_cow { "data" } else { "full" },
+            if let Some(src) = cow_src_field {
+                format!(" src: {src}")
+            } else {
+                String::default()
+            }
+        )
+    } else {
+        "".to_string()
+    };
     write_field_data_to_html_table(
         &field.iter_hall.field_data,
         &field_name,
+        &cow_src_str,
+        &field.field_refs,
         dead_slots,
         w,
     )
@@ -145,6 +261,8 @@ pub fn write_field_to_html_table(
 pub fn write_field_data_to_html_table(
     fd: &FieldData,
     heading: &str,
+    cow_src_str: &str,
+    field_refs: &[FieldId],
     dead_slots: &[usize],
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
@@ -154,6 +272,9 @@ pub fn write_field_data_to_html_table(
     <table class="field">
         <thead>
             <th class="field_cell field_desc" colspan="4">{}</th>
+        </thead>
+        <thead>
+            <th class="field_cell field_desc" colspan="4">{cow_src_str}Field Refs: {field_refs:?}</th>
         </thead>
         <thead>
             <th class="field_cell meta_head">Meta</th>
