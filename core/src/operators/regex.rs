@@ -67,16 +67,17 @@ pub struct OpRegex {
 }
 
 pub struct TfRegex<'a> {
-    op: &'a OpRegex,
-    regex: bytes::Regex,
-    capture_locs: bytes::CaptureLocations,
-    text_only_regex: Option<(regex::Regex, regex::CaptureLocations)>,
-    capture_group_fields: Vec<Option<FieldId>>,
-    input_field_iter_id: IterId,
-    unfinished_value_offset: usize,
-    actor_id: ActorId,
-    input_field_ref_offset: FieldRefOffset,
-    streams_kept_alive: usize,
+    pub(crate) op: &'a OpRegex,
+    pub(crate) regex: bytes::Regex,
+    pub(crate) capture_locs: bytes::CaptureLocations,
+    pub(crate) text_only_regex:
+        Option<(regex::Regex, regex::CaptureLocations)>,
+    pub(crate) capture_group_fields: Vec<Option<FieldId>>,
+    pub(crate) input_field_iter_id: IterId,
+    pub(crate) unfinished_value_offset: usize,
+    pub(crate) actor_id: ActorId,
+    pub(crate) input_field_ref_offset: FieldRefOffset,
+    pub(crate) streams_kept_alive: usize,
 }
 
 #[derive(Clone, Default, PartialEq, Eq)]

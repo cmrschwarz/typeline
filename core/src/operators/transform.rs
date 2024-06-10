@@ -149,6 +149,50 @@ impl TransformData<'_> {
         }
         .into()
     }
+    pub fn get_out_fields(
+        &self,
+        tf_state: &TransformState,
+        fields: &mut Vec<FieldId>,
+    ) {
+        match self {
+            TransformData::Disabled => (),
+            TransformData::Nop(_) => (),
+            TransformData::NopCopy(_) => fields.push(tf_state.output_field),
+            TransformData::Terminator(_) => (),
+            TransformData::Call(_) => todo!(),
+            TransformData::CallConcurrent(_) => todo!(),
+            TransformData::CalleeConcurrent(_) => todo!(),
+            TransformData::ToStr(_) => fields.push(tf_state.output_field),
+            TransformData::Count(_) => fields.push(tf_state.output_field),
+            TransformData::Print(_) => fields.push(tf_state.output_field),
+            TransformData::Join(_) => fields.push(tf_state.output_field),
+            TransformData::Select(_) => fields.push(tf_state.output_field),
+            TransformData::StringSink(_) => fields.push(tf_state.output_field),
+            TransformData::FieldValueSink(_) => {
+                fields.push(tf_state.output_field)
+            }
+            TransformData::Fork(_) => todo!(),
+            TransformData::ForkCat(_) => (),
+            TransformData::ForkCatSubchainTrailer(_) => (),
+            TransformData::Regex(re) => fields.extend(
+                re.capture_group_fields
+                    .iter()
+                    .map(|cgf| cgf.unwrap_or(tf_state.output_field)),
+            ),
+            TransformData::Format(_) => fields.push(tf_state.output_field),
+            TransformData::FileReader(_) => fields.push(tf_state.output_field),
+            TransformData::Literal(_) => fields.push(tf_state.output_field),
+            TransformData::Sequence(_) => fields.push(tf_state.output_field),
+            TransformData::AggregatorHeader(_) => todo!(),
+            TransformData::AggregatorTrailer(_) => todo!(),
+            TransformData::ForeachHeader(_) => todo!(),
+            TransformData::ForeachTrailer(_) => todo!(),
+            TransformData::SuccessUpdator(_) => (),
+            TransformData::Custom(custom) => {
+                custom.get_out_fields(tf_state, fields)
+            }
+        }
+    }
 }
 #[derive(Clone)]
 pub struct TransformState {
@@ -234,6 +278,13 @@ pub trait Transform<'a>: Send + 'a {
     }
     fn pre_update(&mut self, _sess: &mut Job<'a>, _tf_id: TransformId) {}
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId);
+    fn get_out_fields(
+        &self,
+        tf_state: &TransformState,
+        fields: &mut Vec<FieldId>,
+    ) {
+        fields.push(tf_state.output_field);
+    }
 }
 
 pub fn transform_pre_update(

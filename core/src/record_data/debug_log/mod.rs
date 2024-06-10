@@ -103,6 +103,7 @@ fn setup_display_order(
     tf_data: &IndexSlice<TransformId, TransformData>,
     start_tf: TransformId,
 ) -> DisplayOrder {
+    let mut fields_temp = Vec::new();
     let mut display_order = DisplayOrder {
         elems: Vec::new(),
         dead_slots: Vec::new(),
@@ -122,9 +123,11 @@ fn setup_display_order(
                 .elems
                 .push(DisplayElem::SubchainExpansion(subchains));
         } else {
-            display_order
-                .elems
-                .push(DisplayElem::Field(tf.output_field));
+            tf_data[tf_id].get_out_fields(tf, &mut fields_temp);
+            for &field in &fields_temp {
+                display_order.elems.push(DisplayElem::Field(field));
+            }
+            fields_temp.clear();
         }
         if let Some(succ) = tf.successor {
             tf_id = succ;
@@ -221,6 +224,7 @@ pub fn write_field_to_html_table(
     let field_name = {
         let id = id;
         let given_name = field.name.map(|id| string_store.lookup(id));
+        #[allow(unused_mut)]
         let mut res = if let Some(name) = given_name {
             format!("Field {id} '{name}'")
         } else {
