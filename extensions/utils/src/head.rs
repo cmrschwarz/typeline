@@ -25,7 +25,7 @@ use scr_core::{
 
 #[derive(Default)]
 pub struct OpHead {
-    count: isize,
+    count: isize, // negative means all but the last n
     accessed_fields_after: Vec<Option<StringStoreEntry>>,
     dyn_var_accessed: bool,
 }
