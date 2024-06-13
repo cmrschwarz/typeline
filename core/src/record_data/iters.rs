@@ -238,7 +238,7 @@ pub struct FieldIter<'a, R: FieldDataRef<'a>> {
 impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
     pub fn from_start_allow_dead(fdr: R) -> Self {
         let first_header = fdr.headers().front();
-        let res = Self {
+        Self {
             field_pos: 0,
             data: 0,
             header_idx: 0,
@@ -247,8 +247,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
             header_fmt: first_header.map(|h| h.fmt).unwrap_or_default(),
             fdr,
             _phantom_data: PhantomData,
-        };
-        res
+        }
     }
     pub fn from_start(fdr: R) -> Self {
         let mut res = Self::from_start_allow_dead(fdr);

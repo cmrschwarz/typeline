@@ -15,7 +15,7 @@ use super::{
         RunLength,
     },
     field_value::{FieldReference, FieldValue, Object, SlicedFieldReference},
-    field_value_ref::FieldValueSlice,
+    field_value_ref::{FieldValueSlice, ValidTypedRange},
     field_value_slice_iter::FieldValueRangeIter,
     formattable::{Formattable, FormattingContext, RealizedFormatKey},
     match_set::MatchSetManager,
@@ -565,6 +565,19 @@ pub unsafe trait PushInterface {
             ),
         }
     }
+    fn extend_from_valid_range(
+        &mut self,
+        range: ValidTypedRange,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        // PERF: could optimize this
+        self.extend_from_ref_aware_range(
+            RefAwareTypedRange::without_refs(range),
+            try_header_rle,
+            try_data_rle,
+        )
+    }
     fn extend_from_ref_aware_range(
         &mut self,
         range: RefAwareTypedRange,
@@ -734,6 +747,78 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::FieldReference(_)
             | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
+        }
+    }
+    fn extend_from_valid_range_re_ref(
+        &mut self,
+        range: ValidTypedRange,
+        try_header_rle: bool,
+        try_data_rle: bool,
+        try_ref_data_rle: bool,
+        input_field_ref_offset: FieldRefOffset,
+        re_ref_offset: FieldRefOffset,
+    ) {
+        match range.data {
+            FieldValueSlice::Undefined(_)
+            | FieldValueSlice::Null(_)
+            | FieldValueSlice::Int(_)
+            | FieldValueSlice::Float(_)
+            | FieldValueSlice::StreamValueId(_) => {
+                self.extend_from_ref_aware_range(
+                    RefAwareTypedRange::without_refs(range),
+                    try_header_rle,
+                    try_data_rle,
+                );
+            }
+            FieldValueSlice::BigInt(_)
+            | FieldValueSlice::Rational(_)
+            | FieldValueSlice::TextBuffer(_)
+            | FieldValueSlice::BytesBuffer(_)
+            | FieldValueSlice::Array(_)
+            | FieldValueSlice::Custom(_)
+            | FieldValueSlice::Error(_)
+            | FieldValueSlice::Object(_)
+            | FieldValueSlice::TextInline(_)
+            | FieldValueSlice::BytesInline(_) => {
+                self.push_field_reference(
+                    FieldReference::new(input_field_ref_offset),
+                    range.field_count,
+                    try_header_rle,
+                    try_ref_data_rle,
+                );
+            }
+            FieldValueSlice::FieldReference(refs) => {
+                for (v, rl) in
+                    FieldValueRangeIter::from_valid_range(&range, refs)
+                {
+                    self.push_field_reference(
+                        FieldReference {
+                            field_ref_offset: v.field_ref_offset
+                                + re_ref_offset,
+                        },
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
+            FieldValueSlice::SlicedFieldReference(refs) => {
+                for (v, rl) in
+                    FieldValueRangeIter::from_valid_range(&range, refs)
+                {
+                    self.push_sliced_field_reference(
+                        SlicedFieldReference {
+                            field_ref_offset: v.field_ref_offset
+                                + re_ref_offset,
+                            begin: v.begin,
+                            end: v.end,
+                        },
+                        rl as usize,
+                        try_header_rle,
+                        try_data_rle,
+                    );
+                }
+            }
         }
     }
     fn extend_from_ref_aware_range_smart_ref(

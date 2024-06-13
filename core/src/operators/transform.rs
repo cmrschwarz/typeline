@@ -155,39 +155,43 @@ impl TransformData<'_> {
         fields: &mut Vec<FieldId>,
     ) {
         match self {
-            TransformData::Disabled => (),
-            TransformData::Nop(_) => (),
-            TransformData::NopCopy(_) => fields.push(tf_state.output_field),
-            TransformData::Terminator(_) => (),
-            TransformData::Call(_) => todo!(),
-            TransformData::CallConcurrent(_) => todo!(),
-            TransformData::CalleeConcurrent(_) => todo!(),
-            TransformData::ToStr(_) => fields.push(tf_state.output_field),
-            TransformData::Count(_) => fields.push(tf_state.output_field),
-            TransformData::Print(_) => fields.push(tf_state.output_field),
-            TransformData::Join(_) => fields.push(tf_state.output_field),
-            TransformData::Select(_) => fields.push(tf_state.output_field),
-            TransformData::StringSink(_) => fields.push(tf_state.output_field),
+            TransformData::NopCopy(_)
+            | TransformData::ToStr(_)
+            | TransformData::Count(_)
+            | TransformData::Print(_)
+            | TransformData::Join(_)
+            | TransformData::Select(_)
+            | TransformData::StringSink(_)
+            | TransformData::Format(_)
+            | TransformData::FileReader(_)
+            | TransformData::Literal(_)
+            | TransformData::Sequence(_) => fields.push(tf_state.output_field),
+
             TransformData::FieldValueSink(_) => {
                 fields.push(tf_state.output_field)
             }
-            TransformData::Fork(_) => todo!(),
-            TransformData::ForkCat(_) => (),
-            TransformData::ForkCatSubchainTrailer(_) => (),
+
+            TransformData::ForkCat(_)
+            | TransformData::SuccessUpdator(_)
+            | TransformData::ForkCatSubchainTrailer(_)
+            | TransformData::Disabled
+            | TransformData::Nop(_)
+            | TransformData::Terminator(_) => (),
+
+            TransformData::Fork(_)
+            | TransformData::AggregatorHeader(_)
+            | TransformData::AggregatorTrailer(_)
+            | TransformData::ForeachHeader(_)
+            | TransformData::ForeachTrailer(_)
+            | TransformData::Call(_)
+            | TransformData::CallConcurrent(_)
+            | TransformData::CalleeConcurrent(_) => todo!(),
+
             TransformData::Regex(re) => fields.extend(
                 re.capture_group_fields
                     .iter()
                     .map(|cgf| cgf.unwrap_or(tf_state.output_field)),
             ),
-            TransformData::Format(_) => fields.push(tf_state.output_field),
-            TransformData::FileReader(_) => fields.push(tf_state.output_field),
-            TransformData::Literal(_) => fields.push(tf_state.output_field),
-            TransformData::Sequence(_) => fields.push(tf_state.output_field),
-            TransformData::AggregatorHeader(_) => todo!(),
-            TransformData::AggregatorTrailer(_) => todo!(),
-            TransformData::ForeachHeader(_) => todo!(),
-            TransformData::ForeachTrailer(_) => todo!(),
-            TransformData::SuccessUpdator(_) => (),
             TransformData::Custom(custom) => {
                 custom.get_out_fields(tf_state, fields)
             }

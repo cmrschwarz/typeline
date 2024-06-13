@@ -14,8 +14,10 @@ use crate::{
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, FieldRefOffset, VOID_FIELD_ID},
-        field_value::FieldReference,
+        field_data::field_value_flags,
         group_track::GroupTrackId,
+        iter_hall::{IterId, IterKind},
+        iters::FieldIterator,
         push_interface::PushInterface,
     },
     utils::{
@@ -75,12 +77,21 @@ pub struct TfForkCat {
     pub subchains: IndexVec<FcSubchainIdx, SubchainEntry>,
 }
 
+struct ContinuationFieldMapping {
+    sc_field_id: FieldId,
+    sc_field_iter_id: IterId,
+    cont_field_id: FieldId,
+    sc_field_ref_offset_in_cont: FieldRefOffset,
+    // start of the field_refs list from the field in the subchain in the
+    // continuation field's field_refs list
+    sc_field_refs_offsets_start_in_cont_field: FieldRefOffset,
+}
+
 pub struct TfForkCatSubchainTrailer<'a> {
     pub op: &'a OpForkCat,
     continuation_tf_id: TransformId,
     // field ref offset of subchain field in continuation field (with id)
-    continuation_input_field: FieldId,
-    continuation_field_offsets: FieldRefOffset,
+    continuation_field_mappings: Vec<ContinuationFieldMapping>,
 }
 
 pub fn parse_op_forkcat(
@@ -226,7 +237,6 @@ pub fn insert_tf_forkcat<'a>(
         let sc_entry = setup_subchain(
             op,
             cont_inst.tfs_begin,
-            cont_input_field,
             job,
             op_base,
             sc_idx,
@@ -261,7 +271,6 @@ pub fn insert_tf_forkcat<'a>(
 fn setup_subchain<'a>(
     op: &'a OpForkCat,
     cont_tf_id: TransformId,
-    cont_input_field: FieldId,
     job: &mut Job<'a>,
     op_base: &OperatorBase,
     sc_idx: SubchainIndex,
@@ -309,7 +318,10 @@ fn setup_subchain<'a>(
         &HashMap::default(),
     );
 
-    let mut field_ref_offset = usize::MAX;
+    let mut continuation_field_mappings = Vec::new();
+
+    let fc_sc_terminator_tf_id =
+        job.job_data.tf_mgr.transforms.peek_claim_id();
 
     for (i, var) in op.continuation_vars.iter_enumerated() {
         let sc_ms = &job.job_data.match_set_mgr.match_sets[ms_id];
@@ -324,22 +336,46 @@ fn setup_subchain<'a>(
             instantiation.next_input_field
         };
 
-        let field_cow_tgt = job.job_data.field_mgr.get_cross_ms_cow_field(
+        let field_cow_tgt_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
             cont_ms_id,
             field_id,
         );
 
+        job.job_data.field_mgr.setup_field_refs(
+            &mut job.job_data.match_set_mgr,
+            field_cow_tgt_id,
+        );
+
+        let field_iter = job
+            .job_data
+            .field_mgr
+            .claim_iter(field_id, IterKind::Transform(fc_sc_terminator_tf_id));
+
         let cont_field_id = continuation_vars[i];
         let mut cont_field =
             job.job_data.field_mgr.fields[cont_field_id].borrow_mut();
-        debug_assert!(
-            field_ref_offset == usize::MAX
-                || field_ref_offset == cont_field.field_refs.len(),
-            "field ref offset must be the same for all continuation vars"
-        );
-        field_ref_offset = cont_field.field_refs.len();
-        cont_field.field_refs.push(field_cow_tgt);
+
+        let field_ref_offset = cont_field.field_refs.len() as FieldRefOffset;
+
+        {
+            let field_cow_target =
+                job.job_data.field_mgr.fields[field_cow_tgt_id].borrow();
+
+            cont_field
+                .field_refs
+                .extend_from_slice(&field_cow_target.field_refs);
+        }
+        let refs_offset_in_cont =
+            cont_field.field_refs.len() as FieldRefOffset;
+        cont_field.field_refs.push(field_cow_tgt_id);
+        continuation_field_mappings.push(ContinuationFieldMapping {
+            sc_field_id: field_id,
+            sc_field_iter_id: field_iter,
+            cont_field_id,
+            sc_field_refs_offsets_start_in_cont_field: refs_offset_in_cont,
+            sc_field_ref_offset_in_cont: field_ref_offset,
+        });
     }
 
     let desired_batch_size = job.job_data.session_data.chains
@@ -350,8 +386,7 @@ fn setup_subchain<'a>(
     let terminator_tf = TfForkCatSubchainTrailer::<'a> {
         op,
         continuation_tf_id: cont_tf_id,
-        continuation_input_field: cont_input_field,
-        continuation_field_offsets: field_ref_offset as FieldRefOffset,
+        continuation_field_mappings,
     };
 
     let tf_id = add_transform_to_job(
@@ -403,29 +438,41 @@ pub fn handle_tf_forkcat(
 pub fn handle_tf_forcat_subchain_trailer(
     jd: &mut JobData,
     tf_id: TransformId,
-    fc: &mut TfForkCatSubchainTrailer,
+    fcst: &mut TfForkCatSubchainTrailer,
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     jd.tf_mgr.inform_cross_ms_transform_batch_available(
         &jd.field_mgr,
         &jd.match_set_mgr,
-        fc.continuation_tf_id,
+        fcst.continuation_tf_id,
         batch_size,
         ps.input_done,
     );
-    jd.field_mgr.fields[fc.continuation_input_field]
-        .borrow_mut()
-        .iter_hall
-        .push_field_reference(
-            FieldReference::new(fc.continuation_field_offsets),
-            batch_size,
-            true,
-            true,
-        );
-    jd.match_set_mgr.update_same_ms_cow_targets(
-        &jd.field_mgr,
-        jd.tf_mgr.transforms[fc.continuation_tf_id].match_set_id,
-    );
+    for cim in &fcst.continuation_field_mappings {
+        let sc_field = jd
+            .field_mgr
+            .get_cow_field_ref(&jd.match_set_mgr, cim.sc_field_id);
+        let mut iter = jd
+            .field_mgr
+            .lookup_iter(cim.sc_field_id, &sc_field, cim.sc_field_iter_id)
+            .bounded(0, batch_size);
+
+        let mut cont_field =
+            jd.field_mgr.fields[cim.cont_field_id].borrow_mut();
+
+        while let Some(range) =
+            iter.typed_range_fwd(batch_size, field_value_flags::DEFAULT)
+        {
+            cont_field.iter_hall.extend_from_valid_range_re_ref(
+                range,
+                true,
+                false,
+                false,
+                cim.sc_field_ref_offset_in_cont,
+                cim.sc_field_refs_offsets_start_in_cont_field,
+            );
+        }
+    }
 }
 
 pub fn create_op_forkcat() -> OperatorData {

@@ -6,7 +6,6 @@ use num::{BigInt, BigRational};
 use crate::{
     operators::errors::OperatorApplicationError,
     utils::{maybe_text::MaybeText, string_store::StringStoreEntry},
-    NULL_STR, UNDEFINED_STR,
 };
 
 use super::{
@@ -384,24 +383,5 @@ impl FieldValue {
     }
     pub fn is_valid_utf8(&self) -> bool {
         self.kind().is_valid_utf8()
-    }
-    pub fn to_string(&self) -> String {
-        match self {
-            FieldValue::Undefined => UNDEFINED_STR.to_string(),
-            FieldValue::Null => NULL_STR.to_string(),
-            FieldValue::Int(v) => v.to_string(),
-            FieldValue::BigInt(v) => v.to_string(),
-            FieldValue::Float(v) => v.to_string(),
-            FieldValue::Rational(v) => v.to_string(),
-            FieldValue::Text(v) => v.clone(),
-            FieldValue::Bytes(v) => String::from_utf8_lossy(&v).to_string(),
-            FieldValue::Array(_) => todo!(),
-            FieldValue::Object(_) => todo!(),
-            FieldValue::Custom(_) => todo!(),
-            FieldValue::Error(v) => v.to_string(),
-            FieldValue::StreamValueId(v) => v.to_string(),
-            FieldValue::FieldReference(v) => format!("{v:?}"),
-            FieldValue::SlicedFieldReference(v) => format!("{v:?}"),
-        }
     }
 }

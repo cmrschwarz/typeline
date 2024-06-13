@@ -465,15 +465,12 @@ impl FieldManager {
         drop(src_field);
         let tgt_field_id =
             self.add_field(msm, ms_id, tgt_name, ActorRef::default());
-        msm.match_sets[ms_id]
-            .same_ms_cow_mappings
-            .push((src_field_id, tgt_field_id));
 
         let mut src_field = self.fields[src_field_id].borrow_mut();
         src_field.ref_count += 1;
         src_field.iter_hall.cow_targets.push(tgt_field_id);
         let mut field = self.fields[tgt_field_id].borrow_mut();
-        field.field_refs = src_field.field_refs.clone();
+        field.field_refs.extend_from_slice(&src_field.field_refs);
         drop(src_field);
         field.iter_hall.data_source = FieldDataSource::SameMsCow(src_field_id);
         for &field_id in &field.field_refs {
@@ -614,7 +611,7 @@ impl FieldManager {
     // accessed.
     // sometimes we have to cow a lot of fields (e.g. in case of dyn access)
     // so it's nice to be a bit lazy about this
-    //TODO: evaluate this? seems like it's no longer needed?
+    // TODO: evaluate this? seems like it's no longer needed?
     pub fn setup_field_refs(
         &mut self,
         msm: &mut MatchSetManager,

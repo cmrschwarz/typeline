@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use bstr::ByteSlice;
+use bstr::{ByteSlice, ByteVec};
 
 use super::text_write::TextWrite;
 
@@ -115,6 +115,24 @@ impl MaybeText {
         match self {
             MaybeText::Text(s) => MaybeTextBoxed::Text(s.into_boxed_str()),
             MaybeText::Bytes(b) => MaybeTextBoxed::Bytes(b.into_boxed_slice()),
+        }
+    }
+    pub fn into_text(self) -> Option<String> {
+        match self {
+            MaybeText::Text(s) => Some(s),
+            MaybeText::Bytes(_) => None,
+        }
+    }
+    pub fn into_text_lossy(self) -> String {
+        match self {
+            MaybeText::Text(s) => s,
+            MaybeText::Bytes(v) => v.into_string_lossy(),
+        }
+    }
+    pub fn into_bytes(self) -> Vec<u8> {
+        match self {
+            MaybeText::Text(s) => s.into_bytes(),
+            MaybeText::Bytes(b) => b,
         }
     }
     pub fn capacity(&self) -> usize {

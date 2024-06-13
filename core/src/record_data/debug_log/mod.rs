@@ -4,20 +4,23 @@ use crate::{
     job::JobData,
     operators::transform::{TransformData, TransformId},
     utils::{
-        index_vec::IndexSlice, string_store::StringStore,
+        index_vec::IndexSlice, lazy_lock_guard::LazyRwLockGuard,
+        maybe_text::MaybeText, string_store::StringStore,
         text_write::TextWrite,
     },
 };
 
 use super::{
-    field::{Field, FieldId, FieldManager},
+    field::{Field, FieldId},
+    field_value_ref::FieldValueRef,
+    formattable::{Formattable, FormattingContext, RealizedFormatKey},
     iters::{FieldDataRef, FieldIterator},
 };
 
 enum DisplayElem {
     Field(FieldId),
     Transform(TransformId),
-    #[allow(unused)] //TODO
+    #[allow(unused)] // TODO
     SubchainExpansion(Vec<DisplayOrder>),
 }
 
@@ -28,9 +31,9 @@ struct DisplayOrder {
 }
 
 fn escape_text(text: &str) -> String {
-    text.replace("&", "&amp")
+    text.replace('&', "&amp")
         .replace('<', "&lt")
-        .replace(">", "&gt")
+        .replace('>', "&gt")
 }
 
 pub fn write_debug_log_html_head(
@@ -54,10 +57,10 @@ pub fn write_debug_log_html_tail(
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
     w.write_all_text(
-        r#"
+        r"
 </body>
 </html>
-"#,
+",
     )
 }
 
@@ -76,8 +79,8 @@ fn add_field_data_dead_slots<'a>(
     dead_slots: &mut [usize],
 ) {
     let mut iter = super::iters::FieldIter::from_start_allow_dead(fd);
-    for i in 0..dead_slots.len() {
-        dead_slots[i] = dead_slots[i].max(iter.skip_dead_fields());
+    for ds in dead_slots {
+        *ds = (*ds).max(iter.skip_dead_fields());
         iter.next_field_allow_dead();
     }
 }
@@ -110,7 +113,7 @@ fn setup_display_order_elems(
     loop {
         display_order.elems.push(DisplayElem::Transform(tf_id));
         let tf = &jd.tf_mgr.transforms[tf_id];
-        //TODO: handle multiple output fields
+        // TODO: handle multiple output fields
 
         if let TransformData::ForkCat(fc) = &tf_data[tf_id] {
             let mut subchains = Vec::new();
@@ -179,7 +182,7 @@ fn write_display_order_to_html(
                     "                <td class=\"field_list_entry\">\n",
                 )?;
                 write_field_to_html_table(
-                    &jd.field_mgr,
+                    jd,
                     &jd.field_mgr.fields[*field_id].borrow(),
                     *field_id,
                     &jd.session_data.string_store.borrow().read().unwrap(),
@@ -216,10 +219,10 @@ fn write_display_order_to_html(
         }
     }
     w.write_all_text(
-        r#"
+        r"
         </tbody>
     </table>
-    "#,
+    ",
     )?;
     Ok(())
 }
@@ -237,7 +240,7 @@ pub fn write_debug_log_to_html(
 }
 
 pub fn write_field_to_html_table(
-    fm: &FieldManager,
+    jd: &JobData,
     field: &Field,
     field_id: FieldId,
     string_store: &StringStore,
@@ -261,7 +264,7 @@ pub fn write_field_to_html_table(
         res
     };
     let cow_src_str = if let (cow_src_field, Some(data_cow)) =
-        field.iter_hall.cow_source_field(fm)
+        field.iter_hall.cow_source_field(&jd.field_mgr)
     {
         format!(
             " {} cow{}; ",
@@ -273,10 +276,11 @@ pub fn write_field_to_html_table(
             }
         )
     } else {
-        "".to_string()
+        String::new()
     };
-    let cfr = fm.get_cow_field_ref_raw(field_id);
+    let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);
     write_field_data_to_html_table(
+        jd,
         &cfr,
         &field_name,
         &cow_src_str,
@@ -287,6 +291,7 @@ pub fn write_field_to_html_table(
 }
 
 pub fn write_field_data_to_html_table<'a>(
+    jd: &JobData,
     fd: impl FieldDataRef<'a>,
     heading: &str,
     cow_src_str: &str,
@@ -315,6 +320,15 @@ pub fn write_field_data_to_html_table<'a>(
         escape_text(heading)
     ))?;
     let mut del_count = 0;
+    let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
+    let mut formatting_context = FormattingContext {
+        ss: &mut string_store,
+        fm: &jd.field_mgr,
+        msm: &jd.match_set_mgr,
+        print_rationals_raw: true,
+        is_stream_value: false,
+        rfk: RealizedFormatKey::default(),
+    };
 
     while iter.is_next_valid() && iter.field_pos < fd.field_count() {
         let h = fd.headers()[iter.header_idx];
@@ -381,6 +395,32 @@ pub fn write_field_data_to_html_table<'a>(
                 "flag_disabled"
             }
         ))?;
+        let value = iter.get_next_typed_field().value;
+
+        let mut value_str = MaybeText::default();
+
+        match value {
+            FieldValueRef::FieldReference(fr) => {
+                value_str = MaybeText::Text(format!("{}", fr.field_ref_offset))
+            }
+            FieldValueRef::SlicedFieldReference(fr) => {
+                value_str = MaybeText::Text(format!(
+                    "({})[{}..{}]",
+                    fr.field_ref_offset, fr.begin, fr.end
+                ))
+            }
+            FieldValueRef::StreamValueId(sv_id) => {
+                value_str = MaybeText::Text(sv_id.to_string())
+            }
+            _ => {
+                Formattable::format(
+                    &value,
+                    &mut formatting_context,
+                    &mut value_str,
+                )
+                .unwrap();
+            }
+        }
         w.write_text_fmt(format_args!(
             r#"
                             </tr>
@@ -397,28 +437,22 @@ pub fn write_field_data_to_html_table<'a>(
             } else {
                 h.run_length.to_string()
             },
-            escape_text(
-                &iter
-                    .get_next_typed_field()
-                    .value
-                    .to_field_value()
-                    .to_string()
-            )
+            escape_text(&value_str.into_text_lossy()),
         ))?;
 
         w.write_all_text(
-            r#"
+            r"
             </tr>
-        "#,
+        ",
         )?;
         iter.next_field_allow_dead();
     }
 
     w.write_all_text(
-        r#"
+        r"
         </tbody>
     </table>
-    "#,
+    ",
     )?;
 
     Ok(())

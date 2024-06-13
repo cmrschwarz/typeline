@@ -365,6 +365,16 @@ pub struct RefAwareTypedRange<'a> {
     pub field_ref_offset: Option<FieldRefOffset>,
 }
 
+impl<'a> RefAwareTypedRange<'a> {
+    pub fn without_refs(range: ValidTypedRange<'a>) -> Self {
+        Self {
+            base: range,
+            refs: None,
+            field_ref_offset: None,
+        }
+    }
+}
+
 impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn new(
         field_mgr: &'a FieldManager,

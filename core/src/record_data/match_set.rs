@@ -34,8 +34,6 @@ pub struct MatchSet {
     // - avoid duplicates
     // - update our cow's when control flow enters into this match set
     pub fields_cow_map: HashMap<FieldId, FieldId, BuildIdentityHasher>,
-    // cow source -> cow target
-    pub same_ms_cow_mappings: Vec<(FieldId, FieldId)>,
 }
 
 #[derive(Default)]
@@ -141,22 +139,6 @@ impl MatchSetManager {
             eprintln!("{:=^80}", "");
             fm.print_fields_with_iter_data();
             eprintln!("{:-^80}", " </updated cow bindings> ");
-        }
-    }
-    // TODO: this sucks. maybe we should probably just do this on every field
-    // iter aquire?
-    pub fn update_same_ms_cow_targets(
-        &self,
-        fm: &FieldManager,
-        ms_id: MatchSetId,
-    ) {
-        for &(cow_src_id, cow_tgt_id) in
-            &self.match_sets[ms_id].same_ms_cow_mappings
-        {
-            let src = fm.fields[cow_src_id].borrow();
-            let mut tgt = fm.fields[cow_tgt_id].borrow_mut();
-            tgt.iter_hall.field_data.field_count =
-                src.iter_hall.field_data.field_count;
         }
     }
 }
