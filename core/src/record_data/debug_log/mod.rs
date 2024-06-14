@@ -54,7 +54,7 @@ pub fn write_debug_log_html_head(
     ))?;
     w.write_all_text(&reindent(INDENT * 3, include_str!("./debug_log.css")))?;
     w.write_all_text(&reindent(
-        INDENT * 1,
+        INDENT,
         r"
 
               </style>
@@ -134,17 +134,17 @@ fn setup_display_order_elems(
 
         if let TransformData::ForkCat(fc) = &tf_data[tf_id] {
             let mut subchains = Vec::new();
-            for sce in &fc.subchains {
+            for sce in &fc.continuation_state.lock().unwrap().subchains {
                 let mut sc_disp_order = DisplayOrder::default();
                 push_field_elem_with_refs(
                     jd,
-                    jd.tf_mgr.transforms[sce.start_tf].input_field,
+                    jd.tf_mgr.transforms[sce.start_tf_id].input_field,
                     &mut sc_disp_order,
                 );
                 setup_display_order_elems(
                     jd,
                     tf_data,
-                    sce.start_tf,
+                    sce.start_tf_id,
                     &mut sc_disp_order,
                 );
                 setup_dead_slots(&mut sc_disp_order, jd);
