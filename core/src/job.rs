@@ -37,7 +37,8 @@ use crate::{
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::{
-        index_vec::IndexVec, text_write::TextWriteIoAdapter,
+        index_vec::{IndexSlice, IndexVec},
+        text_write::TextWriteIoAdapter,
         universe::Universe,
     },
 };
@@ -83,6 +84,22 @@ pub struct PipelineState {
 }
 
 impl TransformManager {
+    pub fn format_transform_state(
+        &self,
+        tf_id: TransformId,
+        tf_data: &IndexSlice<TransformId, TransformData<'_>>,
+    ) -> String {
+        let tf = &self.transforms[tf_id];
+        format!(
+                "tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
+            format!("`{}`", tf_data[tf_id].display_name()),
+            tf.input_field,
+            tf.available_batch_size,
+            tf.predecessor_done,
+            tf.done,
+            self.ready_stack
+        )
+    }
     pub fn get_input_field_id(
         &mut self,
         fm: &FieldManager,
@@ -762,21 +779,18 @@ impl<'a> Job<'a> {
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
         #[cfg(feature = "debug_logging")]
-        {
-            let tf = &self.job_data.tf_mgr.transforms[tf_id];
-            eprintln!(
-                "> transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
-                format!("`{}`", self.transform_data[tf_id].display_name()),
-                tf.input_field,
-                tf.available_batch_size,
-                tf.predecessor_done,
-                tf.done,
-                self.job_data.tf_mgr.ready_stack
-            );
-        }
+        eprintln!(
+            "> transform update {}",
+            self.job_data
+                .tf_mgr
+                .format_transform_state(tf_id, &self.transform_data)
+        );
+
         if let Some(dl) = &mut self.debug_log {
             write_transform_update_to_html(
-                &self.transform_data[tf_id].display_name(),
+                &self.job_data,
+                &self.transform_data,
+                tf_id,
                 &mut TextWriteIoAdapter(dl),
             )
             .expect("debug log succeeds");
@@ -794,13 +808,10 @@ impl<'a> Job<'a> {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             let output_field_id = tf.output_field;
             eprintln!(
-                "/> transform update tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
-                format!("`{}`", self.transform_data[tf_id].display_name()),
-                tf.input_field,
-                tf.available_batch_size,
-                tf.predecessor_done,
-                tf.done,
-                self.job_data.tf_mgr.ready_stack
+                "/> transform update {}",
+                self.job_data
+                    .tf_mgr
+                    .format_transform_state(tf_id, &self.transform_data)
             );
             let group_track_id = tf.output_group_track_id;
             let group_track = self.job_data.group_track_manager.group_tracks
@@ -829,7 +840,8 @@ impl<'a> Job<'a> {
                 start_tf,
                 &mut TextWriteIoAdapter(f),
             )
-            .expect("debug log write must succeed"); //TODO: handle this better
+            .expect("debug log write must succeed"); // TODO: handle this
+                                                     // better
         }
         Ok(())
     }
@@ -922,7 +934,7 @@ impl<'a> Job<'a> {
         Job {
             transform_data: IndexVec::new(),
             temp_vec: Vec::new(),
-            //TODO: nicer error handling for this
+            // TODO: nicer error handling for this
             debug_log: job_data
                 .session_data
                 .settings

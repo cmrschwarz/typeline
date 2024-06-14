@@ -2,7 +2,8 @@ body {
     background-color: linen;
     overflow: scroll;
 }
-th, td {
+th,
+td {
     white-space: nowrap;
 }
 .field_list_entry {
@@ -41,10 +42,10 @@ th, td {
 .data {
     text-align: center;
 }
-.rl{
+.rl {
     text-align: center;
 }
-.size{
+.size {
     text-align: center;
 }
 .meta {
@@ -60,7 +61,7 @@ th, td {
     width: 10px;
     text-align: center;
 }
-.transform_entry{
+.transform_entry {
     background-color: lightgray;
 }
 .meta.flag {

@@ -24,6 +24,11 @@ enum DisplayElem {
     SubchainExpansion(Vec<DisplayOrder>),
 }
 
+const INDENT: usize = 4;
+// used as a workaround for the fact that "\n" doesn't work in raw string
+// literals
+const NEWLINE: &str = "\n";
+
 #[derive(Default)]
 struct DisplayOrder {
     elems: Vec<DisplayElem>,
@@ -39,38 +44,50 @@ fn escape_text(text: &str) -> String {
 pub fn write_debug_log_html_head(
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
-    w.write_text_fmt(format_args!(
-        r#"
-<html>
-<head>
-    <style>
-    {}
-    </style>
-</head>
-<body>
-"#,
-        include_str!("./debug_log.css"),
+    w.write_all_text(&reindent(
+        0,
+        r"
+            <html>
+                <head>
+                    <style>
+        ",
+    ))?;
+    w.write_all_text(&reindent(INDENT * 3, include_str!("./debug_log.css")))?;
+    w.write_all_text(&reindent(
+        4,
+        r"
+
+                </style>
+            </head>
+            <body>
+        ",
     ))
 }
 
 pub fn write_debug_log_html_tail(
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
-    w.write_all_text(
+    w.write_all_text(&reindent(
+        INDENT * 2,
         r"
-</body>
-</html>
-",
-    )
+              </body>
+            </html>
+        ",
+    ))
 }
 
 pub fn write_transform_update_to_html(
-    tf: &str,
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    tf_id: TransformId,
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
-    w.write_text_fmt(format_args!(
-        "<div class=\"transform_update\">{}</div>\n",
-        escape_text(tf)
+    w.write_all_text(&reindent(
+        INDENT * 2,
+        format!(
+            "<div class=\"transform_update\">transform update {}</div>\n",
+            escape_text(&jd.tf_mgr.format_transform_state(tf_id, tf_data))
+        ),
     ))
 }
 
@@ -168,62 +185,70 @@ fn write_display_order_to_html(
     tf_data: &IndexSlice<TransformId, TransformData>,
     display_order: &DisplayOrder,
     w: &mut impl TextWrite,
+    indent: usize,
 ) -> Result<(), std::io::Error> {
-    w.write_text_fmt(format_args!(
-        r#"
-    <table>
-        <tbody>
-    "#
+    w.write_all_text(&reindent(
+        INDENT * indent,
+        r"
+            <table>
+                <tbody>
+        ",
     ))?;
     for elem in &display_order.elems {
         match elem {
             DisplayElem::Field(field_id) => {
-                w.write_all_text(
-                    "                <td class=\"field_list_entry\">\n",
-                )?;
+                w.write_all_text(&reindent(
+                    INDENT * (indent + 2),
+                    "<td class=\"field_list_entry\">\n",
+                ))?;
                 write_field_to_html_table(
                     jd,
                     &jd.field_mgr.fields[*field_id].borrow(),
                     *field_id,
                     &jd.session_data.string_store.borrow().read().unwrap(),
                     &display_order.dead_slots,
+                    indent + 3,
                     w,
                 )?;
-                w.write_all_text("                </td>\n")?;
+                w.write_all_text(&reindent(INDENT * (indent + 2), "</td>\n"))?;
             }
             DisplayElem::Transform(tf_id) => {
-                w.write_all_text(
-                    "                <td class=\"transform_entry\">\n",
-                )?;
-                let tf_data = &tf_data[*tf_id];
-                w.write_text_fmt(format_args!(
-                    "tf {tf_id} `{}`",
-                    tf_data.display_name()
+                w.write_all_text(&reindent(
+                    INDENT * (indent + 2),
+                    "<td class=\"transform_entry\">\n",
                 ))?;
-                w.write_all_text("                </td>\n")?;
+                let tf_data = &tf_data[*tf_id];
+                w.write_all_text(&reindent(
+                    INDENT * (indent + 3),
+                    format!("tf {tf_id} `{}`\n", tf_data.display_name()),
+                ))?;
+                w.write_all_text(&reindent(INDENT * (indent + 2), "</td>\n"))?;
             }
             DisplayElem::SubchainExpansion(subchains) => {
-                w.write_all_text(
-                    "                <td class=\"transform_entry\">\n",
-                )?;
+                w.write_all_text(&reindent(
+                    INDENT * (indent + 2),
+                    "<td class=\"transform_entry\">\n",
+                ))?;
                 for sc_display_order in subchains {
                     write_display_order_to_html(
                         jd,
                         tf_data,
                         sc_display_order,
                         w,
+                        indent + 3,
                     )?;
                 }
-                w.write_all_text("                </td>\n")?;
+                w.write_all_text(&reindent(INDENT * (indent + 2), "</td>\n"))?;
             }
         }
     }
-    w.write_all_text(
+    w.write_all_text(&reindent(
+        INDENT * indent,
         r"
-        </tbody>
-    </table>
-    ",
-    )?;
+                </tbody>
+            </table>
+        ",
+    ))?;
     Ok(())
 }
 
@@ -236,7 +261,7 @@ pub fn write_debug_log_to_html(
     let mut display_order = DisplayOrder::default();
     setup_display_order_elems(jd, tf_data, start_tf, &mut display_order);
     setup_dead_slots(&mut display_order, jd);
-    write_display_order_to_html(jd, tf_data, &display_order, w)
+    write_display_order_to_html(jd, tf_data, &display_order, w, 2)
 }
 
 pub fn write_field_to_html_table(
@@ -245,6 +270,7 @@ pub fn write_field_to_html_table(
     field_id: FieldId,
     string_store: &StringStore,
     dead_slots: &[usize],
+    indent: usize,
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
     let field_name = {
@@ -286,8 +312,45 @@ pub fn write_field_to_html_table(
         &cow_src_str,
         &field.field_refs,
         dead_slots,
+        indent,
         w,
     )
+}
+
+pub fn reindent(target_ident: usize, input: impl AsRef<str>) -> String {
+    fn non_whitespace(b: u8) -> bool {
+        b != b' ' && b != b'\t'
+    }
+
+    let mut src = input.as_ref();
+
+    // strip leading newline
+    if src.starts_with('\n') {
+        src = &src[1..];
+    }
+
+    // Largest number of spaces that can be removed from every
+    // non-whitespace-only line after the first
+    let leading_space_count = src
+        .lines()
+        .filter_map(|line| line.bytes().position(non_whitespace))
+        .min()
+        .unwrap_or(0);
+
+    let mut result = String::new();
+    for (i, line) in src.lines().enumerate() {
+        if i != 0 {
+            result.push('\n');
+        }
+        if line.bytes().any(non_whitespace) {
+            result.extend(std::iter::repeat(' ').take(target_ident));
+            result.push_str(&line[leading_space_count..]);
+        };
+    }
+    if src.ends_with('\n') {
+        result.push('\n');
+    }
+    result
 }
 
 pub fn write_field_data_to_html_table<'a>(
@@ -297,28 +360,29 @@ pub fn write_field_data_to_html_table<'a>(
     cow_src_str: &str,
     field_refs: &[FieldId],
     dead_slots: &[usize],
+    indent: usize,
     w: &mut impl TextWrite,
 ) -> Result<(), std::io::Error> {
     let mut iter = super::iters::FieldIter::from_start_allow_dead(&fd);
-    w.write_text_fmt(format_args!(
+    w.write_all_text(&reindent(INDENT * indent, format!(
         r#"
-    <table class="field">
-        <thead>
-            <th class="field_cell field_desc" colspan="4">{}</th>
-        </thead>
-        <thead>
-            <th class="field_cell field_desc" colspan="4">{cow_src_str}Field Refs: {field_refs:?}</th>
-        </thead>
-        <thead>
-            <th class="field_cell meta_head">Meta</th>
-            <th class="field_cell size_head">Size</th>
-            <th class="field_cell rl_head">RL</th>
-            <th class="field_cell data_head">Data</th>
-        </thead>
-        <tbody>
-    "#,
+            <table class="field">
+                <thead>
+                    <th class="field_cell field_desc" colspan="4">{}</th>
+                </thead>
+                <thead>
+                    <th class="field_cell field_desc" colspan="4">{cow_src_str}Field Refs: {field_refs:?}</th>
+                </thead>
+                <thead>
+                    <th class="field_cell meta_head">Meta</th>
+                    <th class="field_cell size_head">Size</th>
+                    <th class="field_cell rl_head">RL</th>
+                    <th class="field_cell data_head">Data</th>
+                </thead>
+                <tbody>
+        "#,
         escape_text(heading)
-    ))?;
+    )))?;
     let mut del_count = 0;
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
     let mut formatting_context = FormattingContext {
@@ -336,64 +400,70 @@ pub fn write_field_data_to_html_table<'a>(
             del_count += 1;
         } else {
             for _ in del_count..dead_slots[iter.field_pos] {
-                w.write_all_text(
+                w.write_all_text(&reindent(INDENT * 5,
                     "<tr class=\"field_row dead_row\"><td colspan=4></td></tr>\n",
-                )?;
+                ))?;
             }
             del_count = 0;
         }
         let shadow_elem = iter.header_rl_offset != 0;
         let flag_shadow = if shadow_elem { " flag_shadow" } else { "" };
-        w.write_all_text(
+        w.write_all_text(&reindent(
+            INDENT * (indent + 2),
             r#"
-            <tr class="field_row">
-                <td class="field_cell">
-                    <table>
-                        <tbody>
-                            <tr>
-        "#,
-        )?;
-        w.write_text_fmt(format_args!(
-            r#"
-                                <td class="meta meta_main{flag_shadow}">{}</td>
-        "#,
-            escape_text(&h.fmt.repr.to_string())
+                <tr class="field_row">
+                    <td class="field_cell">
+                        <table>
+                            <tbody>
+                                <tr>
+            "#,
         ))?;
-        w.write_text_fmt(format_args!(
-            r#"
-                                <td class="meta meta_padding{flag_shadow}">{}</td>
-        "#,
-            h.fmt.leading_padding()
+        w.write_all_text(&reindent(
+            INDENT * (indent + 7),
+            format!(
+                r#"<td class="meta meta_main{flag_shadow}">{}</td>{NEWLINE}"#,
+                escape_text(&h.fmt.repr.to_string())
+            ),
         ))?;
-        w.write_text_fmt(format_args!(
-            r#"
-                                <td class="meta flag {}{flag_shadow}"></td>
-        "#,
-            if h.same_value_as_previous() {
-                "flag_same_as_prev"
-            } else {
-                "flag_disabled"
-            }
+        w.write_all_text(&reindent(
+            INDENT * (indent + 7),
+            format!(
+                r#"<td class="meta meta_padding{flag_shadow}">{}</td>{NEWLINE}"#,
+                h.fmt.leading_padding()
+            ),
         ))?;
-        w.write_text_fmt(format_args!(
-            r#"
-                                <td class="meta flag {}{flag_shadow}"></td>
-        "#,
-            if h.shared_value() {
-                "flag_shared"
-            } else {
-                "flag_disabled"
-            }
+        w.write_all_text(&reindent(
+            INDENT * (indent + 7),
+            format!(
+                r#"<td class="meta flag {}{flag_shadow}"></td>{NEWLINE}"#,
+                if h.same_value_as_previous() {
+                    "flag_same_as_prev"
+                } else {
+                    "flag_disabled"
+                }
+            ),
         ))?;
-        w.write_text_fmt(format_args!(
-            r#"
-                                <td class="meta flag {}{flag_shadow}"></td>
-        "#,
-            if h.deleted() {
-                "flag_deleted"
-            } else {
-                "flag_disabled"
-            }
+        w.write_all_text(&reindent(
+            INDENT * (indent + 7),
+            format!(
+                r#"<td class="meta flag {}{flag_shadow}"></td>{NEWLINE}"#,
+                if h.shared_value() {
+                    "flag_shared"
+                } else {
+                    "flag_disabled"
+                },
+            ),
+        ))?;
+        w.write_all_text(&reindent(
+            INDENT * (indent + 7),
+            format!(
+                r#"<td class="meta flag {}{flag_shadow}"></td>{NEWLINE}"#,
+                if h.deleted() {
+                    "flag_deleted"
+                } else {
+                    "flag_disabled"
+                },
+            ),
         ))?;
         let value = iter.get_next_typed_field().value;
 
@@ -421,39 +491,76 @@ pub fn write_field_data_to_html_table<'a>(
                 .unwrap();
             }
         }
-        w.write_text_fmt(format_args!(
-            r#"
-                            </tr>
-                        </tbody>
-                    </table>
-                </td>
-                <td class="size {flag_shadow}">{}
-                <td class="rl {flag_shadow}">{}
-                <td class="data">{}
-        "#,
-            h.size,
-            if shadow_elem {
-                " ".to_string()
-            } else {
-                h.run_length.to_string()
-            },
-            escape_text(&value_str.into_text_lossy()),
+        w.write_all_text(&reindent(
+            INDENT * (indent + 3),
+            format!(
+                r#"
+                                </tr>
+                            </tbody>
+                        </table>
+                    </td>
+                    <td class="size{flag_shadow}">{}</td>
+                    <td class="rl{flag_shadow}">{}</td>
+                    <td class="data">{}</td>
+                "#,
+                h.size,
+                if shadow_elem {
+                    " ".to_string()
+                } else {
+                    h.run_length.to_string()
+                },
+                escape_text(&value_str.into_text_lossy()),
+            ),
         ))?;
 
-        w.write_all_text(
-            r"
-            </tr>
-        ",
-        )?;
+        w.write_all_text(&reindent(INDENT * (indent + 2), "</tr>\n"))?;
         iter.next_field_allow_dead();
     }
 
-    w.write_all_text(
+    w.write_all_text(&reindent(
+        INDENT * indent,
         r"
-        </tbody>
-    </table>
-    ",
-    )?;
+            </tbody>
+        </table>
+        ",
+    ))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use crate::record_data::debug_log::reindent;
+
+    #[test]
+    fn basic_reindent() {
+        assert_eq!("    asdf", reindent(4, "asdf"));
+    }
+
+    #[test]
+    fn reindent_strips_leading_line() {
+        assert_eq!(
+            "asdf",
+            reindent(
+                0,
+                "
+                asdf
+                "
+            )
+        );
+    }
+
+    #[test]
+    fn reindent_doesnt_strip_trailing_line() {
+        assert_eq!("    asdf\n", reindent(4, "asdf\n"));
+        assert_eq!(
+            "    asdf\n",
+            reindent(
+                4,
+                "
+                asdf
+                "
+            )
+        );
+    }
 }
