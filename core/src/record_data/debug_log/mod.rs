@@ -24,7 +24,7 @@ enum DisplayElem {
     SubchainExpansion(Vec<DisplayOrder>),
 }
 
-const INDENT: usize = 4;
+const INDENT: usize = 2;
 // used as a workaround for the fact that "\n" doesn't work in raw string
 // literals
 const NEWLINE: &str = "\n";
@@ -48,16 +48,16 @@ pub fn write_debug_log_html_head(
         0,
         r"
             <html>
-                <head>
-                    <style>
+              <head>
+                <style>
         ",
     ))?;
     w.write_all_text(&reindent(INDENT * 3, include_str!("./debug_log.css")))?;
     w.write_all_text(&reindent(
-        4,
+        INDENT * 1,
         r"
 
-                </style>
+              </style>
             </head>
             <body>
         ",
@@ -191,7 +191,7 @@ fn write_display_order_to_html(
         INDENT * indent,
         r"
             <table>
-                <tbody>
+              <tbody>
         ",
     ))?;
     for elem in &display_order.elems {
@@ -245,7 +245,7 @@ fn write_display_order_to_html(
     w.write_all_text(&reindent(
         INDENT * indent,
         r"
-                </tbody>
+              </tbody>
             </table>
         ",
     ))?;
@@ -367,19 +367,19 @@ pub fn write_field_data_to_html_table<'a>(
     w.write_all_text(&reindent(INDENT * indent, format!(
         r#"
             <table class="field">
-                <thead>
-                    <th class="field_cell field_desc" colspan="4">{}</th>
-                </thead>
-                <thead>
-                    <th class="field_cell field_desc" colspan="4">{cow_src_str}Field Refs: {field_refs:?}</th>
-                </thead>
-                <thead>
-                    <th class="field_cell meta_head">Meta</th>
-                    <th class="field_cell size_head">Size</th>
-                    <th class="field_cell rl_head">RL</th>
-                    <th class="field_cell data_head">Data</th>
-                </thead>
-                <tbody>
+              <thead>
+                <th class="field_cell field_desc" colspan="4">{}</th>
+              </thead>
+              <thead>
+                <th class="field_cell field_desc" colspan="4">{cow_src_str}Field Refs: {field_refs:?}</th>
+              </thead>
+              <thead>
+                <th class="field_cell meta_head">Meta</th>
+                <th class="field_cell size_head">Size</th>
+                <th class="field_cell rl_head">RL</th>
+                <th class="field_cell data_head">Data</th>
+              </thead>
+              <tbody>
         "#,
         escape_text(heading)
     )))?;
@@ -412,10 +412,10 @@ pub fn write_field_data_to_html_table<'a>(
             INDENT * (indent + 2),
             r#"
                 <tr class="field_row">
-                    <td class="field_cell">
-                        <table>
-                            <tbody>
-                                <tr>
+                  <td class="field_cell">
+                    <table>
+                      <tbody>
+                        <tr>
             "#,
         ))?;
         w.write_all_text(&reindent(
@@ -495,9 +495,9 @@ pub fn write_field_data_to_html_table<'a>(
             INDENT * (indent + 3),
             format!(
                 r#"
-                                </tr>
-                            </tbody>
-                        </table>
+                          </tr>
+                        </tbody>
+                      </table>
                     </td>
                     <td class="size{flag_shadow}">{}</td>
                     <td class="rl{flag_shadow}">{}</td>
@@ -520,7 +520,7 @@ pub fn write_field_data_to_html_table<'a>(
     w.write_all_text(&reindent(
         INDENT * indent,
         r"
-            </tbody>
+          </tbody>
         </table>
         ",
     ))?;
