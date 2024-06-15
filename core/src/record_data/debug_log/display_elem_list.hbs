@@ -1,0 +1,29 @@
+{{~#each elements as |e|}}
+{{~#if e.field as |field| }}
+
+<td class="field_list_entry">
+    {{> field field}}
+</td>
+{{/if}}
+
+{{~#if e.transform }}
+
+<td class="transform_entry">
+    tf {{e.transform.id}} `{{e.transform.display_name}}`
+    <table>
+        {{> display_elem_list e.transform }}
+    </table>
+</td>
+{{/if}}
+
+{{~#if e.subchains as |subchains| }}
+
+<td class="subchains">
+    {{#each subchains as |sc|}}
+
+    {{> display_order sc }}
+    {{/each}}
+
+</td>
+{{~/if}}
+{{~/each}}

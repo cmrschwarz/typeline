@@ -14,14 +14,15 @@
         <th class="field_cell data_head">Data</th>
     </thead>
     <tbody>
+        {{~#each rows as |row|}}
+        {{#each (range row.dead_slots)}}
+        <tr class="field_row dead_row"><td colspan="4"></td></tr>
+        {{/each}}
+
         <tr class="field_row">
             <td class="field_cell">
                 <table>
                     <tbody>
-                    {{#each rows as |row|}}
-                        {{#each (range row.dead_slots)}}
-                        <tr class="field_row dead_row"><td colspan="4"></td></tr>
-                        {{/each}}
                         <tr>
                             <td class="meta meta_main{{row.flag_shadow}}">
                                 {{row.repr}}
@@ -48,7 +49,6 @@
                                 {{~/if~}}
                             ></td>
                         </tr>
-                        {{/each}}
                     </tbody>
                 </table>
             </td>
@@ -56,5 +56,7 @@
             <td class="rl{{flag_shadow}}">{{row.run_length}}</td>
             <td class="data">{{row.value}}</td>
         </tr>
+        {{~/each}}
+
     </tbody>
 </table>

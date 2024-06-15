@@ -414,7 +414,7 @@ mod tests {
         assert!(dst2.is_heap_allocated());
 
         let dst_size_0: SmallBox<[u8], 0> = smallbox!([42u8; 0]);
-        assert_eq!(*dst_size_0, []);
+        assert_eq!(&*dst_size_0, &[0u8; 0]);
         assert!(dst_size_0.is_stack_allocated());
 
         let zst: SmallBox<(), 0> = smallbox!(());

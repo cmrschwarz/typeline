@@ -2,6 +2,9 @@ body {
     background-color: linen;
     overflow: scroll;
 }
+.display_order {
+    border-left: 0.6em solid black;
+}
 th,
 td {
     white-space: nowrap;

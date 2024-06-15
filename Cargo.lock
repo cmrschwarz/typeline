@@ -623,8 +623,7 @@ dependencies = [
 [[package]]
 name = "handlebars"
 version = "5.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d08485b96a0e6393e9e4d1b8d48cf74ad6c063cd905eb33f42c1ce3f0377539b"
+source = "git+https://github.com/cmrschwarz/handlebars-rust.git?branch=nested_partial_indenting#18eeb6c769af5c8a7ba15fb558baefba9d9ea86d"
 dependencies = [
  "log",
  "pest",

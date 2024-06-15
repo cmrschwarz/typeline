@@ -42,7 +42,8 @@ regex-syntax = "0.8.3"
 unicode-ident = "1.0.12"
 
 # for debug_log
-handlebars = "5.1.2"
+handlebars = { git = "https://github.com/cmrschwarz/handlebars-rust.git", branch = "nested_partial_indenting" }
+#handlebars = "5.1.2"
 serde_json = "1.0.117"
 serde_derive = "1.0.203"
 
