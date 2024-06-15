@@ -501,7 +501,8 @@ pub fn handle_tf_forkcat(
 
     let cont_state = fc.continuation_state.lock().unwrap();
 
-    for sc in &cont_state.subchains {
+    // rev so the first subchain ends up at the top of the stack
+    for sc in cont_state.subchains.iter().rev() {
         // PERF: maybe provide a bulk version of this?
         jd.tf_mgr.inform_cross_ms_transform_batch_available(
             &jd.field_mgr,

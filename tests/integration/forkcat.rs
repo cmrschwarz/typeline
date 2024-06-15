@@ -1,4 +1,4 @@
-#![allow(unused_imports)] //TODO
+#![allow(unused_imports)] // TODO
 use rstest::rstest;
 use scr::{
     cli::CliOptions,
@@ -21,7 +21,8 @@ use scr_core::{
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
 };
-#[cfg(any())] //TODO
+
+#[cfg(any())] // TODO
 #[test]
 fn basic_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -37,7 +38,7 @@ fn basic_forkcat() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn forkcat_with_input() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::default();
@@ -56,7 +57,6 @@ fn forkcat_with_input() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
 #[test]
 fn forkcat_dup() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -73,7 +73,7 @@ fn forkcat_dup() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn forkcat_sandwiched_write() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -92,7 +92,7 @@ fn forkcat_sandwiched_write() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn forkcat_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -114,7 +114,7 @@ fn forkcat_into_join() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn forkcat_build_sql_insert() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -140,7 +140,7 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -155,7 +155,7 @@ fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn forkcat_surviving_vars() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -176,7 +176,7 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -194,7 +194,7 @@ fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn forkcat_with_batches() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -210,7 +210,7 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -229,7 +229,7 @@ fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[rstest]
 #[case(1)]
 #[case(2)]
@@ -253,7 +253,7 @@ fn forkcat_on_unapplied_commands(
     Ok(())
 }
 
-#[cfg(any())] //TODO
+#[cfg(any())] // TODO
 #[test]
 fn parse_forkcat() -> Result<(), ScrError> {
     let sess_opts = parse_cli_from_strings(

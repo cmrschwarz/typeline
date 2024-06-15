@@ -1,0 +1,25 @@
+<table>
+    <tbody>
+    {{#each elements as |element| }}
+
+        {{#if element.field as |field|}}
+        <td class="field_list_entry">
+            {{> field field }}
+        </td>
+        {{/if}}
+
+        {{#if element.transform as |tf|}}
+        <td class="transform_entry">
+            tf {{tf.id}} `{{tf.display_name}}`
+        </td>
+        {{/if}}
+        {{#each element.subchains as |subchain|}}
+
+        <td class="transform_entry">
+            {{> display_order subchain }}
+        </td>
+
+        {{/each}}
+    {{/each}}
+    </tbody>
+<table>

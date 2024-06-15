@@ -1,12 +1,14 @@
-use std::borrow::Borrow;
+use handlebars::{handlebars_helper, Handlebars, RenderError};
+use once_cell::sync::Lazy;
+use serde_json::{json, Number};
 
 use crate::{
     job::JobData,
     operators::transform::{TransformData, TransformId},
     utils::{
-        index_vec::IndexSlice, lazy_lock_guard::LazyRwLockGuard,
-        maybe_text::MaybeText, string_store::StringStore,
-        text_write::TextWrite,
+        index_vec::IndexSlice, indexing_type::IndexingType,
+        lazy_lock_guard::LazyRwLockGuard, maybe_text::MaybeText,
+        string_store::StringStore,
     },
 };
 
@@ -24,71 +26,83 @@ enum DisplayElem {
     SubchainExpansion(Vec<DisplayOrder>),
 }
 
-const INDENT: usize = 2;
-// used as a workaround for the fact that "\n" doesn't work in raw string
-// literals
-const NEWLINE: &str = "\n";
-
 #[derive(Default)]
 struct DisplayOrder {
     elems: Vec<DisplayElem>,
     dead_slots: Vec<usize>,
 }
 
-fn escape_text(text: &str) -> String {
-    text.replace('&', "&amp")
-        .replace('<', "&lt")
-        .replace('>', "&gt")
+static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
+    let mut hb = Handlebars::new();
+    hb.register_template_string("head", include_str!("head.hbs"))
+        .unwrap();
+    hb.register_template_string("tail", include_str!("tail.hbs"))
+        .unwrap();
+    hb.register_template_string("entry", include_str!("entry.hbs"))
+        .unwrap();
+    hb.register_partial("field", include_str!("field.hbs"))
+        .unwrap();
+    hb.register_partial("display_order", include_str!("display_order.hbs"))
+        .unwrap();
+    hb.register_template_string(
+        "transform_update",
+        include_str!("transform_update.hbs"),
+    )
+    .unwrap();
+    handlebars_helper!(Range: |n: u64| {
+        serde_json::Value::Array((0..n).map(
+            |n|serde_json::Value::Number(n.into())
+        ).collect::<Vec<_>>())
+    });
+    hb.register_helper("range", Box::new(Range));
+    hb
+});
+
+#[allow(clippy::needless_pass_by_value)]
+fn unwrap_render_error(te: RenderError) -> std::io::Error {
+    let handlebars::RenderErrorReason::IOError(e) = te.reason() else {
+        panic!("template rendering error: {te}")
+    };
+    // TODO: this is scuffed, hope for sunng87/handlebars-rust/pull/644
+    // to be merged
+    e.kind().into()
 }
 
 pub fn write_debug_log_html_head(
-    w: &mut impl TextWrite,
+    w: impl std::io::Write,
 ) -> Result<(), std::io::Error> {
-    w.write_all_text(&reindent(
-        0,
-        r"
-            <html>
-              <head>
-                <style>
-        ",
-    ))?;
-    w.write_all_text(&reindent(INDENT * 3, include_str!("./debug_log.css")))?;
-    w.write_all_text(&reindent(
-        INDENT,
-        r"
-
-              </style>
-            </head>
-            <body>
-        ",
-    ))
+    TEMPLATES
+        .render_to_write(
+            "head",
+            &json!({
+                "style": include_str!("style.css")
+            }),
+            w,
+        )
+        .map_err(unwrap_render_error)
 }
 
 pub fn write_debug_log_html_tail(
-    w: &mut impl TextWrite,
+    w: impl std::io::Write,
 ) -> Result<(), std::io::Error> {
-    w.write_all_text(&reindent(
-        INDENT * 2,
-        r"
-              </body>
-            </html>
-        ",
-    ))
+    TEMPLATES
+        .render_to_write("tail", &(), w)
+        .map_err(unwrap_render_error)
 }
 
 pub fn write_transform_update_to_html(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
     tf_id: TransformId,
-    w: &mut impl TextWrite,
+    w: impl std::io::Write,
 ) -> Result<(), std::io::Error> {
-    w.write_all_text(&reindent(
-        INDENT * 2,
-        format!(
-            "<div class=\"transform_update\">transform update {}</div>\n",
-            escape_text(&jd.tf_mgr.format_transform_state(tf_id, tf_data))
-        ),
-    ))
+    TEMPLATES.render_to_write(
+        "transform_update",
+        &json!({
+            "transform_state": jd.tf_mgr.format_transform_state(tf_id, tf_data)
+        }),
+        w
+    ).map_err(unwrap_render_error)
 }
 
 fn add_field_data_dead_slots<'a>(
@@ -180,99 +194,64 @@ fn push_field_elem_with_refs(
     sc_disp_order.elems.push(DisplayElem::Field(field));
 }
 
-fn write_display_order_to_html(
+fn display_order_to_json(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
     display_order: &DisplayOrder,
-    w: &mut impl TextWrite,
-    indent: usize,
-) -> Result<(), std::io::Error> {
-    w.write_all_text(&reindent(
-        INDENT * indent,
-        r"
-            <table>
-              <tbody>
-        ",
-    ))?;
+) -> serde_json::Value {
+    let mut res = Vec::new();
+    let string_store = jd.session_data.string_store.read().unwrap();
     for elem in &display_order.elems {
         match elem {
-            DisplayElem::Field(field_id) => {
-                w.write_all_text(&reindent(
-                    INDENT * (indent + 2),
-                    "<td class=\"field_list_entry\">\n",
-                ))?;
-                write_field_to_html_table(
+            DisplayElem::Field(field_id) => res.push(json!({
+                "field": field_to_json(
                     jd,
                     &jd.field_mgr.fields[*field_id].borrow(),
                     *field_id,
-                    &jd.session_data.string_store.borrow().read().unwrap(),
-                    &display_order.dead_slots,
-                    indent + 3,
-                    w,
-                )?;
-                w.write_all_text(&reindent(INDENT * (indent + 2), "</td>\n"))?;
-            }
-            DisplayElem::Transform(tf_id) => {
-                w.write_all_text(&reindent(
-                    INDENT * (indent + 2),
-                    "<td class=\"transform_entry\">\n",
-                ))?;
-                let tf_data = &tf_data[*tf_id];
-                w.write_all_text(&reindent(
-                    INDENT * (indent + 3),
-                    format!("tf {tf_id} `{}`\n", tf_data.display_name()),
-                ))?;
-                w.write_all_text(&reindent(INDENT * (indent + 2), "</td>\n"))?;
-            }
-            DisplayElem::SubchainExpansion(subchains) => {
-                w.write_all_text(&reindent(
-                    INDENT * (indent + 2),
-                    "<td class=\"transform_entry\">\n",
-                ))?;
-                for sc_display_order in subchains {
-                    write_display_order_to_html(
-                        jd,
-                        tf_data,
-                        sc_display_order,
-                        w,
-                        indent + 3,
-                    )?;
+                    &string_store,
+                    &display_order.dead_slots
+                )
+            })),
+            DisplayElem::Transform(tf_id) => res.push(json!({
+                "transform": {
+                    "id": tf_id.into_usize(),
+                    "display_name": jd.tf_mgr.format_transform_state(*tf_id, tf_data),
                 }
-                w.write_all_text(&reindent(INDENT * (indent + 2), "</td>\n"))?;
-            }
+            })),
+            DisplayElem::SubchainExpansion(subchains) => res.push(json!({
+                "subchains":
+                subchains.iter().map(
+                    |display_order| display_order_to_json(jd, tf_data, display_order)
+                ).collect::<Vec<_>>()
+            })),
         }
     }
-    w.write_all_text(&reindent(
-        INDENT * indent,
-        r"
-              </tbody>
-            </table>
-        ",
-    ))?;
-    Ok(())
+    json!({"elements": res })
 }
 
 pub fn write_debug_log_to_html(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
     start_tf: TransformId,
-    w: &mut impl TextWrite,
+    w: impl std::io::Write,
 ) -> Result<(), std::io::Error> {
     let mut display_order = DisplayOrder::default();
     setup_display_order_elems(jd, tf_data, start_tf, &mut display_order);
     setup_dead_slots(&mut display_order, jd);
-    write_display_order_to_html(jd, tf_data, &display_order, w, 2)
+    let display_order_json =
+        display_order_to_json(jd, tf_data, &display_order);
+    TEMPLATES
+        .render_to_write("entry", &display_order_json, w)
+        .map_err(unwrap_render_error)
 }
 
-pub fn write_field_to_html_table(
+pub fn field_to_json(
     jd: &JobData,
     field: &Field,
     field_id: FieldId,
     string_store: &StringStore,
     dead_slots: &[usize],
-    indent: usize,
-    w: &mut impl TextWrite,
-) -> Result<(), std::io::Error> {
+) -> serde_json::Value {
     let field_name = {
         let id = field_id;
         let given_name = field.name.map(|id| string_store.lookup(id));
@@ -305,15 +284,13 @@ pub fn write_field_to_html_table(
         String::new()
     };
     let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);
-    write_field_data_to_html_table(
+    field_data_to_json(
         jd,
         &cfr,
         &field_name,
         &cow_src_str,
         &field.field_refs,
         dead_slots,
-        indent,
-        w,
     )
 }
 
@@ -353,36 +330,16 @@ pub fn reindent(target_ident: usize, input: impl AsRef<str>) -> String {
     result
 }
 
-pub fn write_field_data_to_html_table<'a>(
+pub fn field_data_to_json<'a>(
     jd: &JobData,
     fd: impl FieldDataRef<'a>,
     heading: &str,
     cow_src_str: &str,
     field_refs: &[FieldId],
     dead_slots: &[usize],
-    indent: usize,
-    w: &mut impl TextWrite,
-) -> Result<(), std::io::Error> {
+) -> serde_json::Value {
     let mut iter = super::iters::FieldIter::from_start_allow_dead(&fd);
-    w.write_all_text(&reindent(INDENT * indent, format!(
-        r#"
-            <table class="field">
-              <thead>
-                <th class="field_cell field_desc" colspan="4">{}</th>
-              </thead>
-              <thead>
-                <th class="field_cell field_desc" colspan="4">{cow_src_str}Field Refs: {field_refs:?}</th>
-              </thead>
-              <thead>
-                <th class="field_cell meta_head">Meta</th>
-                <th class="field_cell size_head">Size</th>
-                <th class="field_cell rl_head">RL</th>
-                <th class="field_cell data_head">Data</th>
-              </thead>
-              <tbody>
-        "#,
-        escape_text(heading)
-    )))?;
+
     let mut del_count = 0;
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
     let mut formatting_context = FormattingContext {
@@ -394,81 +351,23 @@ pub fn write_field_data_to_html_table<'a>(
         rfk: RealizedFormatKey::default(),
     };
 
+    let mut rows = Vec::new();
+
     while iter.is_next_valid() && iter.field_pos < fd.field_count() {
         let h = fd.headers()[iter.header_idx];
-        if h.deleted() {
+        let dead_slot_count = if h.deleted() {
             del_count += 1;
+            0
         } else {
-            for _ in del_count..dead_slots[iter.field_pos] {
-                w.write_all_text(&reindent(INDENT * 5,
-                    "<tr class=\"field_row dead_row\"><td colspan=4></td></tr>\n",
-                ))?;
-            }
+            let del_count_prev = del_count;
             del_count = 0;
-        }
+            dead_slots[iter.field_pos] - del_count_prev
+        };
         let shadow_elem = iter.header_rl_offset != 0;
         let flag_shadow = if shadow_elem { " flag_shadow" } else { "" };
-        w.write_all_text(&reindent(
-            INDENT * (indent + 2),
-            r#"
-                <tr class="field_row">
-                  <td class="field_cell">
-                    <table>
-                      <tbody>
-                        <tr>
-            "#,
-        ))?;
-        w.write_all_text(&reindent(
-            INDENT * (indent + 7),
-            format!(
-                r#"<td class="meta meta_main{flag_shadow}">{}</td>{NEWLINE}"#,
-                escape_text(&h.fmt.repr.to_string())
-            ),
-        ))?;
-        w.write_all_text(&reindent(
-            INDENT * (indent + 7),
-            format!(
-                r#"<td class="meta meta_padding{flag_shadow}">{}</td>{NEWLINE}"#,
-                h.fmt.leading_padding()
-            ),
-        ))?;
-        w.write_all_text(&reindent(
-            INDENT * (indent + 7),
-            format!(
-                r#"<td class="meta flag {}{flag_shadow}"></td>{NEWLINE}"#,
-                if h.same_value_as_previous() {
-                    "flag_same_as_prev"
-                } else {
-                    "flag_disabled"
-                }
-            ),
-        ))?;
-        w.write_all_text(&reindent(
-            INDENT * (indent + 7),
-            format!(
-                r#"<td class="meta flag {}{flag_shadow}"></td>{NEWLINE}"#,
-                if h.shared_value() {
-                    "flag_shared"
-                } else {
-                    "flag_disabled"
-                },
-            ),
-        ))?;
-        w.write_all_text(&reindent(
-            INDENT * (indent + 7),
-            format!(
-                r#"<td class="meta flag {}{flag_shadow}"></td>{NEWLINE}"#,
-                if h.deleted() {
-                    "flag_deleted"
-                } else {
-                    "flag_disabled"
-                },
-            ),
-        ))?;
+
         let value = iter.get_next_typed_field().value;
-
         let mut value_str = MaybeText::default();
-
         match value {
             FieldValueRef::FieldReference(fr) => {
                 value_str = MaybeText::Text(format!("{}", fr.field_ref_offset))
@@ -491,41 +390,48 @@ pub fn write_field_data_to_html_table<'a>(
                 .unwrap();
             }
         }
-        w.write_all_text(&reindent(
-            INDENT * (indent + 3),
-            format!(
-                r#"
-                          </tr>
-                        </tbody>
-                      </table>
-                    </td>
-                    <td class="size{flag_shadow}">{}</td>
-                    <td class="rl{flag_shadow}">{}</td>
-                    <td class="data">{}</td>
-                "#,
-                h.size,
-                if shadow_elem {
-                    " ".to_string()
-                } else {
-                    h.run_length.to_string()
-                },
-                escape_text(&value_str.into_text_lossy()),
-            ),
-        ))?;
+        rows.push(json!({
+            "dead_slots": dead_slot_count,
+            "flag_shadow": flag_shadow,
+            "repr": h.fmt.repr.to_string(),
+            "padding": h.fmt.leading_padding(),
+            "deleted": h.deleted(),
+            "shared": h.shared_value(),
+            "same_as_prev": h.same_value_as_previous(),
+            "value": value_str.into_text().unwrap()
+        }));
 
-        w.write_all_text(&reindent(INDENT * (indent + 2), "</tr>\n"))?;
         iter.next_field_allow_dead();
     }
 
-    w.write_all_text(&reindent(
-        INDENT * indent,
-        r"
-          </tbody>
-        </table>
-        ",
-    ))?;
+    json!({
+        "description": heading,
+        "cow_src_str": cow_src_str,
+        "field_refs": field_refs,
+        "rows": rows
+    })
+}
 
-    Ok(())
+pub fn write_field_data_to_html_table<'a>(
+    jd: &JobData,
+    fd: impl FieldDataRef<'a>,
+    heading: &str,
+    cow_src_str: &str,
+    field_refs: &[FieldId],
+    dead_slots: &[usize],
+    w: impl std::io::Write,
+) -> Result<(), std::io::Error> {
+    let field_data = field_data_to_json(
+        jd,
+        fd,
+        heading,
+        cow_src_str,
+        field_refs,
+        dead_slots,
+    );
+    TEMPLATES
+        .render_template_to_write("field", &field_data, w)
+        .map_err(unwrap_render_error)
 }
 
 #[cfg(test)]

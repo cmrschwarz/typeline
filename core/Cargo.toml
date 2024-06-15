@@ -24,6 +24,7 @@ ref-cast = "1.0.23"
 subenum = "1.1.2"
 metamatch = "0.2.3"
 
+
 # small size / layout optimizations
 arrayvec = "0.7.4"
 bitvec = { version = "1.0", features = ["std"], default-features = false }
@@ -39,6 +40,11 @@ encoding_rs = { version = "0.8.34", features = ["fast-legacy-encode"] }
 regex = "1.10.4"
 regex-syntax = "0.8.3"
 unicode-ident = "1.0.12"
+
+# for debug_log
+handlebars = "5.1.2"
+serde_json = "1.0.117"
+serde_derive = "1.0.203"
 
 # deps for repl mode:
 [dependencies.reedline]

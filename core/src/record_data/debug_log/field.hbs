@@ -1,0 +1,60 @@
+<table class="field">
+    <thead>
+        <th class="field_cell field_desc" colspan="4">{{description}}</th>
+    </thead>
+    <thead>
+        <th class="field_cell field_desc" colspan="4">
+            {{cow_src_str}}Field Refs:{{field_refs}}
+        </th>
+    </thead>
+    <thead>
+        <th class="field_cell meta_head">Meta</th>
+        <th class="field_cell size_head">Size</th>
+        <th class="field_cell rl_head">RL</th>
+        <th class="field_cell data_head">Data</th>
+    </thead>
+    <tbody>
+        <tr class="field_row">
+            <td class="field_cell">
+                <table>
+                    <tbody>
+                    {{#each rows as |row|}}
+                        {{#each (range row.dead_slots)}}
+                        <tr class="field_row dead_row"><td colspan="4"></td></tr>
+                        {{/each}}
+                        <tr>
+                            <td class="meta meta_main{{row.flag_shadow}}">
+                                {{row.repr}}
+                            </td>
+                            <td class="meta meta_padding{{row.flag_shadow}}">
+                                {{row.padding}}
+                            </td>
+                            <td {{#if row.same_as_prev ~}}
+                                    class="meta flag flag_same_as_prev{{row.flag_shadow}}"
+                                {{~else~}}
+                                    class="meta flag flag_disabled{{row.flag_shadow}}"
+                                {{~/if~}}
+                            ></td>
+                            <td {{#if row.shared ~}}
+                                    class="meta flag flag_shared{{row.flag_shadow}}"
+                                {{~else~}}
+                                    class="meta flag flag_disabled{{row.flag_shadow}}"
+                                {{~/if~}}
+                            ></td>
+                            <td {{#if row.deleted ~}}
+                                    class="meta flag flag_deleted{{row.flag_shadow}}"
+                                {{~else~}}
+                                    class="meta flag flag_disabled{{row.flag_shadow}}"
+                                {{~/if~}}
+                            ></td>
+                        </tr>
+                        {{/each}}
+                    </tbody>
+                </table>
+            </td>
+            <td class="size{{flag_shadow}}">{{row.size}}</td>
+            <td class="rl{{flag_shadow}}">{{row.run_length}}</td>
+            <td class="data">{{row.value}}</td>
+        </tr>
+    </tbody>
+</table>

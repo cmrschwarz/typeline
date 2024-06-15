@@ -34,6 +34,7 @@ extern crate metamatch;
 extern crate once_cell;
 extern crate regex;
 extern crate regex_syntax;
+extern crate serde_derive;
 extern crate smallstr;
 extern crate smallvec;
 extern crate thin_vec;
