@@ -1,62 +1,74 @@
-<table class="field">
-    <thead>
-        <th class="field_cell field_desc" colspan="4">{{description}}</th>
-    </thead>
-    <thead>
-        <th class="field_cell field_desc" colspan="4">
-            {{cow_src_str}}Field Refs:{{field_refs}}
-        </th>
-    </thead>
-    <thead>
-        <th class="field_cell meta_head">Meta</th>
-        <th class="field_cell size_head">Size</th>
-        <th class="field_cell rl_head">RL</th>
-        <th class="field_cell data_head">Data</th>
-    </thead>
+<div class="field-container">
+<div class="field">
+
+    <div class="header">
+        <!-- optional -->
+        <div class="cow-info">{{cow_src_str}}</div>
+
+        <div class="cname">{{description}}</div>
+        <div class="num">#1</div>
+    </div>
+    <div class="ref-list">
+        <div class="desc">refs:</div>
+        {{#each field_refs as |ref|}}
+            <div class="ref">{{ref}}</div>
+        {{/each}}
+    </div>
+
+<table class="table">
+
     <tbody>
+
+    <tr class="header">
+        <th class="meta_head">Meta</th>
+        <th class="size_head">Size</th>
+        <th class="rl_head">RL</th>
+        <th class="data_head">Data</th>
+        <th class="data_head">Iters</th>
+    </tr>
+
         {{~#each rows as |row|}}
         {{#each (range row.dead_slots)}}
         <tr class="field_row dead_row"><td colspan="4"></td></tr>
         {{/each}}
 
-        <tr class="field_row">
-            <td class="field_cell">
-                <table>
-                    <tbody>
-                        <tr>
-                            <td class="meta meta_main{{row.flag_shadow}}">
-                                {{row.repr}}
-                            </td>
-                            <td class="meta meta_padding{{row.flag_shadow}}">
-                                {{row.padding}}
-                            </td>
-                            <td {{#if row.same_as_prev ~}}
-                                    class="meta flag flag_same_as_prev{{row.flag_shadow}}"
-                                {{~else~}}
-                                    class="meta flag flag_disabled{{row.flag_shadow}}"
-                                {{~/if~}}
-                            ></td>
-                            <td {{#if row.shared ~}}
-                                    class="meta flag flag_shared{{row.flag_shadow}}"
-                                {{~else~}}
-                                    class="meta flag flag_disabled{{row.flag_shadow}}"
-                                {{~/if~}}
-                            ></td>
-                            <td {{#if row.deleted ~}}
-                                    class="meta flag flag_deleted{{row.flag_shadow}}"
-                                {{~else~}}
-                                    class="meta flag flag_disabled{{row.flag_shadow}}"
-                                {{~/if~}}
-                            ></td>
-                        </tr>
-                    </tbody>
-                </table>
+        <tr class="row">
+            <td class="meta-list">
+                <div class="padding{{row.flag_shadow}}">
+                    {{row.padding}}
+                </div>
+                <div class="text{{row.flag_shadow}}">
+                    {{row.repr}}
+                </div>
+                <div {{#if row.same_as_prev ~}}
+                        class="flag flag_same_as_prev{{row.flag_shadow}}"
+                    {{~else~}}
+                        class="flag flag_disabled{{row.flag_shadow}}"
+                    {{~/if~}}
+                ></div>
+                <div {{#if row.shared ~}}
+                        class="flag flag_shared{{row.flag_shadow}}"
+                    {{~else~}}
+                        class="flag flag_disabled{{row.flag_shadow}}"
+                    {{~/if~}}
+                ></div>
+                <div {{#if row.deleted ~}}
+                        class="flag flag_deleted{{row.flag_shadow}}"
+                    {{~else~}}
+                        class="flag flag_disabled{{row.flag_shadow}}"
+                    {{~/if~}}>
+                </div>
             </td>
             <td class="size{{flag_shadow}}">{{row.size}}</td>
             <td class="rl{{flag_shadow}}">{{row.run_length}}</td>
             <td class="data">{{row.value}}</td>
+            <td class="iter-list">
+                <div class="iter">TF1</div>
+            </td>
         </tr>
         {{~/each}}
 
     </tbody>
 </table>
+</div>
+</div>

@@ -4,8 +4,19 @@
         <meta charset="UTF-8" />
         <title>SCR Debug Log</title>
         <style>
-            {{reindent 12 style}}
+            {{{reindent 12 style}}}
         </style>
+        <script>
+            function toggle_element(id, regular_display_mode) {
+                let element = document.getElementById(id);
+                if (element.style.display == "none") {
+                    element.style.display = regular_display_mode;
+                }
+                else {
+                    element.style.display = "none";
+                }
+            }
+        </script>
     </head>
 
     <body>

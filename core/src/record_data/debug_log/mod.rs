@@ -42,11 +42,8 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
         .unwrap();
     hb.register_partial("field", include_str!("field.hbs"))
         .unwrap();
-    hb.register_partial(
-        "display_order",
-        include_str!("display_order.hbs"),
-    )
-    .unwrap();
+    hb.register_partial("display_order", include_str!("display_order.hbs"))
+        .unwrap();
     hb.register_partial(
         "display_elem_list",
         include_str!("display_elem_list.hbs"),
@@ -57,7 +54,7 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
         include_str!("transform_update.hbs"),
     )
     .unwrap();
-
+    hb.register_helper("unique_id", Box::new(helpers::UniqueId));
     hb.register_helper("range", Box::new(helpers::Range));
     hb.register_helper("reindent", Box::new(helpers::Reindent));
     hb.set_strict_mode(true);
@@ -269,7 +266,8 @@ pub fn write_debug_log_to_html(
     let entry = TEMPLATES
         .render("display_order", &json!({ "elements": display_order_json }))
         .unwrap();
-    w.write_all(reindent(false, 8, entry).as_bytes())
+    w.write_all(reindent(false, 8, entry).as_bytes())?;
+    Ok(())
 }
 
 pub fn field_to_json(

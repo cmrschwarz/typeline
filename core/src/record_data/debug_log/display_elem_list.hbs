@@ -1,29 +1,35 @@
 {{~#each elements as |e|}}
 {{~#if e.field as |field| }}
-
-<td class="field_list_entry">
-    {{> field field}}
-</td>
+{{> field field}}
 {{/if}}
 
 {{~#if e.transform }}
 
-<td class="transform_entry">
+<div class="transform">
+    {{#with (unique_id "field_list_") as |id|}}
+    {{#if e.transform.elements}}
+    <div class="transform_name filled_transform" onclick="toggle_element('{{id}}', 'flex')">
+    {{else}}
+    <div class="transform_name empty_transform">
+    {{/if}}
     tf {{e.transform.id}} `{{e.transform.display_name}}`
-    <table>
+    </div>
+    {{#if e.transform.elements}}
+    <div class="field-list" id="{{id}}" >
         {{> display_elem_list e.transform }}
-    </table>
-</td>
+    </div>
+    {{/if}}
+    {{/with}}
+</div>
 {{/if}}
 
 {{~#if e.subchains as |subchains| }}
 
-<td class="subchains">
+<div class="chain-list">
     {{#each subchains as |sc|}}
-
     {{> display_order sc }}
     {{/each}}
 
-</td>
+</div>
 {{~/if}}
 {{~/each}}

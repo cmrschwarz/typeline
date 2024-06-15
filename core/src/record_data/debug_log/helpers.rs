@@ -1,4 +1,8 @@
+use std::sync::atomic::{AtomicU64, AtomicUsize};
+
 use handlebars::handlebars_helper;
+use once_cell::sync::Lazy;
+use serde_json::Value;
 
 handlebars_helper!(Range: |n: u64| {
     serde_json::Value::Array((0..n).map(
@@ -7,6 +11,14 @@ handlebars_helper!(Range: |n: u64| {
 });
 handlebars_helper!(Reindent: |n: usize, s: String| {
     reindent(true, n, s)
+});
+static UNIQUE_ID_COUNTER: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+handlebars_helper!(UniqueId: |prefix: String| {
+    let mut prefix = prefix;
+    prefix.push_str(
+        &UNIQUE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst).to_string()
+    );
+    prefix
 });
 
 pub fn reindent(
