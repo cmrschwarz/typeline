@@ -7,13 +7,16 @@
             {{{reindent 12 style}}}
         </style>
         <script>
-            function toggle_element(id, regular_display_mode) {
-                let element = document.getElementById(id);
-                if (element.style.display == "none") {
-                    element.style.display = regular_display_mode;
+            function toggle_field_list(field_list_id, collapsed_id) {
+                let field_list = document.getElementById(field_list_id);
+                let collapsed = document.getElementById(collapsed_id);
+                if (field_list.style.display == "none") {
+                    field_list.style.display = "flex";
+                    collapsed.style.display = "none";
                 }
                 else {
-                    element.style.display = "none";
+                    field_list.style.display = "none";
+                    collapsed.style.display = "flex";
                 }
             }
         </script>

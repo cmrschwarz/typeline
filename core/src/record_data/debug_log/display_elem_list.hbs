@@ -6,19 +6,27 @@
 {{~#if e.transform }}
 
 <div class="transform">
-    {{#with (unique_id "field_list_") as |id|}}
+    {{#with (unique_id "field_list_") as |field_list_id|}}
+    {{#with (unique_id "collapsed_id_") as |collapsed_id|}}
     {{#if e.transform.elements}}
-    <div class="transform_name filled_transform" onclick="toggle_element('{{id}}', 'flex')">
+    <div
+        class="transform_name filled_transform"
+        onclick="toggle_field_list('{{field_list_id}}', '{{collapsed_id}}')"
+    >
     {{else}}
     <div class="transform_name empty_transform">
     {{/if}}
+    {{#if e.transform.id}}
     tf {{e.transform.id}} `{{e.transform.display_name}}`
+    {{/if}}
     </div>
     {{#if e.transform.elements}}
-    <div class="field-list" id="{{id}}" >
+    <div class="field-list" id="{{field_list_id}}" >
         {{> display_elem_list e.transform }}
     </div>
+    <div class="collapsed-field-separator" id="{{collapsed_id}}" style="display: none;"></div>
     {{/if}}
+    {{/with}}
     {{/with}}
 </div>
 {{/if}}
@@ -29,7 +37,6 @@
     {{#each subchains as |sc|}}
     {{> display_order sc }}
     {{/each}}
-
 </div>
 {{~/if}}
 {{~/each}}

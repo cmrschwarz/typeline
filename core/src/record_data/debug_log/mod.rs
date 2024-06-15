@@ -1,5 +1,7 @@
 mod helpers;
 
+use std::iter;
+
 use handlebars::{Handlebars, RenderError, RenderErrorReason};
 use helpers::reindent;
 use once_cell::sync::Lazy;
@@ -158,10 +160,12 @@ fn setup_display_order_elems(
             let mut subchains = Vec::new();
             for sce in &fc.continuation_state.lock().unwrap().subchains {
                 let mut sc_disp_order = DisplayOrder::default();
+
                 push_field_elem_with_refs(
                     jd,
                     jd.tf_mgr.transforms[sce.start_tf_id].input_field,
                     &mut sc_disp_order.elems,
+                    true,
                 );
                 setup_display_order_elems(
                     jd,
@@ -177,7 +181,12 @@ fn setup_display_order_elems(
                 subchains.push(sc_disp_order);
             }
             child_elems.push(DisplayElem::SubchainExpansion(subchains));
-            push_field_elem_with_refs(jd, tf.output_field, &mut child_elems);
+            push_field_elem_with_refs(
+                jd,
+                tf.output_field,
+                &mut child_elems,
+                false,
+            );
         } else {
             tf_data[tf_id].get_out_fields(tf, &mut fields_temp);
             for &field in &fields_temp {
@@ -202,11 +211,23 @@ fn push_field_elem_with_refs(
     jd: &JobData,
     field: FieldId,
     elems: &mut Vec<DisplayElem>,
+    wrap_in_empty_transform: bool,
 ) {
-    for &fr in &jd.field_mgr.fields[field].borrow().field_refs {
-        elems.push(DisplayElem::Field(fr));
+    for &fr in jd.field_mgr.fields[field]
+        .borrow()
+        .field_refs
+        .iter()
+        .chain(iter::once(&field))
+    {
+        if wrap_in_empty_transform {
+            elems.push(DisplayElem::Transform(
+                None,
+                vec![DisplayElem::Field(fr)],
+            ));
+        } else {
+            elems.push(DisplayElem::Field(fr));
+        }
     }
-    elems.push(DisplayElem::Field(field));
 }
 
 fn display_elems_to_json(
