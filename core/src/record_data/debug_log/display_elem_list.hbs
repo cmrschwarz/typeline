@@ -24,7 +24,12 @@
     <div class="field-list" id="{{field_list_id}}" >
         {{> display_elem_list e.transform }}
     </div>
-    <div class="collapsed-field-separator" id="{{collapsed_id}}" style="display: none;"></div>
+    <div
+        class="collapsed-field-separator"
+        id="{{collapsed_id}}"
+        style="display: none;"
+        onclick="toggle_field_list('{{field_list_id}}', '{{collapsed_id}}')"
+    ></div>
     {{/if}}
     {{/with}}
     {{/with}}

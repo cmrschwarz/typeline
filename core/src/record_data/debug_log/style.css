@@ -91,7 +91,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px dashed black;
+    border-bottom: 1px solid black;
 }
 
 .field > .header > .cow-info {
@@ -115,7 +115,7 @@ body {
 }
 
 .field > .ref-list {
-    border-bottom: 1px dashed black;
+    border-bottom: 1px solid black;
     display: flex;
     padding: 0.1em 0;
 }
@@ -131,28 +131,14 @@ body {
     margin-left: 0.2em;
 }
 
-.field > .table th {
-    border-right: 1px solid black;
-}
-.field > .table th:last-of-type {
-    border-right: 0;
-}
-.field > .table td {
-    border-right: 1px solid black;
-}
-.field > .table td:last-of-type {
-    border-right: 0;
+.field > .table th td {
+    border: 1px solid black;
 }
 
 .field > .table th {
     text-align: center;
     padding: 0 0.2em;
     font-weight: normal;
-}
-
-.field > .table tr td {
-    padding: 0.2em 0.3em;
-    border-top: 1px solid black;
 }
 
 .field > .table td.meta-list {
