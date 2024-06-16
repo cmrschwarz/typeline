@@ -94,7 +94,8 @@ pub fn write_debug_log_html_head(
         .render_to_write(
             "head",
             &json!({
-                "style": include_str!("style.css")
+                "style": include_str!("style.css"),
+                "debug_style_sheet": cfg!(feature="debug_debug_log_style_sheet")
             }),
             w,
         )
@@ -403,7 +404,7 @@ pub fn write_transform_update_to_html(
 
     let update = &json!({
         "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data),
-        "transform_chain": transform_chain_to_json(jd, tf_data, &match_chain)
+        "transform_chain": transform_chain_to_json(jd, tf_data, &match_chain),
     });
     println!("{:#?}", update);
     let tf_update = TEMPLATES.render("transform_update", &update).unwrap();

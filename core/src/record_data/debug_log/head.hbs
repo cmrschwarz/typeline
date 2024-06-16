@@ -3,9 +3,14 @@
     <head>
         <meta charset="UTF-8" />
         <title>SCR Debug Log</title>
-        {{! for now to facilitate debugging !}}
+        {{#if debug_style_sheet}}
         <link rel="stylesheet" href="style.css">
-        {{! <style> reindent 12 style </style> !}}
+        {{else}}
+        <style>
+            {{{reindent 12 style}}}
+        </style>
+        {{/if}}
+
         <script>
             function toggle_collapsable(collapsable_id, collapsed_id) {
                 let collapsable = document.getElementById(collapsable_id);

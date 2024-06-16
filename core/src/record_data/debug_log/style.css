@@ -13,7 +13,7 @@ body {
 
 .transform-update .transform-update-text {
     background-color: cornflowerblue;
-    margin-bottom: 1em;
+    margin-bottom: 0.5em;
 }
 
 .match-set {
@@ -37,6 +37,11 @@ body {
     border: 2px solid black;
     margin-bottom: 0.5em;
     padding: 1em;
+}
+
+.transform-update-body > .match-set {
+    border: none !important;
+    padding: 0 !important;
 }
 
 .match-set-name {
@@ -63,7 +68,7 @@ body {
         rgb(176, 196, 222) 1em
     );
     height: 100%;
-    min-height: 3em;
+    min-height: 2em;
 }
 
 .collapsed-match-set-body {
@@ -75,7 +80,7 @@ body {
         rgb(0, 255, 255) 1em
     );
     height: 100%;
-    min-height: 3em;
+    min-height: 2em;
 }
 
 .collapsed-transform-update-body {
@@ -87,7 +92,7 @@ body {
         rgb(100, 149, 237) 1em
     );
     height: 100%;
-    min-height: 3em;
+    min-height: 2em;
 }
 
 .transform > .transform_name {
