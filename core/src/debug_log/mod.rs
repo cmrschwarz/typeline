@@ -8,20 +8,19 @@ use serde_json::{json, Value};
 use crate::{
     job::JobData,
     operators::transform::{TransformData, TransformId},
+    record_data::{
+        field::{Field, FieldId},
+        field_value_ref::FieldValueRef,
+        formattable::{Formattable, FormattingContext, RealizedFormatKey},
+        iter_hall::CowVariant,
+        iters::{FieldDataRef, FieldIter, FieldIterator},
+        match_set::MatchSetId,
+    },
     utils::{
         index_vec::IndexSlice, indexing_type::IndexingType,
         lazy_lock_guard::LazyRwLockGuard, maybe_text::MaybeText,
         string_store::StringStore,
     },
-};
-
-use super::{
-    field::{Field, FieldId},
-    field_value_ref::FieldValueRef,
-    formattable::{Formattable, FormattingContext, RealizedFormatKey},
-    iter_hall::CowVariant,
-    iters::{FieldDataRef, FieldIterator},
-    match_set::MatchSetId,
 };
 
 struct MatchChain {
@@ -130,7 +129,7 @@ fn add_field_data_dead_slots<'a>(
     fd: impl FieldDataRef<'a>,
     dead_slots: &mut [usize],
 ) {
-    let mut iter = super::iters::FieldIter::from_start_allow_dead(fd);
+    let mut iter = FieldIter::from_start_allow_dead(fd);
     for ds in dead_slots {
         *ds = (*ds).max(iter.skip_dead_fields());
         iter.next_field_allow_dead();
@@ -144,7 +143,7 @@ fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
                 jd.field_mgr
                     .apply_field_actions(&jd.match_set_mgr, *field_id);
                 let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
-                let fc = cfr.destructured_field_ref().field_count;
+                let fc = cfr.destructured_field_ref().field_count();
                 mc.dead_slots.resize(mc.dead_slots.len().max(fc), 0);
                 add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
             }
@@ -285,7 +284,7 @@ pub fn field_data_to_json<'a>(
     field_refs: &[FieldId],
     dead_slots: &[usize],
 ) -> serde_json::Value {
-    let mut iter = super::iters::FieldIter::from_start_allow_dead(&fd);
+    let mut iter = FieldIter::from_start_allow_dead(&fd);
 
     let mut del_count = 0;
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
@@ -300,17 +299,18 @@ pub fn field_data_to_json<'a>(
 
     let mut rows = Vec::new();
 
-    while iter.is_next_valid() && iter.field_pos < fd.field_count() {
-        let h = fd.headers()[iter.header_idx];
+    while iter.is_next_valid() && iter.get_next_field_pos() < fd.field_count()
+    {
+        let h = fd.headers()[iter.get_next_header_index()];
         let dead_slot_count = if h.deleted() {
             del_count += 1;
             0
         } else {
             let del_count_prev = del_count;
             del_count = 0;
-            dead_slots[iter.field_pos] - del_count_prev
+            dead_slots[iter.get_next_field_pos()] - del_count_prev
         };
-        let shadow_elem = iter.header_rl_offset != 0;
+        let shadow_elem = h.shared_value() && iter.field_run_length_bwd() != 0;
         let flag_shadow = if shadow_elem { " flag_shadow" } else { "" };
 
         let value = iter.get_next_typed_field().value;

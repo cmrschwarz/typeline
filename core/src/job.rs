@@ -7,6 +7,10 @@ use std::{
 use crate::{
     chain::{Chain, ChainId},
     context::{ContextData, JobDescription, SessionData, VentureDescription},
+    debug_log::{
+        write_debug_log_html_head, write_debug_log_html_tail,
+        write_transform_update_to_html,
+    },
     operators::{
         call::handle_eager_call_expansion,
         call_concurrent::setup_callee_concurrent,
@@ -23,10 +27,6 @@ use crate::{
     },
     record_data::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
-        debug_log::{
-            write_debug_log_html_head, write_debug_log_html_tail,
-            write_transform_update_to_html,
-        },
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
         group_track::{GroupTrackId, GroupTrackManager},

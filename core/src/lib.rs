@@ -51,6 +51,7 @@ pub mod utils;
 pub mod chain;
 pub mod cli;
 pub mod context;
+pub mod debug_log;
 pub mod extension;
 pub mod job;
 pub mod liveness_analysis;

@@ -266,7 +266,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
             _phantom_data: PhantomData,
         }
     }
-    pub(super) fn skip_dead_fields(&mut self) -> usize {
+    pub fn skip_dead_fields(&mut self) -> usize {
         if !self.header_fmt.deleted() {
             return 0;
         }
@@ -300,7 +300,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
         }
         skip_count
     }
-    pub(super) fn next_field_allow_dead(&mut self) {
+    pub fn next_field_allow_dead(&mut self) {
         assert!(self.is_next_valid());
         if !self.header_fmt.deleted() {
             self.field_pos += 1;
