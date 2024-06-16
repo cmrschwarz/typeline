@@ -1,7 +1,9 @@
 {{let "transform_update_body_id" (unique_id "transform_update_body_id_")}}
 {{let "collapsed_transform_update_body_id" (unique_id "collapsed_transform_update_body_id_")}}
+{{let "transform_update_id" (unique_id "tfu_")}}
 <div class="transform-update">
     <div
+        id="{{transform_update_id}}"
         class="transform-update-text"
         onclick="toggle_collapsable('{{transform_update_body_id}}', '{{collapsed_transform_update_body_id}}')"
     >
@@ -9,7 +11,7 @@
         {{transform_update_text}}
     </div>
     <div class="transform-update-body" id="{{transform_update_body_id}}">
-        {{>transform_chain transform_chain}}
+        {{>transform_chain transform_chain transform_update_id=transform_update_id}}
     </div>
     <div
         class="collapsed-transform-update-body"
