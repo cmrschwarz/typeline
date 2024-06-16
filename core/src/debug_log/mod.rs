@@ -407,7 +407,7 @@ pub fn field_data_to_json<'a>(
             "size": h.size,
             "run_length": run_length,
             "same_as_prev": h.same_value_as_previous(),
-            "value": value_str.into_text().unwrap(),
+            "value": value_str.into_text().expect("value must be valid utf-8"),
             "iters": row_iters
         }));
 
