@@ -634,7 +634,7 @@ dependencies = [
 [[package]]
 name = "handlebars"
 version = "5.1.2"
-source = "git+https://github.com/cmrschwarz/handlebars-rust.git?branch=fix_indent_after_if#8f34fa7fd147e6f13f6a7be33bb013d6fa62cc06"
+source = "git+https://github.com/cmrschwarz/handlebars-rust.git?branch=master#8a170a1b65597aa188e07dec5ca8bef7bed6aa5c"
 dependencies = [
  "log",
  "pest",

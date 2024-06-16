@@ -7,15 +7,15 @@
         <link rel="stylesheet" href="style.css">
         {{! <style> reindent 12 style </style> !}}
         <script>
-            function toggle_field_list(field_list_id, collapsed_id) {
-                let field_list = document.getElementById(field_list_id);
+            function toggle_collapsable(collapsable_id, collapsed_id) {
+                let collapsable = document.getElementById(collapsable_id);
                 let collapsed = document.getElementById(collapsed_id);
-                if (field_list.style.display == "none") {
-                    field_list.style.display = "flex";
+                if (collapsable.style.display == "none") {
+                    collapsable.style.display = "flex";
                     collapsed.style.display = "none";
                 }
                 else {
-                    field_list.style.display = "none";
+                    collapsable.style.display = "none";
                     collapsed.style.display = "flex";
                 }
             }

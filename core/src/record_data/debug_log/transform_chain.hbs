@@ -1,47 +1,66 @@
-<div class="transform-chain">
-    <div>ms_id: {{ms_id}} </div>
-    {{#each tf_envs as |tf_env|}}
-    <div class="transform">
-        {{#if tf_env.components}}
-        {{#with (unique_id "field_list_") as |field_list_id|}}
-        {{#with (unique_id "collapsed_id_") as |collapsed_id|}}
-        <div
-            class="transform_name filled_transform"
-            onclick="toggle_field_list('{{field_list_id}}', '{{collapsed_id}}')"
-        >
-            {{#if tf_env.transform_id}}
-            tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
-            {{/if}}
-        </div>
-        <div class="field-list" id="{{field_list_id}}" >
-            {{#each tf_env.components as |component|}}
-            {{#if component.field}}
+{{let "match_set_body_id" (unique_id "match_set_body_") }}
+{{let "collapsed_match_set_body_id" (unique_id "collapsed_match_set_body_") }}
 
-            {{>field component.field}}
-            {{else}}
-            <div class="chain-list">
-            {{#each component.subchains as |sc|}}
-                {{>transform_chain sc}}
-            {{/each}}
-            </div>
-            {{/if}}
-            {{/each}}
-        </div>
-        <div
-            class="collapsed-field-separator"
-            id="{{collapsed_id}}"
-            style="display: none;"
-            onclick="toggle_field_list('{{field_list_id}}', '{{collapsed_id}}')"
-        ></div>
-        {{/with}}
-        {{/with}}
-        {{else}}
-        <div class="transform_name empty_transform">
-            {{#if tf_env.transform_id}}
-            tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
-            {{/if}}
-        </div>
-        {{/if}}
+<div class="match-set">
+    <div
+        class="match-set-name"
+        onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
+    >
+    ms_id: {{ms_id}}
     </div>
-    {{~/each}}
+    <div class="match-set-body" id="{{match_set_body_id}}">
+        <div class="transform-chain">
+            {{#each tf_envs as |tf_env|}}
+            <div class="transform">
+                {{#if (or tf_env.fields tf_env.subchains)}}
+                {{let "transform_body_id" (unique_id "transform_body_") }}
+                {{let "collapsed_transform_body_id" (unique_id "collapsed_transform_body_")}}
+                <div
+                    class="transform_name filled_transform"
+                    onclick="toggle_collapsable('{{transform_body_id}}', '{{collapsed_transform_body_id}}')"
+                >
+                    {{#if tf_env.transform_id}}
+                    tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
+                    {{/if}}
+                </div>
+                <div class="transform-body" id="{{transform_body_id}}">
+                    {{#if tf_env.subchains}}
+                    <div class="chain-list">
+                    {{#each tf_env.subchains as |subchain|}}
+                        {{>transform_chain subchain}}
+                    {{/each}}
+                    </div>
+                    {{/if}}
+
+                    {{#if tf_env.fields}}
+                    <div class="field-list">
+                        {{#each tf_env.fields as |field|}}
+                        {{>field field}}
+                        {{/each}}
+                    </div>
+                    {{/if}}
+                </div>
+                <div
+                    class="collapsed-transform-body"
+                    id="{{collapsed_transform_body_id}}"
+                    style="display: none;"
+                    onclick="toggle_collapsable('{{transform_body_id}}', '{{collapsed_transform_body_id}}')"
+                ></div>
+                {{else}}
+                <div class="transform_name empty_transform">
+                    {{#if tf_env.transform_id}}
+                    tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
+                    {{/if}}
+                </div>
+                {{/if}}
+            </div>
+            {{/each}}
+        </div>
+    </div>
+    <div
+        class="collapsed-match-set-body"
+        id="{{collapsed_match_set_body_id}}"
+        style="display: none;"
+        onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
+    ></div>
 </div>

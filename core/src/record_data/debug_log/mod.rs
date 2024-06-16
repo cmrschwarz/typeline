@@ -1,7 +1,5 @@
 mod helpers;
 
-use std::iter;
-
 use handlebars::{Handlebars, RenderError, RenderErrorReason};
 use helpers::reindent;
 use once_cell::sync::Lazy;
@@ -26,17 +24,12 @@ use super::{
     match_set::MatchSetId,
 };
 
-enum TransformComponent {
-    Field(FieldId),
-    SubchainExpansion(Vec<TransformChain>),
-}
-
 struct TransformEnv {
     tf_id: Option<TransformId>,
-    tf_components: Vec<TransformComponent>,
+    subchains: Vec<TransformChain>,
+    fields: Vec<FieldId>,
 }
 
-#[derive(Default)]
 struct TransformChain {
     ms_id: MatchSetId,
     tf_envs: Vec<TransformEnv>,
@@ -77,8 +70,11 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
     .unwrap();
 
     hb.register_helper("unique_id", Box::new(helpers::UniqueId));
+    hb.register_helper("repeat", Box::new(helpers::helper_repeat));
+    hb.register_helper("let", Box::new(helpers::helper_let));
     hb.register_helper("range", Box::new(helpers::Range));
     hb.register_helper("reindent", Box::new(helpers::Reindent));
+    hb.register_helper("stringify", Box::new(helpers::Stringify));
     hb.set_strict_mode(true);
     hb
 });
@@ -126,18 +122,13 @@ fn add_field_data_dead_slots<'a>(
 
 fn setup_match_chain_dead_slots(mc: &mut TransformChain, jd: &JobData) {
     for env in &mc.tf_envs {
-        for comp in &env.tf_components {
-            match comp {
-                TransformComponent::Field(field_id) => {
-                    jd.field_mgr
-                        .apply_field_actions(&jd.match_set_mgr, *field_id);
-                    let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
-                    let fc = cfr.destructured_field_ref().field_count;
-                    mc.dead_slots.resize(mc.dead_slots.len().max(fc), 0);
-                    add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
-                }
-                TransformComponent::SubchainExpansion(_) => (),
-            }
+        for field_id in &env.fields {
+            jd.field_mgr
+                .apply_field_actions(&jd.match_set_mgr, *field_id);
+            let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
+            let fc = cfr.destructured_field_ref().field_count;
+            mc.dead_slots.resize(mc.dead_slots.len().max(fc), 0);
+            add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
         }
     }
 }
@@ -148,27 +139,28 @@ fn setup_match_chain_tf_envs(
     start_tf: TransformId,
     match_chain: &mut TransformChain,
 ) {
-    let mut fields_temp = Vec::new();
-
     let mut tf_id = start_tf;
     loop {
         let tf = &jd.tf_mgr.transforms[tf_id];
         // TODO: handle multiple output fields
-
-        let mut tf_components = Vec::new();
-
+        let mut subchains = Vec::new();
+        let mut fields = Vec::new();
         if let TransformData::ForkCat(fc) = &tf_data[tf_id] {
-            let mut subchains = Vec::new();
             for sce in &fc.continuation_state.lock().unwrap().subchains {
-                let mut sc_match_chain = TransformChain::default();
+                let mut sc_match_chain = TransformChain {
+                    ms_id: jd.tf_mgr.transforms[sce.start_tf_id].match_set_id,
+                    tf_envs: Vec::new(),
+                    dead_slots: Vec::new(),
+                };
                 let mut input_tf_env = TransformEnv {
                     tf_id: None,
-                    tf_components: Vec::new(),
+                    subchains: Vec::new(),
+                    fields: Vec::new(),
                 };
                 push_field_component_with_refs(
                     jd,
                     jd.tf_mgr.transforms[sce.start_tf_id].input_field,
-                    &mut input_tf_env.tf_components,
+                    &mut input_tf_env.fields,
                 );
                 sc_match_chain.tf_envs.push(input_tf_env);
                 setup_match_chain_tf_envs(
@@ -180,24 +172,15 @@ fn setup_match_chain_tf_envs(
                 setup_match_chain_dead_slots(&mut sc_match_chain, jd);
                 subchains.push(sc_match_chain);
             }
-            tf_components
-                .push(TransformComponent::SubchainExpansion(subchains));
-            push_field_component_with_refs(
-                jd,
-                tf.output_field,
-                &mut tf_components,
-            );
+            push_field_component_with_refs(jd, tf.output_field, &mut fields);
         } else {
-            tf_data[tf_id].get_out_fields(tf, &mut fields_temp);
-            for &field in &fields_temp {
-                tf_components.push(TransformComponent::Field(field));
-            }
-            fields_temp.clear();
+            tf_data[tf_id].get_out_fields(tf, &mut fields);
         }
 
         match_chain.tf_envs.push(TransformEnv {
             tf_id: Some(tf_id),
-            tf_components,
+            subchains,
+            fields,
         });
 
         if let Some(succ) = tf.successor {
@@ -211,16 +194,10 @@ fn setup_match_chain_tf_envs(
 fn push_field_component_with_refs(
     jd: &JobData,
     field: FieldId,
-    elems: &mut Vec<TransformComponent>,
+    fields: &mut Vec<FieldId>,
 ) {
-    for &fr in jd.field_mgr.fields[field]
-        .borrow()
-        .field_refs
-        .iter()
-        .chain(iter::once(&field))
-    {
-        elems.push(TransformComponent::Field(fr));
-    }
+    fields.extend_from_slice(&jd.field_mgr.fields[field].borrow().field_refs);
+    fields.push(field);
 }
 
 fn transform_chain_to_json(
@@ -231,33 +208,25 @@ fn transform_chain_to_json(
     let mut envs = Vec::new();
     let string_store = jd.session_data.string_store.read().unwrap();
     for tf_env in &tf_chain.tf_envs {
-        let mut components = Vec::new();
-        for comp in &tf_env.tf_components {
-            match comp {
-                TransformComponent::Field(field_id) => {
-                    components.push(json!({
-                        "field": field_to_json(
-                            jd,
-                            &jd.field_mgr.fields[*field_id].borrow(),
-                            *field_id,
-                            &string_store,
-                            &tf_chain.dead_slots
-                        )
-                    }))
-                }
-                TransformComponent::SubchainExpansion(subchains) => components
-                    .push(json!({
-                        "subchains":
-                        subchains.iter().map(
-                           |mc| transform_chain_to_json(jd, tf_data, mc)
-                        ).collect::<Vec<_>>()
-                    })),
-            }
+        let mut subchains = Vec::new();
+        for sc in &tf_env.subchains {
+            subchains.push(transform_chain_to_json(jd, tf_data, sc));
+        }
+        let mut fields = Vec::new();
+        for &field_id in &tf_env.fields {
+            fields.push(field_to_json(
+                jd,
+                &jd.field_mgr.fields[field_id].borrow(),
+                field_id,
+                &string_store,
+                &tf_chain.dead_slots,
+            ))
         }
         envs.push(json!({
             "transform_id": tf_env.tf_id.map(IndexingType::into_usize),
             "transform_display_name": tf_env.tf_id.map(|id|tf_data[id].display_name().to_string()),
-            "components": components
+            "subchains": subchains,
+            "fields": fields
         }));
     }
     json!({
@@ -271,7 +240,11 @@ fn setup_match_chain(
     tf_data: &IndexSlice<TransformId, TransformData>,
     start_tf: TransformId,
 ) -> TransformChain {
-    let mut match_chain = TransformChain::default();
+    let mut match_chain = TransformChain {
+        ms_id: jd.tf_mgr.transforms[start_tf].match_set_id,
+        tf_envs: Vec::new(),
+        dead_slots: Vec::new(),
+    };
     setup_match_chain_tf_envs(jd, tf_data, start_tf, &mut match_chain);
     setup_match_chain_dead_slots(&mut match_chain, jd);
     match_chain
@@ -432,8 +405,7 @@ pub fn write_transform_update_to_html(
         "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data),
         "transform_chain": transform_chain_to_json(jd, tf_data, &match_chain)
     });
-
-    println!("{update:#}");
+    println!("{:#?}", update);
     let tf_update = TEMPLATES.render("transform_update", &update).unwrap();
     w.write_all(reindent(false, 8, tf_update).as_bytes())
 }

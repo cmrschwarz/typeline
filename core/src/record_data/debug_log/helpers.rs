@@ -1,7 +1,11 @@
 use std::sync::atomic::AtomicU64;
 
-use handlebars::handlebars_helper;
+use handlebars::{
+    handlebars_helper, BlockParamHolder, Context, Handlebars, Helper, Output,
+    RenderContext, RenderError, RenderErrorReason, Renderable,
+};
 use once_cell::sync::Lazy;
+use serde_json::Value;
 
 handlebars_helper!(Range: |n: u64| {
     serde_json::Value::Array((0..n).map(
@@ -18,6 +22,10 @@ handlebars_helper!(UniqueId: |prefix: String| {
         &UNIQUE_ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst).to_string()
     );
     prefix
+});
+
+handlebars_helper!(Stringify: |object: Value| {
+    format!("{object:#?}")
 });
 
 pub fn reindent(
@@ -56,6 +64,75 @@ pub fn reindent(
         result.push('\n');
     }
     result
+}
+
+// a custom block helper to repeat a block n times
+pub fn helper_repeat<'reg, 'rc>(
+    h: &Helper<'rc>,
+    r: &'reg Handlebars<'reg>,
+    ctx: &'rc Context,
+    rc: &mut RenderContext<'reg, 'rc>,
+    out: &mut dyn Output,
+) -> Result<(), RenderError> {
+    let count = h
+        .param(0)
+        .as_ref()
+        .and_then(|v| v.value().as_u64())
+        .ok_or_else(|| {
+            RenderErrorReason::ParamTypeMismatchForName(
+                "repeat",
+                "count".to_string(),
+                "u64".to_string(),
+            )
+        })?;
+
+    let template = h
+        .template()
+        .ok_or(RenderErrorReason::BlockContentRequired)?;
+
+    for _ in 0..count {
+        template.render(r, ctx, rc, out)?;
+    }
+
+    rc.pop_block();
+
+    Ok(())
+}
+
+// a custom block helper to repeat a block n times
+pub fn helper_let<'reg, 'rc>(
+    h: &Helper<'rc>,
+    _r: &'reg Handlebars<'reg>,
+    _ctx: &'rc Context,
+    rc: &mut RenderContext<'reg, 'rc>,
+    _out: &mut dyn Output,
+) -> Result<(), RenderError> {
+    let name_param = h
+        .param(0)
+        .ok_or_else(|| RenderErrorReason::ParamNotFoundForIndex("let", 0))?;
+
+    let handlebars::ScopedJson::Constant(Value::String(name_constant)) =
+        name_param.value
+    else {
+        return Err(RenderErrorReason::ParamTypeMismatchForName(
+            "let",
+            "0".to_string(),
+            "constant string".to_string(),
+        )
+        .into());
+    };
+
+    let value = h
+        .param(1)
+        .as_ref()
+        .map(|v| v.value().to_owned())
+        .ok_or_else(|| RenderErrorReason::ParamNotFoundForIndex("let", 2))?;
+
+    let block = rc.block_mut().unwrap();
+
+    block.set_block_param(name_constant, BlockParamHolder::Value(value));
+
+    Ok(())
 }
 
 #[cfg(test)]

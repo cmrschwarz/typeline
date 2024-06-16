@@ -3,33 +3,88 @@ body {
 }
 
 .transform-update {
-    padding: 0.5em 0;
+    padding: 0.5em;
     margin: 0.5em 0;
-    border-top: 2px solid black;
+    border: 3px solid black;
+    display: flex;
+    flex-direction: column;
+    width: fit-content;
+}
+
+.transform-update .transform-update-text {
+    background-color: cornflowerblue;
+    margin-bottom: 1em;
+}
+
+.match-set {
+    width: fit-content;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+}
+
+.transform-chain {
+    display: flex;
+    gap: 0.4em;
+    width: fit-content;
 }
 
 .field-list {
     display: flex;
 }
 
-.chain {
-    display: flex;
-    gap: 0.4em;
-    margin-bottom: 0.4em;
+.match-set {
+    border: 2px solid black;
+    margin-bottom: 0.5em;
+    padding: 1em;
 }
 
-.chain > .transform {
+.match-set-name {
+    background-color: aqua;
+}
+
+.transform {
     display: flex;
     flex-direction: column;
+    background-color: linen;
 }
 
-.collapsed-field-separator {
+.transform-body {
+    display: flex;
+    gap: 0.4em;
+}
+
+.collapsed-transform-body {
     background: repeating-linear-gradient(
         45deg,
-        #ccc,
-        #ccc 0.5em,
-        #bbb 0.5em,
-        #bbb 1em
+        rgb(148, 175, 210),
+        rgb(148, 175, 210) 0.5em,
+        rgb(176, 196, 222) 0.5em,
+        rgb(176, 196, 222) 1em
+    );
+    height: 100%;
+    min-height: 3em;
+}
+
+.collapsed-match-set-body {
+    background: repeating-linear-gradient(
+        45deg,
+        rgb(0, 230, 230),
+        rgb(0, 230, 230) 0.5em,
+        rgb(0, 255, 255) 0.5em,
+        rgb(0, 255, 255) 1em
+    );
+    height: 100%;
+    min-height: 3em;
+}
+
+.collapsed-transform-update-body {
+    background: repeating-linear-gradient(
+        45deg,
+        rgb(87, 129, 208),
+        rgb(87, 129, 208) 0.5em,
+        rgb(100, 149, 237) 0.5em,
+        rgb(100, 149, 237) 1em
     );
     height: 100%;
     min-height: 3em;
@@ -42,11 +97,6 @@ body {
     white-space: nowrap;
     min-width: 5em;
     min-height: 1.5em;
-}
-
-.transform-chain {
-    display: flex;
-    gap: 0.4em;
 }
 
 .field-list {
