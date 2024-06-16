@@ -93,11 +93,11 @@ struct ContinuationFieldMapping {
 
 pub struct FcContinuationState {
     pub subchains: IndexVec<FcSubchainIdx, SubchainEntry>,
-    continuation_tf_id: TransformId,
-    current_turn: FcSubchainIdx,
-    produced_on_last_turn: IndexVec<FcSubchainIdx, usize>,
-    rolling_sum: usize,
-    advance_to_next: bool,
+    pub continuation_tf_id: TransformId,
+    pub current_turn: FcSubchainIdx,
+    pub produced_on_last_turn: IndexVec<FcSubchainIdx, usize>,
+    pub rolling_sum: usize,
+    pub advance_to_next: bool,
 }
 
 pub struct TfForkCatSubchainTrailer<'a> {

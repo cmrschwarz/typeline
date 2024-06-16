@@ -1,15 +1,17 @@
-{{let "match_set_body_id" (unique_id "match_set_body_") }}
-{{let "collapsed_match_set_body_id" (unique_id "collapsed_match_set_body_") }}
+<div class="transform-chain">
+    {{#each this.match_chains}}
 
-<div class="match-set">
-    <div
-        class="match-set-name"
-        onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
-    >
-    ms_id: {{ms_id}}
-    </div>
-    <div class="match-set-body" id="{{match_set_body_id}}">
-        <div class="transform-chain">
+    {{let "match_set_body_id" (unique_id "match_set_body_") }}
+    {{let "collapsed_match_set_body_id" (unique_id "collapsed_match_set_body_") }}
+
+    <div class="match-set">
+        <div
+            class="match-set-name"
+            onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
+        >
+        ms_id: {{ms_id}}
+        </div>
+        <div class="match-set-body" id="{{match_set_body_id}}">
             {{#each tf_envs as |tf_env|}}
             <div class="transform">
                 {{#if (or tf_env.fields tf_env.subchains)}}
@@ -56,11 +58,13 @@
             </div>
             {{/each}}
         </div>
+        <div
+            class="collapsed-match-set-body"
+            id="{{collapsed_match_set_body_id}}"
+            style="display: none;"
+            onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
+        ></div>
     </div>
-    <div
-        class="collapsed-match-set-body"
-        id="{{collapsed_match_set_body_id}}"
-        style="display: none;"
-        onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
-    ></div>
+    {{/each}}
+
 </div>

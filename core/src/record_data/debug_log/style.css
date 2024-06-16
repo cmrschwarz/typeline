@@ -29,6 +29,12 @@ body {
     width: fit-content;
 }
 
+.match-set-body {
+    display: flex;
+    gap: 0.4em;
+    width: fit-content;
+}
+
 .field-list {
     display: flex;
 }
