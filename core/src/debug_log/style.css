@@ -198,6 +198,12 @@ body {
     margin-right: -0.3em;
 }
 
+.field .iter-list .iter.iter-placeholder {
+    width: 0px;
+    visibility: hidden;
+    margin-right: -0.8em;
+}
+
 .field {
     border-collapse: collapse;
     text-align: center;
