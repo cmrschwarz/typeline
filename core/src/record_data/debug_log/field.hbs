@@ -1,76 +1,90 @@
 <div class="field-container">
-    <div class="field">
-        <div class="header">
-
-            <div class="num">#1</div>
-            <div class="cname">{{description}}</div>
-            {{#if cow}}
-            <div class="cow-info">{{cow.variant}}</div>
-            {{else}}
-            <div class="cow-info"></div>
-            {{/if}}
-        </div>
-        <div class="ref-list">
-            <div class="desc">refs:</div>
-            {{#each field_refs as |ref|}}
-                <div class="ref">{{ref}}</div>
+    <table class="field">
+        <thead>
+            <th colspan="5">
+                <div class="header">
+                    <div class="field-id">{{id}}</div>
+                    <div class="field-name">{{name}}</div>
+                    <div class="field-producing-arg">
+                        {{#if producing_arg}}
+                        `{{producing_arg}}`
+                        {{/if}}
+                    </div>
+                    {{#if cow}}
+                    <div class="field-cow-info">{{cow.variant}}</div>
+                    {{else}}
+                    <div class="field-owned-info">owned</div>
+                    {{/if}}
+                </div>
+            </th>
+        </thead>
+        <thead>
+            <th colspan="5">
+                <div class="ref-list">
+                    <div class="desc">refs:</div>
+                    {{#each field_refs as |ref|}}
+                        <div class="ref">{{ref}}</div>
+                    {{/each}}
+                </div>
+            </th>
+        </thead>
+        <thead>
+            <th class="meta_head">Meta</th>
+            <th class="size_head">Size</th>
+            <th class="rl_head">RL</th>
+            <th class="data_head">Data</th>
+            <th class="iters_head">Iters</th>
+        </thead>
+        <tbody>
+            {{~#each rows as |row|}}
+            {{#each (range row.dead_slots)}}
+            <tr class="field_row dead_row"><td colspan="4"></td></tr>
             {{/each}}
-        </div>
 
-        <table class="table">
-
-            <tbody>
-
-            <tr class="header">
-                <th class="meta_head">Meta</th>
-                <th class="size_head">Size</th>
-                <th class="rl_head">RL</th>
-                <th class="data_head">Data</th>
-                <th class="data_head">Iters</th>
-            </tr>
-
-                {{~#each rows as |row|}}
-                {{#each (range row.dead_slots)}}
-                <tr class="field_row dead_row"><td colspan="4"></td></tr>
-                {{/each}}
-
-                <tr class="row">
-                    <td class="meta-list">
+            <tr class="row">
+                <td >
+                    <div class="meta-list">
                         <div class="padding{{row.flag_shadow}}">
                             {{row.padding}}
                         </div>
-                        <div class="text{{row.flag_shadow}}">
+                        <div class="data_type{{row.flag_shadow}}">
                             {{row.repr}}
                         </div>
-                        <div {{#if row.same_as_prev ~}}
-                                class="flag flag_same_as_prev{{row.flag_shadow}}"
-                            {{~else~}}
-                                class="flag flag_disabled{{row.flag_shadow}}"
-                            {{~/if~}}
+                        <div
+                            {{#if row.same_as_prev}}
+                            class="flag flag_same_as_prev{{row.flag_shadow}}"
+                            {{else}}
+                            class="flag flag_disabled{{row.flag_shadow}}"
+                            {{/if}}
                         ></div>
-                        <div {{#if row.shared ~}}
-                                class="flag flag_shared{{row.flag_shadow}}"
-                            {{~else~}}
-                                class="flag flag_disabled{{row.flag_shadow}}"
-                            {{~/if~}}
+                        <div
+                            {{#if row.shared}}
+                            class="flag flag_shared{{row.flag_shadow}}"
+                            {{else}}
+                            class="flag flag_disabled{{row.flag_shadow}}"
+                            {{/if}}
                         ></div>
-                        <div {{#if row.deleted ~}}
-                                class="flag flag_deleted{{row.flag_shadow}}"
-                            {{~else~}}
-                                class="flag flag_disabled{{row.flag_shadow}}"
-                            {{~/if~}}>
-                        </div>
-                    </td>
-                    <td class="size{{flag_shadow}}">{{row.size}}</td>
-                    <td class="rl{{flag_shadow}}">{{row.run_length}}</td>
-                    <td class="data">{{row.value}}</td>
-                    <td class="iter-list">
+                        <div
+                            {{#if row.deleted}}
+                            class="flag flag_deleted{{row.flag_shadow}}"
+                            {{else}}
+                            class="flag flag_disabled{{row.flag_shadow}}"
+                            {{/if}}
+                        ></div>
+                    </div>
+                </td>
+                <td class="size{{flag_shadow}}">{{row.size}}</td>
+                <td class="rl{{flag_shadow}}">{{row.run_length}}</td>
+                <td class="data">{{row.value}}</td>
+                <td>
+                    <div  class="iter-list">
                         <div class="iter">TF1</div>
-                    </td>
-                </tr>
-                {{~/each}}
+                        <div class="iter">TF2</div>
+                    </div>
+                </td>
+            </tr>
+            {{~/each}}
 
-            </tbody>
-        </table>
-    </div>
+        </tbody>
+    </table>
 </div>

@@ -25,7 +25,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         debug_log::{
             write_debug_log_html_head, write_debug_log_html_tail,
-            write_debug_log_to_html, write_transform_update_to_html,
+            write_transform_update_to_html,
         },
         field::{FieldId, FieldManager, VOID_FIELD_ID},
         field_action::FieldActionKind,
@@ -786,15 +786,6 @@ impl<'a> Job<'a> {
                 .format_transform_state(tf_id, &self.transform_data)
         );
 
-        if let Some(dl) = &mut self.debug_log {
-            write_transform_update_to_html(
-                &self.job_data,
-                &self.transform_data,
-                tf_id,
-                &mut TextWriteIoAdapter(dl),
-            )
-            .expect("debug log succeeds");
-        }
         transform_pre_update(self, tf_id, ctx)?;
         transform_update(self, tf_id);
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
@@ -834,11 +825,12 @@ impl<'a> Job<'a> {
         if let (Some(f), Some(start_tf)) =
             (&mut self.debug_log, self.job_data.start_tf)
         {
-            write_debug_log_to_html(
+            write_transform_update_to_html(
                 &self.job_data,
                 &self.transform_data,
+                tf_id,
                 start_tf,
-                &mut TextWriteIoAdapter(f),
+                f,
             )
             .expect("debug log write must succeed"); // TODO: handle this
                                                      // better

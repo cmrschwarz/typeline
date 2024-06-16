@@ -1,0 +1,47 @@
+<div class="transform-chain">
+    <div>ms_id: {{ms_id}} </div>
+    {{#each tf_envs as |tf_env|}}
+    <div class="transform">
+        {{#if tf_env.components}}
+        {{#with (unique_id "field_list_") as |field_list_id|}}
+        {{#with (unique_id "collapsed_id_") as |collapsed_id|}}
+        <div
+            class="transform_name filled_transform"
+            onclick="toggle_field_list('{{field_list_id}}', '{{collapsed_id}}')"
+        >
+            {{#if tf_env.transform_id}}
+            tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
+            {{/if}}
+        </div>
+        <div class="field-list" id="{{field_list_id}}" >
+            {{#each tf_env.components as |component|}}
+            {{#if component.field}}
+
+            {{>field component.field}}
+            {{else}}
+            <div class="chain-list">
+            {{#each component.subchains as |sc|}}
+                {{>transform_chain sc}}
+            {{/each}}
+            </div>
+            {{/if}}
+            {{/each}}
+        </div>
+        <div
+            class="collapsed-field-separator"
+            id="{{collapsed_id}}"
+            style="display: none;"
+            onclick="toggle_field_list('{{field_list_id}}', '{{collapsed_id}}')"
+        ></div>
+        {{/with}}
+        {{/with}}
+        {{else}}
+        <div class="transform_name empty_transform">
+            {{#if tf_env.transform_id}}
+            tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
+            {{/if}}
+        </div>
+        {{/if}}
+    </div>
+    {{~/each}}
+</div>

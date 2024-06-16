@@ -23,18 +23,38 @@ use super::{
     formattable::{Formattable, FormattingContext, RealizedFormatKey},
     iter_hall::CowVariant,
     iters::{FieldDataRef, FieldIterator},
+    match_set::MatchSetId,
 };
 
-enum DisplayElem {
+enum TransformComponent {
     Field(FieldId),
-    Transform(Option<TransformId>, Vec<DisplayElem>),
-    SubchainExpansion(Vec<DisplayOrder>),
+    SubchainExpansion(Vec<TransformChain>),
+}
+
+struct TransformEnv {
+    tf_id: Option<TransformId>,
+    tf_components: Vec<TransformComponent>,
 }
 
 #[derive(Default)]
-struct DisplayOrder {
-    elems: Vec<DisplayElem>,
+struct TransformChain {
+    ms_id: MatchSetId,
+    tf_envs: Vec<TransformEnv>,
     dead_slots: Vec<usize>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FieldInfo {
+    pub id: Option<FieldId>,
+    pub name: Option<String>,
+    pub producing_arg: Option<String>,
+    pub cow_info: Option<CowInfo>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CowInfo {
+    pub source: Option<FieldId>,
+    pub variant: CowVariant,
 }
 
 static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
@@ -45,18 +65,17 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
         .unwrap();
     hb.register_partial("field", include_str!("field.hbs"))
         .unwrap();
-    hb.register_partial("display_order", include_str!("display_order.hbs"))
-        .unwrap();
     hb.register_partial(
-        "display_elem_list",
-        include_str!("display_elem_list.hbs"),
-    )
-    .unwrap();
-    hb.register_template_string(
         "transform_update",
         include_str!("transform_update.hbs"),
     )
     .unwrap();
+    hb.register_partial(
+        "transform_chain",
+        include_str!("transform_chain.hbs"),
+    )
+    .unwrap();
+
     hb.register_helper("unique_id", Box::new(helpers::UniqueId));
     hb.register_helper("range", Box::new(helpers::Range));
     hb.register_helper("reindent", Box::new(helpers::Reindent));
@@ -94,20 +113,6 @@ pub fn write_debug_log_html_tail(
         .map_err(unwrap_render_error)
 }
 
-pub fn write_transform_update_to_html(
-    jd: &JobData,
-    tf_data: &IndexSlice<TransformId, TransformData>,
-    tf_id: TransformId,
-    mut w: impl std::io::Write,
-) -> Result<(), std::io::Error> {
-    let tf_update = TEMPLATES.render(
-        "transform_update",
-        &json!({
-            "transform_state": jd.tf_mgr.format_transform_state(tf_id, tf_data)
-        }),
-    ).unwrap();
-    w.write_all(reindent(false, 8, tf_update).as_bytes())
-}
 fn add_field_data_dead_slots<'a>(
     fd: impl FieldDataRef<'a>,
     dead_slots: &mut [usize],
@@ -119,34 +124,29 @@ fn add_field_data_dead_slots<'a>(
     }
 }
 
-fn setup_dead_slots(
-    elems: &[DisplayElem],
-    dead_slots: &mut Vec<usize>,
-    jd: &JobData,
-) {
-    for elem in elems {
-        match elem {
-            DisplayElem::Field(field_id) => {
-                jd.field_mgr
-                    .apply_field_actions(&jd.match_set_mgr, *field_id);
-                let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
-                let fc = cfr.destructured_field_ref().field_count;
-                dead_slots.resize(dead_slots.len().max(fc), 0);
-                add_field_data_dead_slots(&cfr, &mut dead_slots[0..fc]);
+fn setup_match_chain_dead_slots(mc: &mut TransformChain, jd: &JobData) {
+    for env in &mc.tf_envs {
+        for comp in &env.tf_components {
+            match comp {
+                TransformComponent::Field(field_id) => {
+                    jd.field_mgr
+                        .apply_field_actions(&jd.match_set_mgr, *field_id);
+                    let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
+                    let fc = cfr.destructured_field_ref().field_count;
+                    mc.dead_slots.resize(mc.dead_slots.len().max(fc), 0);
+                    add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
+                }
+                TransformComponent::SubchainExpansion(_) => (),
             }
-            DisplayElem::Transform(_, sub_elems) => {
-                setup_dead_slots(sub_elems, dead_slots, jd)
-            }
-            DisplayElem::SubchainExpansion(_) => (),
         }
     }
 }
 
-fn setup_display_order_elems(
+fn setup_match_chain_tf_envs(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
     start_tf: TransformId,
-    display_order: &mut DisplayOrder,
+    match_chain: &mut TransformChain,
 ) {
     let mut fields_temp = Vec::new();
 
@@ -155,50 +155,50 @@ fn setup_display_order_elems(
         let tf = &jd.tf_mgr.transforms[tf_id];
         // TODO: handle multiple output fields
 
-        let mut child_elems = Vec::new();
+        let mut tf_components = Vec::new();
 
         if let TransformData::ForkCat(fc) = &tf_data[tf_id] {
             let mut subchains = Vec::new();
             for sce in &fc.continuation_state.lock().unwrap().subchains {
-                let mut sc_disp_order = DisplayOrder::default();
-
-                push_field_elem_with_refs(
+                let mut sc_match_chain = TransformChain::default();
+                let mut input_tf_env = TransformEnv {
+                    tf_id: None,
+                    tf_components: Vec::new(),
+                };
+                push_field_component_with_refs(
                     jd,
                     jd.tf_mgr.transforms[sce.start_tf_id].input_field,
-                    &mut sc_disp_order.elems,
-                    true,
+                    &mut input_tf_env.tf_components,
                 );
-                setup_display_order_elems(
+                sc_match_chain.tf_envs.push(input_tf_env);
+                setup_match_chain_tf_envs(
                     jd,
                     tf_data,
                     sce.start_tf_id,
-                    &mut sc_disp_order,
+                    &mut sc_match_chain,
                 );
-                setup_dead_slots(
-                    &sc_disp_order.elems,
-                    &mut sc_disp_order.dead_slots,
-                    jd,
-                );
-                subchains.push(sc_disp_order);
+                setup_match_chain_dead_slots(&mut sc_match_chain, jd);
+                subchains.push(sc_match_chain);
             }
-            child_elems.push(DisplayElem::SubchainExpansion(subchains));
-            push_field_elem_with_refs(
+            tf_components
+                .push(TransformComponent::SubchainExpansion(subchains));
+            push_field_component_with_refs(
                 jd,
                 tf.output_field,
-                &mut child_elems,
-                false,
+                &mut tf_components,
             );
         } else {
             tf_data[tf_id].get_out_fields(tf, &mut fields_temp);
             for &field in &fields_temp {
-                child_elems.push(DisplayElem::Field(field));
+                tf_components.push(TransformComponent::Field(field));
             }
             fields_temp.clear();
         }
 
-        display_order
-            .elems
-            .push(DisplayElem::Transform(Some(tf_id), child_elems));
+        match_chain.tf_envs.push(TransformEnv {
+            tf_id: Some(tf_id),
+            tf_components,
+        });
 
         if let Some(succ) = tf.successor {
             tf_id = succ;
@@ -208,11 +208,10 @@ fn setup_display_order_elems(
     }
 }
 
-fn push_field_elem_with_refs(
+fn push_field_component_with_refs(
     jd: &JobData,
     field: FieldId,
-    elems: &mut Vec<DisplayElem>,
-    wrap_in_empty_transform: bool,
+    elems: &mut Vec<TransformComponent>,
 ) {
     for &fr in jd.field_mgr.fields[field]
         .borrow()
@@ -220,134 +219,68 @@ fn push_field_elem_with_refs(
         .iter()
         .chain(iter::once(&field))
     {
-        if wrap_in_empty_transform {
-            elems.push(DisplayElem::Transform(
-                None,
-                vec![DisplayElem::Field(fr)],
-            ));
-        } else {
-            elems.push(DisplayElem::Field(fr));
-        }
+        elems.push(TransformComponent::Field(fr));
     }
 }
 
-fn display_elems_to_json(
+fn transform_chain_to_json(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
-    display_elems: &[DisplayElem],
-    dead_slots: &[usize],
+    tf_chain: &TransformChain,
 ) -> serde_json::Value {
-    let mut res = Vec::new();
+    let mut envs = Vec::new();
     let string_store = jd.session_data.string_store.read().unwrap();
-    for elem in display_elems {
-        match elem {
-            DisplayElem::Field(field_id) => res.push(json!({
-                "field": field_to_json(
-                    jd,
-                    &jd.field_mgr.fields[*field_id].borrow(),
-                    *field_id,
-                    &string_store,
-                    dead_slots
-                )
-            })),
-            DisplayElem::Transform(tf_id, sub_elems) => res.push(json!({
-                "transform": {
-                    "id": tf_id.map(|v| v.into_usize().into()).unwrap_or(Value::Null),
-                    "display_name": tf_id.map(|id|tf_data[id].display_name().to_string().into()).unwrap_or(Value::Null),
-                    "elements": display_elems_to_json(jd, tf_data, sub_elems, dead_slots),
+    for tf_env in &tf_chain.tf_envs {
+        let mut components = Vec::new();
+        for comp in &tf_env.tf_components {
+            match comp {
+                TransformComponent::Field(field_id) => {
+                    components.push(json!({
+                        "field": field_to_json(
+                            jd,
+                            &jd.field_mgr.fields[*field_id].borrow(),
+                            *field_id,
+                            &string_store,
+                            &tf_chain.dead_slots
+                        )
+                    }))
                 }
-            })),
-            DisplayElem::SubchainExpansion(subchains) => res.push(json!({
-                "subchains":
-                subchains.iter().map(
-                    |display_order| json!({
-                        "elements": display_elems_to_json(jd, tf_data, &display_order.elems, &display_order.dead_slots)
-                    })
-                ).collect::<Vec<_>>()
-            })),
+                TransformComponent::SubchainExpansion(subchains) => components
+                    .push(json!({
+                        "subchains":
+                        subchains.iter().map(
+                           |mc| transform_chain_to_json(jd, tf_data, mc)
+                        ).collect::<Vec<_>>()
+                    })),
+            }
         }
+        envs.push(json!({
+            "transform_id": tf_env.tf_id.map(IndexingType::into_usize),
+            "transform_display_name": tf_env.tf_id.map(|id|tf_data[id].display_name().to_string()),
+            "components": components
+        }));
     }
-    res.into()
+    json!({
+        "ms_id": tf_chain.ms_id.into_usize(),
+        "tf_envs": envs,
+    })
 }
 
-pub fn write_debug_log_to_html(
+fn setup_match_chain(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
     start_tf: TransformId,
-    mut w: impl std::io::Write,
-) -> Result<(), std::io::Error> {
-    let mut display_order = DisplayOrder::default();
-    setup_display_order_elems(jd, tf_data, start_tf, &mut display_order);
-    setup_dead_slots(&display_order.elems, &mut display_order.dead_slots, jd);
-    let display_order_json = display_elems_to_json(
-        jd,
-        tf_data,
-        &display_order.elems,
-        &display_order.dead_slots,
-    );
-    let entry = TEMPLATES
-        .render("display_order", &json!({ "elements": display_order_json }))
-        .unwrap();
-    w.write_all(reindent(false, 8, entry).as_bytes())?;
-    Ok(())
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct CowInfo {
-    pub source: Option<FieldId>,
-    pub variant: CowVariant,
-}
-
-pub fn field_to_json(
-    jd: &JobData,
-    field: &Field,
-    field_id: FieldId,
-    string_store: &StringStore,
-    dead_slots: &[usize],
-) -> serde_json::Value {
-    let field_name = {
-        let id = field_id;
-        let given_name = field.name.map(|id| string_store.lookup(id));
-        #[allow(unused_mut)]
-        let mut res = if let Some(name) = given_name {
-            format!("Field {id} '{name}'")
-        } else {
-            format!("Field {id}")
-        };
-        #[cfg(feature = "debug_logging")]
-        {
-            let tf_name = &field.producing_transform_arg;
-            res = format!("{res} (`{tf_name}`)");
-        }
-        res
-    };
-
-    let cow_info = if let Some(variant) = field.iter_hall.cow_variant() {
-        let (cow_src_field, _) =
-            field.iter_hall.cow_source_field(&jd.field_mgr);
-        Some(CowInfo {
-            source: cow_src_field,
-            variant,
-        })
-    } else {
-        None
-    };
-    let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);
-    field_data_to_json(
-        jd,
-        &cfr,
-        &field_name,
-        cow_info,
-        &field.field_refs,
-        dead_slots,
-    )
+) -> TransformChain {
+    let mut match_chain = TransformChain::default();
+    setup_match_chain_tf_envs(jd, tf_data, start_tf, &mut match_chain);
+    setup_match_chain_dead_slots(&mut match_chain, jd);
+    match_chain
 }
 
 pub fn field_data_to_json<'a>(
     jd: &JobData,
     fd: impl FieldDataRef<'a>,
-    heading: &str,
-    cow_info: Option<CowInfo>,
+    field_info: &FieldInfo,
     field_refs: &[FieldId],
     dead_slots: &[usize],
 ) -> serde_json::Value {
@@ -425,7 +358,7 @@ pub fn field_data_to_json<'a>(
         iter.next_field_allow_dead();
     }
 
-    let cow = if let Some(info) = cow_info {
+    let cow = if let Some(info) = field_info.cow_info {
         let variant = match info.variant {
             CowVariant::FullCow => "full-cow",
             CowVariant::DataCow => "data-cow",
@@ -442,25 +375,65 @@ pub fn field_data_to_json<'a>(
     };
 
     json!({
-        "description": heading,
+        "id": field_info.id,
+        "name": field_info.name,
+        "producing_arg": field_info.producing_arg,
         "cow": cow,
         "field_refs": field_refs,
         "rows": rows
     })
 }
 
-pub fn write_field_data_to_html_table<'a>(
+pub fn field_to_json(
     jd: &JobData,
-    fd: impl FieldDataRef<'a>,
-    heading: &str,
-    cow_info: Option<CowInfo>,
-    field_refs: &[FieldId],
+    field: &Field,
+    field_id: FieldId,
+    string_store: &StringStore,
     dead_slots: &[usize],
-    w: impl std::io::Write,
+) -> serde_json::Value {
+    let cow_info = if let Some(variant) = field.iter_hall.cow_variant() {
+        let (cow_src_field, _) =
+            field.iter_hall.cow_source_field(&jd.field_mgr);
+        Some(CowInfo {
+            source: cow_src_field,
+            variant,
+        })
+    } else {
+        None
+    };
+
+    let mut producing_arg = None;
+    #[cfg(feature = "debug_logging")]
+    if !field.producing_transform_arg.is_empty() {
+        producing_arg = Some(field.producing_transform_arg.to_string());
+    }
+
+    let field_info = FieldInfo {
+        id: Some(field_id),
+        name: field.name.map(|id| string_store.lookup(id).to_string()),
+        producing_arg,
+        cow_info,
+    };
+
+    let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);
+    field_data_to_json(jd, &cfr, &field_info, &field.field_refs, dead_slots)
+}
+
+pub fn write_transform_update_to_html(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    tf_id: TransformId,
+    root_tf: TransformId,
+    mut w: impl std::io::Write,
 ) -> Result<(), std::io::Error> {
-    let field_data =
-        field_data_to_json(jd, fd, heading, cow_info, field_refs, dead_slots);
-    TEMPLATES
-        .render_template_to_write("field", &field_data, w)
-        .map_err(unwrap_render_error)
+    let match_chain = setup_match_chain(jd, tf_data, root_tf);
+
+    let update = &json!({
+        "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data),
+        "transform_chain": transform_chain_to_json(jd, tf_data, &match_chain)
+    });
+
+    println!("{update:#}");
+    let tf_update = TEMPLATES.render("transform_update", &update).unwrap();
+    w.write_all(reindent(false, 8, tf_update).as_bytes())
 }
