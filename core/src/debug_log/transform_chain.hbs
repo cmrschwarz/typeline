@@ -1,5 +1,5 @@
 <div class="transform-chain">
-    {{#each this.match_chains}}
+    {{#each this.match_chains as |mc|}}
 
     {{let "transform_update_id" ../transform_update_id }}
 
@@ -8,20 +8,22 @@
 
     <div class="match-set">
         <div
-            id="{{transform_update_id}}_ms{{ms_id}}"
+            id="{{transform_update_id}}_ms{{mc.ms_id}}"
             class="match-set-name"
             onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
         >
-        ms_id: {{ms_id}}
+        ms_id: {{mc.ms_id}}
         </div>
         <div class="match-set-body" id="{{match_set_body_id}}">
-            {{#each tf_envs as |tf_env|}}
-            <div class="transform" id="{{transform_update_id}}_tf{{tf_env.transform_id}}">
+            {{#each mc.tf_envs as |tf_env|}}
+            {{let "transform_update_id" ../transform_update_id}}
+            <div class="transform">
                 {{#if (or tf_env.fields tf_env.subchains)}}
                 {{let "transform_body_id" (unique_id "transform_body_") }}
                 {{let "collapsed_transform_body_id" (unique_id "collapsed_transform_body_")}}
                 <div
                     class="transform_name filled_transform"
+                    id="{{transform_update_id}}_tf{{tf_env.transform_id}}"
                     onclick="toggle_collapsable('{{transform_body_id}}', '{{collapsed_transform_body_id}}')"
                 >
                     {{#if tf_env.transform_id}}
@@ -32,7 +34,7 @@
                     {{#if tf_env.subchains}}
                     <div class="chain-list">
                     {{#each tf_env.subchains as |subchain|}}
-                        {{>transform_chain subchain transform_update_id=transform_update_id}}
+                        {{>transform_chain subchain transform_update_id=../transform_update_id}}
                     {{/each}}
                     </div>
                     {{/if}}
@@ -40,7 +42,7 @@
                     {{#if tf_env.fields}}
                     <div class="field-list">
                         {{#each tf_env.fields as |field|}}
-                        {{>field field transform_update_id=transform_update_id}}
+                        {{>field field transform_update_id=../transform_update_id}}
                         {{/each}}
                     </div>
                     {{/if}}
@@ -52,7 +54,10 @@
                     onclick="toggle_collapsable('{{transform_body_id}}', '{{collapsed_transform_body_id}}')"
                 ></div>
                 {{else}}
-                <div class="transform_name empty_transform">
+                <div
+                    class="transform_name empty_transform"
+                    id="{{transform_update_id}}_tf{{tf_env.transform_id}}"
+                >
                     {{#if tf_env.transform_id}}
                     tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
                     {{/if}}

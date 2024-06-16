@@ -15,7 +15,11 @@
                         {{/if}}
                     </div>
                     {{#if cow}}
-                    <div class="field-owned-info field-is-cow">
+                    <div
+                        class="field-owned-info field-is-cow"
+                        onmouseenter="highlight('{{transform_update_id}}_field{{cow.source}}')"
+                        onmouseleave="unhighlight('{{transform_update_id}}_field{{cow.source}}')"
+                    >
                         {{cow.variant}}: {{cow.source}}
                     </div>
                     {{else}}
@@ -27,9 +31,14 @@
         <thead>
             <th colspan="5">
                 <div class="ref-list">
-                    <div class="desc">refs:</div>
+                    <div class="desc">Refs:</div>
+                    <div class="ref size-placeholder">9</div>
                     {{#each field_refs as |ref|}}
-                        <div class="ref">{{ref}}</div>
+                        <div class="ref"
+                            onmouseenter="highlight('{{../transform_update_id}}_field{{ref}}')"
+                            onmouseleave="unhighlight('{{../transform_update_id}}_field{{ref}}')"
+                        >{{ref}}</div>
+
                     {{/each}}
                 </div>
             </th>
@@ -85,7 +94,27 @@
                 <td>
                     <div class="iter-list">
                         {{#each iters}}
+                        {{#if transform_id}}
+                        <div
+                            class="iter iter-transform"
+                            onmouseenter="highlight('{{../../transform_update_id}}_tf{{transform_id}}')"
+                            onmouseleave="unhighlight('{{../../transform_update_id}}_tf{{transform_id}}')"
+                        >
+                            {{display_text}}
+                        </div>
+                        {{else}}
+                            {{#if cow_field_id}}
+                        <div
+                            class="iter iter-cow-field"
+                            onmouseenter="highlight('{{../../transform_update_id}}_field{{cow_field_id}}')"
+                            onmouseleave="unhighlight('{{../../transform_update_id}}_field{{cow_field_id}}')"
+                        >
+                            {{display_text}}
+                        </div>
+                            {{else}}
                         <div class="iter">{{display_text}}</div>
+                            {{/if}}
+                        {{/if}}
                         {{/each}}
                     </div>
                 </td>

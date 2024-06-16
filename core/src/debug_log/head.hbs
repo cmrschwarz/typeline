@@ -24,6 +24,14 @@
                     collapsed.style.display = "flex";
                 }
             }
+            function highlight(id) {
+                let highlightable = document.getElementById(id);
+                highlightable.classList.add('highlighted')
+            }
+            function unhighlight(id) {
+                let highlightable = document.getElementById(id);
+                highlightable.classList.remove('highlighted')
+            }
         </script>
     </head>
 
