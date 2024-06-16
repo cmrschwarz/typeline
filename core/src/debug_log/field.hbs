@@ -4,16 +4,22 @@
             <th colspan="5">
                 <div class="header">
                     <div class="field-id">{{id}}</div>
-                    <div class="field-name">{{name}}</div>
+                    <div class="field-name">
+                        {{#if name}}
+                        @{{name}}
+                        {{/if}}
+                    </div>
                     <div class="field-producing-arg">
                         {{#if producing_arg}}
                         `{{producing_arg}}`
                         {{/if}}
                     </div>
                     {{#if cow}}
-                    <div class="field-cow-info">{{cow.variant}}</div>
+                    <div class="field-owned-info field-is-cow">
+                        {{cow.variant}}: {{cow.source}}
+                    </div>
                     {{else}}
-                    <div class="field-owned-info">owned</div>
+                    <div class="field-owned-info field-is-owned">owned</div>
                     {{/if}}
                 </div>
             </th>

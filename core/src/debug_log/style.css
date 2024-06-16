@@ -126,35 +126,47 @@ body {
 }
 
 .field .header {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
     align-items: center;
+    grid-template-columns: auto auto auto auto;
+    grid-template-rows: 100%;
+    gap: 0.2em;
 }
 
-.field .field-owned-info {
-    background-color: rgb(115, 116, 119);
-    padding: 0.1em 0.2em;
-    white-space: nowrap;
-}
-
-.field .field-cow-info {
-    background-color: mediumpurple;
-    padding: 0.1em 0.2em;
-    white-space: nowrap;
-}
-
-.field .field-name {
-    flex-grow: 1;
-    text-align: center;
-    padding: 0.1em 0.2em;
-    font-style: italic;
-}
-
-.field .field-id {
+.field .header .field-id {
     font-weight: bold;
     padding: 0.1em 0.2em;
     font-family: monospace;
     font-size: larger;
+    justify-self: start;
+}
+
+.field .header .field-name {
+    flex-grow: 1;
+    text-align: center;
+    padding: 0.1em 0.2em;
+    font-style: italic;
+    justify-self: center;
+}
+
+.field .header .field-producing-arg {
+    padding: 0.1em 0.2em;
+    white-space: nowrap;
+    justify-self: center;
+}
+
+.field .header .field-owned-info {
+    padding: 0.1em 0.2em;
+    white-space: nowrap;
+    justify-self: end;
+}
+
+.field-owned-info.field-is-cow {
+    background-color: mediumpurple;
+}
+
+.field-owned-info.field-is-owned {
+    background-color: rgb(144, 145, 149);
 }
 
 .field .ref-list {

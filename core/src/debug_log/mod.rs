@@ -433,7 +433,6 @@ pub fn write_transform_update_to_html(
         "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data),
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
     });
-    println!("{:#?}", update);
     let tf_update = TEMPLATES.render("transform_update", &update).unwrap();
     w.write_all(reindent(false, 8, tf_update).as_bytes())
 }
