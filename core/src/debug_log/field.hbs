@@ -44,6 +44,14 @@
             </th>
         </thead>
         <thead>
+            <th colspan="5">
+                <div class="iter-list-descriptor-wrapper">
+                    <div class="iter-list-descriptor">Iters:</div>
+                    {{>iter_list iters=this.iters transform_update_id=transform_update_id}}
+                </div>
+            </th>
+        </thead>
+        <thead>
             <th class="meta_head">Meta</th>
             <th class="size_head">Size</th>
             <th class="rl_head">RL</th>
@@ -51,7 +59,8 @@
             <th class="iters_head">Iters</th>
         </thead>
         <tbody>
-            {{~#each rows as |row|}}
+            {{#each rows as |row|}}
+            {{let "transform_update_id" ../transform_update_id}}
             {{#each (range row.dead_slots)}}
             <tr class="field_row dead_row"><td colspan="4"></td></tr>
             {{/each}}
@@ -92,35 +101,10 @@
                 <td class="rl{{flag_shadow}}">{{row.run_length}}</td>
                 <td class="data">{{row.value}}</td>
                 <td>
-                    <div class="iter-list">
-                        {{#each iters}}
-                        {{#if transform_id}}
-                        <div
-                            class="iter iter-transform"
-                            onmouseenter="highlight('{{../../transform_update_id}}_tf{{transform_id}}')"
-                            onmouseleave="unhighlight('{{../../transform_update_id}}_tf{{transform_id}}')"
-                        >
-                            {{display_text}}
-                        </div>
-                        {{else}}
-                            {{#if cow_field_id}}
-                        <div
-                            class="iter iter-cow-field"
-                            onmouseenter="highlight('{{../../transform_update_id}}_field{{cow_field_id}}')"
-                            onmouseleave="unhighlight('{{../../transform_update_id}}_field{{cow_field_id}}')"
-                        >
-                            {{display_text}}
-                        </div>
-                            {{else}}
-                        <div class="iter">{{display_text}}</div>
-                            {{/if}}
-                        {{/if}}
-                        {{/each}}
-                    </div>
+                    {{>iter_list iters=row.iters transform_update_id=transform_update_id}}
                 </td>
             </tr>
-            {{~/each}}
-
+            {{/each}}
         </tbody>
     </table>
 </div>

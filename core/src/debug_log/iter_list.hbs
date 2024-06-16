@@ -1,0 +1,25 @@
+<div class="iter-list">
+    {{#each iters as |iter|}}
+        {{#if transform_id}}
+            <div
+                class="iter iter-transform"
+                onmouseenter="highlight('{{../transform_update_id}}_tf{{transform_id}}')"
+                onmouseleave="unhighlight('{{../transform_update_id}}_tf{{transform_id}}')"
+            >
+                {{display_text}}
+            </div>
+        {{else}}
+            {{#if cow_field_id}}
+                <div
+                    class="iter iter-cow-field"
+                    onmouseenter="highlight('{{../transform_update_id}}_field{{cow_field_id}}')"
+                    onmouseleave="unhighlight('{{../transform_update_id}}_field{{cow_field_id}}')"
+                >
+                    {{display_text}}
+                </div>
+            {{else}}
+                <div class="iter">{{display_text}}</div>
+            {{/if}}
+        {{/if}}
+    {{/each}}
+</div>

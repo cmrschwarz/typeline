@@ -71,6 +71,8 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
         .unwrap();
     hb.register_template_string("tail", include_str!("tail.hbs"))
         .unwrap();
+    hb.register_partial("iter_list", include_str!("iter_list.hbs"))
+        .unwrap();
     hb.register_partial("field", include_str!("field.hbs"))
         .unwrap();
     hb.register_partial(
@@ -277,6 +279,34 @@ fn setup_transform_chain(
     tf_chain
 }
 
+pub fn iters_to_json(iters: &[IterState]) -> Value {
+    Value::Array(
+        iters
+            .iter()
+            .filter_map(|i| {
+                Some(match i.kind {
+                    IterKind::Undefined => json!({
+                        "transform_id": Value::Null,
+                        "cow_field_id": Value::Null,
+                        "display_text": "undef"
+                    }),
+                    IterKind::Transform(tf_id) => json!({
+                        "transform_id": tf_id.into_usize(),
+                        "cow_field_id": Value::Null,
+                        "display_text": format!("tf {tf_id}")
+                    }),
+                    IterKind::CowField(cow_field_id) => json!({
+                        "transform_id": Value::Null,
+                        "cow_field_id": cow_field_id,
+                        "display_text": format!("cow {cow_field_id}")
+                    }),
+                    IterKind::RefLookup => return None,
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
 pub fn field_data_to_json<'a>(
     jd: &JobData,
     fd: impl FieldDataRef<'a>,
@@ -360,31 +390,9 @@ pub fn field_data_to_json<'a>(
         };
 
         let row_iters = if h.deleted() {
-            Vec::new()
+            Value::Array(Vec::new())
         } else {
-            iters[iters_start..iters_end]
-                .iter()
-                .filter_map(|i| {
-                    Some(match i.kind {
-                        IterKind::Undefined => json!({
-                            "transform_id": Value::Null,
-                            "cow_field_id": Value::Null,
-                            "display_text": "undef"
-                        }),
-                        IterKind::Transform(tf_id) => json!({
-                            "transform_id": tf_id.into_usize(),
-                            "cow_field_id": Value::Null,
-                            "display_text": format!("tf {tf_id}")
-                        }),
-                        IterKind::CowField(cow_field_id) => json!({
-                            "transform_id": Value::Null,
-                            "cow_field_id": cow_field_id,
-                            "display_text": format!("cow field {cow_field_id}")
-                        }),
-                        IterKind::RefLookup => return None,
-                    })
-                })
-                .collect::<Vec<_>>()
+            iters_to_json(&iters[iters_start..iters_end])
         };
 
         iters_start = iters_end;
@@ -422,6 +430,8 @@ pub fn field_data_to_json<'a>(
         Value::Null
     };
 
+    let iters = iters_to_json(&iters);
+
     json!({
         "id": field_info.id,
         "name": field_info.name,
@@ -429,6 +439,7 @@ pub fn field_data_to_json<'a>(
         "cow": cow,
         "field_refs": field_refs,
         "rows": rows,
+        "iters": iters
     })
 }
 

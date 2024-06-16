@@ -257,6 +257,15 @@ body {
 
 .field .iter-list {
     display: flex;
+    flex-wrap: nowrap;
+}
+
+.field .iter-list-descriptor-wrapper {
+    display: flex;
+}
+
+.field .iter-list-descriptor {
+    align-self: center;
 }
 
 .iter {
