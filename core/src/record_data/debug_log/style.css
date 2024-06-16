@@ -84,6 +84,7 @@ body {
 .field {
     background-color: lightgray;
     display: inline-block;
+    white-space: nowrap;
 }
 
 .field > .header {
@@ -96,6 +97,7 @@ body {
 .field > .header > .cow-info {
     background-color: mediumpurple;
     padding: 0.1em 0.2em;
+    white-space: nowrap;
 }
 
 .field > .header > .cname {

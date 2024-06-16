@@ -112,7 +112,7 @@ impl IterState {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CowVariant {
     FullCow,
     DataCow,
@@ -402,6 +402,9 @@ impl IterHall {
             FieldDataSource::RecordBufferFullCow(_) => (None, Some(false)),
             FieldDataSource::RecordBufferDataCow(_) => (None, Some(true)),
         }
+    }
+    pub fn cow_variant(&self) -> Option<CowVariant> {
+        self.data_source.cow_variant()
     }
     pub fn get_iter_kind(&self, #[allow(unused)] iter_id: IterId) -> IterKind {
         #[cfg(not(feature = "debug_logging"))]

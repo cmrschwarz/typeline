@@ -21,6 +21,7 @@ use super::{
     field::{Field, FieldId},
     field_value_ref::FieldValueRef,
     formattable::{Formattable, FormattingContext, RealizedFormatKey},
+    iter_hall::CowVariant,
     iters::{FieldDataRef, FieldIterator},
 };
 
@@ -291,6 +292,12 @@ pub fn write_debug_log_to_html(
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct CowInfo {
+    pub source: Option<FieldId>,
+    pub variant: CowVariant,
+}
+
 pub fn field_to_json(
     jd: &JobData,
     field: &Field,
@@ -314,27 +321,23 @@ pub fn field_to_json(
         }
         res
     };
-    let cow_src_str = if let (cow_src_field, Some(data_cow)) =
-        field.iter_hall.cow_source_field(&jd.field_mgr)
-    {
-        format!(
-            " {} cow{}; ",
-            if data_cow { "data" } else { "full" },
-            if let Some(src) = cow_src_field {
-                format!(" src: {src}")
-            } else {
-                String::default()
-            }
-        )
+
+    let cow_info = if let Some(variant) = field.iter_hall.cow_variant() {
+        let (cow_src_field, _) =
+            field.iter_hall.cow_source_field(&jd.field_mgr);
+        Some(CowInfo {
+            source: cow_src_field,
+            variant,
+        })
     } else {
-        String::new()
+        None
     };
     let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);
     field_data_to_json(
         jd,
         &cfr,
         &field_name,
-        &cow_src_str,
+        cow_info,
         &field.field_refs,
         dead_slots,
     )
@@ -344,7 +347,7 @@ pub fn field_data_to_json<'a>(
     jd: &JobData,
     fd: impl FieldDataRef<'a>,
     heading: &str,
-    cow_src_str: &str,
+    cow_info: Option<CowInfo>,
     field_refs: &[FieldId],
     dead_slots: &[usize],
 ) -> serde_json::Value {
@@ -422,9 +425,25 @@ pub fn field_data_to_json<'a>(
         iter.next_field_allow_dead();
     }
 
+    let cow = if let Some(info) = cow_info {
+        let variant = match info.variant {
+            CowVariant::FullCow => "full-cow",
+            CowVariant::DataCow => "data-cow",
+            CowVariant::SameMsCow => "same-ms-cow",
+            CowVariant::RecordBufferDataCow => "rb-data-cow",
+            CowVariant::RecordBufferFullCow => "rb-full-cow",
+        };
+        json!({
+            "variant": variant,
+            "source": info.source,
+        })
+    } else {
+        Value::Null
+    };
+
     json!({
         "description": heading,
-        "cow_src_str": cow_src_str,
+        "cow": cow,
         "field_refs": field_refs,
         "rows": rows
     })
@@ -434,19 +453,13 @@ pub fn write_field_data_to_html_table<'a>(
     jd: &JobData,
     fd: impl FieldDataRef<'a>,
     heading: &str,
-    cow_src_str: &str,
+    cow_info: Option<CowInfo>,
     field_refs: &[FieldId],
     dead_slots: &[usize],
     w: impl std::io::Write,
 ) -> Result<(), std::io::Error> {
-    let field_data = field_data_to_json(
-        jd,
-        fd,
-        heading,
-        cow_src_str,
-        field_refs,
-        dead_slots,
-    );
+    let field_data =
+        field_data_to_json(jd, fd, heading, cow_info, field_refs, dead_slots);
     TEMPLATES
         .render_template_to_write("field", &field_data, w)
         .map_err(unwrap_render_error)

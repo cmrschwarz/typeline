@@ -1,8 +1,7 @@
-use std::sync::atomic::{AtomicU64, AtomicUsize};
+use std::sync::atomic::AtomicU64;
 
 use handlebars::handlebars_helper;
 use once_cell::sync::Lazy;
-use serde_json::Value;
 
 handlebars_helper!(Range: |n: u64| {
     serde_json::Value::Array((0..n).map(
