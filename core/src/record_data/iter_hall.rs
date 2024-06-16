@@ -88,19 +88,19 @@ pub enum IterKind {
 /// `IterHall`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IterState {
-    pub(super) field_pos: usize,
+    pub field_pos: usize,
     // Will **not** include leading padding introduced by the current header.
-    pub(super) data: usize,
+    pub data: usize,
     // The `header_idx` will never be greater than or equal to the field's
     // header count, unless that count is 0. This means that we have to
     // push an iterator that reached the end of the field slightly
     // backwards to sit after the last `header_rl_offset` on the previous
     // header. We do this to avoid appends from having to adjust iters
     // that are 'after' them.
-    pub(super) header_idx: usize,
-    pub(super) header_rl_offset: RunLength,
+    pub header_idx: usize,
+    pub header_rl_offset: RunLength,
     #[cfg(feature = "debug_logging")]
-    pub(super) kind: IterKind,
+    pub kind: IterKind,
 }
 
 impl IterState {
@@ -249,6 +249,9 @@ impl IterHall {
     }
     pub fn get_iter_state(&self, iter_id: IterId) -> IterState {
         self.iters[iter_id].get()
+    }
+    pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = IterState> + 'a {
+        self.iters.iter().map(|is| is.get())
     }
     fn calculate_start_header<'a, R: FieldDataRef<'a>>(
         fr: &R,

@@ -83,9 +83,10 @@
                 <td class="rl{{flag_shadow}}">{{row.run_length}}</td>
                 <td class="data">{{row.value}}</td>
                 <td>
-                    <div  class="iter-list">
-                        <div class="iter">TF1</div>
-                        <div class="iter">TF2</div>
+                    <div class="iter-list">
+                        {{#each iters}}
+                        <div class="iter">{{display_text}}</div>
+                        {{/each}}
                     </div>
                 </td>
             </tr>

@@ -12,7 +12,7 @@ use crate::{
         field::{Field, FieldId},
         field_value_ref::FieldValueRef,
         formattable::{Formattable, FormattingContext, RealizedFormatKey},
-        iter_hall::CowVariant,
+        iter_hall::{CowVariant, IterKind, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
     },
@@ -283,7 +283,9 @@ pub fn field_data_to_json<'a>(
     field_info: &FieldInfo,
     field_refs: &[FieldId],
     dead_slots: &[usize],
+    mut iters: Vec<IterState>,
 ) -> serde_json::Value {
+    iters.sort_by(|is1, is2| is1.field_pos.cmp(&is2.field_pos));
     let mut iter = FieldIter::from_start_allow_dead(&fd);
 
     let mut del_count = 0;
@@ -299,8 +301,21 @@ pub fn field_data_to_json<'a>(
 
     let mut rows = Vec::new();
 
+    let mut iters_start = 0;
     while iter.is_next_valid() && iter.get_next_field_pos() < fd.field_count()
     {
+        let field_pos = iter.get_next_field_pos();
+        while iters
+            .get(iters_start)
+            .map(|i| i.field_pos < field_pos)
+            .unwrap_or(false)
+        {
+            iters_start += 1;
+        }
+        let iters_end = iters
+            .iter()
+            .position(|i| i.field_pos > field_pos)
+            .unwrap_or(iters_start);
         let h = fd.headers()[iter.get_next_header_index()];
         let dead_slot_count = if h.deleted() {
             del_count += 1;
@@ -343,6 +358,37 @@ pub fn field_data_to_json<'a>(
         } else {
             serde_json::Value::String(String::new())
         };
+
+        let row_iters = if h.deleted() {
+            Vec::new()
+        } else {
+            iters[iters_start..iters_end]
+                .iter()
+                .filter_map(|i| {
+                    Some(match i.kind {
+                        IterKind::Undefined => json!({
+                            "transform_id": Value::Null,
+                            "cow_field_id": Value::Null,
+                            "display_text": "undef"
+                        }),
+                        IterKind::Transform(tf_id) => json!({
+                            "transform_id": tf_id.into_usize(),
+                            "cow_field_id": Value::Null,
+                            "display_text": format!("tf {tf_id}")
+                        }),
+                        IterKind::CowField(cow_field_id) => json!({
+                            "transform_id": Value::Null,
+                            "cow_field_id": cow_field_id,
+                            "display_text": format!("cow field {cow_field_id}")
+                        }),
+                        IterKind::RefLookup => return None,
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+
+        iters_start = iters_end;
+
         rows.push(json!({
             "dead_slots": dead_slot_count,
             "flag_shadow": flag_shadow,
@@ -353,7 +399,8 @@ pub fn field_data_to_json<'a>(
             "size": h.size,
             "run_length": run_length,
             "same_as_prev": h.same_value_as_previous(),
-            "value": value_str.into_text().unwrap()
+            "value": value_str.into_text().unwrap(),
+            "iters": row_iters
         }));
 
         iter.next_field_allow_dead();
@@ -381,7 +428,7 @@ pub fn field_data_to_json<'a>(
         "producing_arg": field_info.producing_arg,
         "cow": cow,
         "field_refs": field_refs,
-        "rows": rows
+        "rows": rows,
     })
 }
 
@@ -416,8 +463,17 @@ pub fn field_to_json(
         cow_info,
     };
 
+    let iters_states = field.iter_hall.iter_states().collect::<Vec<_>>();
+
     let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);
-    field_data_to_json(jd, &cfr, &field_info, &field.field_refs, dead_slots)
+    field_data_to_json(
+        jd,
+        &cfr,
+        &field_info,
+        &field.field_refs,
+        dead_slots,
+        iters_states,
+    )
 }
 
 pub fn write_transform_update_to_html(
