@@ -329,9 +329,7 @@ impl<'a> JobData<'a> {
             session_data: sess,
             tf_mgr: TransformManager::default(),
             field_mgr: FieldManager::default(),
-            match_set_mgr: MatchSetManager {
-                match_sets: Universe::default(),
-            },
+            match_set_mgr: MatchSetManager::default(),
             group_track_manager: GroupTrackManager::default(),
             sv_mgr: StreamValueManager::default(),
             temp_vec: Vec::default(),
@@ -418,7 +416,15 @@ impl<'a> Job<'a> {
             }
         }
         let input_record_count = input_record_count.max(1);
-        let input_field = input_field.unwrap();
+        let input_field = input_field.unwrap_or_else(|| {
+            let dummy_field =
+                self.job_data.match_set_mgr.get_dummy_field(ms_id);
+            self.job_data.field_mgr.fields[dummy_field]
+                .borrow_mut()
+                .iter_hall
+                .push_undefined(input_record_count, false);
+            dummy_field
+        });
         let rgt = &mut self.job_data.group_track_manager;
         let input_group_track =
             rgt.add_group_track(None, ms_id, ActorRef::default());

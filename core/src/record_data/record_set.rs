@@ -1,4 +1,4 @@
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 
 use crate::utils::string_store::StringStoreEntry;
 
@@ -21,10 +21,19 @@ pub struct RecordSet {
     pub fields: SmallVec<[NamedField; 1]>,
 }
 
+impl RecordSet {
+    pub fn get_or_add_first(&mut self) -> &mut NamedField {
+        if self.fields.is_empty() {
+            self.fields.push(NamedField::default())
+        }
+        self.fields.first_mut().unwrap()
+    }
+}
+
 impl Default for RecordSet {
     fn default() -> Self {
         Self {
-            fields: smallvec![NamedField::default()],
+            fields: SmallVec::new(),
         }
     }
 }
@@ -40,9 +49,7 @@ unsafe impl PushInterface for RecordSet {
     ) {
         self.push_undefined_to_secondary_cols(run_length);
         unsafe {
-            self.fields
-                .first_mut()
-                .unwrap()
+            self.get_or_add_first()
                 .data
                 .push_variable_sized_type_unchecked(
                     kind,
@@ -64,17 +71,13 @@ unsafe impl PushInterface for RecordSet {
     ) {
         self.push_undefined_to_secondary_cols(run_length);
         unsafe {
-            self.fields
-                .first_mut()
-                .unwrap()
-                .data
-                .push_fixed_size_type_unchecked(
-                    repr,
-                    data,
-                    run_length,
-                    try_header_rle,
-                    try_data_rle,
-                );
+            self.get_or_add_first().data.push_fixed_size_type_unchecked(
+                repr,
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
         }
     }
 
@@ -87,7 +90,7 @@ unsafe impl PushInterface for RecordSet {
     ) {
         self.push_undefined_to_secondary_cols(run_length);
         unsafe {
-            self.fields.first_mut().unwrap().data.push_zst_unchecked(
+            self.get_or_add_first().data.push_zst_unchecked(
                 kind,
                 flags,
                 run_length,
@@ -123,9 +126,7 @@ unsafe impl PushInterface for RecordSet {
         run_length: usize,
     ) -> BytesInsertionStream {
         self.push_undefined_to_secondary_cols(run_length);
-        self.fields
-            .first_mut()
-            .unwrap()
+        self.get_or_add_first()
             .data
             .bytes_insertion_stream(run_length)
     }
@@ -135,9 +136,7 @@ unsafe impl PushInterface for RecordSet {
         run_length: usize,
     ) -> TextInsertionStream {
         self.push_undefined_to_secondary_cols(run_length);
-        self.fields
-            .first_mut()
-            .unwrap()
+        self.get_or_add_first()
             .data
             .text_insertion_stream(run_length)
     }
@@ -146,9 +145,7 @@ unsafe impl PushInterface for RecordSet {
         run_length: usize,
     ) -> MaybeTextInsertionStream {
         self.push_undefined_to_secondary_cols(run_length);
-        self.fields
-            .first_mut()
-            .unwrap()
+        self.get_or_add_first()
             .data
             .maybe_text_insertion_stream(run_length)
     }
