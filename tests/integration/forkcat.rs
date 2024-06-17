@@ -155,7 +155,6 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -163,10 +162,12 @@ fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
         .add_op_with_label(create_op_str("a"), "a")
         .add_op(create_op_forkcat())
         .add_op(create_op_format("{a}").unwrap())
+        .add_op(create_op_next())
+        .add_op(create_op_nop())
         .add_op(create_op_end())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["a"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["a", "a"]);
     Ok(())
 }
 

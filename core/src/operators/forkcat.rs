@@ -81,14 +81,14 @@ pub struct TfForkCat {
     pub continuation_state: Arc<Mutex<FcContinuationState>>,
 }
 
-struct ContinuationFieldMapping {
-    sc_field_id: FieldId,
-    sc_field_iter_id: IterId,
-    cont_field_id: FieldId,
-    sc_field_ref_offset_in_cont: FieldRefOffset,
+pub struct ContinuationFieldMapping {
+    pub sc_field_id: FieldId,
+    pub sc_field_iter_id: IterId,
+    pub cont_field_id: FieldId,
+    pub sc_field_ref_offset_in_cont: FieldRefOffset,
     // start of the field_refs list from the field in the subchain in the
     // continuation field's field_refs list
-    sc_field_refs_offsets_start_in_cont_field: FieldRefOffset,
+    pub sc_field_refs_offsets_start_in_cont_field: FieldRefOffset,
 }
 
 pub struct FcContinuationState {
@@ -102,14 +102,14 @@ pub struct FcContinuationState {
 
 pub struct TfForkCatSubchainTrailer<'a> {
     pub op: &'a OpForkCat,
-    actor_id: ActorId,
-    group_track_iter_ref: GroupTrackIterRef,
-    subchain_idx: FcSubchainIdx,
+    pub actor_id: ActorId,
+    pub group_track_iter_ref: GroupTrackIterRef,
+    pub subchain_idx: FcSubchainIdx,
     // TODO: figure out a better mechanism for this, this is stupid
-    continuation_state: Arc<Mutex<FcContinuationState>>,
+    pub continuation_state: Arc<Mutex<FcContinuationState>>,
 
     // field ref offset of subchain field in continuation field (with id)
-    continuation_field_mappings: Vec<ContinuationFieldMapping>,
+    pub continuation_field_mappings: Vec<ContinuationFieldMapping>,
 }
 
 fn sc_index_offset(
@@ -356,14 +356,23 @@ fn setup_subchain<'a>(
         [continuation_state.lock().unwrap().continuation_tf_id]
         .match_set_id;
 
-    let ms_id = job
+    let sc_ms_id = job
         .job_data
         .match_set_mgr
         .add_match_set(&mut job.job_data.field_mgr);
 
+    let fc_dummy_field = job.job_data.match_set_mgr.get_dummy_field(fc_ms_id);
+    let sc_dummy_field = job.job_data.match_set_mgr.get_dummy_field(sc_ms_id);
+
+    job.job_data.field_mgr.setup_cow_between_fields(
+        &mut job.job_data.match_set_mgr,
+        fc_dummy_field,
+        sc_dummy_field,
+    );
+
     let group_track = job.job_data.group_track_manager.add_group_track(
         None,
-        ms_id,
+        sc_ms_id,
         ActorRef::Unconfirmed(0),
     );
 
@@ -371,8 +380,7 @@ fn setup_subchain<'a>(
         [op_base.chain_id.unwrap()]
     .subchains[sc_idx];
 
-    let dummy_field = job.job_data.match_set_mgr.get_dummy_field(ms_id);
-    let mut sc_input_field = dummy_field;
+    let mut sc_input_field = sc_dummy_field;
     for (&var, needing_subchains) in &op.input_mappings {
         if !needing_subchains[fc_sc_idx.into_usize()] {
             continue;
@@ -382,14 +390,14 @@ fn setup_subchain<'a>(
             *job.job_data.match_set_mgr.match_sets[fc_ms_id]
                 .field_name_map
                 .get(&name)
-                .unwrap_or(&dummy_field)
+                .unwrap_or(&sc_dummy_field)
         } else {
             fc_input_field
         };
 
         let field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
-            ms_id,
+            sc_ms_id,
             src_field,
         );
         if var == Var::BBInput {
@@ -398,7 +406,7 @@ fn setup_subchain<'a>(
     }
 
     let instantiation = job.setup_transforms_for_chain(
-        ms_id,
+        sc_ms_id,
         sc_chain_id,
         sc_input_field,
         group_track,
@@ -410,10 +418,11 @@ fn setup_subchain<'a>(
 
     let fc_sc_terminator_tf_id =
         job.job_data.tf_mgr.transforms.peek_claim_id();
-    let src_ms_dummy_field = job.job_data.match_set_mgr.get_dummy_field(ms_id);
+    let src_ms_dummy_field =
+        job.job_data.match_set_mgr.get_dummy_field(sc_ms_id);
 
     for (i, var) in op.continuation_vars.iter_enumerated() {
-        let sc_ms = &job.job_data.match_set_mgr.match_sets[ms_id];
+        let sc_ms = &job.job_data.match_set_mgr.match_sets[sc_ms_id];
         let field_id = if let Some(field_name) = var.get_name() {
             if let Some(&field_id) = sc_ms.field_name_map.get(&field_name) {
                 field_id
@@ -471,7 +480,7 @@ fn setup_subchain<'a>(
     .settings
     .default_batch_size;
 
-    let actor_id = job.job_data.match_set_mgr.match_sets[ms_id]
+    let actor_id = job.job_data.match_set_mgr.match_sets[sc_ms_id]
         .action_buffer
         .borrow_mut()
         .add_actor();
@@ -495,7 +504,7 @@ fn setup_subchain<'a>(
         TransformState::new(
             instantiation.next_input_field,
             instantiation.next_input_field,
-            ms_id,
+            sc_ms_id,
             desired_batch_size,
             None,
             instantiation.next_group_track,

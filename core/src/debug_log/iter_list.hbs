@@ -1,7 +1,7 @@
 <div class="iter-list">
     <div class="iter iter-placeholder">9</div>
     {{#each iters as |iter|}}
-    {{#if transform_id}}
+    {{#if transform_id includeZero=true}}
 
     <div
         class="iter iter-transform"

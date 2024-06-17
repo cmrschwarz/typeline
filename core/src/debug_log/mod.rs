@@ -7,7 +7,10 @@ use serde_json::{json, Value};
 
 use crate::{
     job::JobData,
-    operators::transform::{TransformData, TransformId},
+    operators::{
+        forkcat::FcSubchainIdx,
+        transform::{TransformData, TransformId},
+    },
     record_data::{
         field::{Field, FieldId},
         field_value_ref::FieldValueRef,
@@ -59,6 +62,7 @@ pub struct CowInfo {
 
 impl MatchChain {
     pub fn new(jd: &JobData, start_tf: TransformId) -> Self {
+        #[allow(unused_mut)]
         let mut match_chain = Self {
             ms_id: jd.tf_mgr.transforms[start_tf].match_set_id,
             start_tf_id: start_tf,
@@ -202,7 +206,20 @@ fn setup_transform_chain_tf_envs(
                 setup_transform_chain_dead_slots(&mut subchain, jd);
                 subchains.push(subchain);
             }
-            push_field_component_with_refs(jd, tf.output_field, &mut fields);
+            let TransformData::ForkCatSubchainTrailer(trailer) = &tf_data
+                [fc_cont.subchains[FcSubchainIdx::zero()].trailer_tf_id]
+            else {
+                unreachable!()
+            };
+            for cont_mapping in
+                trailer.continuation_field_mappings.iter().rev()
+            {
+                push_field_component_with_refs(
+                    jd,
+                    cont_mapping.cont_field_id,
+                    &mut fields,
+                );
+            }
         } else {
             tf_data[tf_id].get_out_fields(tf, &mut fields);
         }

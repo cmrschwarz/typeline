@@ -414,10 +414,7 @@ impl FieldManager {
         tgt_match_set: MatchSetId,
         src_field_id: FieldId,
     ) -> FieldId {
-        let name = self.fields[src_field_id].borrow().name;
-        let field_id =
-            self.add_field(msm, tgt_match_set, name, ActorRef::default());
-        let vacant_entry = match msm.match_sets[tgt_match_set]
+        match msm.match_sets[tgt_match_set]
             .fields_cow_map
             .entry(src_field_id)
         {
@@ -426,17 +423,48 @@ impl FieldManager {
                 self.bump_field_refcount(field_id);
                 return field_id;
             }
-            Entry::Vacant(e) => e,
+            Entry::Vacant(e) => e.insert(self.fields.peek_claim_id()),
         };
+        let name = self.fields[src_field_id].borrow().name;
+        let tgt_field_id =
+            self.add_field(msm, tgt_match_set, name, ActorRef::default());
+        self.setup_cow_between_fields(msm, src_field_id, tgt_field_id);
+        tgt_field_id
+    }
+
+    pub fn setup_cow_between_fields(
+        &mut self,
+        msm: &mut MatchSetManager,
+        src_field_id: FieldId,
+        tgt_field_id: FieldId,
+    ) {
         let mut src_field = self.fields[src_field_id].borrow_mut();
         src_field.ref_count += 1;
-        src_field.iter_hall.cow_targets.push(field_id);
-        vacant_entry.insert(field_id);
+        src_field.iter_hall.cow_targets.push(tgt_field_id);
+        let src_field_ms = src_field.match_set;
         let header_iter = src_field
             .iter_hall
-            .claim_iter_at_end(self, IterKind::CowField(field_id));
-        let mut field = self.fields[field_id].borrow_mut();
-        field.iter_hall.data_source =
+            .claim_iter_at_end(self, IterKind::CowField(tgt_field_id));
+        let mut tgt_field = self.fields[tgt_field_id].borrow_mut();
+        debug_assert!(matches!(
+            tgt_field.iter_hall.data_source,
+            FieldDataSource::Owned
+        ));
+
+        let tgt_field_ms = tgt_field.match_set;
+        if tgt_field_ms == src_field_ms {
+            tgt_field
+                .field_refs
+                .extend_from_slice(&src_field.field_refs);
+            drop(src_field);
+            tgt_field.iter_hall.data_source =
+                FieldDataSource::SameMsCow(src_field_id);
+            for &field_id in &tgt_field.field_refs {
+                self.bump_field_refcount(field_id);
+            }
+            return;
+        }
+        tgt_field.iter_hall.data_source =
             FieldDataSource::FullCow(CowDataSource {
                 src_field_id,
                 header_iter_id: header_iter,
@@ -444,15 +472,15 @@ impl FieldManager {
         for i in 0..src_field.field_refs.len() {
             let ref_field_id = src_field.field_refs[i];
             drop(src_field);
-            drop(field);
+            drop(tgt_field);
             let cow_field_id =
-                self.get_cross_ms_cow_field(msm, tgt_match_set, ref_field_id);
-            field = self.fields[field_id].borrow_mut();
+                self.get_cross_ms_cow_field(msm, tgt_field_ms, ref_field_id);
+            tgt_field = self.fields[tgt_field_id].borrow_mut();
             src_field = self.fields[src_field_id].borrow_mut();
-            field.field_refs.push(cow_field_id);
+            tgt_field.field_refs.push(cow_field_id);
         }
-        field_id
     }
+
     pub fn create_same_ms_cow_field(
         &mut self,
         msm: &mut MatchSetManager,
@@ -464,81 +492,8 @@ impl FieldManager {
         drop(src_field);
         let tgt_field_id =
             self.add_field(msm, ms_id, tgt_name, ActorRef::default());
-
-        let mut src_field = self.fields[src_field_id].borrow_mut();
-        src_field.ref_count += 1;
-        src_field.iter_hall.cow_targets.push(tgt_field_id);
-        let mut field = self.fields[tgt_field_id].borrow_mut();
-        field.field_refs.extend_from_slice(&src_field.field_refs);
-        drop(src_field);
-        field.iter_hall.data_source = FieldDataSource::SameMsCow(src_field_id);
-        for &field_id in &field.field_refs {
-            self.bump_field_refcount(field_id);
-        }
+        self.setup_cow_between_fields(msm, src_field_id, tgt_field_id);
         tgt_field_id
-    }
-    pub fn setup_cross_ms_cow_fields(
-        &mut self,
-        msm: &mut MatchSetManager,
-        #[allow(unused)] // only used for debug_assert
-        src_ms_id: MatchSetId,
-        tgt_ms_id: MatchSetId,
-        src_field_ids: &[FieldId],
-        tgt_field_ids: &[FieldId],
-    ) {
-        #[cfg(debug_assertions)]
-        {
-            debug_assert!(src_field_ids.len() == tgt_field_ids.len());
-            src_field_ids
-                .iter()
-                .all(|id| self.fields[*id].borrow().match_set == src_ms_id);
-            tgt_field_ids
-                .iter()
-                .all(|id| self.fields[*id].borrow().match_set == tgt_ms_id);
-        }
-        let tgt_ms = &mut msm.match_sets[tgt_ms_id];
-        tgt_ms
-            .fields_cow_map
-            .extend(src_field_ids.iter().zip(tgt_field_ids));
-        for &tgt_field_id in tgt_field_ids {
-            let mut f = self.fields[tgt_field_id].borrow_mut();
-            f.iter_hall.field_data.clear();
-            for i in 0..f.field_refs.len() {
-                let fr = f.field_refs[i];
-                drop(f);
-                self.drop_field_refcount(fr, msm);
-                f = self.fields[tgt_field_id].borrow_mut();
-            }
-            f.field_refs.clear();
-            let (cow_src_field_id, _) = f.iter_hall.cow_source_field(self);
-            if let Some(id) = cow_src_field_id {
-                self.remove_from_cow_tgt_list(tgt_field_id, id);
-            }
-        }
-        for (&src_id, &tgt_id) in src_field_ids.iter().zip(tgt_field_ids) {
-            let mut src_field = self.fields[src_id].borrow_mut();
-            let mut tgt_field = self.fields[tgt_id].borrow_mut();
-            src_field.ref_count += 1;
-            src_field.iter_hall.cow_targets.push(tgt_id);
-            let header_iter_id = src_field
-                .iter_hall
-                .claim_iter_at_end(self, IterKind::CowField(tgt_id));
-            tgt_field.iter_hall.data_source =
-                FieldDataSource::FullCow(CowDataSource {
-                    src_field_id: src_id,
-                    header_iter_id,
-                });
-            for i in 0..src_field.field_refs.len() {
-                let ref_field_id = src_field.field_refs[i];
-                drop(src_field);
-                drop(tgt_field);
-                let cow_field_id =
-                    self.get_cross_ms_cow_field(msm, tgt_ms_id, ref_field_id);
-                src_field = self.fields[src_id].borrow_mut();
-                tgt_field = self.fields[tgt_id].borrow_mut();
-                tgt_field.field_refs.push(cow_field_id);
-            }
-        }
     }
     pub fn append_to_buffer<'a>(
         &self,
