@@ -542,8 +542,11 @@ pub fn handle_tf_forkcat(
             ps.input_done,
         );
     }
-    jd.group_track_manager.copy_all_fields_to_children(
+    jd.group_track_manager.pass_leading_groups_to_children(
+        &jd.match_set_mgr,
         jd.tf_mgr.transforms[tf_id].input_group_track_id,
+        batch_size,
+        ps.input_done,
         cont_state.subchains.iter().map(|sc| sc.group_track_id),
     );
 }
@@ -603,7 +606,13 @@ pub fn handle_tf_forcat_subchain_trailer(
         )
     }
 
+    let end_reached = group_track_iter.is_end(ps.input_done);
+
     drop(group_track_iter);
+
+    jd.group_track_manager.group_tracks[fcst.group_track_iter_ref.list_id]
+        .borrow_mut()
+        .drop_leading_fields(true, padding_inserted, end_reached);
 
     jd.tf_mgr.inform_cross_ms_transform_batch_available(
         &jd.field_mgr,
@@ -611,6 +620,16 @@ pub fn handle_tf_forcat_subchain_trailer(
         cont_state.continuation_tf_id,
         fields_to_consume,
         ps.input_done && fcst.subchain_idx == cont_state.last_sc(),
+    );
+    jd.group_track_manager.pass_leading_groups_to_children(
+        &jd.match_set_mgr,
+        fcst.group_track_iter_ref.list_id,
+        fields_to_consume,
+        end_reached,
+        std::iter::once(
+            jd.tf_mgr.transforms[cont_state.continuation_tf_id]
+                .input_group_track_id,
+        ),
     );
     for cim in &fcst.continuation_field_mappings {
         let sc_field = jd

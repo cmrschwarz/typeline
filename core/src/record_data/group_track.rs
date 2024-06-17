@@ -1173,6 +1173,9 @@ impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
     pub fn is_last_group(&self) -> bool {
         self.list.group_lengths.len() == self.group_idx + 1
     }
+    pub fn is_end(&self, end_of_input: bool) -> bool {
+        self.is_last_group() && self.is_end_of_group(end_of_input)
+    }
     pub fn is_end_of_group(&self, end_of_input: bool) -> bool {
         if self.group_len_rem != 0 {
             return false;
@@ -1235,6 +1238,9 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
     }
     pub fn is_end_of_group(&self, end_of_input: bool) -> bool {
         self.base.is_end_of_group(end_of_input)
+    }
+    pub fn is_end(&self, end_of_input: bool) -> bool {
+        self.base.is_end(end_of_input)
     }
     pub fn group_len_before(&self) -> usize {
         self.group_len - self.base.group_len_rem

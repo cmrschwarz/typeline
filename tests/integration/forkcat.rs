@@ -107,7 +107,6 @@ fn forkcat_double_field_refs() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn forkcat_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
