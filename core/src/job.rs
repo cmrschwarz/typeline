@@ -88,13 +88,14 @@ impl TransformManager {
         &self,
         tf_id: TransformId,
         tf_data: &IndexSlice<TransformId, TransformData<'_>>,
+        override_batch_size_available: Option<usize>,
     ) -> String {
         let tf = &self.transforms[tf_id];
         format!(
                 "tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
             format!("`{}`", tf_data[tf_id].display_name()),
             tf.input_field,
-            tf.available_batch_size,
+            override_batch_size_available.unwrap_or(tf.available_batch_size),
             tf.predecessor_done,
             tf.done,
             self.ready_stack
@@ -778,12 +779,16 @@ impl<'a> Job<'a> {
         tf_id: TransformId,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
+        let batch_size_available =
+            self.job_data.tf_mgr.transforms[tf_id].available_batch_size;
         #[cfg(feature = "debug_logging")]
         eprintln!(
             "> transform update {}",
-            self.job_data
-                .tf_mgr
-                .format_transform_state(tf_id, &self.transform_data)
+            self.job_data.tf_mgr.format_transform_state(
+                tf_id,
+                &self.transform_data,
+                None
+            )
         );
 
         transform_pre_update(self, tf_id, ctx)?;
@@ -800,9 +805,11 @@ impl<'a> Job<'a> {
             let output_field_id = tf.output_field;
             eprintln!(
                 "/> transform update {}",
-                self.job_data
-                    .tf_mgr
-                    .format_transform_state(tf_id, &self.transform_data)
+                self.job_data.tf_mgr.format_transform_state(
+                    tf_id,
+                    &self.transform_data,
+                    None
+                )
             );
             let group_track_id = tf.output_group_track_id;
             let group_track = self.job_data.group_track_manager.group_tracks
@@ -829,6 +836,7 @@ impl<'a> Job<'a> {
                 &self.job_data,
                 &self.transform_data,
                 tf_id,
+                batch_size_available,
                 start_tf,
                 f,
             )

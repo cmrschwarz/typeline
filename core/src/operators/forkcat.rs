@@ -540,13 +540,15 @@ pub fn handle_tf_forcat_subchain_trailer(
             fcst.actor_id,
         );
 
+    let mut padding_inserted = 0;
     if cont_state.advance_to_next {
         cont_state.rolling_sum -=
             cont_state.produced_on_last_turn[fcst.subchain_idx];
         cont_state.produced_on_last_turn[fcst.subchain_idx] = 0;
-        let padding = cont_state.rolling_sum;
+        padding_inserted = cont_state.rolling_sum;
 
-        group_track_iter.insert_fields(FieldValueRepr::Undefined, padding);
+        group_track_iter
+            .insert_fields(FieldValueRepr::Undefined, padding_inserted);
     }
 
     let fields_to_consume = group_track_iter.group_len_rem().min(batch_size);
@@ -584,7 +586,9 @@ pub fn handle_tf_forcat_subchain_trailer(
         let mut iter = jd
             .field_mgr
             .lookup_iter(cim.sc_field_id, &sc_field, cim.sc_field_iter_id)
-            .bounded(0, fields_to_consume);
+            .bounded(0, fields_to_consume + padding_inserted);
+
+        iter.next_n_fields(padding_inserted, true);
 
         let mut cont_field =
             jd.field_mgr.fields[cim.cont_field_id].borrow_mut();

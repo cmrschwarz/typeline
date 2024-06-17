@@ -11,7 +11,10 @@ use crate::{
     record_data::{
         field::{Field, FieldId},
         field_value_ref::FieldValueRef,
-        formattable::{Formattable, FormattingContext, RealizedFormatKey},
+        formattable::{
+            FormatOptions, Formattable, FormattingContext, RealizedFormatKey,
+            TypeReprFormat,
+        },
         iter_hall::{CowVariant, IterKind, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
@@ -326,7 +329,13 @@ pub fn field_data_to_json<'a>(
         msm: &jd.match_set_mgr,
         print_rationals_raw: true,
         is_stream_value: false,
-        rfk: RealizedFormatKey::default(),
+        rfk: RealizedFormatKey {
+            opts: FormatOptions {
+                type_repr: TypeReprFormat::Typed,
+                ..FormatOptions::default()
+            },
+            ..RealizedFormatKey::default()
+        },
     };
 
     let mut rows = Vec::new();
@@ -491,13 +500,14 @@ pub fn write_transform_update_to_html(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
     tf_id: TransformId,
+    batch_size: usize,
     root_tf: TransformId,
     mut w: impl std::io::Write,
 ) -> Result<(), std::io::Error> {
     let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
 
     let update = &json!({
-        "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data),
+        "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data, Some(batch_size)),
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
     });
     let tf_update = TEMPLATES.render("transform_update", &update).unwrap();

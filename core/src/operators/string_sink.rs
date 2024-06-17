@@ -302,7 +302,7 @@ pub fn handle_tf_string_sink(
     let mut field_pos = out.data.len();
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
     // interruption meaning error or group separator
-    let mut last_interruption_end = 0;
+    let mut last_interruption_end = field_pos;
     let print_rationals_raw =
         jd.get_transform_chain(tf_id).settings.print_rationals_raw;
     while let Some(range) = iter.typed_range_fwd(

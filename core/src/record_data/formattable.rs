@@ -630,10 +630,10 @@ impl Formattable<'_, '_> for OperatorApplicationError {
                 }
             }
         };
-        w.write_fmt(format_args!("{sv}(error)\"")).unwrap();
-        let mut ew = EscapedWriter::new(TextWriteIoAdapter(w), b'"');
+        w.write_text_fmt(format_args!("{sv}(error)\"")).unwrap();
+        let mut ew = EscapedWriter::new(w, b'"');
         TextWrite::write_all_text(&mut ew, self.message())?;
-        ew.into_inner().unwrap().0.write_all_text("\"")
+        ew.into_inner().unwrap().write_all_text("\"")
     }
 }
 
