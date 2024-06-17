@@ -393,7 +393,10 @@ impl<'a> Job<'a> {
         }
     }
     pub fn setup_job(&mut self, mut job_desc: JobDescription) {
-        let ms_id = self.job_data.match_set_mgr.add_match_set();
+        let ms_id = self
+            .job_data
+            .match_set_mgr
+            .add_match_set(&mut self.job_data.field_mgr);
         // TODO: unpack record set properly here
         let input_record_count = job_desc.data.adjust_field_lengths();
         let mut input_field = None;
@@ -464,7 +467,10 @@ impl<'a> Job<'a> {
         buffer: Arc<RecordBuffer>,
         start_op_id: OperatorId,
     ) {
-        let ms_id = self.job_data.match_set_mgr.add_match_set();
+        let ms_id = self
+            .job_data
+            .match_set_mgr
+            .add_match_set(&mut self.job_data.field_mgr);
         let instantiation =
             setup_callee_concurrent(self, ms_id, buffer, start_op_id);
         self.job_data

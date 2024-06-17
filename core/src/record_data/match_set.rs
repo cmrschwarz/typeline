@@ -11,15 +11,14 @@ use crate::{
 };
 
 use super::{
-    action_buffer::ActionBuffer,
+    action_buffer::{ActionBuffer, ActorRef},
     field::{FieldId, FieldManager},
 };
 
 pub type MatchSetId = DebuggableNonMaxUsize;
 
-#[repr(C)]
-#[derive(Default)]
 pub struct MatchSet {
+    pub dummy_field: FieldId,
     pub stream_participants: Vec<TransformId>,
     pub action_buffer: RefCell<ActionBuffer>,
     pub field_name_map:
@@ -72,9 +71,20 @@ impl MatchSetManager {
         alias_id
     }
 
-    pub fn add_match_set(&mut self) -> MatchSetId {
-        #[allow(unused_mut)]
-        let mut ms = MatchSet::default();
+    pub fn add_match_set(&mut self, fm: &mut FieldManager) -> MatchSetId {
+        let dummy_field = fm.add_field(
+            self,
+            self.match_sets.peek_claim_id(),
+            None,
+            ActorRef::Unconfirmed(0),
+        );
+        let ms = MatchSet {
+            dummy_field,
+            stream_participants: Vec::new(),
+            action_buffer: RefCell::default(),
+            field_name_map: HashMap::default(),
+            fields_cow_map: HashMap::default(),
+        };
         #[cfg(feature = "debug_logging")]
         {
             ms.action_buffer.borrow_mut().match_set_id =

@@ -227,7 +227,10 @@ fn setup_fork_subchain(
     // actual chain id as opposed to the index to the nth subchain
     let subchain_id = sess.job_data.session_data.chains[fork_chain_id]
         .subchains[subchain_index];
-    let target_ms_id = sess.job_data.match_set_mgr.add_match_set();
+    let target_ms_id = sess
+        .job_data
+        .match_set_mgr
+        .add_match_set(&mut sess.job_data.field_mgr);
 
     let target_group_track = sess
         .job_data

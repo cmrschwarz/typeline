@@ -582,7 +582,7 @@ impl Formattable<'_, '_> for Null {
         _ctx: &mut Self::Context,
         w: &mut W,
     ) -> std::io::Result<()> {
-        w.write_all_text(&NULL_STR)
+        w.write_all_text(NULL_STR)
     }
     fn length_total(&self, _ctx: &mut Self::Context) -> usize {
         NULL_STR.len()
@@ -602,7 +602,7 @@ impl Formattable<'_, '_> for Undefined {
         _ctx: &mut Self::Context,
         w: &mut W,
     ) -> std::io::Result<()> {
-        w.write_all_text(&UNDEFINED_STR)
+        w.write_all_text(UNDEFINED_STR)
     }
     fn length_total(&self, _ctx: &mut Self::Context) -> usize {
         UNDEFINED_STR.len()

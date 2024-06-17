@@ -223,7 +223,10 @@ pub fn insert_tf_forkcat<'a>(
 ) -> OperatorInstantiation {
     let tf_op = tf_state.op_id.unwrap();
     let input_field = tf_state.input_field;
-    let cont_ms_id = job.job_data.match_set_mgr.add_match_set();
+    let cont_ms_id = job
+        .job_data
+        .match_set_mgr
+        .add_match_set(&mut job.job_data.field_mgr);
 
     let cont_group_track = job.job_data.group_track_manager.add_group_track(
         None,
@@ -256,7 +259,7 @@ pub fn insert_tf_forkcat<'a>(
     let sc_count = (op.subchains_end - op.subchains_start).into_usize();
 
     let continuation_state = Arc::new(Mutex::new(FcContinuationState {
-        continuation_tf_id: TransformId::zero(), //fill in later
+        continuation_tf_id: TransformId::zero(), // fill in later
         current_turn: FcSubchainIdx::zero(),
         subchains: IndexVec::default(),
         produced_on_last_turn: IndexVec::from(vec![0; sc_count]),
@@ -351,7 +354,10 @@ fn setup_subchain<'a>(
         [continuation_state.lock().unwrap().continuation_tf_id]
         .match_set_id;
 
-    let ms_id = job.job_data.match_set_mgr.add_match_set();
+    let ms_id = job
+        .job_data
+        .match_set_mgr
+        .add_match_set(&mut job.job_data.field_mgr);
 
     let group_track = job.job_data.group_track_manager.add_group_track(
         None,

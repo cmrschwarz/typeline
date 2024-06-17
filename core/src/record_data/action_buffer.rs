@@ -1966,7 +1966,7 @@ mod test_dead_data_drop {
     fn padding_dropped_correctly() {
         let mut fm = FieldManager::default();
         let mut msm = MatchSetManager::default();
-        let ms_id = msm.add_match_set();
+        let ms_id = msm.add_match_set(&mut fm);
         let field_id =
             fm.add_field(&mut msm, ms_id, None, ActorRef::default());
 

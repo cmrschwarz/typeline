@@ -1057,8 +1057,8 @@ mod ref_iter_tests {
         expected: &[(&'static str, RunLength, RangeOffsets)],
     ) {
         let mut match_set_mgr = MatchSetManager::default();
-        let ms_id = match_set_mgr.match_sets.claim();
         let mut field_mgr = FieldManager::default();
+        let ms_id = match_set_mgr.add_match_set(&mut field_mgr);
 
         let field_id = field_mgr.add_field_with_data(
             &mut match_set_mgr,

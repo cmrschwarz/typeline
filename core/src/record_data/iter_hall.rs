@@ -250,8 +250,8 @@ impl IterHall {
     pub fn get_iter_state(&self, iter_id: IterId) -> IterState {
         self.iters[iter_id].get()
     }
-    pub fn iter_states<'a>(&'a self) -> impl Iterator<Item = IterState> + 'a {
-        self.iters.iter().map(|is| is.get())
+    pub fn iter_states(&self) -> impl Iterator<Item = IterState> + '_ {
+        self.iters.iter().map(Cell::get)
     }
     fn calculate_start_header<'a, R: FieldDataRef<'a>>(
         fr: &R,
