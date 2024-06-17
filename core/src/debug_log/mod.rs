@@ -15,7 +15,7 @@ use crate::{
             FormatOptions, Formattable, FormattingContext, RealizedFormatKey,
             TypeReprFormat,
         },
-        iter_hall::{CowVariant, IterKind, IterState},
+        iter_hall::{CowVariant, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
     },
@@ -282,8 +282,11 @@ fn setup_transform_chain(
     tf_chain
 }
 
+#[allow(unused_variables)]
 pub fn iters_to_json(iters: &[IterState]) -> Value {
-    Value::Array(
+    #[cfg(feature = "debug_logging")]
+    return Value::Array({
+        use crate::record_data::iter_hall::IterKind;
         iters
             .iter()
             .filter_map(|i| {
@@ -306,8 +309,10 @@ pub fn iters_to_json(iters: &[IterState]) -> Value {
                     IterKind::RefLookup => return None,
                 })
             })
-            .collect::<Vec<_>>(),
-    )
+            .collect::<Vec<_>>()
+    });
+    #[allow(unreachable_code)]
+    Value::Array(Vec::new())
 }
 
 pub fn field_data_to_json<'a>(
@@ -471,6 +476,7 @@ pub fn field_to_json(
         None
     };
 
+    #[allow(unused_mut)]
     let mut producing_arg = None;
     #[cfg(feature = "debug_logging")]
     if !field.producing_transform_arg.is_empty() {
