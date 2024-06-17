@@ -65,40 +65,50 @@
             <tr class="field_row dead_row"><td colspan="4"></td></tr>
             {{/each}}
 
+            {{~#if row.shadow_meta}}
+            {{~let "flag_shadow" " flag-shadow"}}
+            {{~else}}
+            {{~let "flag_shadow" ""}}
+            {{~/if}}
+            {{~#if row.shadow_data}}
+            {{~let "flag_shadow_data" " flag-shadow"}}
+            {{~else}}
+            {{~let "flag_shadow_data" ""}}
+            {{~/if}}
             <tr class="row">
                 <td >
                     <div class="meta-list">
-                        <div class="padding{{row.flag_shadow}}">
+                        <div class="padding{{flag_shadow}}">
                             {{row.padding}}
                         </div>
-                        <div class="data_type{{row.flag_shadow}}">
+                        <div class="data_type{{flag_shadow}}">
                             {{row.repr}}
                         </div>
                         <div
                             {{#if row.same_as_prev}}
-                            class="flag flag_same_as_prev{{row.flag_shadow}}"
+                            class="flag flag_same_as_prev{{flag_shadow}}"
                             {{else}}
-                            class="flag flag_disabled{{row.flag_shadow}}"
+                            class="flag flag_disabled{{flag_shadow}}"
                             {{/if}}
                         ></div>
                         <div
                             {{#if row.shared}}
-                            class="flag flag_shared{{row.flag_shadow}}"
+                            class="flag flag_shared{{flag_shadow}}"
                             {{else}}
-                            class="flag flag_disabled{{row.flag_shadow}}"
+                            class="flag flag_disabled{{flag_shadow}}"
                             {{/if}}
                         ></div>
                         <div
                             {{#if row.deleted}}
-                            class="flag flag_deleted{{row.flag_shadow}}"
+                            class="flag flag_deleted{{flag_shadow}}"
                             {{else}}
-                            class="flag flag_disabled{{row.flag_shadow}}"
+                            class="flag flag_disabled{{flag_shadow}}"
                             {{/if}}
                         ></div>
                     </div>
                 </td>
-                <td class="data">{{row.value}}</td>
-                <td class="size{{flag_shadow}}">{{row.size}}</td>
+                <td class="data{{flag_shadow_data}}">{{row.value}}</td>
+                <td class="size{{flag_shadow_data}}">{{row.size}}</td>
                 <td class="rl{{flag_shadow}}">{{row.run_length}}</td>
                 <td>
                     {{>iter_list iters=row.iters transform_update_id=transform_update_id}}

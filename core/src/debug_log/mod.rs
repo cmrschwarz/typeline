@@ -364,8 +364,8 @@ pub fn field_data_to_json<'a>(
             del_count = 0;
             dead_slots[iter.get_next_field_pos()] - del_count_prev
         };
-        let shadow_elem = h.shared_value() && iter.field_run_length_bwd() != 0;
-        let flag_shadow = if shadow_elem { " flag_shadow" } else { "" };
+        let shadow_meta = iter.field_run_length_bwd() != 0;
+        let shadow_data = shadow_meta && h.shared_value();
 
         let value = iter.get_next_typed_field().value;
         let mut value_str = MaybeText::default();
@@ -392,10 +392,10 @@ pub fn field_data_to_json<'a>(
             }
         }
 
-        let run_length = if iter.field_run_length_bwd() != 0 {
-            serde_json::Value::Null
+        let run_length = if shadow_meta {
+            Value::Null
         } else {
-            serde_json::Value::String(String::new())
+            Value::Number(h.run_length.into())
         };
 
         let row_iters = if h.deleted() {
@@ -408,7 +408,8 @@ pub fn field_data_to_json<'a>(
 
         rows.push(json!({
             "dead_slots": dead_slot_count,
-            "flag_shadow": flag_shadow,
+            "shadow_meta": shadow_meta,
+            "shadow_data": shadow_data,
             "repr": h.fmt.repr.to_string(),
             "padding": h.fmt.leading_padding(),
             "deleted": h.deleted(),
@@ -507,6 +508,7 @@ pub fn write_transform_update_to_html(
     let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
 
     let update = &json!({
+        "transform_id": tf_id.into_usize(),
         "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data, Some(batch_size)),
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
     });

@@ -531,6 +531,9 @@ pub fn handle_tf_forcat_subchain_trailer(
         jd.tf_mgr.unclaim_batch_size(tf_id, batch_size);
         return;
     }
+    if cont_state.advance_to_next {
+        cont_state.current_turn = fcst.subchain_idx;
+    }
 
     let mut group_track_iter =
         jd.group_track_manager.lookup_group_track_iter_mut(

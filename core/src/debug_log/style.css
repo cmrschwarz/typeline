@@ -261,6 +261,10 @@ body {
     background-color: rgb(184, 185, 190);
 }
 
+.flag-shadow {
+    opacity: 50%;
+}
+
 .field .iter-list {
     display: flex;
     flex-wrap: nowrap;

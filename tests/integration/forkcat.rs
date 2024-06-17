@@ -37,7 +37,6 @@ fn basic_forkcat() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn forkcat_with_input() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::default();
@@ -72,7 +71,6 @@ fn forkcat_dup() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn forkcat_sandwiched_write() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
