@@ -1,5 +1,7 @@
 mod helpers;
 
+use std::collections::HashSet;
+
 use handlebars::{Handlebars, RenderError, RenderErrorReason};
 use helpers::reindent;
 use once_cell::sync::Lazy;
@@ -237,6 +239,9 @@ fn setup_transform_chain_tf_envs(
         }
     }
     match_chains.push(match_chain);
+    for mc in &mut match_chains {
+        add_hidden_fields(jd, mc);
+    }
     TransformChain { match_chains }
 }
 
@@ -296,6 +301,25 @@ fn transform_chain_to_json(
     })
 }
 
+fn add_hidden_fields(jd: &JobData, mc: &mut MatchChain) {
+    let mut shown_fields = HashSet::new();
+    for tfe in &mc.tf_envs {
+        for field in &tfe.fields {
+            shown_fields.insert(*field);
+        }
+    }
+
+    for (field_id, field) in jd.field_mgr.fields.iter_enumerated() {
+        if field.borrow().match_set != mc.ms_id {
+            continue;
+        }
+        if shown_fields.contains(&field_id) {
+            continue;
+        }
+        mc.tf_envs[0].fields.push(field_id);
+    }
+}
+
 fn setup_transform_chain(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
@@ -310,6 +334,7 @@ fn setup_transform_chain(
 
     let mut tf_chain =
         setup_transform_chain_tf_envs(jd, tf_data, start_match_chain);
+
     setup_transform_chain_dead_slots(&mut tf_chain, jd);
     tf_chain
 }

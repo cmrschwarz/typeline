@@ -85,7 +85,12 @@ impl<I: IndexingType, T> Universe<I, T> {
         self.data.clear();
         self.first_vacant_entry = None;
     }
-
+    pub fn indices(&self) -> UniverseIndexIter<I, T> {
+        UniverseIndexIter {
+            index: I::zero(),
+            base: self.data.iter(),
+        }
+    }
     pub fn iter(&self) -> UniverseIter<T> {
         UniverseIter {
             base: self.data.iter(),
@@ -255,6 +260,12 @@ pub struct UniverseIter<'a, T> {
     base: std::slice::Iter<'a, UniverseEntry<T>>,
 }
 
+#[derive(Clone)]
+pub struct UniverseIndexIter<'a, I, T> {
+    index: I,
+    base: std::slice::Iter<'a, UniverseEntry<T>>,
+}
+
 impl<'a, T> Iterator for UniverseIter<'a, T> {
     type Item = &'a T;
 
@@ -263,6 +274,27 @@ impl<'a, T> Iterator for UniverseIter<'a, T> {
             match self.base.next() {
                 Some(UniverseEntry::Occupied(v)) => return Some(v),
                 Some(UniverseEntry::Vacant(_)) => continue,
+                None => return None,
+            }
+        }
+    }
+}
+
+impl<'a, I: IndexingType, T> Iterator for UniverseIndexIter<'a, I, T> {
+    type Item = I;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.base.next() {
+                Some(UniverseEntry::Occupied(v)) => {
+                    let res = self.index;
+                    self.index = I::from_usize(res.into_usize() + 1);
+                    return Some(res);
+                }
+                Some(UniverseEntry::Vacant(_)) => {
+                    self.index = I::from_usize(self.index.into_usize() + 1);
+                    continue;
+                }
                 None => return None,
             }
         }

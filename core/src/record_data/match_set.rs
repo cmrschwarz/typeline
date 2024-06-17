@@ -1,6 +1,7 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use crate::{
+    index_newtype,
     operators::transform::TransformId,
     record_data::iter_hall::FieldDataSource,
     utils::{
@@ -15,7 +16,9 @@ use super::{
     field::{FieldId, FieldManager},
 };
 
-pub type MatchSetId = DebuggableNonMaxUsize;
+index_newtype! {
+    pub struct MatchSetId( DebuggableNonMaxUsize);
+}
 
 pub struct MatchSet {
     pub dummy_field: FieldId,

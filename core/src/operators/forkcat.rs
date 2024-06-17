@@ -21,6 +21,7 @@ use crate::{
         group_track::{GroupTrackId, GroupTrackIterRef},
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
+        match_set::MatchSetId,
         push_interface::PushInterface,
     },
     utils::{
@@ -282,6 +283,7 @@ pub fn insert_tf_forkcat<'a>(
         let sc_entry = setup_subchain(
             op,
             continuation_state.clone(),
+            cont_ms_id,
             job,
             op_base,
             sc_idx,
@@ -338,6 +340,7 @@ pub fn insert_tf_forkcat<'a>(
 fn setup_subchain<'a>(
     op: &'a OpForkCat,
     continuation_state: Arc<Mutex<FcContinuationState>>,
+    cont_ms_id: MatchSetId,
     job: &mut Job<'a>,
     op_base: &OperatorBase,
     sc_idx: SubchainIndex,
@@ -347,10 +350,6 @@ fn setup_subchain<'a>(
     continuation_vars: &IndexSlice<ContinuationVarIdx, FieldId>,
 ) -> SubchainEntry {
     let fc_ms_id = job.job_data.tf_mgr.transforms[fc_tf_id].match_set_id;
-
-    let cont_ms_id = job.job_data.tf_mgr.transforms
-        [continuation_state.lock().unwrap().continuation_tf_id]
-        .match_set_id;
 
     let sc_ms_id = job
         .job_data
@@ -416,8 +415,6 @@ fn setup_subchain<'a>(
 
     let fc_sc_terminator_tf_id =
         job.job_data.tf_mgr.transforms.peek_claim_id();
-    let src_ms_dummy_field =
-        job.job_data.match_set_mgr.get_dummy_field(sc_ms_id);
 
     for (i, var) in op.continuation_vars.iter_enumerated() {
         let sc_ms = &job.job_data.match_set_mgr.match_sets[sc_ms_id];
