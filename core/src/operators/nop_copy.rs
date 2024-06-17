@@ -54,6 +54,8 @@ pub fn build_tf_nop_copy<'a>(
     op: &OpNopCopy,
     tf_state: &TransformState,
 ) -> TransformData<'a> {
+    jd.field_mgr
+        .setup_field_refs(&mut jd.match_set_mgr, tf_state.input_field);
     let input_field_ref_offset = jd
         .field_mgr
         .register_field_reference(tf_state.output_field, tf_state.input_field);

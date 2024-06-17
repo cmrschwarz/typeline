@@ -221,6 +221,7 @@ pub fn insert_tf_forkcat<'a>(
     op: &'a OpForkCat,
     tf_state: TransformState,
 ) -> OperatorInstantiation {
+    let tf_op = tf_state.op_id.unwrap();
     let input_field = tf_state.input_field;
     let cont_ms_id = job.job_data.match_set_mgr.add_match_set();
 
@@ -252,30 +253,10 @@ pub fn insert_tf_forkcat<'a>(
         continuation_var_mapping.push(field_id);
     }
 
-    let cont_inst = if let Some(cont) = op.continuation {
-        job.setup_transforms_from_op(
-            cont_ms_id,
-            cont,
-            cont_input_field,
-            cont_group_track,
-            None,
-            &HashMap::default(),
-        )
-    } else {
-        job.setup_transforms_for_op_iter(
-            std::iter::once((tf_state.op_id.unwrap(), op_base, &DUMMY_OP_NOP)),
-            cont_ms_id,
-            cont_input_field,
-            cont_group_track,
-            None,
-            &HashMap::default(),
-        )
-    };
-
     let sc_count = (op.subchains_end - op.subchains_start).into_usize();
 
     let continuation_state = Arc::new(Mutex::new(FcContinuationState {
-        continuation_tf_id: cont_inst.tfs_begin,
+        continuation_tf_id: TransformId::zero(), //fill in later
         current_turn: FcSubchainIdx::zero(),
         subchains: IndexVec::default(),
         produced_on_last_turn: IndexVec::from(vec![0; sc_count]),
@@ -313,11 +294,33 @@ pub fn insert_tf_forkcat<'a>(
         subchains.push(sc_entry);
     }
 
+    let cont_inst = if let Some(cont) = op.continuation {
+        job.setup_transforms_from_op(
+            cont_ms_id,
+            cont,
+            cont_input_field,
+            cont_group_track,
+            None,
+            &HashMap::default(),
+        )
+    } else {
+        job.setup_transforms_for_op_iter(
+            std::iter::once((tf_op, op_base, &DUMMY_OP_NOP)),
+            cont_ms_id,
+            cont_input_field,
+            cont_group_track,
+            None,
+            &HashMap::default(),
+        )
+    };
+
     let TransformData::ForkCat(fc) = &mut job.transform_data[fc_tf_id] else {
         unreachable!()
     };
 
-    fc.continuation_state.lock().unwrap().subchains = subchains;
+    let mut cont = fc.continuation_state.lock().unwrap();
+    cont.subchains = subchains;
+    cont.continuation_tf_id = cont_inst.tfs_begin;
 
     let tf = &mut job.job_data.tf_mgr.transforms[fc_tf_id];
     tf.successor = Some(cont_inst.tfs_begin);
@@ -423,7 +426,8 @@ fn setup_subchain<'a>(
         let mut cont_field =
             job.job_data.field_mgr.fields[cont_field_id].borrow_mut();
 
-        let field_ref_offset = cont_field.field_refs.len() as FieldRefOffset;
+        let refs_offset_in_cont =
+            cont_field.field_refs.len() as FieldRefOffset;
 
         {
             let field_cow_target =
@@ -433,8 +437,7 @@ fn setup_subchain<'a>(
                 .field_refs
                 .extend_from_slice(&field_cow_target.field_refs);
         }
-        let refs_offset_in_cont =
-            cont_field.field_refs.len() as FieldRefOffset;
+        let field_ref_offset = cont_field.field_refs.len() as FieldRefOffset;
         cont_field.field_refs.push(field_cow_tgt_id);
         continuation_field_mappings.push(ContinuationFieldMapping {
             sc_field_id: field_id,
