@@ -285,18 +285,13 @@ impl<'a, I: IndexingType, T> Iterator for UniverseIndexIter<'a, I, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match self.base.next() {
-                Some(UniverseEntry::Occupied(v)) => {
-                    let res = self.index;
-                    self.index = I::from_usize(res.into_usize() + 1);
-                    return Some(res);
-                }
-                Some(UniverseEntry::Vacant(_)) => {
-                    self.index = I::from_usize(self.index.into_usize() + 1);
-                    continue;
-                }
-                None => return None,
+            let next = self.base.next()?;
+            let res = self.index;
+            self.index = I::from_usize(res.into_usize() + 1);
+            if matches!(next, UniverseEntry::Vacant(_)) {
+                continue;
             }
+            return Some(res);
         }
     }
 }
@@ -405,6 +400,9 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
     pub fn clear(&mut self) {
         self.universe.clear();
         self.occupied_entries = 0;
+    }
+    pub fn indices(&self) -> UniverseIndexIter<I, T> {
+        self.universe.indices()
     }
     pub fn iter(&self) -> UniverseIter<T> {
         self.universe.iter()
