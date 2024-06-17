@@ -16,7 +16,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
-        field::{FieldId, FieldRefOffset, VOID_FIELD_ID},
+        field::{FieldId, FieldRefOffset},
         field_data::{field_value_flags, FieldValueRepr},
         group_track::{GroupTrackId, GroupTrackIterRef},
         iter_hall::{IterId, IterKind},
@@ -350,6 +350,8 @@ fn setup_subchain<'a>(
     fc_tf_id: TransformId,
     continuation_vars: &IndexSlice<ContinuationVarIdx, FieldId>,
 ) -> SubchainEntry {
+    let fc_ms_id = job.job_data.tf_mgr.transforms[fc_tf_id].match_set_id;
+
     let cont_ms_id = job.job_data.tf_mgr.transforms
         [continuation_state.lock().unwrap().continuation_tf_id]
         .match_set_id;
@@ -369,16 +371,26 @@ fn setup_subchain<'a>(
         [op_base.chain_id.unwrap()]
     .subchains[sc_idx];
 
-    let mut sc_input_field = VOID_FIELD_ID;
-
+    let dummy_field = job.job_data.match_set_mgr.get_dummy_field(ms_id);
+    let mut sc_input_field = dummy_field;
     for (&var, needing_subchains) in &op.input_mappings {
         if !needing_subchains[fc_sc_idx.into_usize()] {
             continue;
         }
+
+        let src_field = if let Some(name) = var.get_name() {
+            *job.job_data.match_set_mgr.match_sets[fc_ms_id]
+                .field_name_map
+                .get(&name)
+                .unwrap_or(&dummy_field)
+        } else {
+            fc_input_field
+        };
+
         let field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
             ms_id,
-            fc_input_field,
+            src_field,
         );
         if var == Var::BBInput {
             sc_input_field = field_id;
@@ -398,6 +410,7 @@ fn setup_subchain<'a>(
 
     let fc_sc_terminator_tf_id =
         job.job_data.tf_mgr.transforms.peek_claim_id();
+    let src_ms_dummy_field = job.job_data.match_set_mgr.get_dummy_field(ms_id);
 
     for (i, var) in op.continuation_vars.iter_enumerated() {
         let sc_ms = &job.job_data.match_set_mgr.match_sets[ms_id];
@@ -405,8 +418,7 @@ fn setup_subchain<'a>(
             if let Some(&field_id) = sc_ms.field_name_map.get(&field_name) {
                 field_id
             } else {
-                // TODO: make this a per match set thing
-                VOID_FIELD_ID
+                src_ms_dummy_field
             }
         } else {
             instantiation.next_input_field

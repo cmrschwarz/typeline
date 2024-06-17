@@ -27,7 +27,7 @@ use crate::{
     },
     record_data::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
-        field::{FieldId, FieldManager, VOID_FIELD_ID},
+        field::{FieldId, FieldManager},
         field_action::FieldActionKind,
         group_track::{GroupTrackId, GroupTrackManager},
         iter_hall::{IterId, IterKind},
@@ -643,8 +643,10 @@ impl<'a> Job<'a> {
             let output_field_kind = op_data.output_field_kind(op_base);
             let output_field = match output_field_kind {
                 OutputFieldKind::Dummy => {
-                    self.job_data.field_mgr.bump_field_refcount(VOID_FIELD_ID);
-                    VOID_FIELD_ID
+                    let dummy_field =
+                        self.job_data.match_set_mgr.get_dummy_field(ms_id);
+                    self.job_data.field_mgr.bump_field_refcount(dummy_field);
+                    dummy_field
                 }
                 OutputFieldKind::SameAsInput => {
                     self.job_data.field_mgr.bump_field_refcount(input_field);
@@ -681,7 +683,9 @@ impl<'a> Job<'a> {
                         )
                     }
                 }
-                OutputFieldKind::Unconfigured => VOID_FIELD_ID,
+                OutputFieldKind::Unconfigured => {
+                    self.job_data.match_set_mgr.get_dummy_field(ms_id)
+                }
             };
             if !label_added {
                 if let Some(name) = op_base.label {

@@ -36,7 +36,7 @@ pub struct FieldIterRef {
 #[derive(Default)]
 pub struct Field {
     pub shadowed_since: ActorId,
-    pub shadowed_by: FieldId,
+    pub shadowed_by: Option<FieldId>,
 
     pub first_actor: ActorRef,
     pub snapshot: SnapshotRef,
@@ -68,7 +68,6 @@ pub type FieldId = u32;
 // different `field_references` array for the COW field without having
 // to modify the original field data
 pub type FieldRefOffset = u16;
-pub const VOID_FIELD_ID: FieldId = FieldId::MIN;
 
 impl Field {
     pub fn has_cow_targets(&self) -> bool {
@@ -76,6 +75,7 @@ impl Field {
     }
 }
 
+#[derive(Default)]
 pub struct FieldManager {
     pub fields: Universe<FieldId, RefCell<Field>>,
 }
@@ -314,7 +314,7 @@ impl FieldManager {
             name,
             ref_count: 1,
             shadowed_since: ActionBuffer::MAX_ACTOR_ID,
-            shadowed_by: VOID_FIELD_ID,
+            shadowed_by: None,
             match_set: ms_id,
             first_actor,
             snapshot: SnapshotRef::default(),
@@ -325,7 +325,6 @@ impl FieldManager {
             #[cfg(feature = "debug_logging")]
             producing_transform_arg: String::default(),
         };
-        self.bump_field_refcount(field.shadowed_by);
         field
             .iter_hall
             .reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID, IterKind::RefLookup);
@@ -805,7 +804,7 @@ impl FieldManager {
         // // }
         let (cow_src, _) = field.iter_hall.cow_source_field(self);
         let frs = std::mem::take(&mut field.field_refs);
-        let alias = field.shadowed_by;
+        let shadowed_by = field.shadowed_by;
         drop(field);
         self.fields.release(id);
         if let Some(cow_src) = cow_src {
@@ -815,7 +814,9 @@ impl FieldManager {
         for fr in &frs {
             self.drop_field_refcount(*fr, msm);
         }
-        self.drop_field_refcount(alias, msm);
+        if let Some(shadowed_by) = shadowed_by {
+            self.drop_field_refcount(shadowed_by, msm);
+        }
     }
     pub fn drop_field_refcount(
         &mut self,
@@ -856,10 +857,10 @@ impl FieldManager {
                 eprint!(" (`{}`)", field.producing_transform_arg);
             }
         }
-        if field.shadowed_by != VOID_FIELD_ID {
+        if let Some(shadowed_by) = field.shadowed_by {
             eprint!(
                 " (aliased by field id {} since actor id `{}`)",
-                field.shadowed_by, field.shadowed_since
+                shadowed_by, field.shadowed_since
             );
         }
         if let (cow_src_field, Some(data_cow)) =
@@ -968,27 +969,10 @@ impl Drop for FieldManager {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
         if !std::thread::panicking() {
-            self.fields.release(VOID_FIELD_ID);
             // TODO: this does not work yet, because e.g. callcc
             // does not properly clean up it's cow targets yet
             // reenable this once it works
             // debug_assert!(self.fields.any_used().is_none());
         }
-    }
-}
-
-impl Default for FieldManager {
-    fn default() -> Self {
-        let mut res = Self {
-            fields: Universe::default(),
-        };
-        let id = res.fields.claim_with_value(RefCell::new(Field {
-            ref_count: 1,
-            #[cfg(feature = "debug_logging")]
-            producing_transform_arg: "<Dummy Input Field>".to_string(),
-            ..Default::default()
-        }));
-        debug_assert!(VOID_FIELD_ID == id);
-        res
     }
 }

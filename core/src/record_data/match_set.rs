@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap};
 
 use crate::{
     operators::transform::TransformId,
-    record_data::{field::VOID_FIELD_ID, iter_hall::FieldDataSource},
+    record_data::iter_hall::FieldDataSource,
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
@@ -51,15 +51,14 @@ impl MatchSetManager {
         let (ms_id, first_actor, shadowed_by) =
             (field.match_set, field.first_actor, field.shadowed_by);
         drop(field);
-        debug_assert!(shadowed_by == VOID_FIELD_ID);
-        fm.drop_field_refcount(shadowed_by, self);
+        debug_assert!(shadowed_by.is_none());
         fm.bump_field_refcount(field_id);
         // PERF: if the field has no name, and no actor was added
         // after between it's first_actor and the last,
         // we can just set it's name instead of adding an alias field
         let alias_id = fm.add_field(self, ms_id, Some(name), first_actor);
         let mut field = fm.fields[field_id].borrow_mut();
-        field.shadowed_by = alias_id;
+        field.shadowed_by = Some(alias_id);
         field.shadowed_since = self.match_sets[field.match_set]
             .action_buffer
             .borrow()
@@ -72,12 +71,9 @@ impl MatchSetManager {
     }
 
     pub fn add_match_set(&mut self, fm: &mut FieldManager) -> MatchSetId {
-        let dummy_field = fm.add_field(
-            self,
-            self.match_sets.peek_claim_id(),
-            None,
-            ActorRef::Unconfirmed(0),
-        );
+        let ms_id = self.match_sets.peek_claim_id();
+        let dummy_field =
+            fm.add_field(self, ms_id, None, ActorRef::Unconfirmed(0));
         let ms = MatchSet {
             dummy_field,
             stream_participants: Vec::new(),
@@ -87,10 +83,12 @@ impl MatchSetManager {
         };
         #[cfg(feature = "debug_logging")]
         {
-            ms.action_buffer.borrow_mut().match_set_id =
-                self.match_sets.peek_claim_id();
+            fm.fields[dummy_field].borrow_mut().producing_transform_arg =
+                format!("<Dummy Field MS {ms_id}>");
+            ms.action_buffer.borrow_mut().match_set_id = ms_id;
         }
-        self.match_sets.claim_with_value(ms)
+        self.match_sets.claim_with_value(ms);
+        ms_id
     }
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
@@ -150,5 +148,8 @@ impl MatchSetManager {
             fm.print_fields_with_iter_data();
             eprintln!("{:-^80}", " </updated cow bindings> ");
         }
+    }
+    pub fn get_dummy_field(&self, ms_id: MatchSetId) -> FieldId {
+        self.match_sets[ms_id].dummy_field
     }
 }

@@ -15,7 +15,7 @@ use crate::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
-        field::{FieldId, FieldManager, VOID_FIELD_ID},
+        field::{FieldId, FieldManager},
         field_action::FieldActionKind,
         group_track::VOID_GROUP_TRACK_ID,
         iter_hall::{IterId, IterKind},
@@ -416,15 +416,16 @@ pub fn setup_callee_concurrent(
     let chain = &sess.job_data.session_data.chains[chain_id];
     // TODO //HACK: this is busted
     let group_track = VOID_GROUP_TRACK_ID;
+    let dummy_field = sess.job_data.match_set_mgr.get_dummy_field(ms_id);
     let tf_state = TransformState::new(
-        VOID_FIELD_ID,
-        VOID_FIELD_ID,
+        dummy_field,
+        dummy_field,
         ms_id,
         chain.settings.default_batch_size,
         None,
         group_track,
     );
-    sess.job_data.field_mgr.inc_field_refcount(VOID_FIELD_ID, 2);
+    sess.job_data.field_mgr.inc_field_refcount(dummy_field, 2);
     let mut callee = TfCalleeConcurrent {
         target_fields: Vec::new(),
         buffer,

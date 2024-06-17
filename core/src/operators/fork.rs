@@ -15,11 +15,8 @@ use crate::{
     operators::operator::OperatorOffsetInChain,
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::ActorRef,
-        field::{FieldId, VOID_FIELD_ID},
-        group_track::GroupTrackId,
-        iter_hall::IterId,
-        match_set::MatchSetId,
+        action_buffer::ActorRef, field::FieldId, group_track::GroupTrackId,
+        iter_hall::IterId, match_set::MatchSetId,
     },
     utils::{
         index_vec::IndexVec,
@@ -279,7 +276,8 @@ fn setup_fork_subchain(
         }
         drop(src_field);
     }
-    let input_field = chain_input_field.unwrap_or(VOID_FIELD_ID);
+    let input_field = chain_input_field
+        .unwrap_or(sess.job_data.match_set_mgr.get_dummy_field(target_ms_id));
     let start_op_id = sess.job_data.session_data.chains[subchain_id].operators
         [OperatorOffsetInChain::zero()];
     let instantiation = sess.setup_transforms_from_op(
