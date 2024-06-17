@@ -59,12 +59,23 @@ pub struct CowInfo {
 
 impl MatchChain {
     pub fn new(jd: &JobData, start_tf: TransformId) -> Self {
-        Self {
+        let mut match_chain = Self {
             ms_id: jd.tf_mgr.transforms[start_tf].match_set_id,
             start_tf_id: start_tf,
             tf_envs: Vec::new(),
             dead_slots: Vec::new(),
+        };
+        #[cfg(feature = "debug_log_show_dummy_fields")]
+        {
+            match_chain.tf_envs.push(TransformEnv {
+                tf_id: None,
+                subchains: Vec::new(),
+                fields: vec![jd
+                    .match_set_mgr
+                    .get_dummy_field(match_chain.ms_id)],
+            });
         }
+        match_chain
     }
 }
 
@@ -108,14 +119,14 @@ fn unwrap_render_error(te: RenderError) -> std::io::Error {
 }
 
 pub fn write_debug_log_html_head(
-    w: impl std::io::Write,
+    w: &mut impl std::io::Write,
 ) -> Result<(), std::io::Error> {
     TEMPLATES
         .render_to_write(
             "head",
             &json!({
                 "style": include_str!("style.css"),
-                "debug_style_sheet": cfg!(feature="debug_debug_log_style_sheet")
+                "debug_style_sheet": cfg!(feature="debug_log_extern_style_sheet")
             }),
             w,
         )
@@ -123,7 +134,7 @@ pub fn write_debug_log_html_head(
 }
 
 pub fn write_debug_log_html_tail(
-    w: impl std::io::Write,
+    w: &mut impl std::io::Write,
 ) -> Result<(), std::io::Error> {
     TEMPLATES
         .render_to_write("tail", &(), w)
@@ -509,13 +520,30 @@ pub fn write_transform_update_to_html(
     tf_id: TransformId,
     batch_size: usize,
     root_tf: TransformId,
-    mut w: impl std::io::Write,
+    w: &mut impl std::io::Write,
 ) -> Result<(), std::io::Error> {
     let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
 
     let update = &json!({
         "transform_id": tf_id.into_usize(),
         "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data, Some(batch_size)),
+        "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
+    });
+    let tf_update = TEMPLATES.render("transform_update", &update).unwrap();
+    w.write_all(reindent(false, 8, tf_update).as_bytes())
+}
+
+pub fn write_initial_state_to_html(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    root_tf: TransformId,
+    w: &mut impl std::io::Write,
+) -> Result<(), std::io::Error> {
+    let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
+
+    let update = &json!({
+        "transform_id": Value::Null,
+        "transform_update_text": "Initial State",
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
     });
     let tf_update = TEMPLATES.render("transform_update", &update).unwrap();

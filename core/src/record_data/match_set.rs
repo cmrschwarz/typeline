@@ -84,7 +84,7 @@ impl MatchSetManager {
         #[cfg(feature = "debug_logging")]
         {
             fm.fields[dummy_field].borrow_mut().producing_transform_arg =
-                format!("<Dummy Field MS {ms_id}>");
+                format!("<MS {ms_id} Dummy>");
             ms.action_buffer.borrow_mut().match_set_id = ms_id;
         }
         self.match_sets.claim_with_value(ms);

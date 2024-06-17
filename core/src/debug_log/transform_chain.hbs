@@ -9,7 +9,7 @@
             class="match-set-name"
             onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
         >
-        ms_id: {{mc.ms_id}}
+        Match Set {{mc.ms_id}}
         </div>
         <div class="match-set-body" id="{{match_set_body_id}}">
             {{~#each mc.tf_envs as |tf_env|}}

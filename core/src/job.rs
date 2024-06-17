@@ -9,7 +9,7 @@ use crate::{
     context::{ContextData, JobDescription, SessionData, VentureDescription},
     debug_log::{
         write_debug_log_html_head, write_debug_log_html_tail,
-        write_transform_update_to_html,
+        write_initial_state_to_html, write_transform_update_to_html,
     },
     operators::{
         call::handle_eager_call_expansion,
@@ -883,8 +883,16 @@ impl<'a> Job<'a> {
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
         if let Some(dl) = &mut self.debug_log {
-            write_debug_log_html_head(&mut TextWriteIoAdapter(dl))
-                .expect("debug log write succeeds");
+            write_debug_log_html_head(dl).expect("debug log write succeeds");
+            if let Some(start_tf) = self.job_data.start_tf {
+                write_initial_state_to_html(
+                    &self.job_data,
+                    &self.transform_data,
+                    start_tf,
+                    dl,
+                )
+                .expect("debug log write must succeed");
+            }
         }
         // NOTE: we should consider adding a pipeline position attribute on
         // each transform (in a fork both subchains would start at the
