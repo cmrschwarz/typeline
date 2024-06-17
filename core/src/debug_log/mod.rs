@@ -301,11 +301,15 @@ fn setup_transform_chain(
     tf_data: &IndexSlice<TransformId, TransformData>,
     start_tf: TransformId,
 ) -> TransformChain {
-    let mut tf_chain = setup_transform_chain_tf_envs(
-        jd,
-        tf_data,
-        MatchChain::new(jd, start_tf),
-    );
+    let mut start_match_chain = MatchChain::new(jd, start_tf);
+    start_match_chain.tf_envs.push(TransformEnv {
+        tf_id: None,
+        subchains: Vec::new(),
+        fields: vec![jd.tf_mgr.transforms[start_tf].input_field],
+    });
+
+    let mut tf_chain =
+        setup_transform_chain_tf_envs(jd, tf_data, start_match_chain);
     setup_transform_chain_dead_slots(&mut tf_chain, jd);
     tf_chain
 }

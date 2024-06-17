@@ -1,6 +1,6 @@
 use std::{
     cell::{Ref, RefCell, RefMut},
-    collections::{hash_map::Entry, VecDeque},
+    collections::VecDeque,
     marker::PhantomData,
 };
 
@@ -414,17 +414,13 @@ impl FieldManager {
         tgt_match_set: MatchSetId,
         src_field_id: FieldId,
     ) -> FieldId {
-        match msm.match_sets[tgt_match_set]
+        if let Some(&tgt_field_id) = msm.match_sets[tgt_match_set]
             .fields_cow_map
-            .entry(src_field_id)
+            .get(&src_field_id)
         {
-            Entry::Occupied(e) => {
-                let field_id = *e.get();
-                self.bump_field_refcount(field_id);
-                return field_id;
-            }
-            Entry::Vacant(e) => e.insert(self.fields.peek_claim_id()),
-        };
+            self.bump_field_refcount(tgt_field_id);
+            return tgt_field_id;
+        }
         let name = self.fields[src_field_id].borrow().name;
         let tgt_field_id =
             self.add_field(msm, tgt_match_set, name, ActorRef::default());
@@ -464,6 +460,9 @@ impl FieldManager {
             }
             return;
         }
+        msm.match_sets[tgt_field_ms]
+            .fields_cow_map
+            .insert(src_field_id, tgt_field_id);
         tgt_field.iter_hall.data_source =
             FieldDataSource::FullCow(CowDataSource {
                 src_field_id,

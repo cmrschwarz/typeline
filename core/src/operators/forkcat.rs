@@ -234,25 +234,21 @@ pub fn insert_tf_forkcat<'a>(
         ActorRef::Unconfirmed(0),
     );
 
-    let cont_input_field = job.job_data.field_mgr.add_field(
-        &mut job.job_data.match_set_mgr,
-        cont_ms_id,
-        None,
-        ActorRef::default(),
-    );
+    let mut cont_input_field =
+        job.job_data.match_set_mgr.get_dummy_field(cont_ms_id);
     let mut continuation_var_mapping =
         IndexVec::<ContinuationVarIdx, FieldId>::new();
 
     for cv in &op.continuation_vars {
-        let field_id = if cv == &Var::BBInput {
-            cont_input_field
-        } else {
-            job.job_data.field_mgr.create_same_ms_cow_field(
-                &mut job.job_data.match_set_mgr,
-                cont_input_field,
-                cv.get_name(),
-            )
-        };
+        let field_id = job.job_data.field_mgr.add_field(
+            &mut job.job_data.match_set_mgr,
+            cont_ms_id,
+            cv.get_name(),
+            ActorRef::default(),
+        );
+        if cv == &Var::BBInput {
+            cont_input_field = field_id;
+        }
         continuation_var_mapping.push(field_id);
     }
 
@@ -391,8 +387,10 @@ fn setup_subchain<'a>(
                 .field_name_map
                 .get(&name)
                 .unwrap_or(&sc_dummy_field)
-        } else {
+        } else if matches!(var, Var::BBInput) {
             fc_input_field
+        } else {
+            fc_dummy_field
         };
 
         let field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
@@ -426,8 +424,19 @@ fn setup_subchain<'a>(
         let field_id = if let Some(field_name) = var.get_name() {
             if let Some(&field_id) = sc_ms.field_name_map.get(&field_name) {
                 field_id
+            } else if let Some(&fc_field_id) =
+                job.job_data.match_set_mgr.match_sets[fc_ms_id]
+                    .field_name_map
+                    .get(&field_name)
+            {
+                job.job_data.field_mgr.get_cross_ms_cow_field(
+                    &mut job.job_data.match_set_mgr,
+                    sc_ms_id,
+                    fc_field_id,
+                )
             } else {
-                src_ms_dummy_field
+                // TODO: we should set up the field in fc for aliasing
+                sc_dummy_field
             }
         } else {
             instantiation.next_input_field

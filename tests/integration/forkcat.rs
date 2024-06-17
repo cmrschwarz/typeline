@@ -170,7 +170,6 @@ fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn forkcat_surviving_vars() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
