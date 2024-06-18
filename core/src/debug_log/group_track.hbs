@@ -1,9 +1,28 @@
-<div class="group-track-container">
-    <table class="group-track" id="{{transform_update_id}}_group_track{{id}}">
+{{~let "collapsed_field_container_id" (unique_id "collapsed_field_container_id_")}}
+{{~let "field_container_id" (unique_id "collapsed_field_id_")}}
+<div
+    class="collapsed-field-container"
+    id="{{collapsed_field_container_id}}"
+    style="display: none;"
+    onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
+>
+    <div
+        class="field-id"
+    >
+        G-{{id}}
+    </div>
+</div>
+<div class="group-track-container" id="{{field_container_id}}">
+    <table
+        class="group-track" id="{{transform_update_id}}_group_track{{id}}"
+        onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
+    >
         <thead>
             <th colspan="5">
                 <div class="header">
-                    <div class="group-track-id">G-{{id}}</div>
+                    <div class="group-track-id">
+                        G-{{id}}
+                    </div>
                     <div class="group-track-producing-arg">
                         {{#if producing_arg}}
                         `{{producing_arg}}`

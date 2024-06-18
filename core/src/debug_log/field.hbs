@@ -1,9 +1,28 @@
-<div class="field-container">
-    <table class="field" id="{{transform_update_id}}_field{{id}}">
+{{~let "collapsed_field_container_id" (unique_id "collapsed_field_container_id_")}}
+{{~let "field_container_id" (unique_id "collapsed_field_id_")}}
+<div
+    class="collapsed-field-container"
+    id="{{collapsed_field_container_id}}"
+    style="display: none;"
+    onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
+>
+    <div
+        class="field-id"
+    >
+        {{id}}
+    </div>
+</div>
+<div class="field-container" id="{{field_container_id}}">
+    <table
+        class="field" id="{{transform_update_id}}_field{{id}}"
+        onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
+    >
         <thead>
             <th colspan="5">
                 <div class="header">
-                    <div class="field-id">{{id}}</div>
+                    <div class="field-id">
+                        {{id}}
+                    </div>
                     <div class="field-name">
                         {{#if name}}
                         @{{name}}

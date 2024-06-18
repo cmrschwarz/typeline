@@ -1,6 +1,5 @@
 use core::panic;
 use std::{
-    borrow::Borrow,
     cell::{Cell, UnsafeCell},
     collections::VecDeque,
     marker::PhantomData,

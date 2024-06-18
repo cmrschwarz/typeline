@@ -12,12 +12,12 @@
         {{/if}}
 
         <script>
-            function toggle_collapsable(collapsable_id, collapsed_id) {
+            function toggle_collapsable(collapsable_id, collapsed_id, display_style="flex") {
                 let collapsable = document.getElementById(collapsable_id);
                 let collapsed = document.getElementById(collapsed_id);
                 if (collapsable.style.display == "none") {
-                    collapsable.style.display = "flex";
                     collapsed.style.display = "none";
+                    collapsable.style.display = display_style;
                 }
                 else {
                     collapsable.style.display = "none";

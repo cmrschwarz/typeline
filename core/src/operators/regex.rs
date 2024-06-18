@@ -1338,8 +1338,8 @@ pub fn handle_tf_regex(
         debug_assert!(records == produced_records);
         jd.field_mgr
             .store_iter(input_field_id, re.input_field_iter_id, iter);
-    } else if !ps.input_done {
-        base_iter.move_to_field_pos(field_pos_input);
+    } else {
+        assert_eq!(base_iter.get_next_field_pos(), field_pos_input);
         jd.field_mgr.store_iter(
             input_field_id,
             re.input_field_iter_id,

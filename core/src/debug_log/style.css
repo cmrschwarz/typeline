@@ -31,11 +31,16 @@ body {
 
 .match-set-body {
     display: flex;
+    flex-grow: 1;
     gap: 0.4em;
     width: fit-content;
 }
 
 .field-list {
+    display: flex;
+}
+
+.group-track-list {
     display: flex;
 }
 
@@ -58,10 +63,12 @@ body {
     display: flex;
     flex-direction: column;
     background-color: linen;
+    flex-grow: 1;
 }
 
 .transform-body {
     display: flex;
+    flex-grow: 1;
     gap: 0.4em;
 }
 
@@ -101,6 +108,24 @@ body {
     min-height: 2em;
 }
 
+.collapsed-field-container {
+    background: repeating-linear-gradient(
+        45deg,
+        rgb(193, 197, 204),
+        rgb(193, 197, 204) 0.5em,
+        rgb(166, 170, 176) 0.5em,
+        rgb(166, 170, 176) 1em
+    );
+    display: flex;
+    flex-grow: 1;
+    min-width: 2em;
+}
+
+.collapsed-field-container .field-id {
+    padding-inline: 1em;
+    font-weight: bold;
+}
+
 .transform > .transform_name {
     background-color: lightsteelblue;
     margin-bottom: 0.4em;
@@ -113,13 +138,19 @@ body {
 .field-list {
     display: flex;
     gap: 0.4em;
+    flex-grow: 1;
 }
 
 .field-container {
     display: inline-block;
+    flex-grow: 1;
 }
 
 .highlighted {
+    background-color: red !important;
+}
+
+.highlighted .field {
     background-color: red !important;
 }
 
