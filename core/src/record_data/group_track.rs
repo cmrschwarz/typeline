@@ -17,6 +17,7 @@ use super::{
     },
     field_action::{FieldAction, FieldActionKind},
     field_data::FieldValueRepr,
+    iter_hall::IterKind,
     match_set::{MatchSetId, MatchSetManager},
 };
 
@@ -35,12 +36,14 @@ pub struct GroupTrackIterRef {
     pub iter_id: GroupTrackIterId,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct GroupTrackIterState {
-    field_pos: usize,
-    group_idx: GroupIdx,
-    group_offset: GroupLen,
-    iter_id: GroupTrackIterId,
+    pub field_pos: usize,
+    pub group_idx: GroupIdx,
+    pub group_offset: GroupLen,
+    pub iter_id: GroupTrackIterId,
+    #[cfg(feature = "debug_logging")]
+    pub kind: IterKind,
 }
 
 #[derive(Default)]
@@ -408,6 +411,15 @@ impl GroupTrackSlice {
 }
 
 impl GroupTrack {
+    #[allow(clippy::iter_not_returning_iterator)]
+    pub fn iter(&self) -> GroupTrackIter<&Self> {
+        GroupTrackIter {
+            list: self,
+            field_pos: 0,
+            group_idx: 0,
+            group_len_rem: self.group_lengths.try_get(0).unwrap_or(0),
+        }
+    }
     pub fn parent_list_id(&self) -> Option<GroupTrackId> {
         self.parent_list
     }
@@ -782,6 +794,8 @@ impl GroupTrack {
         iter: &GroupTrackIter<T>,
     ) {
         let iter_sorting_idx = self.iter_lookup_table[iter_id] as usize;
+        #[cfg(feature = "debug_logging")]
+        let kind = self.iter_states[iter_sorting_idx].get().kind;
         let iter_state = GroupTrackIterState {
             field_pos: iter.field_pos,
             group_idx: iter.group_idx,
@@ -792,6 +806,8 @@ impl GroupTrack {
                 .unwrap_or(0)
                 - iter.group_len_rem,
             iter_id,
+            #[cfg(feature = "debug_logging")]
+            kind,
         };
 
         // #[cfg(feature = "iter_state_logging")]
@@ -857,18 +873,26 @@ impl GroupTrack {
         }
         start as u32..end as u32
     }
-    pub fn claim_iter(&mut self) -> GroupTrackIterId {
+
+    pub fn claim_iter(
+        &mut self,
+        #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
+        kind: IterKind,
+    ) -> GroupTrackIterId {
         let iter_id = self.iter_lookup_table.claim_with_value(
             self.iter_states.len() as GroupTrackIterSortedIndex,
         );
         let iter_state = GroupTrackIterState {
             iter_id,
-            ..Default::default()
+            field_pos: self.passed_fields_count,
+            group_idx: 0,
+            group_offset: 0,
+            kind,
         };
         self.iter_states.push(Cell::new(iter_state));
         iter_id
     }
-    fn sort_iters(&mut self) {
+    pub fn sort_iters(&mut self) {
         if self.iter_states_sorted.get() {
             return;
         }
@@ -939,16 +963,18 @@ impl GroupTrackManager {
     pub fn claim_group_track_iter(
         &mut self,
         list_id: GroupTrackId,
+        kind: IterKind,
     ) -> GroupTrackIterId {
-        self.group_tracks[list_id].borrow_mut().claim_iter()
+        self.group_tracks[list_id].borrow_mut().claim_iter(kind)
     }
     pub fn claim_group_track_iter_ref(
         &mut self,
         list_id: GroupTrackId,
+        kind: IterKind,
     ) -> GroupTrackIterRef {
         GroupTrackIterRef {
             list_id,
-            iter_id: self.claim_group_track_iter(list_id),
+            iter_id: self.claim_group_track_iter(list_id, kind),
         }
     }
     pub fn lookup_group_track_iter(
@@ -1025,7 +1051,7 @@ impl GroupTrackManager {
         ab.release_temp_action_group(agi);
     }
     pub fn apply_actions_to_list(
-        &mut self,
+        &self,
         msm: &MatchSetManager,
         group_track_id: GroupTrackId,
     ) {
@@ -1034,7 +1060,7 @@ impl GroupTrackManager {
             .apply_field_actions(msm)
     }
     pub fn append_group_to_track(
-        &mut self,
+        &self,
         group_track_id: GroupTrackId,
         field_count: usize,
     ) {
@@ -1171,7 +1197,7 @@ impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
         true
     }
     pub fn is_last_group(&self) -> bool {
-        self.list.group_lengths.len() == self.group_idx + 1
+        self.list.group_lengths.len() <= self.group_idx + 1
     }
     pub fn is_end(&self, end_of_input: bool) -> bool {
         self.is_last_group() && self.is_end_of_group(end_of_input)
@@ -1217,6 +1243,18 @@ impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
             }
         }
         gts
+    }
+
+    /// Advances the iterator until it points at the start of a a non empty
+    /// group. Returns the number of groups skipped.
+    /// The initial group does *not* have to be empty, but the iterator
+    /// must have passed all it's elements. Otherwise 0 is returned.
+    pub fn skip_empty_groups(&mut self) -> usize {
+        let mut count = 0;
+        while self.group_len_rem == 0 && self.try_next_group() {
+            count += 1;
+        }
+        count
     }
 }
 
@@ -1714,6 +1752,7 @@ mod test {
         record_data::{
             field_action::{FieldAction, FieldActionKind},
             group_track::{GroupTrack, GroupTrackIterState},
+            iter_hall::IterKind,
         },
         utils::{
             size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
@@ -1746,6 +1785,8 @@ mod test {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
+                #[cfg(feature = "debug_logging")]
+                kind: IterKind::Undefined,
             })],
             iter_lookup_table: Universe::from([0].into_iter()),
             ..Default::default()
@@ -1764,6 +1805,8 @@ mod test {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
+                #[cfg(feature = "debug_logging")]
+                kind: IterKind::Undefined
             }
         );
     }
@@ -1779,12 +1822,16 @@ mod test {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
+                    #[cfg(feature = "debug_logging")]
+                    kind: IterKind::Undefined,
                 }),
                 Cell::new(GroupTrackIterState {
                     field_pos: 3,
                     group_idx: 0,
                     group_offset: 2,
                     iter_id: 0,
+                    #[cfg(feature = "debug_logging")]
+                    kind: IterKind::Undefined,
                 }),
             ],
             iter_lookup_table: Universe::from([0].into_iter()),
@@ -1805,12 +1852,16 @@ mod test {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
+                    #[cfg(feature = "debug_logging")]
+                    kind: IterKind::Undefined
                 },
                 GroupTrackIterState {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
+                    #[cfg(feature = "debug_logging")]
+                    kind: IterKind::Undefined
                 }
             ]
         );
@@ -1826,6 +1877,8 @@ mod test {
                 group_idx: 0,
                 group_offset: 2,
                 iter_id: 0,
+                #[cfg(feature = "debug_logging")]
+                kind: IterKind::Undefined,
             })],
             iter_lookup_table: Universe::from([0].into_iter()),
             ..Default::default()
@@ -1843,6 +1896,8 @@ mod test {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
+                #[cfg(feature = "debug_logging")]
+                kind: IterKind::Undefined
             }
         );
     }

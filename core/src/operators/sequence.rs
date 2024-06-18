@@ -7,8 +7,10 @@ use crate::{
     liveness_analysis::{AccessFlags, LivenessData, VarLivenessSlotKind},
     options::argument::CliArgIdx,
     record_data::{
-        action_buffer::ActorId, field::Field, group_track::GroupTrackIterRef,
-        iter_hall::IterId,
+        action_buffer::ActorId,
+        field::Field,
+        group_track::GroupTrackIterRef,
+        iter_hall::{IterId, IterKind},
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     utils::{
@@ -96,8 +98,10 @@ pub fn build_tf_sequence<'a>(
 
     let group_track_iter_ref = (!matches!(op.mode, OpSequenceMode::Sequence))
         .then(|| {
-            jd.group_track_manager
-                .claim_group_track_iter_ref(tf_state.input_group_track_id)
+            jd.group_track_manager.claim_group_track_iter_ref(
+                tf_state.input_group_track_id,
+                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+            )
         });
 
     TransformData::Sequence(TfSequence {

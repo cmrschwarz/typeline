@@ -182,6 +182,7 @@ pub fn build_tf_join<'a>(
         .register_field_reference(tf_state.output_field, tf_state.input_field);
 
     let settings = &jd.get_transform_chain_from_tf_state(tf_state).settings;
+    let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
     TransformData::Join(TfJoin {
         separator: op.separator.as_ref().map(|s| s.as_ref()),
         group_capacity: op.join_count,
@@ -191,11 +192,13 @@ pub fn build_tf_join<'a>(
         input_field_ref_offset,
         group_track_iter_ref: jd
             .group_track_manager
-            .claim_group_track_iter_ref(tf_state.input_group_track_id),
-        iter_id: jd.field_mgr.claim_iter(
-            tf_state.input_field,
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-        ),
+            .claim_group_track_iter_ref(
+                tf_state.input_group_track_id,
+                IterKind::Transform(tf_id_peek),
+            ),
+        iter_id: jd
+            .field_mgr
+            .claim_iter(tf_state.input_field, IterKind::Transform(tf_id_peek)),
         actor_id: jd.add_actor_for_tf_state(tf_state),
         first_record_added: false,
         buffer: MaybeText::default(),

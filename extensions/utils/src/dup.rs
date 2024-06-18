@@ -20,7 +20,7 @@ use scr_core::{
     options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
-        group_track::GroupTrackIterRef,
+        group_track::GroupTrackIterRef, iter_hall::IterKind,
     },
     smallbox,
 };
@@ -88,10 +88,13 @@ impl Operator for OpDup {
             &mut job.job_data.match_set_mgr,
         );
         tf_state.output_field = tf_state.input_field;
-        let record_group_track_iter = job
-            .job_data
-            .group_track_manager
-            .claim_group_track_iter_ref(tf_state.input_group_track_id);
+        let record_group_track_iter =
+            job.job_data.group_track_manager.claim_group_track_iter_ref(
+                tf_state.input_group_track_id,
+                IterKind::Transform(
+                    job.job_data.tf_mgr.transforms.peek_claim_id(),
+                ),
+            );
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfDup {
                 count: self.count,

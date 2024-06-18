@@ -16,3 +16,6 @@
 /perf.data.old
 /coverage.cobertura.xml
 /rustc-ice-*
+
+# debug log outputs in the root directory
+/*.html

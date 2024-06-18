@@ -1,6 +1,6 @@
 mod helpers;
 
-use std::collections::HashSet;
+use std::{cell::Cell, collections::HashSet};
 
 use handlebars::{Handlebars, RenderError, RenderErrorReason};
 use helpers::reindent;
@@ -20,7 +20,8 @@ use crate::{
             FormatOptions, Formattable, FormattingContext, RealizedFormatKey,
             TypeReprFormat,
         },
-        iter_hall::{CowVariant, IterState},
+        group_track::{GroupTrackId, GroupTrackIterState},
+        iter_hall::{CowVariant, IterKind, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
     },
@@ -40,6 +41,7 @@ struct MatchChain {
 
 struct TransformEnv {
     tf_id: Option<TransformId>,
+    group_tracks: Vec<GroupTrackId>,
     subchains: Vec<TransformChain>,
     fields: Vec<FieldId>,
 }
@@ -71,16 +73,6 @@ impl MatchChain {
             tf_envs: Vec::new(),
             dead_slots: Vec::new(),
         };
-        #[cfg(feature = "debug_log_show_dummy_fields")]
-        {
-            match_chain.tf_envs.push(TransformEnv {
-                tf_id: None,
-                subchains: Vec::new(),
-                fields: vec![jd
-                    .match_set_mgr
-                    .get_dummy_field(match_chain.ms_id)],
-            });
-        }
         match_chain
     }
 }
@@ -186,6 +178,7 @@ fn setup_transform_chain_tf_envs(
         // TODO: handle multiple output fields
         let mut subchains = Vec::new();
         let mut fields = Vec::new();
+        let mut group_tracks = Vec::new();
         if let TransformData::ForkCat(fc) = &tf_data[tf_id] {
             let fc_cont = fc.continuation_state.lock().unwrap();
             match_chains.push(match_chain);
@@ -194,6 +187,10 @@ fn setup_transform_chain_tf_envs(
                 let mut sc_match_chain = MatchChain::new(jd, sce.start_tf_id);
                 let mut input_tf_env = TransformEnv {
                     tf_id: None,
+                    group_tracks: vec![
+                        jd.tf_mgr.transforms[sce.start_tf_id]
+                            .input_group_track_id,
+                    ],
                     subchains: Vec::new(),
                     fields: Vec::new(),
                 };
@@ -222,12 +219,21 @@ fn setup_transform_chain_tf_envs(
                     &mut fields,
                 );
             }
+            group_tracks.push(
+                jd.tf_mgr.transforms[fc_cont.continuation_tf_id]
+                    .input_group_track_id,
+            );
         } else {
+            let tf = &jd.tf_mgr.transforms[tf_id];
+            if tf.output_group_track_id != tf.input_group_track_id {
+                group_tracks.push(tf.output_group_track_id);
+            }
             tf_data[tf_id].get_out_fields(tf, &mut fields);
         }
 
         match_chain.tf_envs.push(TransformEnv {
             tf_id: Some(tf_id),
+            group_tracks,
             subchains,
             fields,
         });
@@ -275,6 +281,14 @@ fn match_chain_to_json(
                 &string_store,
                 &match_chain.dead_slots,
             ))
+        }
+        let mut group_tracks = Vec::new();
+        for &gt in &tf_env.group_tracks {
+            group_tracks.push(group_track_to_json(
+                jd,
+                gt,
+                &match_chain.dead_slots,
+            ));
         }
         envs.push(json!({
             "transform_id": tf_env.tf_id.map(IndexingType::into_usize),
@@ -326,10 +340,12 @@ fn setup_transform_chain(
     start_tf: TransformId,
 ) -> TransformChain {
     let mut start_match_chain = MatchChain::new(jd, start_tf);
+    let start_tf = &jd.tf_mgr.transforms[start_tf];
     start_match_chain.tf_envs.push(TransformEnv {
         tf_id: None,
         subchains: Vec::new(),
-        fields: vec![jd.tf_mgr.transforms[start_tf].input_field],
+        fields: vec![start_tf.input_field],
+        group_tracks: vec![start_tf.input_group_track_id],
     });
 
     let mut tf_chain =
@@ -339,37 +355,34 @@ fn setup_transform_chain(
     tf_chain
 }
 
-#[allow(unused_variables)]
+pub fn iter_kind_to_json(kind: &IterKind) -> Option<Value> {
+    Some(match kind {
+        IterKind::Undefined => json!({
+            "transform_id": Value::Null,
+            "cow_field_id": Value::Null,
+            "display_text": "undef"
+        }),
+        IterKind::Transform(tf_id) => json!({
+            "transform_id": tf_id.into_usize(),
+            "cow_field_id": Value::Null,
+            "display_text": format!("tf {tf_id}")
+        }),
+        IterKind::CowField(cow_field_id) => json!({
+            "transform_id": Value::Null,
+            "cow_field_id": cow_field_id,
+            "display_text": format!("cow {cow_field_id}")
+        }),
+        IterKind::RefLookup => return None,
+    })
+}
+
 pub fn iters_to_json(iters: &[IterState]) -> Value {
-    #[cfg(feature = "debug_logging")]
     return Value::Array({
-        use crate::record_data::iter_hall::IterKind;
         iters
             .iter()
-            .filter_map(|i| {
-                Some(match i.kind {
-                    IterKind::Undefined => json!({
-                        "transform_id": Value::Null,
-                        "cow_field_id": Value::Null,
-                        "display_text": "undef"
-                    }),
-                    IterKind::Transform(tf_id) => json!({
-                        "transform_id": tf_id.into_usize(),
-                        "cow_field_id": Value::Null,
-                        "display_text": format!("tf {tf_id}")
-                    }),
-                    IterKind::CowField(cow_field_id) => json!({
-                        "transform_id": Value::Null,
-                        "cow_field_id": cow_field_id,
-                        "display_text": format!("cow {cow_field_id}")
-                    }),
-                    IterKind::RefLookup => return None,
-                })
-            })
+            .filter_map(|i| iter_kind_to_json(&i.kind))
             .collect::<Vec<_>>()
     });
-    #[allow(unreachable_code)]
-    Value::Array(Vec::new())
 }
 
 pub fn field_data_to_json<'a>(
@@ -479,7 +492,7 @@ pub fn field_data_to_json<'a>(
             "size": h.size,
             "run_length": run_length,
             "same_as_prev": h.same_value_as_previous(),
-            "value": value_str.into_text().expect("value must be valid utf-8"),
+            "value": value_str.into_text_lossy(),
             "iters": row_iters
         }));
 
@@ -558,6 +571,94 @@ pub fn field_to_json(
         dead_slots,
         iters_states,
     )
+}
+
+fn group_track_iters_to_json(iters: &[Cell<GroupTrackIterState>]) -> Value {
+    return Value::Array({
+        iters
+            .iter()
+            .filter_map(|i| iter_kind_to_json(&i.get().kind))
+            .collect::<Vec<_>>()
+    });
+}
+
+fn group_track_to_json(
+    jd: &JobData,
+    group_track_id: GroupTrackId,
+    dead_slots: &[usize],
+) -> serde_json::Value {
+    jd.group_track_manager
+        .apply_actions_to_list(&jd.match_set_mgr, group_track_id);
+    let mut gt =
+        jd.group_track_manager.group_tracks[group_track_id].borrow_mut();
+    gt.sort_iters();
+    let mut iter = gt.iter();
+    let mut rows = Vec::new();
+
+    let mut iters_start = 0;
+    let mut passed_count = gt.passed_fields_count;
+    let mut field_pos = 0;
+    let mut is_next_group_start = true;
+    loop {
+        let passed = passed_count > 0;
+
+        let zero_size_groups;
+        let group_len_rem;
+        let row_iters;
+        let is_curr_group_start = is_next_group_start;
+        let group_idx;
+        if passed {
+            group_idx = -1;
+            zero_size_groups = 0;
+            group_len_rem = passed_count;
+            row_iters = Value::Array(Vec::new());
+            passed_count -= 1;
+            is_next_group_start = false;
+        } else {
+            if iter.is_end(true) {
+                break;
+            }
+            group_idx = iter.group_idx() as isize;
+            zero_size_groups = iter.skip_empty_groups();
+
+            let mut iters_end = iters_start;
+            loop {
+                let Some(iter) = gt.iter_states.get(iters_end) else {
+                    break;
+                };
+                if iter.get().field_pos > field_pos {
+                    break;
+                }
+                iters_end += 1;
+            }
+            row_iters = group_track_iters_to_json(
+                &gt.iter_states[iters_start..iters_end],
+            );
+            iters_start = iters_end;
+
+            group_len_rem = iter.group_len_rem();
+            is_next_group_start = group_len_rem == 0;
+            iter.next_n_fields(1);
+        }
+
+        rows.push(json!({
+            "group_idx": group_idx,
+            "passed": passed_count,
+            "zero_sized_groups": zero_size_groups,
+            "dead_slots": dead_slots[field_pos],
+            "group_len_rem": group_len_rem,
+            "is_group_start": is_curr_group_start,
+            "iters": row_iters
+        }));
+
+        field_pos += 1;
+    }
+
+    json!({
+        "id":  group_track_id.into_usize(),
+        "rows": rows,
+        "iters": group_track_iters_to_json(&gt.iter_states),
+    })
 }
 
 pub fn write_transform_update_to_html(

@@ -1,0 +1,76 @@
+<div class="field-container">
+    <table class="group_track" id="{{transform_update_id}}_group_track{{id}}">
+        <thead>
+            <th colspan="5">
+                <div class="header">
+                    <div class="field-id">{{id}}</div>
+                    <div class="field-name">
+                        {{#if name}}
+                        @{{name}}
+                        {{/if}}
+                    </div>
+                    <div class="field-producing-arg">
+                        {{#if producing_arg}}
+                        `{{producing_arg}}`
+                        {{/if}}
+                    </div>
+                    {{#if cow}}
+                    <div
+                        class="field-owned-info field-is-cow"
+                        onmouseenter="highlight('{{transform_update_id}}_field{{cow.source}}')"
+                        onmouseleave="unhighlight('{{transform_update_id}}_field{{cow.source}}')"
+                    >
+                        {{cow.variant}}: {{cow.source}}
+                    </div>
+                    {{else}}
+                    <div class="field-owned-info field-is-owned">owned</div>
+                    {{/if}}
+                </div>
+            </th>
+        </thead>
+        <thead>
+            <th colspan="5">
+                <div class="iter-list-descriptor-wrapper">
+                    <div class="iter-list-descriptor">Iters:</div>
+                    {{>iter_list iters=this.iters transform_update_id=transform_update_id}}
+                </div>
+            </th>
+        </thead>
+        <thead>
+            <th colspan="5">
+                <div class="ref-list">
+                    <div class="desc">Refs:</div>
+                    <div class="ref size-placeholder">9</div>
+                </div>
+            </th>
+        </thead>
+        <thead>
+            <th class="group_idx">Meta</th>
+            <th class="group_len_rem">Data</th>
+            <th class="iters_head">Iters</th>
+        </thead>
+        <tbody>
+            {{#each rows as |row|}}
+            {{~let "transform_update_id" ../transform_update_id}}
+            {{#each (range row.dead_slots)}}
+            <tr class="field_row dead_row"><td colspan="4"></td></tr>
+            {{/each}}
+
+            {{~#if row.is_group_start}}
+            {{~let "flag_shadow" ""}}
+            {{~else}}
+            {{~let "flag_shadow" " flag-shadow"}}
+            {{~/if}}
+
+            <tr class="row">
+
+                <td class="group-idx{{flag_shadow_data}}">{{row.group_idx}}</td>
+                <td class="group-len-rem{{flag_shadow_data}}">{{row.group_len_rem}}</td>
+                <td>
+                    {{>iter_list iters=row.iters transform_update_id=transform_update_id}}
+                </td>
+            </tr>
+            {{/each}}
+        </tbody>
+    </table>
+</div>

@@ -5,8 +5,9 @@ use crate::{
     cli::reject_operator_argument,
     job::{add_transform_to_job, Job, JobData},
     options::argument::CliArgIdx,
-    record_data::group_track::{
-        GroupTrackId, GroupTrackIterId, GroupTrackIterRef,
+    record_data::{
+        group_track::{GroupTrackId, GroupTrackIterId, GroupTrackIterRef},
+        iter_hall::IterKind,
     },
     utils::indexing_type::IndexingType,
 };
@@ -78,10 +79,14 @@ pub fn insert_tf_foreach(
     let ms = &mut job.job_data.match_set_mgr.match_sets[ms_id];
     let next_actor_id = ms.action_buffer.borrow().next_actor_ref();
     let parent_group_track = tf_state.input_group_track_id;
-    let parent_group_track_iter = job
-        .job_data
-        .group_track_manager
-        .claim_group_track_iter(parent_group_track);
+
+    let header_tf_id_peek = job.job_data.tf_mgr.transforms.peek_claim_id();
+
+    let parent_group_track_iter =
+        job.job_data.group_track_manager.claim_group_track_iter(
+            parent_group_track,
+            IterKind::Transform(header_tf_id_peek),
+        );
     let group_track = job.job_data.group_track_manager.add_group_track(
         Some(parent_group_track),
         ms_id,
@@ -101,6 +106,7 @@ pub fn insert_tf_foreach(
             group_track,
         }),
     );
+    debug_assert!(header_tf_id_peek == header_tf_id);
     let (last_tf_id, cont) = if let Some(&op_id) = sc_start_op_id {
         let instantiation = job.setup_transforms_from_op(
             ms_id,

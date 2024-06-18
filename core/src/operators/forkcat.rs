@@ -491,10 +491,12 @@ fn setup_subchain<'a>(
         .borrow_mut()
         .add_actor();
 
-    let group_track_iter_ref = job
-        .job_data
-        .group_track_manager
-        .claim_group_track_iter_ref(instantiation.next_group_track);
+    let trailer_tf_id_peek = job.job_data.tf_mgr.transforms.peek_claim_id();
+    let group_track_iter_ref =
+        job.job_data.group_track_manager.claim_group_track_iter_ref(
+            instantiation.next_group_track,
+            IterKind::Transform(trailer_tf_id_peek),
+        );
     let trailer_tf = TfForkCatSubchainTrailer::<'a> {
         op,
         actor_id,
@@ -517,6 +519,7 @@ fn setup_subchain<'a>(
         ),
         TransformData::ForkCatSubchainTrailer(trailer_tf),
     );
+    debug_assert_eq!(trailer_tf_id_peek, trailer_tf_id);
 
     job.job_data.tf_mgr.transforms[instantiation.tfs_begin].successor =
         Some(trailer_tf_id);

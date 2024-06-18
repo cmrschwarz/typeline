@@ -86,15 +86,16 @@ impl Operator for OpPrimes {
             .action_buffer
             .borrow_mut();
         let actor_id = ab.add_actor();
-        let group_iter = jd
-            .group_track_manager
-            .claim_group_track_iter_ref(tf_state.input_group_track_id);
+        let iter_kind =
+            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());
+        let group_iter = jd.group_track_manager.claim_group_track_iter_ref(
+            tf_state.input_group_track_id,
+            iter_kind,
+        );
         let iter_id = jd.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .iter_hall
-            .claim_iter(IterKind::Transform(
-                jd.tf_mgr.transforms.peek_claim_id(),
-            ));
+            .claim_iter(iter_kind);
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());

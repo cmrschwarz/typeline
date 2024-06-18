@@ -98,15 +98,19 @@ impl Operator for OpSum {
             [op_base.chain_id.unwrap()]
         .settings
         .floating_point_math;
+        let iter_kind =
+            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfSum {
                 group_track_iter: jd
                     .group_track_manager
-                    .claim_group_track_iter_ref(tf_state.input_group_track_id),
-                input_iter_id: jd.field_mgr.claim_iter(
-                    tf_state.input_field,
-                    IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
-                ),
+                    .claim_group_track_iter_ref(
+                        tf_state.input_group_track_id,
+                        iter_kind
+                    ),
+                input_iter_id: jd
+                    .field_mgr
+                    .claim_iter(tf_state.input_field, iter_kind),
                 aggregate: AnyNumber::Int(0),
                 actor_id,
                 current_group_error_type: None,
