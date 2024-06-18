@@ -131,11 +131,21 @@ impl TransformData<'_> {
             TransformData::FieldValueSink(_) => "field_value_sink",
             TransformData::Fork(_) => "fork",
             TransformData::ForkCat(_) => "forkcat",
-            TransformData::Regex(_) => "regex",
+            TransformData::Regex(r) => {
+                return DefaultTransformName::from_string(format!(
+                    "regex={}",
+                    r.op.regex
+                ))
+            }
             TransformData::Format(_) => "format",
             TransformData::FileReader(_) => "file_reader",
             TransformData::Literal(_) => "literal",
-            TransformData::Sequence(_) => "sequence",
+            TransformData::Sequence(s) => {
+                return DefaultTransformName::from_string(format!(
+                    "seq={},{},{}",
+                    s.ss.start, s.ss.end, s.ss.step
+                ))
+            }
             TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",

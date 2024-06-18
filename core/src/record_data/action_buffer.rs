@@ -19,7 +19,8 @@ use super::{
     field_action_applicator::FieldActionApplicator,
     field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
     group_track::GroupTrackId,
-    iter_hall::{CowVariant, FieldDataSource, IterState},
+    iter_hall::{CowVariant, FieldDataSource, IterHall, IterState},
+    iters::FieldIterator,
     match_set::MatchSetId,
 };
 pub type ActorId = u32;
@@ -1450,6 +1451,7 @@ impl ActionBuffer {
         fm: &FieldManager,
         field_id: FieldId,
         update_cow_ms: MatchSetId,
+        batch_size: usize,
     ) {
         let field = fm.fields[field_id].borrow();
         for &tgt_field_id in &field.iter_hall.cow_targets {
@@ -1457,15 +1459,22 @@ impl ActionBuffer {
             if tgt_field.match_set != update_cow_ms {
                 continue;
             }
+            let cds = *tgt_field.iter_hall.get_cow_data_source().unwrap();
+
             let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
-            let cds = *tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
             let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
-            field.iter_hall.iters[cds.header_iter_id].set(
-                field.iter_hall.get_iter_state_at_end(
-                    fm,
-                    field.iter_hall.get_iter_kind(cds.header_iter_id),
-                ),
-            );
+            unsafe {
+                let mut iter = IterHall::get_iter_from_state_unchecked(
+                    &field.iter_hall.field_data,
+                    tgt_cow_end,
+                );
+                iter.next_n_fields(batch_size, true);
+                field.iter_hall.store_iter_unchecked(
+                    field_id,
+                    cds.header_iter_id,
+                    iter,
+                );
+            };
             if cow_variant != Some(CowVariant::DataCow) {
                 // TODO: support RecordBufferDataCow
                 debug_assert!(cow_variant == Some(CowVariant::FullCow));
@@ -1734,6 +1743,7 @@ impl ActionBuffer {
         let field_count = field.iter_hall.get_field_count(fm);
         let field_ms_id = field.match_set;
         let field_data_size: usize = field.iter_hall.get_field_data_len(fm);
+        let data_owned = field.iter_hall.data_source == FieldDataSource::Owned;
 
         drop(field);
         Self::preserve_full_cow_fields_pre_exec(
@@ -1760,11 +1770,11 @@ impl ActionBuffer {
         debug_assert!(-agi.group.field_count_delta <= field_count as isize);
         let all_fields_dead =
             -agi.group.field_count_delta == field_count as isize;
-        if !all_fields_dead {
+        if !all_fields_dead || !data_owned {
             self.execute_actions(fm, field_id, agi, full_cow_fields);
         }
         let mut field = fm.fields[field_id].borrow_mut();
-        let data_owned = field.iter_hall.data_source == FieldDataSource::Owned;
+
         if !all_fields_dead && data_owned {
             Self::calc_dead_data(
                 &field.iter_hall.field_data.headers,

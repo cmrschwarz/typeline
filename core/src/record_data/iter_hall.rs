@@ -1,5 +1,6 @@
 use core::panic;
 use std::{
+    borrow::Borrow,
     cell::{Cell, UnsafeCell},
     collections::VecDeque,
     marker::PhantomData,
@@ -276,7 +277,6 @@ impl IterHall {
     }
     // SAFETY: caller must ensure that the state comes from this data source
     pub unsafe fn get_iter_from_state_unchecked<'a, R: FieldDataRef<'a>>(
-        &self,
         fr: R,
         mut state: IterState,
     ) -> FieldIter<'a, R> {
@@ -629,6 +629,18 @@ impl IterHall {
             }
         }
     }
+    pub(super) fn get_cow_data_source(&self) -> Option<&CowDataSource> {
+        match & self.data_source {
+            FieldDataSource::FullCow(cds) | FieldDataSource::DataCow(cds) => {
+                Some(cds)
+            }
+            FieldDataSource::Owned
+            | FieldDataSource::SameMsCow(_) //TODO: is this correct?
+            | FieldDataSource::Alias(_)
+            | FieldDataSource::RecordBufferFullCow(_)
+            | FieldDataSource::RecordBufferDataCow(_) => None,
+        }
+    }
     pub(super) fn get_cow_data_source_mut(
         &mut self,
     ) -> Option<&mut CowDataSource> {
@@ -671,7 +683,10 @@ impl IterHall {
                     .uncow_headers(fm);
             }
             FieldDataSource::FullCow(cds) => {
-                debug_assert!(self.field_data.is_empty());
+                debug_assert!(
+                    self.field_data.data.is_empty()
+                        && self.field_data.field_count == 0
+                );
                 let cow_end =
                     fm.fields[cds.src_field_id].borrow().iter_hall.iters
                         [cds.header_iter_id]

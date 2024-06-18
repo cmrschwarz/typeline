@@ -396,7 +396,8 @@ impl FieldManager {
         if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field(self) {
             drop(field);
             self.apply_field_actions(msm, cow_src_id);
-            self.update_data_cow(field_id);
+            // TODO: this is stupid?
+            // self.update_data_cow(field_id);
             field = self.fields[field_id].borrow();
         }
         for &f in &field.field_refs {
@@ -440,7 +441,7 @@ impl FieldManager {
         let src_field_ms = src_field.match_set;
         let header_iter = src_field
             .iter_hall
-            .claim_iter_at_end(self, IterKind::CowField(tgt_field_id));
+            .claim_iter(IterKind::CowField(tgt_field_id));
         let mut tgt_field = self.fields[tgt_field_id].borrow_mut();
         debug_assert!(matches!(
             tgt_field.iter_hall.data_source,
@@ -679,16 +680,16 @@ impl FieldManager {
         cfdr: &'a CowFieldDataRef<'a>,
         iter_id: IterId,
     ) -> FieldIter<'a, DestructuredFieldDataRef<'a>> {
-        let field = self.borrow_field_dealiased(&mut field_id);
         // PERF: maybe write a custom compare instead of doing this traversal?
         assert!(cfdr.destructured_field_ref().equals(
             &self
                 .get_cow_field_ref_raw(field_id)
                 .destructured_field_ref()
         ));
+        let field = self.borrow_field_dealiased(&mut field_id);
         let state = field.iter_hall.get_iter_state(iter_id);
         unsafe {
-            field.iter_hall.get_iter_from_state_unchecked(
+            IterHall::get_iter_from_state_unchecked(
                 cfdr.destructured_field_ref(),
                 state,
             )

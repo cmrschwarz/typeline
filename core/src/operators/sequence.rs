@@ -75,7 +75,7 @@ enum TfSequenceMode {
 
 pub struct TfSequence {
     pub non_string_reads: bool,
-    ss: SequenceSpec,
+    pub ss: SequenceSpec,
     current_value: i64,
     mode: TfSequenceMode,
     iter_id: IterId,

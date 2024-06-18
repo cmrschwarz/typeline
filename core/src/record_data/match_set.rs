@@ -114,6 +114,7 @@ impl MatchSetManager {
         &self,
         fm: &FieldManager,
         ms_id: MatchSetId,
+        batch_size: usize,
     ) {
         let cm = &self.match_sets[ms_id].fields_cow_map;
         #[cfg(feature = "cow_field_logging")]
@@ -137,7 +138,9 @@ impl MatchSetManager {
                 .action_buffer
                 .borrow_mut()
                 .update_field(fm, src, Some(ms_id));
-            ActionBuffer::update_cow_fields_post_exec(fm, src, ms_id);
+            ActionBuffer::update_cow_fields_post_exec(
+                fm, src, ms_id, batch_size,
+            );
         }
 
         #[cfg(feature = "cow_field_logging")]

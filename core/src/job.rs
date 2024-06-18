@@ -176,6 +176,7 @@ impl TransformManager {
         msm.update_cross_ms_cow_targets(
             fm,
             self.transforms[tf_id].match_set_id,
+            batch_size,
         );
         self.inform_transform_batch_available(
             tf_id,

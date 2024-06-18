@@ -616,12 +616,7 @@ pub fn handle_tf_forcat_subchain_trailer(
     }
 
     let end_reached = group_track_iter.is_end(ps.input_done);
-
-    drop(group_track_iter);
-
-    jd.group_track_manager.group_tracks[fcst.group_track_iter_ref.list_id]
-        .borrow_mut()
-        .drop_leading_fields(true, padding_inserted, end_reached);
+    group_track_iter.store_iter(fcst.group_track_iter_ref.iter_id);
 
     jd.tf_mgr.inform_cross_ms_transform_batch_available(
         &jd.field_mgr,
@@ -630,6 +625,13 @@ pub fn handle_tf_forcat_subchain_trailer(
         fields_to_consume,
         ps.input_done && fcst.subchain_idx == cont_state.last_sc(),
     );
+
+    // the 'pass to children' below will deal with the `fields_to_consume`
+    // so just the padding is dropped here
+    jd.group_track_manager.group_tracks[fcst.group_track_iter_ref.list_id]
+        .borrow_mut()
+        .drop_leading_fields(true, padding_inserted, end_reached);
+
     jd.group_track_manager.pass_leading_groups_to_children(
         &jd.match_set_mgr,
         fcst.group_track_iter_ref.list_id,
@@ -667,6 +669,16 @@ pub fn handle_tf_forcat_subchain_trailer(
             );
         }
     }
+    // PERF: this is dumb?
+    let cont_ms_id =
+        jd.tf_mgr.transforms[cont_state.continuation_tf_id].match_set_id;
+    let cont_dummy_field_id = jd.match_set_mgr.get_dummy_field(cont_ms_id);
+    jd.field_mgr
+        .apply_field_actions(&jd.match_set_mgr, cont_dummy_field_id);
+    jd.field_mgr.fields[cont_dummy_field_id]
+        .borrow_mut()
+        .iter_hall
+        .push_undefined(fields_to_consume, true);
 }
 
 pub fn create_op_forkcat() -> OperatorData {

@@ -156,6 +156,8 @@ fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
     for mc in &mut tc.match_chains {
         for env in &mc.tf_envs {
             for field_id in &env.fields {
+                // we have to do this here because doing json in a second
+                // phase means that the fields have not been touched yet
                 jd.field_mgr
                     .apply_field_actions(&jd.match_set_mgr, *field_id);
                 let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
@@ -325,7 +327,7 @@ fn add_hidden_fields(jd: &JobData, mc: &mut MatchChain) {
             shown_fields.insert(*field);
         }
     }
-
+    let mut hidden_fields = Vec::new();
     for (field_id, field) in jd.field_mgr.fields.iter_enumerated() {
         if field.borrow().match_set != mc.ms_id {
             continue;
@@ -333,8 +335,10 @@ fn add_hidden_fields(jd: &JobData, mc: &mut MatchChain) {
         if shown_fields.contains(&field_id) {
             continue;
         }
-        mc.tf_envs[0].fields.push(field_id);
+        hidden_fields.push(field_id);
     }
+    hidden_fields.extend_from_slice(&mc.tf_envs[0].fields);
+    mc.tf_envs[0].fields = hidden_fields;
 }
 
 fn setup_transform_chain(
@@ -391,6 +395,7 @@ pub fn iters_to_json(iters: &[IterState]) -> Value {
 pub fn field_data_to_json<'a>(
     jd: &JobData,
     fd: impl FieldDataRef<'a>,
+    field_count_cap: usize,
     field_info: &FieldInfo,
     field_refs: &[FieldId],
     dead_slots: &[usize],
@@ -422,8 +427,8 @@ pub fn field_data_to_json<'a>(
         .position(|i| i.field_pos > 0)
         .unwrap_or(iters.len());
     let mut iters_start = iters_before_start;
-    while iter.is_next_valid() && iter.get_next_field_pos() < fd.field_count()
-    {
+
+    while iter.is_next_valid() && iter.get_next_field_pos() < field_count_cap {
         let field_pos = iter.get_next_field_pos();
         let iters_end = iters
             .iter()
@@ -484,10 +489,12 @@ pub fn field_data_to_json<'a>(
                 iters_to_json(&iters[iters_start..iters_end])
             }
         }));
-
-        iters_start = iters_end;
+        if !h.deleted() {
+            iters_start = iters_end;
+        }
         iter.next_field_allow_dead();
     }
+    assert_eq!(iters_start, iters.len());
 
     let cow = if let Some(info) = field_info.cow_info {
         let variant = match info.variant {
@@ -535,6 +542,13 @@ pub fn field_to_json(
         None
     };
 
+    let field_count_cow =
+        if field.iter_hall.cow_variant() == Some(CowVariant::FullCow) {
+            field.iter_hall.get_field_count(&jd.field_mgr)
+        } else {
+            usize::MAX
+        };
+
     #[allow(unused_mut)]
     let mut producing_arg = None;
     #[cfg(feature = "debug_logging")]
@@ -555,6 +569,7 @@ pub fn field_to_json(
     field_data_to_json(
         jd,
         &cfr,
+        field_count_cow,
         &field_info,
         &field.field_refs,
         dead_slots,
@@ -598,7 +613,7 @@ fn group_track_to_json(
         let passed = passed_count > 0;
 
         let zero_size_groups;
-        let row_iters;
+
         let is_curr_group_start = is_next_group_start;
         let group_idx;
         let group_len_rem;
@@ -606,9 +621,8 @@ fn group_track_to_json(
             group_idx = -1;
             zero_size_groups = 0;
             group_len_rem = passed_count;
-            row_iters = Value::Array(Vec::new());
             passed_count -= 1;
-            is_next_group_start = false;
+            is_next_group_start = passed_count == 0;
         } else {
             if iter.is_end(true) {
                 break;
@@ -616,25 +630,25 @@ fn group_track_to_json(
             zero_size_groups = iter.skip_empty_groups();
             group_idx = iter.group_idx() as isize;
 
-            let mut iters_end = iters_start;
-            loop {
-                let Some(iter) = gt.iter_states.get(iters_end) else {
-                    break;
-                };
-                if iter.get().field_pos > field_pos + 1 {
-                    break;
-                }
-                iters_end += 1;
-            }
-            row_iters = group_track_iters_to_json(
-                &gt.iter_states[iters_start..iters_end],
-            );
-            iters_start = iters_end;
-
             group_len_rem = iter.group_len_rem();
             iter.next_n_fields(1);
             is_next_group_start = iter.is_end_of_group(true);
         }
+
+        let mut iters_end = iters_start;
+        loop {
+            let Some(iter) = gt.iter_states.get(iters_end) else {
+                break;
+            };
+            if iter.get().field_pos > field_pos + 1 {
+                break;
+            }
+            iters_end += 1;
+        }
+
+        let row_iters =
+            group_track_iters_to_json(&gt.iter_states[iters_start..iters_end]);
+        iters_start = iters_end;
 
         if is_curr_group_start {
             group_len = group_len_rem;
