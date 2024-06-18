@@ -417,22 +417,18 @@ pub fn field_data_to_json<'a>(
     };
 
     let mut rows = Vec::new();
-
-    let mut iters_start = 0;
+    let iters_before_start = iters
+        .iter()
+        .position(|i| i.field_pos > 0)
+        .unwrap_or(iters.len());
+    let mut iters_start = iters_before_start;
     while iter.is_next_valid() && iter.get_next_field_pos() < fd.field_count()
     {
         let field_pos = iter.get_next_field_pos();
-        while iters
-            .get(iters_start)
-            .map(|i| i.field_pos < field_pos)
-            .unwrap_or(false)
-        {
-            iters_start += 1;
-        }
         let iters_end = iters
             .iter()
-            .position(|i| i.field_pos > field_pos)
-            .unwrap_or(iters_start);
+            .position(|i| i.field_pos > field_pos + 1)
+            .unwrap_or(iters.len());
         let h = fd.headers()[iter.get_next_header_index()];
         let dead_slot_count = if h.deleted() {
             del_count += 1;
@@ -470,14 +466,6 @@ pub fn field_data_to_json<'a>(
             }
         }
 
-        let row_iters = if h.deleted() {
-            Value::Array(Vec::new())
-        } else {
-            iters_to_json(&iters[iters_start..iters_end])
-        };
-
-        iters_start = iters_end;
-
         rows.push(json!({
             "dead_slots": dead_slot_count,
             "shadow_meta": shadow_meta,
@@ -490,9 +478,14 @@ pub fn field_data_to_json<'a>(
             "run_length": h.run_length,
             "same_as_prev": h.same_value_as_previous(),
             "value": value_str.into_text_lossy(),
-            "iters": row_iters
+            "iters": if h.deleted() {
+                Value::Array(Vec::new())
+            } else {
+                iters_to_json(&iters[iters_start..iters_end])
+            }
         }));
 
+        iters_start = iters_end;
         iter.next_field_allow_dead();
     }
 
@@ -512,8 +505,6 @@ pub fn field_data_to_json<'a>(
         Value::Null
     };
 
-    let iters = iters_to_json(&iters);
-
     json!({
         "id": field_info.id,
         "name": field_info.name,
@@ -521,7 +512,8 @@ pub fn field_data_to_json<'a>(
         "cow": cow,
         "field_refs": field_refs,
         "rows": rows,
-        "iters": iters
+        "iters":  iters_to_json(&iters),
+        "iters_before_start": iters_to_json(&iters[..iters_before_start]),
     })
 }
 
@@ -592,7 +584,12 @@ fn group_track_to_json(
     let mut iter = gt.iter();
     let mut rows = Vec::new();
 
-    let mut iters_start = 0;
+    let iters_before_start = gt
+        .iter_states
+        .iter()
+        .position(|i| i.get().field_pos > 0)
+        .unwrap_or(gt.iter_states.len());
+    let mut iters_start = iters_before_start;
     let mut passed_count = gt.passed_fields_count;
     let mut field_pos = 0;
     let mut is_next_group_start = true;
@@ -624,7 +621,7 @@ fn group_track_to_json(
                 let Some(iter) = gt.iter_states.get(iters_end) else {
                     break;
                 };
-                if iter.get().field_pos > field_pos {
+                if iter.get().field_pos > field_pos + 1 {
                     break;
                 }
                 iters_end += 1;
@@ -647,10 +644,10 @@ fn group_track_to_json(
             "group_idx": group_idx,
             "passed": passed_count,
             "zero_sized_groups": zero_size_groups,
-            "dead_slots": dead_slots[field_pos],
+            "dead_slots": dead_slots.get(field_pos).unwrap_or(&0),
             "group_len": group_len,
             "is_group_start": is_curr_group_start,
-            "iters": row_iters
+            "iters": row_iters,
         }));
 
         field_pos += 1;
@@ -660,6 +657,7 @@ fn group_track_to_json(
         "id":  group_track_id.into_usize(),
         "rows": rows,
         "iters": group_track_iters_to_json(&gt.iter_states),
+        "iters_before_start": group_track_iters_to_json(&gt.iter_states[..iters_before_start])
     })
 }
 

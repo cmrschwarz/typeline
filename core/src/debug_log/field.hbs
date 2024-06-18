@@ -16,7 +16,7 @@
                     </div>
                     {{#if cow}}
                     <div
-                        class="field-owned-info field-is-cow"
+                        class="field-owned-info field-is-cow {{cow.variant}}"
                         onmouseenter="highlight('{{transform_update_id}}_field{{cow.source}}')"
                         onmouseleave="unhighlight('{{transform_update_id}}_field{{cow.source}}')"
                     >
@@ -31,15 +31,15 @@
         <thead>
             <th colspan="5">
                 <div class="iter-list-descriptor-wrapper">
-                    <div class="iter-list-descriptor">Iters:</div>
-                    {{>iter_list iters=this.iters transform_update_id=transform_update_id}}
+                    <div class="iter-list-descriptor">Leading Iters:</div>
+                    {{>iter_list iters=this.iters_before_start transform_update_id=transform_update_id}}
                 </div>
             </th>
         </thead>
         <thead>
             <th colspan="5">
                 <div class="ref-list">
-                    <div class="desc">Refs:</div>
+                    <div class="desc">References:</div>
                     <div class="ref size-placeholder">9</div>
                     {{#each field_refs as |ref|}}
                     <div class="ref"
@@ -52,11 +52,11 @@
             </th>
         </thead>
         <thead>
-            <th>Meta</th>
-            <th>RL</th>
-            <th>Size</th>
-            <th>Data</th>
-            <th>Iters</th>
+            <th class="field-table-header">Meta</th>
+            <th class="field-table-header">RL</th>
+            <th class="field-table-header">Size</th>
+            <th class="field-table-header">Data</th>
+            <th class="field-table-header">Iters</th>
         </thead>
         <tbody>
             {{#each rows as |row|}}
@@ -134,6 +134,14 @@
                 </td>
             </tr>
             {{/each}}
+            {{#if iters_after_end}}
+            <tr class="field-row">
+                <td colspan="4"></td>
+                <td>
+                    {{>iter_list iters=iters_after_end transform_update_id=transform_update_id}}
+                </td>
+            </tr>
+            {{/if}}
         </tbody>
     </table>
 </div>

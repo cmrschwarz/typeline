@@ -16,23 +16,23 @@
         <thead>
             <th colspan="5">
                 <div class="iter-list-descriptor-wrapper">
-                    <div class="iter-list-descriptor">Iters:</div>
-                    {{>iter_list iters=this.iters transform_update_id=transform_update_id}}
+                    <div class="iter-list-descriptor">Leading Iters:</div>
+                    {{>iter_list iters=this.iters_before_start transform_update_id=transform_update_id}}
                 </div>
             </th>
         </thead>
         <thead>
             <th colspan="5">
                 <div class="ref-list">
-                    <div class="desc">Refs:</div>
+                    <div class="desc">References:</div>
                     <div class="ref size-placeholder">9</div>
                 </div>
             </th>
         </thead>
         <thead>
-            <th>Group Id</th>
-            <th>Len</th>
-            <th>Iters</th>
+            <th class="group-track-table-header">Iters</th>
+            <th class="group-track-table-header">Group Id</th>
+            <th class="group-track-table-header">Len</th>
         </thead>
         <tbody>
             {{#each rows as |row|}}
@@ -56,7 +56,6 @@
             {{~/if}}
 
             <tr class="group-track-row">
-
                 <td class="group-idx{{flag_shadow}}">{{row.group_idx}}</td>
                 <td class="group-len-rem{{flag_shadow}}">
                     {{#if row.is_group_start}}
@@ -68,6 +67,14 @@
                 </td>
             </tr>
             {{/each}}
+            {{#if iters_after_end}}
+            <tr class="field-row">
+                <td colspan="2"></td>
+                 <td>
+                    {{>iter_list iters=iters_after_end transform_update_id=transform_update_id}}
+                </td>
+            </tr>
+            {{/if}}
         </tbody>
     </table>
 </div>

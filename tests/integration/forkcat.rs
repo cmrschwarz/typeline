@@ -22,6 +22,7 @@ use scr_core::{
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
 };
+use scr_ext_utils::dup::create_op_dup;
 
 #[test]
 fn basic_forkcat() -> Result<(), ScrError> {
@@ -208,7 +209,6 @@ fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn forkcat_with_batches() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -217,6 +217,8 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_forkcat())
         .add_op(create_op_regex("[24]").unwrap())
+        .add_op(create_op_next())
+        .add_op(create_op_dup(0))
         .add_op(create_op_end())
         .add_op(create_op_string_sink(&ss))
         .run()?;

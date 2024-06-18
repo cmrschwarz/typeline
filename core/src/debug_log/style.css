@@ -151,6 +151,13 @@ body {
     gap: 0.2em;
 }
 
+.field .field-table-header {
+    padding-inline: 0.1em;
+}
+.group-track .group-track-table-header {
+    padding-inline: 0.1em;
+}
+
 .field-row.dead-row td {
     border-top: 0px;
     border-bottom: 0px;
@@ -208,16 +215,19 @@ body {
     justify-self: end;
 }
 
-.field-owned-info.field-is-cow {
-    background-color: mediumpurple;
+.field-owned-info.field-is-cow.full-cow {
+    background-color: rgb(173, 135, 248);
+}
+.field-owned-info.field-is-cow.data-cow {
+    background-color: rgb(244, 136, 106);
 }
 
 .field-owned-info.field-is-owned {
-    background-color: rgb(144, 145, 149);
+    background-color: rgb(155, 156, 159);
 }
 
 .group-track-tag {
-    background-color: rgb(84, 141, 84);
+    background-color: rgb(129, 192, 129);
     padding: 0.1em 0.2em;
     white-space: nowrap;
     justify-self: end;
@@ -235,9 +245,9 @@ body {
 }
 
 .ref-list .ref {
-    background-color: orange;
+    background-color: rgb(250, 115, 187);
     display: inline-block;
-    padding: 0 0.1em;
+    padding-inline: 0.3em;
     margin: 0.1em;
     border: 1px solid black;
 }
@@ -245,7 +255,7 @@ body {
 .ref-list .ref.size-placeholder {
     width: 0px;
     visibility: hidden;
-    margin-right: -0.3em;
+    margin-right: -0.8em;
 }
 
 .iter-list .iter.iter-placeholder {
@@ -344,8 +354,8 @@ body {
 }
 
 .iter {
-    background-color: orange;
-    padding: 0 0.4em;
+    background-color: rgb(254, 190, 87);
+    padding-inline: 0.3em;
     border: 1px solid black;
     margin: 1px;
 }
