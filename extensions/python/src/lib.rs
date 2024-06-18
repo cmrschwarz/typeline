@@ -1,6 +1,9 @@
 use py::parse_op_py;
 use scr_core::{
-    cli::{parse_arg_value_as_str, ParsedCliArgumentParts},
+    cli::{
+        parse_arg_value_as_str, reject_operator_argument,
+        ParsedCliArgumentParts,
+    },
     extension::Extension,
     operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
@@ -26,6 +29,10 @@ impl Extension for PythonExtension {
             let val =
                 parse_arg_value_as_str(arg.argname, arg.value, cli_arg_idx)?;
             return parse_op_py(val.to_owned(), cli_arg_idx).map(Some);
+        }
+        if arg.argname == "to_int" {
+            reject_operator_argument("to_int", arg.value, cli_arg_idx)?;
+            return parse_op_py("int(_)".to_string(), cli_arg_idx).map(Some);
         }
         Ok(None)
     }
