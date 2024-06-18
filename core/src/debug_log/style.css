@@ -129,6 +129,12 @@ body {
     white-space: nowrap;
 }
 
+.group-track {
+    background-color: lightgray;
+    display: inline-block;
+    white-space: nowrap;
+}
+
 .field .header {
     display: grid;
     align-items: center;
@@ -137,7 +143,38 @@ body {
     gap: 0.2em;
 }
 
+.group-track .header {
+    display: grid;
+    align-items: center;
+    grid-template-columns: auto auto auto;
+    grid-template-rows: 100%;
+    gap: 0.2em;
+}
+
+.field-row.dead-row td {
+    border-top: 0px;
+    border-bottom: 0px;
+}
+
+.group-track-row.dead-row td {
+    border-top: 0px;
+    border-bottom: 0px;
+}
+
+.dead-row-placeholder {
+    visibility: hidden;
+    display: flex;
+}
+
 .field .header .field-id {
+    font-weight: bold;
+    padding: 0.1em 0.2em;
+    font-family: monospace;
+    font-size: larger;
+    justify-self: start;
+}
+
+.group-track .header .group-track-id {
     font-weight: bold;
     padding: 0.1em 0.2em;
     font-family: monospace;
@@ -159,6 +196,12 @@ body {
     justify-self: center;
 }
 
+.group-track .header .group-track-producing-arg {
+    padding: 0.1em 0.2em;
+    white-space: nowrap;
+    justify-self: center;
+}
+
 .field .header .field-owned-info {
     padding: 0.1em 0.2em;
     white-space: nowrap;
@@ -173,18 +216,25 @@ body {
     background-color: rgb(144, 145, 149);
 }
 
-.field .ref-list {
+.group-track-tag {
+    background-color: rgb(84, 141, 84);
+    padding: 0.1em 0.2em;
+    white-space: nowrap;
+    justify-self: end;
+}
+
+.ref-list {
     display: flex;
     padding: 0.1em 0;
     border-top: none;
     border-bottom: none;
 }
 
-.field .ref-list .desc {
+.ref-list .desc {
     align-self: center;
 }
 
-.field .ref-list .ref {
+.ref-list .ref {
     background-color: orange;
     display: inline-block;
     padding: 0 0.1em;
@@ -192,13 +242,13 @@ body {
     border: 1px solid black;
 }
 
-.field .ref-list .ref.size-placeholder {
+.ref-list .ref.size-placeholder {
     width: 0px;
     visibility: hidden;
     margin-right: -0.3em;
 }
 
-.field .iter-list .iter.iter-placeholder {
+.iter-list .iter.iter-placeholder {
     width: 0px;
     visibility: hidden;
     margin-right: -0.8em;
@@ -209,11 +259,26 @@ body {
     text-align: center;
 }
 
+.group-track {
+    border-collapse: collapse;
+    text-align: center;
+}
+
 .field td {
     border: 1px solid black;
 }
 
+.group-track td {
+    border: 1px solid black;
+}
+
 .field th {
+    text-align: center;
+    font-weight: normal;
+    border: 1px solid black;
+}
+
+.group-track th {
     text-align: center;
     font-weight: normal;
     border: 1px solid black;
@@ -265,16 +330,16 @@ body {
     opacity: 50%;
 }
 
-.field .iter-list {
+.iter-list {
     display: flex;
     flex-wrap: nowrap;
 }
 
-.field .iter-list-descriptor-wrapper {
+.iter-list-descriptor-wrapper {
     display: flex;
 }
 
-.field .iter-list-descriptor {
+.iter-list-descriptor {
     align-self: center;
 }
 

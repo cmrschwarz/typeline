@@ -87,6 +87,8 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
         .unwrap();
     hb.register_partial("field", include_str!("field.hbs"))
         .unwrap();
+    hb.register_partial("group_track", include_str!("group_track.hbs"))
+        .unwrap();
     hb.register_partial(
         "transform_update",
         include_str!("transform_update.hbs"),
@@ -294,7 +296,8 @@ fn match_chain_to_json(
             "transform_id": tf_env.tf_id.map(IndexingType::into_usize),
             "transform_display_name": tf_env.tf_id.map(|id|tf_data[id].display_name().to_string()),
             "subchains": subchains,
-            "fields": fields
+            "fields": fields,
+            "group_tracks": group_tracks
         }));
     }
     json!({
@@ -467,12 +470,6 @@ pub fn field_data_to_json<'a>(
             }
         }
 
-        let run_length = if shadow_meta {
-            Value::Null
-        } else {
-            Value::Number(h.run_length.into())
-        };
-
         let row_iters = if h.deleted() {
             Value::Array(Vec::new())
         } else {
@@ -490,7 +487,7 @@ pub fn field_data_to_json<'a>(
             "deleted": h.deleted(),
             "shared": h.shared_value(),
             "size": h.size,
-            "run_length": run_length,
+            "run_length": h.run_length,
             "same_as_prev": h.same_value_as_previous(),
             "value": value_str.into_text_lossy(),
             "iters": row_iters
@@ -599,14 +596,15 @@ fn group_track_to_json(
     let mut passed_count = gt.passed_fields_count;
     let mut field_pos = 0;
     let mut is_next_group_start = true;
+    let mut group_len = 0;
     loop {
         let passed = passed_count > 0;
 
         let zero_size_groups;
-        let group_len_rem;
         let row_iters;
         let is_curr_group_start = is_next_group_start;
         let group_idx;
+        let group_len_rem;
         if passed {
             group_idx = -1;
             zero_size_groups = 0;
@@ -618,8 +616,8 @@ fn group_track_to_json(
             if iter.is_end(true) {
                 break;
             }
-            group_idx = iter.group_idx() as isize;
             zero_size_groups = iter.skip_empty_groups();
+            group_idx = iter.group_idx() as isize;
 
             let mut iters_end = iters_start;
             loop {
@@ -637,8 +635,12 @@ fn group_track_to_json(
             iters_start = iters_end;
 
             group_len_rem = iter.group_len_rem();
-            is_next_group_start = group_len_rem == 0;
             iter.next_n_fields(1);
+            is_next_group_start = iter.is_end_of_group(true);
+        }
+
+        if is_curr_group_start {
+            group_len = group_len_rem;
         }
 
         rows.push(json!({
@@ -646,7 +648,7 @@ fn group_track_to_json(
             "passed": passed_count,
             "zero_sized_groups": zero_size_groups,
             "dead_slots": dead_slots[field_pos],
-            "group_len_rem": group_len_rem,
+            "group_len": group_len,
             "is_group_start": is_curr_group_start,
             "iters": row_iters
         }));

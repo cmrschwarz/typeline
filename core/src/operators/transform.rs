@@ -170,22 +170,21 @@ impl TransformData<'_> {
             TransformData::FieldValueSink(_) => {
                 fields.push(tf_state.output_field)
             }
-
+            // TODO: fix this
             TransformData::ForkCat(_)
             | TransformData::SuccessUpdator(_)
             | TransformData::ForkCatSubchainTrailer(_)
             | TransformData::Disabled
             | TransformData::Nop(_)
-            | TransformData::Terminator(_) => (),
-
-            TransformData::Fork(_)
+            | TransformData::Terminator(_)
+            | TransformData::Fork(_)
             | TransformData::AggregatorHeader(_)
             | TransformData::AggregatorTrailer(_)
             | TransformData::ForeachHeader(_)
             | TransformData::ForeachTrailer(_)
             | TransformData::Call(_)
             | TransformData::CallConcurrent(_)
-            | TransformData::CalleeConcurrent(_) => todo!(),
+            | TransformData::CalleeConcurrent(_) => (),
 
             TransformData::Regex(re) => fields.extend(
                 re.capture_group_fields

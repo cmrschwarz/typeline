@@ -15,7 +15,7 @@
             {{~#each mc.tf_envs as |tf_env|}}
             {{~let "transform_update_id" ../transform_update_id}}
             <div class="transform">
-                {{~#if (or tf_env.fields tf_env.subchains)}}
+                {{~#if (or tf_env.fields (or tf_env.subchains tf_env.group_tracks))}}
                 {{~let "transform_body_id" (unique_id "transform_body_") }}
                 {{~let "collapsed_transform_body_id" (unique_id "collapsed_transform_body_")}}
                 <div
@@ -35,7 +35,13 @@
                     {{/each}}
                     </div>
                     {{/if}}
-
+                    {{#if tf_env.group_tracks}}
+                    <div class="group-track-list">
+                        {{#each tf_env.group_tracks as |group_track|}}
+                        {{>group_track group_track transform_update_id=../transform_update_id}}
+                        {{/each}}
+                    </div>
+                    {{/if}}
                     {{#if tf_env.fields}}
                     <div class="field-list">
                         {{#each tf_env.fields as |field|}}

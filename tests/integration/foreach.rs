@@ -1,3 +1,4 @@
+use scr::operators::sequence::create_op_seq;
 use scr_core::{
     operators::{
         foreach::create_op_foreach, join::create_op_join,
@@ -72,5 +73,17 @@ fn foreach_dup_join() -> Result<(), ScrError> {
         .add_op(create_op_join(None, None, false))
         .run_collect_stringified()?;
     assert_eq!(res, &["11", "22", "33"]);
+    Ok(())
+}
+
+#[test]
+fn foreach_seq_seq() -> Result<(), ScrError> {
+    let res = ContextBuilder::default()
+        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_foreach())
+        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_sum())
+        .run_collect_stringified()?;
+    assert_eq!(res, &["3", "3", "3"]);
     Ok(())
 }

@@ -52,17 +52,28 @@
             </th>
         </thead>
         <thead>
-            <th class="meta_head">Meta</th>
-            <th class="data_head">Data</th>
-            <th class="size_head">Size</th>
-            <th class="rl_head">RL</th>
-            <th class="iters_head">Iters</th>
+            <th>Meta</th>
+            <th>RL</th>
+            <th>Size</th>
+            <th>Data</th>
+            <th>Iters</th>
         </thead>
         <tbody>
             {{#each rows as |row|}}
             {{~let "transform_update_id" ../transform_update_id}}
             {{#each (range row.dead_slots)}}
-            <tr class="field_row dead_row"><td colspan="4"></td></tr>
+            <tr class="field-row dead-row">
+                <td colspan="5">
+                    <div class="dead-row-placeholder">
+                        <div class="meta-list">
+                            <div class="padding">0</div>
+                            <div class="data_type">DataType</div>
+                            <div class="flag flag_same_as_prev"></div>
+                        </div>
+                        {{>iter_list iters=[] transform_update_id=transform_update_id}}
+                    </div>
+                </td>
+            </tr>
             {{/each}}
 
             {{~#if row.shadow_meta}}
@@ -75,7 +86,7 @@
             {{~else}}
             {{~let "flag_shadow_data" ""}}
             {{~/if}}
-            <tr class="row">
+            <tr class="field-row">
                 <td >
                     <div class="meta-list">
                         <div class="padding{{flag_shadow}}">
@@ -107,9 +118,17 @@
                         ></div>
                     </div>
                 </td>
+                <td class="rl{{flag_shadow}}">
+                    {{#if shadow_meta}}{{else}}
+                    {{row.run_length}}
+                    {{/if}}
+                </td>
+                <td class="size{{flag_shadow}}">
+                    {{#if shadow_data}}{{else}}
+                    {{row.size}}
+                    {{/if}}
+                </td>
                 <td class="data{{flag_shadow_data}}">{{row.value}}</td>
-                <td class="size{{flag_shadow_data}}">{{row.size}}</td>
-                <td class="rl{{flag_shadow}}">{{row.run_length}}</td>
                 <td>
                     {{>iter_list iters=row.iters transform_update_id=transform_update_id}}
                 </td>

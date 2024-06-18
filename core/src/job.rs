@@ -880,7 +880,7 @@ impl<'a> Job<'a> {
         &mut self,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug")]
         if let Some(dl) = &mut self.debug_log {
             crate::debug_log::write_debug_log_html_head(dl)
                 .expect("debug log write succeeds");
