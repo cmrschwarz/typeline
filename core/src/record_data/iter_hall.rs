@@ -99,7 +99,7 @@ pub struct IterState {
     // that are 'after' them.
     pub header_idx: usize,
     pub header_rl_offset: RunLength,
-    #[cfg(feature = "debug_logging")]
+    #[cfg(feature = "debug")]
     pub kind: IterKind,
 }
 
@@ -148,7 +148,7 @@ impl IterHall {
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
-            #[cfg(feature = "debug_logging")]
+            #[cfg(feature = "debug")]
             kind,
         }
     }
@@ -173,7 +173,7 @@ impl IterHall {
                 let iter = fm.fields[src_field_id].borrow().iter_hall.iters
                     [header_iter_id]
                     .get();
-                #[cfg(feature = "debug_logging")]
+                #[cfg(feature = "debug")]
                 let iter = IterState { kind, ..iter };
                 return iter;
             }
@@ -201,7 +201,7 @@ impl IterHall {
                 .back()
                 .unwrap()
                 .run_length,
-            #[cfg(feature = "debug_logging")]
+            #[cfg(feature = "debug")]
             kind,
         }
     }
@@ -410,9 +410,9 @@ impl IterHall {
         self.data_source.cow_variant()
     }
     pub fn get_iter_kind(&self, #[allow(unused)] iter_id: IterId) -> IterKind {
-        #[cfg(not(feature = "debug_logging"))]
+        #[cfg(not(feature = "debug"))]
         return IterKind::Undefined;
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug")]
         return self.iters[iter_id].get().kind;
     }
     pub fn reset_iter(&self, iter_id: IterId) {

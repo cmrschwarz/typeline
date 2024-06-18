@@ -42,7 +42,7 @@ pub struct GroupTrackIterState {
     pub group_idx: GroupIdx,
     pub group_offset: GroupLen,
     pub iter_id: GroupTrackIterId,
-    #[cfg(feature = "debug_logging")]
+    #[cfg(feature = "debug")]
     pub kind: IterKind,
 }
 
@@ -794,7 +794,7 @@ impl GroupTrack {
         iter: &GroupTrackIter<T>,
     ) {
         let iter_sorting_idx = self.iter_lookup_table[iter_id] as usize;
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug")]
         let kind = self.iter_states[iter_sorting_idx].get().kind;
         let iter_state = GroupTrackIterState {
             field_pos: iter.field_pos,
@@ -806,7 +806,7 @@ impl GroupTrack {
                 .unwrap_or(0)
                 - iter.group_len_rem,
             iter_id,
-            #[cfg(feature = "debug_logging")]
+            #[cfg(feature = "debug")]
             kind,
         };
 
@@ -876,8 +876,7 @@ impl GroupTrack {
 
     pub fn claim_iter(
         &mut self,
-        #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
-        kind: IterKind,
+        #[cfg_attr(not(feature = "debug"), allow(unused))] kind: IterKind,
     ) -> GroupTrackIterId {
         let iter_id = self.iter_lookup_table.claim_with_value(
             self.iter_states.len() as GroupTrackIterSortedIndex,
@@ -887,6 +886,7 @@ impl GroupTrack {
             field_pos: self.passed_fields_count,
             group_idx: 0,
             group_offset: 0,
+            #[cfg(feature = "debug")]
             kind,
         };
         self.iter_states.push(Cell::new(iter_state));
@@ -1785,7 +1785,7 @@ mod test {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
-                #[cfg(feature = "debug_logging")]
+                #[cfg(feature = "debug")]
                 kind: IterKind::Undefined,
             })],
             iter_lookup_table: Universe::from([0].into_iter()),
@@ -1805,7 +1805,7 @@ mod test {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
-                #[cfg(feature = "debug_logging")]
+                #[cfg(feature = "debug")]
                 kind: IterKind::Undefined
             }
         );
@@ -1822,7 +1822,7 @@ mod test {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
-                    #[cfg(feature = "debug_logging")]
+                    #[cfg(feature = "debug")]
                     kind: IterKind::Undefined,
                 }),
                 Cell::new(GroupTrackIterState {
@@ -1830,7 +1830,7 @@ mod test {
                     group_idx: 0,
                     group_offset: 2,
                     iter_id: 0,
-                    #[cfg(feature = "debug_logging")]
+                    #[cfg(feature = "debug")]
                     kind: IterKind::Undefined,
                 }),
             ],
@@ -1852,7 +1852,7 @@ mod test {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
-                    #[cfg(feature = "debug_logging")]
+                    #[cfg(feature = "debug")]
                     kind: IterKind::Undefined
                 },
                 GroupTrackIterState {
@@ -1860,7 +1860,7 @@ mod test {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
-                    #[cfg(feature = "debug_logging")]
+                    #[cfg(feature = "debug")]
                     kind: IterKind::Undefined
                 }
             ]
@@ -1877,7 +1877,7 @@ mod test {
                 group_idx: 0,
                 group_offset: 2,
                 iter_id: 0,
-                #[cfg(feature = "debug_logging")]
+                #[cfg(feature = "debug")]
                 kind: IterKind::Undefined,
             })],
             iter_lookup_table: Universe::from([0].into_iter()),
@@ -1896,7 +1896,7 @@ mod test {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
-                #[cfg(feature = "debug_logging")]
+                #[cfg(feature = "debug")]
                 kind: IterKind::Undefined
             }
         );

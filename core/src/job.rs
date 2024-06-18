@@ -1,16 +1,11 @@
 use std::{
     collections::{HashMap, VecDeque},
-    fs::File,
     sync::Arc,
 };
 
 use crate::{
     chain::{Chain, ChainId},
     context::{ContextData, JobDescription, SessionData, VentureDescription},
-    debug_log::{
-        write_debug_log_html_head, write_debug_log_html_tail,
-        write_initial_state_to_html, write_transform_update_to_html,
-    },
     operators::{
         call::handle_eager_call_expansion,
         call_concurrent::setup_callee_concurrent,
@@ -38,7 +33,6 @@ use crate::{
     },
     utils::{
         index_vec::{IndexSlice, IndexVec},
-        text_write::TextWriteIoAdapter,
         universe::Universe,
     },
 };
@@ -60,7 +54,8 @@ pub struct Job<'a> {
     pub job_data: JobData<'a>,
     pub transform_data: IndexVec<TransformId, TransformData<'a>>,
     pub temp_vec: Vec<FieldId>,
-    debug_log: Option<File>,
+    #[cfg(feature = "debug")]
+    debug_log: Option<std::fs::File>,
 }
 
 #[derive(Default)]
@@ -795,8 +790,10 @@ impl<'a> Job<'a> {
         tf_id: TransformId,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
+        #[cfg(any(feature = "debug_logging", feature = "debug"))]
         let batch_size_available =
             self.job_data.tf_mgr.transforms[tf_id].available_batch_size;
+
         #[cfg(feature = "debug_logging")]
         eprintln!(
             "> transform update {}",
@@ -845,10 +842,11 @@ impl<'a> Job<'a> {
                 .print_field_iter_data(output_field_id, 4);
             eprintln!();
         }
+        #[cfg(feature = "debug")]
         if let (Some(f), Some(start_tf)) =
             (&mut self.debug_log, self.job_data.start_tf)
         {
-            write_transform_update_to_html(
+            crate::debug_log::write_transform_update_to_html(
                 &self.job_data,
                 &self.transform_data,
                 tf_id,
@@ -882,10 +880,12 @@ impl<'a> Job<'a> {
         &mut self,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
+        #[cfg(feature = "debug_logging")]
         if let Some(dl) = &mut self.debug_log {
-            write_debug_log_html_head(dl).expect("debug log write succeeds");
+            crate::debug_log::write_debug_log_html_head(dl)
+                .expect("debug log write succeeds");
             if let Some(start_tf) = self.job_data.start_tf {
-                write_initial_state_to_html(
+                crate::debug_log::write_initial_state_to_html(
                     &self.job_data,
                     &self.transform_data,
                     start_tf,
@@ -943,8 +943,9 @@ impl<'a> Job<'a> {
             }
             self.job_data.tf_mgr.pre_stream_transform_stack_cutoff = 0;
         }
+        #[cfg(feature = "debug_logging")]
         if let Some(dl) = &mut self.debug_log {
-            write_debug_log_html_tail(&mut TextWriteIoAdapter(dl))
+            crate::debug_log::write_debug_log_html_tail(dl)
                 .expect("debug log write succeeds");
         }
         Ok(())
@@ -958,6 +959,7 @@ impl<'a> Job<'a> {
         Job {
             transform_data: IndexVec::new(),
             temp_vec: Vec::new(),
+            #[cfg(feature="debug")]
             // TODO: nicer error handling for this
             debug_log: job_data
                 .session_data
@@ -965,7 +967,7 @@ impl<'a> Job<'a> {
                 .debug_log_path
                 .as_ref()
                 .map(|p| {
-                    File::create(p).expect("debug log path must be valid")
+                    std::fs::File::create(p).expect("debug log path must be valid")
                 }),
             job_data,
         }

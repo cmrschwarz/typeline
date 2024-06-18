@@ -66,4 +66,5 @@ default = ["utils"]
 full = ["scr_core/full", "repl", "sqlite", "http", "utils", "python"]
 
 unstable = ["scr_core/unstable"]
+debug = ["scr_core/debug"]
 debug_logging = ["scr_core/debug_logging"]
