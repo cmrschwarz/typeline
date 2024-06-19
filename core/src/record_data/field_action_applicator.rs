@@ -317,11 +317,11 @@ impl FieldActionApplicator {
             // we are duping, so not pre and mid
             pre + 1,
             dup_count,
-            usize::from(pre > 0) + mid_full_count,
+            usize::from(pre > 0) + mid_full_count + usize::from(mid_rem > 0),
             iterators,
             FieldValueHeader {
                 fmt: header.fmt,
-                run_length: pre,
+                run_length: pre + 1,
             },
         );
         if post == 0 && mid_full_count == 0 {

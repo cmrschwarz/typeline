@@ -646,8 +646,8 @@ pub fn parse_format_key(
 pub fn parse_format_string(
     fmt: &[u8],
     refs: &mut Vec<Option<String>>,
-) -> Result<Vec<FormatPart>, (usize, Cow<'static, str>)> {
-    let mut parts = Vec::new();
+    parts: &mut Vec<FormatPart>,
+) -> Result<(), (usize, Cow<'static, str>)> {
     let mut pending_literal = Vec::default();
     let mut i = 0;
     loop {
@@ -684,7 +684,7 @@ pub fn parse_format_string(
             if !pending_literal.is_empty() {
                 parts.push(create_format_literal(pending_literal));
             }
-            return Ok(parts);
+            return Ok(());
         }
     }
 }
@@ -700,13 +700,13 @@ pub fn parse_op_format(
         )
     })?;
     let mut refs_str = Vec::new();
-    let parts =
-        parse_format_string(val, &mut refs_str).map_err(|(i, msg)| {
-            OperatorCreationError {
-                message: format!("format string index {i}: {msg}").into(),
-                cli_arg_idx: arg_idx,
-            }
-        })?;
+    let mut parts = Vec::new();
+    parse_format_string(val, &mut refs_str, &mut parts).map_err(
+        |(i, msg)| OperatorCreationError {
+            message: format!("format string index {i}: {msg}").into(),
+            cli_arg_idx: arg_idx,
+        },
+    )?;
     let refs_idx = Vec::with_capacity(refs_str.len());
 
     let contains_raw_bytes = parts.iter().any(|p| match p {
@@ -2191,7 +2191,9 @@ mod test {
     #[test]
     fn empty_format_string() {
         let mut dummy = Vec::new();
-        assert_eq!(parse_format_string(&[], &mut dummy).unwrap(), &[]);
+        let mut parts = Vec::new();
+        parse_format_string(&[], &mut dummy, &mut parts).unwrap();
+        assert_eq!(&parts, &[]);
     }
 
     #[test]
@@ -2208,10 +2210,10 @@ mod test {
             ("{{foo{{{{bar}}baz}}}}", "{foo{{bar}baz}}"),
         ] {
             let mut dummy = Vec::new();
-            assert_eq!(
-                parse_format_string(lit.as_bytes(), &mut dummy).unwrap(),
-                &[FormatPart::TextLiteral(res.to_owned())]
-            );
+            let mut parts = Vec::new();
+            parse_format_string(lit.as_bytes(), &mut dummy, &mut parts)
+                .unwrap();
+            assert_eq!(&parts, &[FormatPart::TextLiteral(res.to_owned())]);
         }
     }
 
@@ -2226,9 +2228,15 @@ mod test {
             ref_idx: 1,
             ..Default::default()
         };
+        let mut parts = Vec::new();
+        parse_format_string(
+            "foo{{{a}}}__{b}".as_bytes(),
+            &mut idents,
+            &mut parts,
+        )
+        .unwrap();
         assert_eq!(
-            parse_format_string("foo{{{a}}}__{b}".as_bytes(), &mut idents)
-                .unwrap(),
+            &parts,
             &[
                 FormatPart::TextLiteral("foo{".to_owned()),
                 FormatPart::Key(a),
@@ -2253,11 +2261,14 @@ mod test {
             },
             ..Default::default()
         };
-        assert_eq!(
-            parse_format_string("{foo:~^bar$}".as_bytes(), &mut idents)
-                .unwrap(),
-            &[FormatPart::Key(a)]
-        );
+        let mut parts = Vec::new();
+        parse_format_string(
+            "{foo:~^bar$}".as_bytes(),
+            &mut idents,
+            &mut parts,
+        )
+        .unwrap();
+        assert_eq!(parts, &[FormatPart::Key(a)]);
     }
 
     #[test]
@@ -2275,10 +2286,10 @@ mod test {
             },
             ..Default::default()
         };
-        assert_eq!(
-            parse_format_string("{a:+<5}".as_bytes(), &mut idents).unwrap(),
-            &[FormatPart::Key(a),]
-        );
+        let mut parts = Vec::new();
+        parse_format_string("{a:+<5}".as_bytes(), &mut idents, &mut parts)
+            .unwrap();
+        assert_eq!(parts, &[FormatPart::Key(a),]);
         assert_eq!(idents, &[Some("a".to_owned())])
     }
 
@@ -2291,18 +2302,20 @@ mod test {
             float_precision: Some(FormatWidthSpec::Ref(1)),
             ..Default::default()
         };
-        assert_eq!(
-            parse_format_string("{a:3.b$}".as_bytes(), &mut idents).unwrap(),
-            &[FormatPart::Key(a)]
-        );
+        let mut parts = Vec::new();
+        parse_format_string("{a:3.b$}".as_bytes(), &mut idents, &mut parts)
+            .unwrap();
+        assert_eq!(&parts, &[FormatPart::Key(a)]);
         assert_eq!(idents, &[Some("a".to_owned()), Some("b".to_owned())])
     }
 
     #[test]
     fn width_not_an_ident() {
         let mut idents = Vec::new();
+        let mut parts = Vec::new();
+
         assert_eq!(
-            parse_format_string("{a:1x$}".as_bytes(), &mut idents),
+            parse_format_string("{a:1x$}".as_bytes(), &mut idents, &mut parts),
             Err((
                 4,
                 Cow::Borrowed(
@@ -2315,6 +2328,7 @@ mod test {
     #[test]
     fn fill_char_is_optional_not_an_ident() {
         let mut idents = Vec::new();
+        let mut parts = Vec::new();
         let a = FormatKey {
             min_char_count: Some(FormatWidthSpec::Value(2)),
             opts: FormatOptions {
@@ -2326,9 +2340,8 @@ mod test {
             },
             ..Default::default()
         };
-        assert_eq!(
-            parse_format_string("{a:^2}".as_bytes(), &mut idents).unwrap(),
-            &[FormatPart::Key(a)]
-        );
+        parse_format_string("{a:^2}".as_bytes(), &mut idents, &mut parts)
+            .unwrap();
+        assert_eq!(&parts, &[FormatPart::Key(a)]);
     }
 }

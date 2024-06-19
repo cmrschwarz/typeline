@@ -29,6 +29,7 @@ pub mod flatten;
 pub mod from_tyson;
 pub mod head;
 pub mod primes;
+pub mod shell;
 pub mod string_utils;
 pub mod sum;
 pub mod tail;

@@ -278,3 +278,15 @@ fn parse_forkcat() -> Result<(), ScrError> {
     assert_eq!(res, int_sequence_strings(1..11));
     Ok(())
 }
+
+#[test]
+fn parse_forkcat_2() -> Result<(), ScrError> {
+    let sess_opts = parse_cli_from_strings(
+        CliOptions::default(),
+        ["seqn=3", "fe", "forkcat", "seq=2", "next", "nop", "end"],
+    )?;
+    let res = ContextBuilder::from_session_opts(sess_opts)
+        .run_collect_stringified()?;
+    assert_eq!(res, int_sequence_strings(1..11));
+    Ok(())
+}

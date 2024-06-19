@@ -626,14 +626,20 @@ pub fn handle_tf_forcat_subchain_trailer(
     let sc_ms_id = jd.tf_mgr.transforms[tf_id].match_set_id;
     jd.match_set_mgr.match_sets[cont_ms_id].active_source_ms = Some(sc_ms_id);
 
+    let done = ps.input_done && fcst.subchain_idx == cont_state.last_sc();
+
     jd.tf_mgr.inform_cross_ms_transform_batch_available(
         &jd.field_mgr,
         &jd.match_set_mgr,
         cont_state.continuation_tf_id,
         fields_to_consume,
         padding_inserted + fields_to_consume,
-        ps.input_done && fcst.subchain_idx == cont_state.last_sc(),
+        done,
     );
+
+    if done {
+        jd.tf_mgr.transforms[tf_id].done = true;
+    }
 
     // the 'pass to children' below will deal with the `fields_to_consume`
     // so just the padding is dropped here

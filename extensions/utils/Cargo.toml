@@ -19,6 +19,7 @@ bstr = { version = "1.9.1", default-features = false }
 primes = "0.4.0"
 num = "0.4.3"
 indexmap = "2.2.6"
+metamatch = "0.2.3"
 
 [dev-dependencies]
 scr = { path = "../../", features = ["utils"] }

@@ -1706,6 +1706,10 @@ impl ActionBuffer {
             }
         }
 
+        if field_id == 4 {
+            print!("asdf");
+        }
+
         drop(field);
 
         let res = self.build_actions_from_snapshot(actor_id, ss_prev);

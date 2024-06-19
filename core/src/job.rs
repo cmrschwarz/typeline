@@ -154,13 +154,14 @@ impl TransformManager {
     ) {
         let tf = &mut self.transforms[tf_id];
         tf.available_batch_size += batch_size;
+
         if tf.available_batch_size == 0
             && (!predecessor_done || tf.predecessor_done)
         {
             return;
         }
         tf.predecessor_done |= predecessor_done;
-        if tf.is_ready {
+        if tf.is_ready || tf.done {
             return;
         }
         self.push_tf_in_ready_stack(tf_id);
