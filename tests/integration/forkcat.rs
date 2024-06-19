@@ -129,7 +129,6 @@ fn forkcat_into_join() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn forkcat_build_sql_insert() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -191,7 +190,6 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -226,7 +224,6 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
@@ -245,7 +242,6 @@ fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[rstest]
 #[case(1)]
 #[case(2)]
@@ -261,6 +257,8 @@ fn forkcat_on_unapplied_commands(
         .add_op(create_op_regex("[24]").unwrap())
         .add_op(create_op_forkcat())
         .add_op(create_op_nop())
+        .add_op(create_op_next())
+        .add_op(create_op_dup(0))
         .add_op(create_op_end())
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))
@@ -269,12 +267,11 @@ fn forkcat_on_unapplied_commands(
     Ok(())
 }
 
-#[cfg(any())] // TODO
 #[test]
 fn parse_forkcat() -> Result<(), ScrError> {
     let sess_opts = parse_cli_from_strings(
         CliOptions::default(),
-        ["scr", "seqn=10", "forkcat", "r=.*", "end"],
+        ["scr", "seqn=10", "forkcat", "r=.*", "next", "drop", "end"],
     )?;
     let res = ContextBuilder::from_session_opts(sess_opts)
         .run_collect_stringified()?;

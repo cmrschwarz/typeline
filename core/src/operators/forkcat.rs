@@ -521,7 +521,7 @@ fn setup_subchain<'a>(
     );
     debug_assert_eq!(trailer_tf_id_peek, trailer_tf_id);
 
-    job.job_data.tf_mgr.transforms[instantiation.tfs_begin].successor =
+    job.job_data.tf_mgr.transforms[instantiation.tfs_end].successor =
         Some(trailer_tf_id);
 
     SubchainEntry {
@@ -536,7 +536,7 @@ pub fn handle_tf_forkcat(
     tf_id: TransformId,
     fc: &mut TfForkCat,
 ) {
-    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 
     let cont_state = fc.continuation_state.lock().unwrap();
 
@@ -566,7 +566,7 @@ pub fn handle_tf_forcat_subchain_trailer(
     tf_id: TransformId,
     fcst: &mut TfForkCatSubchainTrailer,
 ) {
-    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 
     let mut cont_state = (*fcst.continuation_state).lock().unwrap();
 
@@ -574,6 +574,7 @@ pub fn handle_tf_forcat_subchain_trailer(
         jd.tf_mgr.unclaim_batch_size(tf_id, batch_size);
         return;
     }
+
     if cont_state.advance_to_next {
         cont_state.current_turn = fcst.subchain_idx;
     }
@@ -595,6 +596,7 @@ pub fn handle_tf_forcat_subchain_trailer(
 
         group_track_iter
             .insert_fields(FieldValueRepr::Undefined, padding_inserted);
+        cont_state.advance_to_next = false;
     }
 
     let fields_to_consume = group_track_iter.group_len_rem().min(batch_size);
@@ -675,6 +677,8 @@ pub fn handle_tf_forcat_subchain_trailer(
                 cim.sc_field_refs_offsets_start_in_cont_field,
             );
         }
+        jd.field_mgr
+            .store_iter(cim.sc_field_id, cim.sc_field_iter_id, iter);
     }
 
     // PERF: this is dumb?

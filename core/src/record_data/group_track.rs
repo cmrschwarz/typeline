@@ -609,7 +609,9 @@ impl GroupTrack {
                     it.group_offset = 0;
                 }
                 Ordering::Equal => {
-                    it.group_offset -= lgts.last_group_len.unwrap_or(0)
+                    it.group_offset = it
+                        .group_offset
+                        .saturating_sub(lgts.last_group_len.unwrap_or(0))
                 }
                 Ordering::Greater => it.group_idx -= lgts.full_group_count,
             }

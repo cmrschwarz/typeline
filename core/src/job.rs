@@ -220,6 +220,15 @@ impl TransformManager {
             self.submit_batch(tf_id, 0, true);
         }
     }
+    pub fn make_tf_ready_for_more(
+        &mut self,
+        tf_id: TransformId,
+        ps: PipelineState,
+    ) {
+        if !ps.successor_done && ps.next_batch_ready {
+            self.push_tf_in_ready_stack(tf_id);
+        }
+    }
     pub fn submit_batch_ready_for_more(
         &mut self,
         tf_id: TransformId,
