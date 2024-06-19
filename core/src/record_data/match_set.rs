@@ -22,6 +22,7 @@ index_newtype! {
 
 pub struct MatchSet {
     pub dummy_field: FieldId,
+    pub active_source_ms: Option<MatchSetId>,
     pub stream_participants: Vec<TransformId>,
     pub action_buffer: RefCell<ActionBuffer>,
     pub field_name_map:
@@ -83,6 +84,7 @@ impl MatchSetManager {
             action_buffer: RefCell::default(),
             field_name_map: HashMap::default(),
             fields_cow_map: HashMap::default(),
+            active_source_ms: None,
         };
         #[cfg(feature = "debug_logging")]
         {
@@ -114,7 +116,7 @@ impl MatchSetManager {
         &self,
         fm: &FieldManager,
         ms_id: MatchSetId,
-        batch_size: usize,
+        cow_advancement: usize,
     ) {
         let cm = &self.match_sets[ms_id].fields_cow_map;
         #[cfg(feature = "cow_field_logging")]
@@ -137,9 +139,12 @@ impl MatchSetManager {
             self.match_sets[src_ms_id]
                 .action_buffer
                 .borrow_mut()
-                .update_field(fm, src, Some(ms_id));
+                .update_field(fm, self, src, Some(ms_id));
             ActionBuffer::update_cow_fields_post_exec(
-                fm, src, ms_id, batch_size,
+                fm,
+                src,
+                ms_id,
+                cow_advancement,
             );
         }
 

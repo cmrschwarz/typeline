@@ -548,6 +548,7 @@ pub fn handle_tf_forkcat(
             &jd.match_set_mgr,
             sc.start_tf_id,
             batch_size,
+            batch_size,
             ps.input_done,
         );
     }
@@ -618,11 +619,17 @@ pub fn handle_tf_forcat_subchain_trailer(
     let end_reached = group_track_iter.is_end(ps.input_done);
     group_track_iter.store_iter(fcst.group_track_iter_ref.iter_id);
 
+    let cont_ms_id =
+        jd.tf_mgr.transforms[cont_state.continuation_tf_id].match_set_id;
+    let sc_ms_id = jd.tf_mgr.transforms[tf_id].match_set_id;
+    jd.match_set_mgr.match_sets[cont_ms_id].active_source_ms = Some(sc_ms_id);
+
     jd.tf_mgr.inform_cross_ms_transform_batch_available(
         &jd.field_mgr,
         &jd.match_set_mgr,
         cont_state.continuation_tf_id,
         fields_to_consume,
+        padding_inserted + fields_to_consume,
         ps.input_done && fcst.subchain_idx == cont_state.last_sc(),
     );
 
@@ -669,9 +676,8 @@ pub fn handle_tf_forcat_subchain_trailer(
             );
         }
     }
-    //PERF: this is dumb?
-    let cont_ms_id =
-        jd.tf_mgr.transforms[cont_state.continuation_tf_id].match_set_id;
+
+    // PERF: this is dumb?
     let cont_dummy_field_id = jd.match_set_mgr.get_dummy_field(cont_ms_id);
     jd.field_mgr
         .apply_field_actions(&jd.match_set_mgr, cont_dummy_field_id);

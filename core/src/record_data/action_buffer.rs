@@ -21,7 +21,7 @@ use super::{
     group_track::GroupTrackId,
     iter_hall::{CowVariant, FieldDataSource, IterHall, IterState},
     iters::FieldIterator,
-    match_set::MatchSetId,
+    match_set::{MatchSetId, MatchSetManager},
 };
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
@@ -1677,10 +1677,12 @@ impl ActionBuffer {
     pub fn update_field(
         &mut self,
         fm: &FieldManager,
+        msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
     ) {
         let mut field = fm.fields[field_id].borrow_mut();
+
         let fr = &mut *field;
         let Some((actor_id, ss_prev)) = self.update_snapshot(
             ActorSubscriber::Field(field_id),
@@ -1689,6 +1691,21 @@ impl ActionBuffer {
         ) else {
             return;
         };
+
+        // HACK
+        // this is a dirty hack to prevent cow fields from another cow source
+        // to be updated while they are not needed and potentially
+        // undersized
+        if let (Some(cow_src), _) = field.iter_hall.cow_source_field(fm) {
+            if let Some(active_src_ms) =
+                msm.match_sets[field.match_set].active_source_ms
+            {
+                if active_src_ms != fm.fields[cow_src].borrow().match_set {
+                    return;
+                }
+            }
+        }
+
         drop(field);
 
         let res = self.build_actions_from_snapshot(actor_id, ss_prev);

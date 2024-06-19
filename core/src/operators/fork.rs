@@ -165,6 +165,7 @@ pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
             &jd.match_set_mgr,
             tgt.tf_id,
             batch_size,
+            batch_size,
             ps.input_done,
         );
     }

@@ -171,12 +171,13 @@ impl TransformManager {
         msm: &MatchSetManager,
         tf_id: TransformId,
         batch_size: usize,
+        cow_advancement: usize,
         predecessor_done: bool,
     ) {
         msm.update_cross_ms_cow_targets(
             fm,
             self.transforms[tf_id].match_set_id,
-            batch_size,
+            cow_advancement,
         );
         self.inform_transform_batch_available(
             tf_id,
