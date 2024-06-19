@@ -669,7 +669,7 @@ pub fn handle_tf_forcat_subchain_trailer(
             );
         }
     }
-    // PERF: this is dumb?
+    //PERF: this is dumb?
     let cont_ms_id =
         jd.tf_mgr.transforms[cont_state.continuation_tf_id].match_set_id;
     let cont_dummy_field_id = jd.match_set_mgr.get_dummy_field(cont_ms_id);

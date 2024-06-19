@@ -601,15 +601,17 @@ impl GroupTrack {
         if pass {
             self.passed_fields_count += total_field_count;
         }
-        self.sort_iters();
         for it in &mut self.iter_states {
             let it = it.get_mut();
-            if it.field_pos >= total_field_count {
-                break;
-            }
-            it.group_idx -= lgts.full_group_count;
-            if it.group_idx == lgts.full_group_count {
-                it.group_offset -= lgts.last_group_len.unwrap_or(0);
+            match it.group_idx.cmp(&lgts.full_group_count) {
+                Ordering::Less => {
+                    it.group_idx = 0;
+                    it.group_offset = 0;
+                }
+                Ordering::Equal => {
+                    it.group_offset -= lgts.last_group_len.unwrap_or(0)
+                }
+                Ordering::Greater => it.group_idx -= lgts.full_group_count,
             }
         }
         #[cfg(feature = "debug_logging")]

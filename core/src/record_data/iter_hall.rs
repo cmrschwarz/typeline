@@ -405,6 +405,23 @@ impl IterHall {
             FieldDataSource::RecordBufferDataCow(_) => (None, Some(true)),
         }
     }
+    pub fn get_cow_iter_state(&self, fm: &FieldManager) -> Option<IterState> {
+        match self.data_source {
+            FieldDataSource::Owned | FieldDataSource::SameMsCow(_) => None,
+            FieldDataSource::Alias(src) => {
+                fm.fields[src].borrow().iter_hall.get_cow_iter_state(fm)
+            }
+            FieldDataSource::FullCow(cds) | FieldDataSource::DataCow(cds) => {
+                Some(
+                    fm.fields[cds.src_field_id].borrow().iter_hall.iters
+                        [cds.header_iter_id]
+                        .get(),
+                )
+            }
+            FieldDataSource::RecordBufferFullCow(_)
+            | FieldDataSource::RecordBufferDataCow(_) => todo!(),
+        }
+    }
     pub fn cow_variant(&self) -> Option<CowVariant> {
         self.data_source.cow_variant()
     }

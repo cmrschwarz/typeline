@@ -415,7 +415,12 @@ pub fn field_data_to_json<'a>(
     dead_slots: &[usize],
     mut iters: Vec<IterState>,
 ) -> serde_json::Value {
-    iters.sort_by(|is1, is2| is1.field_pos.cmp(&is2.field_pos));
+    iters.sort_by(|is1, is2| match is1.header_idx.cmp(&is2.header_idx) {
+        std::cmp::Ordering::Equal => {
+            is1.header_rl_offset.cmp(&is1.header_rl_offset)
+        }
+        res @ (std::cmp::Ordering::Less | std::cmp::Ordering::Greater) => res,
+    });
     let mut iter = FieldIter::from_start_allow_dead(&fd);
 
     let mut del_count = 0;
@@ -436,18 +441,36 @@ pub fn field_data_to_json<'a>(
     };
 
     let mut rows = Vec::new();
+
     let iters_before_start = iters
         .iter()
-        .position(|i| i.field_pos > 0)
+        .position(|i| {
+            (i.header_idx != 0 || i.header_rl_offset != 0)
+                && i.field_pos < field_count_cap
+        })
         .unwrap_or(iters.len());
     let mut iters_start = iters_before_start;
 
     while iter.is_next_valid() && iter.get_next_field_pos() < field_count_cap {
-        let field_pos = iter.get_next_field_pos();
-        let iters_end = iters
-            .iter()
-            .position(|i| i.field_pos > field_pos + 1)
-            .unwrap_or(iters.len());
+        let is_end_of_curr_header = iter.field_run_length_fwd() == 0;
+        let header_idx = iter.get_next_header_index();
+        let header_offs = iter.field_run_length_bwd();
+        let mut iters_end = iters_start;
+        while iters_end < iters.len() {
+            let it = &iters[iters_end];
+            if it.header_rl_offset > header_offs + 1 {
+                break;
+            }
+            if it.header_idx > header_idx
+                && (!is_end_of_curr_header || it.header_rl_offset > 0)
+            {
+                break;
+            }
+            if it.header_idx > header_idx + 1 {
+                break;
+            }
+            iters_end += 1;
+        }
         let h = fd.headers()[iter.get_next_header_index()];
         let dead_slot_count = if h.deleted() {
             del_count += 1;
@@ -497,15 +520,10 @@ pub fn field_data_to_json<'a>(
             "run_length": h.run_length,
             "same_as_prev": h.same_value_as_previous(),
             "value": value_str.into_text_lossy(),
-            "iters": if h.deleted() {
-                Value::Array(Vec::new())
-            } else {
-                iters_to_json(&iters[iters_start..iters_end])
-            }
+            "iters": iters_to_json(&iters[iters_start..iters_end])
+
         }));
-        if !h.deleted() {
-            iters_start = iters_end;
-        }
+        iters_start = iters_end;
         iter.next_field_allow_dead();
     }
     assert_eq!(iters_start, iters.len());
@@ -558,7 +576,11 @@ pub fn field_to_json(
 
     let field_count_cow =
         if field.iter_hall.cow_variant() == Some(CowVariant::FullCow) {
-            field.iter_hall.get_field_count(&jd.field_mgr)
+            field
+                .iter_hall
+                .get_cow_iter_state(&jd.field_mgr)
+                .unwrap()
+                .field_pos
         } else {
             usize::MAX
         };
