@@ -121,6 +121,39 @@ body {
     min-width: 2em;
 }
 
+.iter {
+    position: relative;
+}
+
+.iter-tooltip-text {
+    position: absolute;
+    top: -150%;
+    left: 50%;
+    z-index: 1;
+    text-align: center;
+    padding: 0.2em;
+    border-radius: 0.3em;
+    transform: translateX(-50%);
+    background-color: #444;
+    color: white;
+    visibility: hidden;
+}
+
+.iter-tooltip-text::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -0.5em;
+    border-width: 0.5em;
+    border-style: solid;
+    border-color: #444 transparent transparent transparent;
+}
+
+.iter:hover .iter-tooltip-text {
+    visibility: visible;
+}
+
 .collapsed-field-container .field-id {
     padding-inline: 1em;
     font-weight: bold;

@@ -601,6 +601,17 @@ impl GroupTrack {
         if pass {
             self.passed_fields_count += total_field_count;
         }
+        self.sort_iters();
+        for it in &mut self.iter_states {
+            let it = it.get_mut();
+            if it.field_pos >= total_field_count {
+                break;
+            }
+            it.group_idx -= lgts.full_group_count;
+            if it.group_idx == lgts.full_group_count {
+                it.group_offset -= lgts.last_group_len.unwrap_or(0);
+            }
+        }
         #[cfg(feature = "debug_logging")]
         {
             eprint!("   after:   {self}",);

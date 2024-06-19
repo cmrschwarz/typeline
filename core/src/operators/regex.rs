@@ -1307,7 +1307,7 @@ pub fn handle_tf_regex(
         .action_buffer
         .borrow_mut()
         .end_action_group();
-    let mut base_iter = iter.into_base_iter();
+    let base_iter = iter.into_base_iter();
     if bse || hit_stream_val {
         let unclaimed_batch_size =
             batch_size - (rbs.field_pos_input - field_pos_start);

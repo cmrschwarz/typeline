@@ -362,22 +362,28 @@ fn setup_transform_chain(
     tf_chain
 }
 
-pub fn iter_kind_to_json(kind: &IterKind) -> Option<Value> {
+pub fn iter_kind_to_json(
+    kind: &IterKind,
+    tooltip_text: &str,
+) -> Option<Value> {
     Some(match kind {
         IterKind::Undefined => json!({
             "transform_id": Value::Null,
             "cow_field_id": Value::Null,
-            "display_text": "undef"
+            "display_text": "undef",
+            "tooltip_text": tooltip_text
         }),
         IterKind::Transform(tf_id) => json!({
             "transform_id": tf_id.into_usize(),
             "cow_field_id": Value::Null,
-            "display_text": format!("tf {tf_id}")
+            "display_text": format!("tf {tf_id}"),
+            "tooltip_text": tooltip_text
         }),
         IterKind::CowField(cow_field_id) => json!({
             "transform_id": Value::Null,
             "cow_field_id": cow_field_id,
-            "display_text": format!("cow {cow_field_id}")
+            "display_text": format!("cow {cow_field_id}"),
+            "tooltip_text": tooltip_text
         }),
         IterKind::RefLookup => return None,
     })
@@ -387,7 +393,15 @@ pub fn iters_to_json(iters: &[IterState]) -> Value {
     return Value::Array({
         iters
             .iter()
-            .filter_map(|i| iter_kind_to_json(&i.kind))
+            .filter_map(|i| {
+                iter_kind_to_json(
+                    &i.kind,
+                    &format!(
+                        "HID: {}, HOFF: {}, FP: {}",
+                        i.header_idx, i.header_rl_offset, i.field_pos
+                    ),
+                )
+            })
             .collect::<Vec<_>>()
     });
 }
@@ -581,7 +595,16 @@ fn group_track_iters_to_json(iters: &[Cell<GroupTrackIterState>]) -> Value {
     return Value::Array({
         iters
             .iter()
-            .filter_map(|i| iter_kind_to_json(&i.get().kind))
+            .filter_map(|i| {
+                let it = i.get();
+                iter_kind_to_json(
+                    &it.kind,
+                    &format!(
+                        "GID: {}, GOFF: {}, FP: {}",
+                        it.group_idx, it.group_offset, it.field_pos
+                    ),
+                )
+            })
             .collect::<Vec<_>>()
     });
 }
