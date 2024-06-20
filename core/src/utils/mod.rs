@@ -68,10 +68,35 @@ pub fn get_two_distinct_mut<T>(
     idx1: usize,
     idx2: usize,
 ) -> (&mut T, &mut T) {
-    assert!(idx1 != idx2 && idx1 < slice.len() && idx2 < slice.len());
+    assert!(idx1 != idx2, "indices must be unique");
+    assert!(
+        idx1 < slice.len() && idx2 < slice.len(),
+        "indices must be in bounds"
+    );
     unsafe {
         let ptr = slice.as_mut_ptr();
         (&mut *ptr.add(idx1), &mut *ptr.add(idx2))
+    }
+}
+
+pub fn get_three_distinct_mut<T>(
+    slice: &mut [T],
+    idx1: usize,
+    idx2: usize,
+    idx3: usize,
+) -> (&mut T, &mut T, &mut T) {
+    assert!(idx1 != idx2 && idx2 != idx3, "indices must be unique");
+    assert!(
+        idx1 < slice.len() && idx2 < slice.len() && idx3 < slice.len(),
+        "indices must be in bounds"
+    );
+    unsafe {
+        let ptr = slice.as_mut_ptr();
+        (
+            &mut *ptr.add(idx1),
+            &mut *ptr.add(idx2),
+            &mut *ptr.add(idx3),
+        )
     }
 }
 

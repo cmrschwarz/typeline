@@ -7,6 +7,7 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::{Chain, ChainId, SubchainIndex},
+    cli::reject_operator_params,
     context::ContextData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -66,15 +67,10 @@ pub struct TfFork<'a> {
 }
 
 pub fn parse_op_fork(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_some() {
-        return Err(OperatorCreationError::new(
-            "this operator takes no arguments",
-            arg_idx,
-        ));
-    }
+    reject_operator_params("fork", params, arg_idx);
     Ok(OperatorData::Fork(OpFork {
         subchains_start: SubchainIndex::zero(),
         subchains_end: SubchainIndex::zero(),

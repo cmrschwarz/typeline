@@ -7,6 +7,7 @@ use bitvec::vec::BitVec;
 
 use crate::{
     chain::{Chain, SubchainIndex},
+    cli::reject_operator_params,
     context::SessionData,
     index_newtype,
     job::{add_transform_to_job, Job, JobData},
@@ -144,15 +145,10 @@ impl FcContinuationState {
 }
 
 pub fn parse_op_forkcat(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_some() {
-        return Err(OperatorCreationError::new(
-            "this operator takes no arguments",
-            arg_idx,
-        ));
-    }
+    reject_operator_params("forkcat", params, arg_idx);
     Ok(OperatorData::ForkCat(OpForkCat::default()))
 }
 

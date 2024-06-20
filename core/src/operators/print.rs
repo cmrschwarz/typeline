@@ -10,7 +10,7 @@ use super::{
     utils::writable::{AnyWriter, WritableTarget},
 };
 use crate::{
-    cli::reject_operator_argument,
+    cli::reject_operator_params,
     job::{JobData, TransformManager},
     operators::utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
@@ -93,11 +93,11 @@ pub fn argument_matches_op_print(arg: &str) -> Option<PrintOptions> {
 
 pub fn parse_op_print(
     arg: &str,
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
     opts: PrintOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_argument(arg, value, arg_idx)?;
+    reject_operator_params(arg, params, arg_idx)?;
     Ok(OperatorData::Print(OpPrint {
         target: WritableTarget::Stdout,
         opts,

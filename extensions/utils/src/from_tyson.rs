@@ -25,6 +25,7 @@ use scr_core::{
     record_data::{
         action_buffer::ActorRef,
         field_data::{FieldData, RunLength},
+        field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         iter_hall::{IterId, IterKind},
@@ -217,9 +218,16 @@ impl TfFromTyson {
                             match dt {
                                 StreamValueDataType::Text
                                 | StreamValueDataType::MaybeText
-                                | StreamValueDataType::Bytes => (),
+                                | StreamValueDataType::Bytes
+                                | StreamValueDataType::SingleValue(
+                                    FieldValueKind::Text,
+                                )
+                                | StreamValueDataType::SingleValue(
+                                    FieldValueKind::Bytes,
+                                ) => (),
                                 StreamValueDataType::VariableTypeArray
-                                | StreamValueDataType::FixedTypeArray(_) => {
+                                | StreamValueDataType::FixedTypeArray(_)
+                                | StreamValueDataType::SingleValue(_) => {
                                     inserter.push_error(
                                         OperatorApplicationError::new_s(
                                             format!(

@@ -2,7 +2,7 @@ use std::iter;
 
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::reject_operator_argument,
+    cli::reject_operator_params,
     job::{add_transform_to_job, Job, JobData},
     options::argument::CliArgIdx,
     record_data::{
@@ -35,10 +35,10 @@ pub struct TfForeachTrailer {
 }
 
 pub fn parse_op_foreach(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_argument("foreach", value, arg_idx)?;
+    reject_operator_params("foreach", params, arg_idx)?;
     Ok(create_op_foreach())
 }
 pub fn create_op_foreach() -> OperatorData {

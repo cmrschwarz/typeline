@@ -20,16 +20,14 @@ use sum::create_op_sum;
 use tail::parse_op_tail;
 use typename::create_op_typename;
 
-extern crate scr_core;
-
 pub mod collect;
 pub mod dup;
+pub mod exec;
 pub mod explode;
 pub mod flatten;
 pub mod from_tyson;
 pub mod head;
 pub mod primes;
-pub mod shell;
 pub mod string_utils;
 pub mod sum;
 pub mod tail;
@@ -56,7 +54,7 @@ impl Extension for MiscCmdsExtension {
             _ => None,
         };
         if let Some(ctor) = ctor_with_arg {
-            return Ok(Some(ctor(arg.value, Some(arg.cli_arg.idx))?));
+            return Ok(Some(ctor(arg.params, Some(arg.cli_arg.idx))?));
         }
 
         let ctor_without_arg: Option<fn() -> _> = match arg.argname {

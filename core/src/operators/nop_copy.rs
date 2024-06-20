@@ -1,5 +1,5 @@
 use crate::{
-    cli::reject_operator_argument,
+    cli::reject_operator_params,
     job::JobData,
     liveness_analysis::LivenessData,
     options::argument::CliArgIdx,
@@ -31,10 +31,10 @@ pub struct TfNopCopy {
 }
 
 pub fn parse_op_nop_copy(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_argument("nop-c", value, arg_idx)?;
+    reject_operator_params("nop-c", params, arg_idx)?;
     Ok(create_op_nop_copy())
 }
 pub fn create_op_nop_copy() -> OperatorData {

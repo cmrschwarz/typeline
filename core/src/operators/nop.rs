@@ -1,4 +1,7 @@
-use crate::{chain::Chain, job::JobData, options::argument::CliArgIdx};
+use crate::{
+    chain::Chain, cli::reject_operator_params, job::JobData,
+    options::argument::CliArgIdx,
+};
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
@@ -11,15 +14,10 @@ pub struct OpNop {}
 pub struct TfNop {}
 
 pub fn parse_op_nop(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_some() {
-        return Err(OperatorCreationError::new(
-            "this operator takes no arguments",
-            arg_idx,
-        ));
-    }
+    reject_operator_params("nop", params, arg_idx)?;
     Ok(create_op_nop())
 }
 pub fn create_op_nop() -> OperatorData {

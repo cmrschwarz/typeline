@@ -1,6 +1,6 @@
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::reject_operator_argument,
+    cli::reject_operator_params,
     options::argument::CliArgIdx,
 };
 
@@ -33,10 +33,10 @@ pub fn create_op_end() -> OperatorData {
 }
 
 pub fn parse_op_end(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_argument("end", value, arg_idx)?;
+    reject_operator_params("end", params, arg_idx)?;
     Ok(create_op_end())
 }
 

@@ -1,6 +1,5 @@
-use bstr::ByteSlice;
-
 use crate::{
+    cli::parse_args_as_single_str,
     job::JobData,
     liveness_analysis::{LivenessData, VarLivenessSlotKind},
     options::argument::CliArgIdx,
@@ -25,22 +24,12 @@ pub struct OpSelect {
 pub struct TfSelect {}
 
 pub fn parse_op_select(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let value_str = value
-        .ok_or_else(|| {
-            OperatorCreationError::new(
-                "missing argument with key for select",
-                arg_idx,
-            )
-        })?
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new("key must be valid UTF-8", arg_idx)
-        })?;
+    let val = parse_args_as_single_str("select", params, arg_idx)?;
     Ok(OperatorData::Select(OpSelect {
-        key: value_str.to_owned(),
+        key: val.to_owned(),
         key_interned: None,
         field_is_read: true,
     }))

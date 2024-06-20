@@ -4,6 +4,7 @@ use std::{
 };
 
 pub type StringStoreEntry = NonZeroU32;
+pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry = StringStoreEntry::MAX;
 
 pub struct StringStore {
     arena: Vec<Vec<u8>>,

@@ -972,7 +972,8 @@ impl<'a, 'b> Formattable<'a, 'b> for StreamValue<'_> {
                 }
                 StreamValueDataType::Bytes => w.write_all_text("b\"")?,
                 StreamValueDataType::VariableTypeArray
-                | StreamValueDataType::FixedTypeArray(_) => {
+                | StreamValueDataType::FixedTypeArray(_)
+                | StreamValueDataType::SingleValue(_) => {
                     todo!()
                 }
             }

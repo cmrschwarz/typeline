@@ -11,7 +11,7 @@ use smallstr::SmallString;
 
 use crate::{
     chain::{BufferingMode, Chain},
-    cli::reject_operator_argument,
+    cli::reject_operator_params,
     job::JobData,
     options::argument::CliArgIdx,
     record_data::{
@@ -414,7 +414,7 @@ pub fn argument_matches_op_file_reader(arg: &str) -> bool {
 
 pub fn parse_op_file_reader(
     argument: &str,
-    value: Option<&[u8]>,
+    value: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let args = ARG_REGEX.captures(argument).ok_or_else(|| {
@@ -487,12 +487,12 @@ pub fn parse_op_file(
 }
 
 pub fn parse_op_stdin(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
     lines: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_argument("stdin", value, arg_idx)?;
+    reject_operator_params("stdin", params, arg_idx)?;
     let op = create_op_stdin(insert_count.unwrap_or(0));
     if lines {
         // TODO: create optimized version of this

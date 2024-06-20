@@ -15,6 +15,7 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 use crate::{
+    cli::require_single_operator_param,
     context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
@@ -690,15 +691,10 @@ pub fn parse_format_string(
 }
 
 pub fn parse_op_format(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let val = value.ok_or_else(|| {
-        OperatorCreationError::new(
-            "missing argument for the format operator",
-            arg_idx,
-        )
-    })?;
+    let val = require_single_operator_param("format", params, arg_idx)?;
     let mut refs_str = Vec::new();
     let mut parts = Vec::new();
     parse_format_string(val, &mut refs_str, &mut parts).map_err(
@@ -2133,6 +2129,7 @@ pub fn handle_tf_format_stream_value_update<'a>(
                     inserter.append(StreamValueData::StaticText("\""))
                 }
                 StreamValueDataType::VariableTypeArray
+                | StreamValueDataType::SingleValue(_)
                 | StreamValueDataType::FixedTypeArray(_) => todo!(),
                 StreamValueDataType::MaybeText => unreachable!(),
             }

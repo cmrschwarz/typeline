@@ -1,5 +1,5 @@
 use scr_core::{
-    cli::reject_operator_argument,
+    cli::reject_operator_params,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -54,7 +54,7 @@ pub fn parse_op_flatten(
     value: Option<&[u8]>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_argument("flatten", value, arg_idx)?;
+    reject_operator_params("flatten", value, arg_idx)?;
     Ok(create_op_flatten())
 }
 

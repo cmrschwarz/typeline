@@ -33,7 +33,7 @@ use crate::{
         select::parse_op_select,
         sequence::{parse_op_seq, OpSequenceMode},
         success_updater::create_op_success_updator,
-        to_str::{argument_matches_op_to_str, parse_op_to_str},
+        to_str::parse_op_to_str,
         utils::writable::WritableTarget,
     },
     options::{
@@ -49,6 +49,7 @@ use bstr::ByteSlice;
 
 use num::{FromPrimitive, PrimInt};
 use once_cell::sync::Lazy;
+use smallvec::SmallVec;
 
 use std::{
     borrow::Cow,
@@ -132,9 +133,10 @@ pub struct CliArgument<'a> {
 #[derive(Clone)]
 pub struct ParsedCliArgumentParts<'a> {
     pub argname: &'a str,
-    pub value: Option<&'a [u8]>,
     pub label: Option<&'a str>,
     pub cli_arg: CliArgument<'a>,
+    pub params: SmallVec<[&'a [u8]; 1]>,
+    pub param_args: SmallVec<[CliArgument<'a>; 1]>,
     pub append_mode: bool,
     pub transparent_mode: bool,
 }
@@ -165,31 +167,82 @@ static CLI_ARG_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
     .unwrap()
 });
 
-pub fn reject_operator_argument(
+impl<'a> ParsedCliArgumentParts<'a> {
+    pub fn reject_params(&self) -> Result<(), OperatorCreationError> {
+        reject_operator_params(
+            self.argname,
+            &self.params,
+            Some(self.cli_arg.idx),
+        )
+    }
+    pub fn require_single_operator_param(
+        &self,
+    ) -> Result<&'a [u8], OperatorCreationError> {
+        require_single_operator_param(
+            &self.argname,
+            &*self.params,
+            Some(self.cli_arg.idx),
+        )
+    }
+    pub fn require_single_setting_param(
+        &self,
+    ) -> Result<&'a [u8], OperatorCreationError> {
+        require_single_operator_param(
+            &self.argname,
+            &*self.params,
+            Some(self.cli_arg.idx),
+        )
+    }
+}
+
+pub fn reject_operator_params(
     argname: &str,
-    value: Option<&[u8]>,
+    parameters: &[&[u8]],
     cli_arg_idx: Option<CliArgIdx>,
 ) -> Result<(), OperatorCreationError> {
-    if value.is_some() {
+    if !parameters.is_empty() {
         return Err(OperatorCreationError::new_s(
-            format!("operator `{argname}` does not take an argument"),
+            format!("operator `{argname}` does not take any parameters"),
             cli_arg_idx,
         ));
     }
     Ok(())
 }
 
-pub fn parse_arg_value_as_str<'a>(
+pub fn require_single_setting_param<'a>(
     argname: &str,
-    value: Option<&'a [u8]>,
+    parameters: &[&'a [u8]],
     cli_arg_idx: Option<CliArgIdx>,
-) -> Result<&'a str, OperatorCreationError> {
-    let Some(value) = value else {
+) -> Result<&'a [u8], OperatorCreationError> {
+    if parameters.len() != 1 {
         return Err(OperatorCreationError::new_s(
-            format!("missing argument for operator `{argname}`"),
+            format!("setting `{argname}` requires exactly one parameter"),
             cli_arg_idx,
         ));
-    };
+    }
+    Ok(parameters[0])
+}
+
+pub fn require_single_operator_param<'a>(
+    argname: &str,
+    parameters: &[&'a [u8]],
+    cli_arg_idx: Option<CliArgIdx>,
+) -> Result<&'a [u8], OperatorCreationError> {
+    if parameters.len() != 1 {
+        return Err(OperatorCreationError::new_s(
+            format!("operator `{argname}` requires exactly one parameter"),
+            cli_arg_idx,
+        ));
+    }
+    Ok(parameters[0])
+}
+
+pub fn parse_args_as_single_str<'a>(
+    argname: &str,
+    params: &[&'a [u8]],
+    cli_arg_idx: Option<CliArgIdx>,
+) -> Result<&'a str, OperatorCreationError> {
+    let value = require_single_operator_param(argname, params, cli_arg_idx)?;
     let value_str = value.to_str().map_err(|_| {
         OperatorCreationError::new_s(
             format!("failed to parse `{argname}` parameter (invalid utf-8)",),
@@ -201,7 +254,7 @@ pub fn parse_arg_value_as_str<'a>(
 
 pub fn parse_arg_value_as_number<I>(
     argname: &str,
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     cli_arg_idx: Option<CliArgIdx>,
 ) -> Result<I, OperatorCreationError>
 where
@@ -211,7 +264,7 @@ where
         + FromStr<Err = std::num::ParseIntError>,
 {
     let value_str =
-        parse_arg_value_as_str(argname, value, cli_arg_idx)?.trim();
+        parse_args_as_single_str(argname, params, cli_arg_idx)?.trim();
     let v = parse_int_with_units::<I>(value_str).map_err(|msg| {
         OperatorCreationError::new_s(
             format!(
@@ -225,9 +278,9 @@ where
 
 impl ParsedCliArgumentParts<'_> {
     pub fn reject_value(&self) -> Result<(), OperatorCreationError> {
-        reject_operator_argument(
+        reject_operator_params(
             self.argname,
-            self.value,
+            &self.params,
             Some(self.cli_arg.idx),
         )
     }
@@ -244,21 +297,26 @@ fn try_parse_bool(val: &[u8]) -> Option<bool> {
 }
 
 fn try_parse_bool_arg_or_default(
-    val: Option<&[u8]>,
+    params: &[&[u8]],
     default: bool,
     cli_arg_idx: CliArgIdx,
 ) -> Result<bool, CliArgumentError> {
-    if let Some(val) = val {
-        if let Some(b) = try_parse_bool(val) {
-            Ok(b)
-        } else {
-            Err(CliArgumentError::new(
-                "failed to parse as bool",
-                cli_arg_idx,
-            ))
-        }
+    if params.is_empty() {
+        return Ok(default);
+    }
+    if params.len() > 1 {
+        return Err(CliArgumentError::new(
+            "expected zero or one parameters",
+            cli_arg_idx,
+        ));
+    }
+    if let Some(b) = try_parse_bool(params[0]) {
+        Ok(b)
     } else {
-        Ok(default)
+        Err(CliArgumentError::new(
+            "failed to parse as bool",
+            cli_arg_idx,
+        ))
     }
 }
 fn try_parse_usize_arg(
@@ -291,7 +349,7 @@ fn try_parse_as_context_opt(
         return Err(PrintInfoAndExitError::Version.into());
     }
     if ["--help", "-h", "help", "h"].contains(&arg.argname) {
-        let text = if let Some(v) = arg.value {
+        let text = if let &[v, ..] = &*arg.params {
             let section = String::from_utf8_lossy(v);
             match section.trim().to_lowercase().as_ref() {
                 "cast" => include_str!("help_sections/cast.txt"),
@@ -322,22 +380,19 @@ fn try_parse_as_context_opt(
         return Err(PrintInfoAndExitError::Help(text.into()).into());
     }
     if arg.argname == "tc" {
-        if let Some(val) = arg.value {
-            ctx_opts
-                .max_threads
-                .set(try_parse_usize_arg(val, arg.cli_arg.idx)?, arg_idx)?;
-        } else {
-            return Err(CliArgumentError::new(
-                "missing thread count argument",
-                arg.cli_arg.idx,
-            )
-            .into());
-        }
+        let val = require_single_setting_param(
+            "tc",
+            &arg.params,
+            Some(arg.cli_arg.idx),
+        )?;
+        ctx_opts
+            .max_threads
+            .set(try_parse_usize_arg(val, arg.cli_arg.idx)?, arg_idx)?;
         matched = true;
     }
     if arg.argname == "repl" {
         let enabled =
-            try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
+            try_parse_bool_arg_or_default(&arg.params, true, arg.cli_arg.idx)?;
         if !ctx_opts.allow_repl && enabled {
             return Err(ReplDisabledError {
                 cli_arg_idx: Some(arg.cli_arg.idx),
@@ -357,7 +412,7 @@ fn try_parse_as_context_opt(
             .into());
         }
         let enabled =
-            try_parse_bool_arg_or_default(arg.value, true, arg.cli_arg.idx)?;
+            try_parse_bool_arg_or_default(&arg.params, true, arg.cli_arg.idx)?;
         ctx_opts.exit_repl.set(enabled, arg_idx)?;
         matched = true;
     }
@@ -379,42 +434,35 @@ fn try_parse_as_chain_opt(
     let arg_idx = Some(arg.cli_arg.idx);
     match arg.argname {
         "debug_log" => {
-            if let Some(val) = &arg.value {
-                match val.to_str().ok().and_then(|v| PathBuf::from_str(v).ok())
-                {
-                    Some(path) => {
-                        ctx_opts.debug_log_path.set(path, arg_idx)?;
-                    }
-                    None => {
-                        return Err(CliArgumentError::new(
-                            "invalid path for debug log",
-                            arg.cli_arg.idx,
-                        )
-                        .into());
-                    }
+            let val = require_single_setting_param(
+                "debug_log",
+                &arg.params,
+                Some(arg.cli_arg.idx),
+            )?;
+            match val.to_str().ok().and_then(|v| PathBuf::from_str(v).ok()) {
+                Some(path) => {
+                    ctx_opts.debug_log_path.set(path, arg_idx)?;
                 }
-            } else {
-                return Err(CliArgumentError::new(
-                    "missing argument for debug log path",
-                    arg.cli_arg.idx,
-                )
-                .into());
+                None => {
+                    return Err(CliArgumentError::new(
+                        "invalid path for debug log",
+                        arg.cli_arg.idx,
+                    )
+                    .into());
+                }
             }
         }
         "denc" => {
-            if let Some(_val) = &arg.value {
-                todo!("parse text encoding");
-            } else {
-                return Err(CliArgumentError::new(
-                    "missing argument for default text encoding",
-                    arg.cli_arg.idx,
-                )
-                .into());
-            }
+            let _val = require_single_setting_param(
+                "denc",
+                &arg.params,
+                Some(arg.cli_arg.idx),
+            )?;
+            todo!("parse text encoding");
         }
         "ppenc" => {
             let ppte = try_parse_bool_arg_or_default(
-                arg.value,
+                &arg.params,
                 true,
                 arg.cli_arg.idx,
             )?;
@@ -422,7 +470,7 @@ fn try_parse_as_chain_opt(
         }
         "fenc" => {
             let fte = try_parse_bool_arg_or_default(
-                arg.value,
+                &arg.params,
                 true,
                 arg.cli_arg.idx,
             )?;
@@ -430,7 +478,7 @@ fn try_parse_as_chain_opt(
         }
         "fpm" => {
             let fpm = try_parse_bool_arg_or_default(
-                arg.value,
+                &arg.params,
                 true,
                 arg.cli_arg.idx,
             )?;
@@ -438,51 +486,38 @@ fn try_parse_as_chain_opt(
         }
         "prr" => {
             let prr = try_parse_bool_arg_or_default(
-                arg.value,
+                &arg.params,
                 true,
                 arg.cli_arg.idx,
             )?;
             chain.print_rationals_raw.set(prr, arg_idx)?;
         }
         "bs" => {
-            if let Some(val) = arg.value {
-                let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
-                chain.default_batch_size.set(bs, arg_idx)?;
-            } else {
-                return Err(CliArgumentError::new(
-                    "missing argument for batch size",
-                    arg.cli_arg.idx,
-                )
-                .into());
-            }
+            let bs = try_parse_usize_arg(
+                arg.require_single_setting_param()?,
+                arg.cli_arg.idx,
+            )?;
+            chain.default_batch_size.set(bs, arg_idx)?;
         }
         "sbs" => {
-            if let Some(val) = arg.value {
-                let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
-                chain.stream_buffer_size.set(bs, arg_idx)?;
-            } else {
-                return Err(CliArgumentError::new(
-                    "missing argument for stream buffer size",
-                    arg.cli_arg.idx,
-                )
-                .into());
-            }
+            let bs = try_parse_usize_arg(
+                arg.require_single_setting_param()?,
+                arg.cli_arg.idx,
+            )?;
+            chain.stream_buffer_size.set(bs, arg_idx)?;
         }
         "sst" => {
-            if let Some(val) = arg.value {
-                let bs = try_parse_usize_arg(val, arg.cli_arg.idx)?;
-                chain.stream_size_threshold.set(bs, arg_idx)?;
-            } else {
-                return Err(CliArgumentError::new(
-                    "missing argument for stream size threshold",
-                    arg.cli_arg.idx,
-                )
-                .into());
-            }
+            let bs = try_parse_usize_arg(
+                arg.require_single_setting_param()?,
+                arg.cli_arg.idx,
+            )?;
+            chain.stream_size_threshold.set(bs, arg_idx)?;
         }
         "lb" => {
-            let buffering_mode = if let Some(val) = arg.value {
-                if let Some(v) = try_parse_bool(val) {
+            let mut buffering_mode = BufferingMode::LineBuffer;
+            if !arg.params.is_empty() {
+                let val = arg.require_single_setting_param()?;
+                buffering_mode = if let Some(v) = try_parse_bool(val) {
                     if v {
                         BufferingMode::LineBuffer
                     } else {
@@ -510,9 +545,7 @@ fn try_parse_as_chain_opt(
                         }.into());
                     }
                 }
-            } else {
-                BufferingMode::LineBuffer
-            };
+            }
             chain.buffering_mode.set(buffering_mode, arg_idx)?;
         }
         _ => return Ok(false),
@@ -528,32 +561,36 @@ fn try_parse_operator_data(
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
     let idx = Some(arg.cli_arg.idx);
     if let Some(opts) = try_match_regex_cli_argument(arg.argname, idx)? {
-        return Ok(Some(parse_op_regex(arg.value, idx, opts)?));
+        return Ok(Some(parse_op_regex(&arg.params, idx, opts)?));
     }
-    if argument_matches_op_to_str(arg.argname, arg.value) {
-        return Ok(Some(parse_op_to_str(arg.argname, arg.value, idx)?));
+    if arg.argname == "to_str" {
+        return Ok(Some(parse_op_to_str(arg.argname, &arg.params, idx)?));
     }
     if argument_matches_op_literal(arg.argname) {
         return Ok(Some(parse_op_literal(
             arg.argname,
-            arg.value,
+            &arg.params,
             idx,
             ctx_opts,
         )?));
     }
     if argument_matches_op_file_reader(arg.argname) {
-        return Ok(Some(parse_op_file_reader(arg.argname, arg.value, idx)?));
+        return Ok(Some(parse_op_file_reader(
+            &arg.argname,
+            &arg.params,
+            idx,
+        )?));
     }
     if argument_matches_op_join(arg.argname) {
-        return Ok(Some(parse_op_join(arg.argname, arg.value, idx)?));
+        return Ok(Some(parse_op_join(arg.argname, &arg.params, idx)?));
     }
     if let Some(opts) = argument_matches_op_print(arg.argname) {
-        return Ok(Some(parse_op_print(arg.argname, arg.value, idx, opts)?));
+        return Ok(Some(parse_op_print(arg.argname, &arg.params, idx, opts)?));
     }
     if let Some(op) = match arg.argname {
-        "format" | "f" => Some(parse_op_format(arg.value, idx)?),
-        "key" => Some(parse_op_key(arg.value, idx)?),
-        "select" => Some(parse_op_select(arg.value, idx)?),
+        "format" | "f" => Some(parse_op_format(&arg.params, idx)?),
+        "key" => Some(parse_op_key(&arg.params, idx)?),
+        "select" => Some(parse_op_select(&arg.params, idx)?),
         "seq" => Some(parse_op_seq(arg, OpSequenceMode::Sequence, false)?),
         "seqn" => Some(parse_op_seq(arg, OpSequenceMode::Sequence, true)?),
         "enum" => Some(parse_op_seq(arg, OpSequenceMode::Enum, false)?),
@@ -564,16 +601,16 @@ fn try_parse_operator_data(
         "enumn-u" => {
             Some(parse_op_seq(arg, OpSequenceMode::EnumUnbounded, true)?)
         }
-        "count" => Some(parse_op_count(arg.value, idx)?),
-        "nop" | "scr" => Some(parse_op_nop(arg.value, idx)?),
-        "nop-c" => Some(parse_op_nop_copy(arg.value, idx)?),
-        "fork" => Some(parse_op_fork(arg.value, idx)?),
-        "foreach" | "fe" => Some(parse_op_foreach(arg.value, idx)?),
-        "forkcat" | "fc" => Some(parse_op_forkcat(arg.value, idx)?),
-        "call" | "c" => Some(parse_op_call(arg.value, idx)?),
-        "callcc" | "cc" => Some(parse_op_call_concurrent(arg.value, idx)?),
-        "next" | "n" => Some(parse_op_next(arg.value, idx)?),
-        "end" | "e" => Some(parse_op_end(arg.value, idx)?),
+        "count" => Some(parse_op_count(&arg.params, idx)?),
+        "nop" | "scr" => Some(parse_op_nop(&arg.params, idx)?),
+        "nop-c" => Some(parse_op_nop_copy(&arg.params, idx)?),
+        "fork" => Some(parse_op_fork(&arg.params, idx)?),
+        "foreach" | "fe" => Some(parse_op_foreach(&arg.params, idx)?),
+        "forkcat" | "fc" => Some(parse_op_forkcat(&arg.params, idx)?),
+        "call" | "c" => Some(parse_op_call(&arg.params, idx)?),
+        "callcc" | "cc" => Some(parse_op_call_concurrent(&arg.params, idx)?),
+        "next" | "n" => Some(parse_op_next(&arg.params, idx)?),
+        "end" | "e" => Some(parse_op_end(&arg.params, idx)?),
         _ => None,
     } {
         return Ok(Some(op));
@@ -634,7 +671,7 @@ pub fn parse_cli_argument_parts(
     };
     Ok(ParsedCliArgumentParts {
         argname,
-        value: arg_match.name("value").map(|v| v.as_bytes()),
+        params: arg_match.name("value").map(|v| v.as_bytes()),
         label,
         cli_arg: arg,
         append_mode: arg_match.name("append_mode").is_some(),

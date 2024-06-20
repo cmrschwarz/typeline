@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use bstr::ByteSlice;
-use once_cell::sync::Lazy;
-use regex::Regex;
 
 use crate::{
     job::JobData,
@@ -41,32 +39,24 @@ impl OpToStr {
     }
 }
 
-static ARG_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^to_str(?<force>-f)?$").unwrap());
-
-pub fn argument_matches_op_to_str(arg: &str, value: Option<&[u8]>) -> bool {
-    ARG_REGEX.is_match(arg) && value.is_none()
-}
-
 pub fn parse_op_to_str(
-    argument: &str,
-    value: Option<&[u8]>,
+    _argument: &str,
+    values: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     // this should not happen in the cli parser because it checks using
     // `argument_matches_data_inserter`
-    let args = ARG_REGEX.captures(argument).ok_or_else(|| {
-        OperatorCreationError::new(
-            "invalid argument syntax for to_str",
-            arg_idx,
-        )
-    })?;
-    let force = args.name("force").is_some();
-    if value.is_some() {
-        return Err(OperatorCreationError::new(
-            "the cast operator does not take an argument",
-            arg_idx,
-        ));
+    let mut force = false;
+    match &values {
+        [b"force"] => force = true,
+        [b"f"] => force = true,
+        [] => (),
+        [..] => {
+            return Err(OperatorCreationError::new(
+                "invalid argument syntax for to_str",
+                arg_idx,
+            ));
+        }
     }
 
     Ok(create_op_to_str(None, force))

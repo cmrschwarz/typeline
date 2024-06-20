@@ -7,6 +7,7 @@ use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut};
 
 use crate::{
+    cli::require_single_operator_param,
     job::JobData,
     liveness_analysis::OpOutputIdx,
     options::argument::CliArgIdx,
@@ -306,25 +307,18 @@ pub fn preparse_replace_empty_capture_group<'a>(
 }
 
 pub fn parse_op_regex(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
     opts: RegexOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut output_group_id = 0;
-    let value_str = value
-        .ok_or_else(|| {
-            OperatorCreationError::new(
-                "missing argument for the regex operator",
-                arg_idx,
-            )
-        })?
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new(
-                "regex pattern must be legal UTF-8",
-                arg_idx,
-            )
-        })?;
+    let val = require_single_operator_param("regex", params, arg_idx)?;
+    let value_str = val.to_str().map_err(|_| {
+        OperatorCreationError::new(
+            "regex pattern must be legal UTF-8",
+            arg_idx,
+        )
+    })?;
 
     let (re, empty_group_replacement) = preparse_replace_empty_capture_group(
         value_str, &opts,
@@ -385,13 +379,13 @@ pub fn create_op_regex_b(
     regex: &[u8],
     opts: RegexOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_regex(Some(regex), None, opts)
+    parse_op_regex(&[regex], None, opts)
 }
 pub fn create_op_regex_with_opts(
     regex: &str,
     opts: RegexOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_regex(Some(regex.as_bytes()), None, opts)
+    parse_op_regex(&[regex.as_bytes()], None, opts)
 }
 pub fn create_op_regex(
     regex: &str,
@@ -401,7 +395,7 @@ pub fn create_op_regex(
 
 pub fn create_op_regex_lines() -> OperatorData {
     parse_op_regex(
-        Some("^(?<>.*)$".as_bytes()),
+        &["^(?<>.*)$".as_bytes()],
         None,
         RegexOptions {
             ascii_mode: true,
@@ -415,7 +409,7 @@ pub fn create_op_regex_lines() -> OperatorData {
 
 pub fn create_op_regex_trim_trailing_newline() -> OperatorData {
     parse_op_regex(
-        Some("^(?<>.*?)\n?$".as_bytes()),
+        &["^(?<>.*?)\n?$".as_bytes()],
         None,
         RegexOptions {
             dotall: true,
@@ -1372,7 +1366,7 @@ mod test {
     #[test]
     fn empty_capture_group_does_not_mess_with_error_string() {
         let res = parse_op_regex(
-            Some("?(<>)(".as_bytes()),
+            &["?(<>)(".as_bytes()],
             None,
             RegexOptions::default(),
         );

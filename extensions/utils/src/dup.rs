@@ -1,5 +1,5 @@
 use scr_core::{
-    cli::{parse_arg_value_as_number, reject_operator_argument},
+    cli::{parse_arg_value_as_number, reject_operator_params},
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -176,7 +176,7 @@ pub fn parse_op_dup(
 }
 
 pub fn parse_op_drop(
-    value: Option<&[u8]>,
+    reject_operator_parameters
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     reject_operator_argument("drop", value, arg_idx)?;

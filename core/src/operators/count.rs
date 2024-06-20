@@ -1,5 +1,5 @@
 use crate::{
-    job::JobData, options::argument::CliArgIdx,
+    cli::reject_operator_params, job::JobData, options::argument::CliArgIdx,
     record_data::push_interface::PushInterface,
 };
 
@@ -44,14 +44,10 @@ pub fn handle_tf_count(
 }
 
 pub fn parse_op_count(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_some() {
-        return Err(OperatorCreationError::new(
-            "this operator takes no arguments",
-            arg_idx,
-        ));
-    }
+    reject_operator_params("count", params, arg_idx)?;
+
     Ok(OperatorData::Count(OpCount {}))
 }

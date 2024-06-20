@@ -140,7 +140,7 @@ pub fn argument_matches_op_join(arg: &str) -> bool {
 
 pub fn parse_op_join(
     argument: &str,
-    value: Option<&[u8]>,
+    value: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let args = ARG_REGEX.captures(argument).ok_or_else(|| {

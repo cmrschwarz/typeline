@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 
 use crate::{
-    cli::{parse_arg_value_as_str, ParsedCliArgumentParts},
+    cli::{parse_args_as_single_str, ParsedCliArgumentParts},
     context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData, VarLivenessSlotKind},
@@ -66,8 +66,7 @@ pub enum OpSequenceMode {
 }
 
 #[derive(Clone, Copy)]
-enum TfSequenceMode {
-    #[allow(unused)] // TODO
+pub enum TfSequenceMode {
     Sequence,
     Enum,
     EnumUnbounded,
@@ -76,12 +75,12 @@ enum TfSequenceMode {
 pub struct TfSequence {
     pub non_string_reads: bool,
     pub ss: SequenceSpec,
-    current_value: i64,
-    mode: TfSequenceMode,
-    iter_id: IterId,
-    actor_id: ActorId,
-    seq_len_total: u64,
-    group_track_iter_ref: Option<GroupTrackIterRef>,
+    pub current_value: i64,
+    pub mode: TfSequenceMode,
+    pub iter_id: IterId,
+    pub actor_id: ActorId,
+    pub seq_len_total: u64,
+    pub group_track_iter_ref: Option<GroupTrackIterRef>,
 }
 
 pub fn build_tf_sequence<'a>(
@@ -250,7 +249,7 @@ pub fn parse_op_seq(
 ) -> Result<OperatorData, OperatorCreationError> {
     let arg_idx = Some(arg.cli_arg.idx);
     if matches!(mode, OpSequenceMode::Enum | OpSequenceMode::EnumUnbounded)
-        && arg.value.is_none()
+        && arg.params.is_empty()
     {
         return create_op_sequence_with_opts(
             i64::from(natural_number_mode),
@@ -260,7 +259,7 @@ pub fn parse_op_seq(
             arg_idx,
         );
     }
-    let value_str = parse_arg_value_as_str("seq", arg.value, arg_idx)?;
+    let value_str = parse_args_as_single_str("seq", &arg.params, arg_idx)?;
     let parts: ArrayVec<&str, 4> = value_str.split(',').take(4).collect();
     if parts.len() == 4 {
         return Err(OperatorCreationError::new(

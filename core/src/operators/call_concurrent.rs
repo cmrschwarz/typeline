@@ -3,10 +3,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bstr::ByteSlice;
-
 use crate::{
     chain::ChainId,
+    cli::parse_args_as_single_str,
     context::{ContextData, SessionSettings, VentureDescription},
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
@@ -86,26 +85,12 @@ impl Drop for TfCalleeConcurrent {
 }
 
 pub fn parse_op_call_concurrent(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let value_str = value
-        .ok_or_else(|| {
-            // ENHANCE: implicitly start subchain if callcc has no argument
-            OperatorCreationError::new(
-                "missing argument with target chain name",
-                arg_idx,
-            )
-        })?
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new(
-                "target chain name must be valid UTF-8",
-                arg_idx,
-            )
-        })?;
+    let target = parse_args_as_single_str("callcc", params, arg_idx)?;
     Ok(OperatorData::CallConcurrent(OpCallConcurrent {
-        target_name: value_str.to_owned(),
+        target_name: target.to_owned(),
         target_resolved: None,
         target_accessed_fields: Vec::new(),
     }))

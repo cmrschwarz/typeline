@@ -6,7 +6,8 @@ use std::{
 use arrayvec::ArrayVec;
 
 use super::{
-    debuggable_nonmax::DebuggableNonMaxUsize, indexing_type::IndexingType,
+    debuggable_nonmax::DebuggableNonMaxUsize, get_three_distinct_mut,
+    indexing_type::IndexingType,
 };
 
 use super::get_two_distinct_mut;
@@ -198,9 +199,32 @@ impl<I: IndexingType, T> Universe<I, T> {
         let (a, b) = get_two_distinct_mut(&mut self.data, idx1, idx2);
         (a.as_option_mut(), b.as_option_mut())
     }
+    pub fn get_three_distinct_mut(
+        &mut self,
+        id1: I,
+        id2: I,
+        id3: I,
+    ) -> (Option<&mut T>, Option<&mut T>, Option<&mut T>) {
+        let idx1 = id1.into_usize();
+        let idx2 = id2.into_usize();
+        let idx3 = id3.into_usize();
+
+        let (a, b, c) =
+            get_three_distinct_mut(&mut self.data, idx1, idx2, idx3);
+        (a.as_option_mut(), b.as_option_mut(), c.as_option_mut())
+    }
     pub fn two_distinct_mut(&mut self, id1: I, id2: I) -> (&mut T, &mut T) {
         let (a, b) = self.get_two_distinct_mut(id1, id2);
         (a.unwrap(), b.unwrap())
+    }
+    pub fn three_distinct_mut(
+        &mut self,
+        id1: I,
+        id2: I,
+        id3: I,
+    ) -> (&mut T, &mut T, &mut T) {
+        let (a, b, c) = self.get_three_distinct_mut(id1, id2, id3);
+        (a.unwrap(), b.unwrap(), c.unwrap())
     }
 }
 

@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
-use bstr::ByteSlice;
-
 use crate::{
     chain::ChainId,
+    cli::parse_args_as_single_str,
     job::{Job, JobData},
     options::argument::CliArgIdx,
     record_data::{
@@ -36,26 +35,13 @@ pub struct TfCall {
 }
 
 pub fn parse_op_call(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let value_str = value
-        .ok_or_else(|| {
-            OperatorCreationError::new(
-                "missing argument with target chain name",
-                arg_idx,
-            )
-        })?
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new(
-                "target chain name must be valid UTF-8",
-                arg_idx,
-            )
-        })?;
+    let target = parse_args_as_single_str("call", params, arg_idx)?;
     Ok(OperatorData::Call(OpCall {
         lazy: true,
-        target_name: value_str.to_owned(),
+        target_name: target.to_owned(),
         target_resolved: None,
     }))
 }

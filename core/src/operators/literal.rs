@@ -7,7 +7,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    cli::parse_arg_value_as_str,
+    cli::{parse_args_as_single_str, require_single_operator_param},
     job::JobData,
     options::{
         argument::CliArgIdx, chain_options::DEFAULT_CHAIN_OPTIONS,
@@ -306,11 +306,12 @@ pub fn parse_op_error(
 }
 
 pub fn parse_op_int(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     insert_count: Option<usize>,
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let value_str = parse_arg_value_as_str("int", value, arg_idx)?;
+    let value = require_single_operator_param("int", params, arg_idx)?;
+    let value_str = parse_args_as_single_str("int", value, arg_idx)?;
 
     let data = if let Ok(i) = str::parse::<i64>(value_str) {
         Literal::Int(i)
@@ -454,7 +455,7 @@ pub fn argument_matches_op_literal(arg: &str) -> bool {
 
 pub fn parse_op_literal(
     argument: &str,
-    value: Option<&[u8]>,
+    value: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
     sess: &SessionOptions,
 ) -> Result<OperatorData, OperatorCreationError> {

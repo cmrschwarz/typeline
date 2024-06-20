@@ -106,6 +106,7 @@ pub enum StreamValueDataType {
     Bytes,
     VariableTypeArray,
     FixedTypeArray(FieldValueKind),
+    SingleValue(FieldValueKind),
 }
 
 pub struct StreamValue<'a> {
@@ -163,6 +164,7 @@ impl StreamValueDataType {
             StreamValueDataType::Bytes | StreamValueDataType::MaybeText => {
                 FieldValueKind::Bytes
             }
+            StreamValueDataType::SingleValue(kind) => *kind,
             StreamValueDataType::VariableTypeArray
             | StreamValueDataType::FixedTypeArray(_) => FieldValueKind::Array,
         }
@@ -760,6 +762,7 @@ impl<'a> StreamValue<'a> {
                 self.data.clear();
                 self.data.push_back(StreamValueData::from_bytes(res));
             }
+            StreamValueDataType::SingleValue(_) => todo!(),
             StreamValueDataType::VariableTypeArray => todo!(),
 
             StreamValueDataType::FixedTypeArray(_) => todo!(),
@@ -868,8 +871,7 @@ impl<'a> StreamValue<'a> {
             return true;
         }
         if let Some(e) = error {
-            self.done = true;
-            self.error = Some(e.clone());
+            self.set_error(e.clone());
             return true;
         }
         false

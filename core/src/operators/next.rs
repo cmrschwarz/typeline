@@ -1,4 +1,4 @@
-use crate::options::argument::CliArgIdx;
+use crate::{cli::reject_operator_params, options::argument::CliArgIdx};
 
 use super::{errors::OperatorCreationError, operator::OperatorData};
 
@@ -6,15 +6,10 @@ use super::{errors::OperatorCreationError, operator::OperatorData};
 pub struct OpNext {}
 
 pub fn parse_op_next(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_some() {
-        return Err(OperatorCreationError::new(
-            "this operator takes no arguments",
-            arg_idx,
-        ));
-    }
+    reject_operator_params("next", params, arg_idx)?;
     Ok(OperatorData::Next(OpNext {}))
 }
 pub fn create_op_next() -> OperatorData {

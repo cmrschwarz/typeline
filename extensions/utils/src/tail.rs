@@ -1,5 +1,5 @@
 use scr_core::{
-    cli::parse_arg_value_as_str,
+    cli::parse_args_as_single_str,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -220,13 +220,13 @@ pub fn create_op_tail_add(count: usize) -> OperatorData {
 }
 
 pub fn parse_op_tail(
-    value: Option<&[u8]>,
+    params: &[&[u8]],
     arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_none() {
+    if params.is_none() {
         return Ok(create_op_tail(1));
     };
-    let value_str = parse_arg_value_as_str("tail", value, arg_idx)?.trim();
+    let value_str = parse_args_as_single_str("tail", params, arg_idx)?.trim();
     let add_mode = value_str.starts_with('+');
     let count = parse_int_with_units::<isize>(value_str)
         .map_err(|msg| {

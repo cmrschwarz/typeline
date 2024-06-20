@@ -1,11 +1,12 @@
 use std::{
     collections::VecDeque,
     ffi::{OsStr, OsString},
-    io::{stdout, Read, Write},
-    os::unix::ffi::{OsStrExt, OsStringExt},
-    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command},
+    io::{Read, Write},
+    process::{Child, Command},
+    sync::Arc,
 };
 
+use bstr::ByteSlice;
 use metamatch::metamatch;
 use scr_core::{
     chain::ChainId,
@@ -37,6 +38,7 @@ use scr_core::{
         action_buffer::ActorRef,
         field::{FieldId, FieldIterRef},
         field_data::{field_value_flags, FieldValueRepr},
+        field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         formattable::{NumberFormat, RealizedFormatKey, TypeReprFormat},
@@ -56,22 +58,27 @@ use scr_core::{
     },
     smallbox,
     utils::{
-        int_string_conversions::i64_to_str, string_store::StringStoreEntry,
-        text_write::TextWriteIoAdapter, universe::Universe,
+        int_string_conversions::i64_to_str,
+        maybe_text::MaybeText,
+        string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
+        universe::Universe,
     },
 };
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct OpExec {
     fmt_parts: Vec<FormatPart>,
     refs_str: Vec<Option<String>>,
     refs_idx: Vec<Option<StringStoreEntry>>,
     fmt_arg_part_ends: Vec<usize>,
+    stderr_field_name: StringStoreEntry,
+    exit_code_field_name: StringStoreEntry,
 }
 
 struct CommandArgs {
     stdin_sv: Option<StreamValueId>,
     args: Vec<OsString>,
+    stdin_data: Vec<u8>,
     error: Option<OperatorApplicationError>,
 }
 
@@ -81,6 +88,7 @@ struct RunningCommand {
     proc: Child,
     stdout_sv_id: StreamValueId,
     stderr_sv_id: StreamValueId,
+    exit_code_sv_id: StreamValueId,
 }
 
 type RunningCommandIdx = usize;
@@ -92,6 +100,7 @@ pub struct TfExec<'a> {
     running_command_ids: VecDeque<RunningCommandIdx>,
     running_commands: Universe<RunningCommandIdx, RunningCommand>,
     stderr_field: FieldId,
+    exit_code_field: FieldId,
     input_iter: FieldIterRef,
 }
 
@@ -116,6 +125,8 @@ impl Operator for OpExec {
         for r in std::mem::take(&mut self.refs_str) {
             self.refs_idx.push(r.map(|r| string_store.intern_moved(r)));
         }
+        self.stderr_field_name = string_store.intern_cloned("stderr");
+        self.exit_code_field_name = string_store.intern_cloned("exit_code");
         Ok(())
     }
 
@@ -217,18 +228,18 @@ impl Operator for OpExec {
                 iter_id: jd.field_mgr.claim_iter(field_id, iter_kind),
             });
         }
-        let stderr_name = jd
-            .session_data
-            .string_store
-            .write()
-            .unwrap()
-            .intern_cloned("stderr");
 
         drop(ab);
         let stderr_field = jd.field_mgr.add_field(
             &mut jd.match_set_mgr,
             tf_state.match_set_id,
-            Some(stderr_name),
+            Some(self.stderr_field_name),
+            actor_ref,
+        );
+        let exit_code_field = jd.field_mgr.add_field(
+            &mut jd.match_set_mgr,
+            tf_state.match_set_id,
+            Some(self.exit_code_field_name),
             actor_ref,
         );
 
@@ -245,16 +256,72 @@ impl Operator for OpExec {
                         .field_mgr
                         .claim_iter(tf_state.input_field, iter_kind),
                     field_id: tf_state.input_field
-                }
+                },
+                exit_code_field
             }
         )))
     }
 }
 
 impl<'a> TfExec<'a> {
-    fn push_bytes(&mut self, cmd_idx: usize, arg_idx: usize, data: &[u8]) {
-        let os_str = OsStr::from_bytes(data); // TODO: windows
-        self.command_args[cmd_idx].args[arg_idx].push(os_str);
+    fn push_text(&mut self, cmd_idx: usize, arg_idx: usize, text: &str) {
+        if arg_idx == 0 {
+            // TODO: maybe consider converting the encoding on non unix?
+            self.command_args[cmd_idx]
+                .stdin_data
+                .extend_from_slice(text.as_bytes());
+            return;
+        }
+        self.command_args[cmd_idx].args[arg_idx - 1].push(text);
+    }
+    #[cfg_attr(target_family = "unix", allow(unused))]
+    fn push_bytes(
+        &mut self,
+        op_id: OperatorId,
+        cmd_idx: usize,
+        mut arg_idx: usize,
+        data: &[u8],
+    ) {
+        if arg_idx == 0 {
+            self.command_args[cmd_idx]
+                .stdin_data
+                .extend_from_slice(data);
+            return;
+        }
+        arg_idx -= 1;
+        #[cfg(target_family = "unix")]
+        {
+            let os_str =
+                <OsStr as std::os::unix::ffi::OsStrExt>::from_bytes(data);
+            self.command_args[cmd_idx].args[arg_idx].push(os_str);
+            return;
+        }
+        #[allow(unreachable_code)]
+        {
+            let cmd_args = &mut self.command_args[cmd_idx];
+            if cmd_args.error.is_some() {
+                return;
+            }
+            match data.to_os_str() {
+                Ok(data) => {
+                    cmd_args.args[arg_idx].push(data);
+                }
+                Err(e) => {
+                    let err = if arg_idx == 0 {
+                        OperatorApplicationError::new(
+                            "invalid utf-8 in program name",
+                            op_id,
+                        )
+                    } else {
+                        OperatorApplicationError::new_s(
+                            format!("invalid utf-8 in cli argument {arg_idx}"),
+                            op_id,
+                        )
+                    };
+                    cmd_args.error = Some(err);
+                }
+            }
+        }
     }
     fn push_error(&mut self, cmd_idx: usize, err: OperatorApplicationError) {
         self.command_args[cmd_idx].error = Some(err)
@@ -275,35 +342,23 @@ impl<'a> TfExec<'a> {
             field_value_flags::DEFAULT,
         ) {
             metamatch!(match range.base.data {
-                FieldValueSlice::TextInline(text) => {
-                    for v in RefAwareInlineTextIter::from_range(&range, text)
-                        .unfold_rl()
-                    {
-                        self.push_bytes(cmd_idx, arg_idx, v.as_bytes());
+                #[expand((T, ITER) in [
+                    (TextInline, RefAwareInlineTextIter),
+                    (TextBuffer, RefAwareTextBufferIter),
+                ])]
+                FieldValueSlice::T(text) => {
+                    for v in ITER::from_range(&range, text).unfold_rl() {
+                        self.push_text(cmd_idx, arg_idx, v);
                         cmd_idx += 1;
                     }
                 }
-                FieldValueSlice::BytesInline(bytes) => {
-                    for v in RefAwareInlineBytesIter::from_range(&range, bytes)
-                        .unfold_rl()
-                    {
-                        self.push_bytes(cmd_idx, arg_idx, v);
-                        cmd_idx += 1;
-                    }
-                }
-                FieldValueSlice::TextBuffer(text) => {
-                    for v in RefAwareTextBufferIter::from_range(&range, text)
-                        .unfold_rl()
-                    {
-                        self.push_bytes(cmd_idx, arg_idx, v.as_bytes());
-                        cmd_idx += 1;
-                    }
-                }
-                FieldValueSlice::BytesBuffer(bytes) => {
-                    for v in RefAwareBytesBufferIter::from_range(&range, bytes)
-                        .unfold_rl()
-                    {
-                        self.push_bytes(cmd_idx, arg_idx, v);
+                #[expand((T, ITER) in [
+                    (BytesInline, RefAwareInlineBytesIter),
+                    (BytesBuffer, RefAwareBytesBufferIter),
+                ])]
+                FieldValueSlice::T(bytes) => {
+                    for v in ITER::from_range(&range, bytes).unfold_rl() {
+                        self.push_bytes(op_id, cmd_idx, arg_idx, v);
                         cmd_idx += 1;
                     }
                 }
@@ -313,7 +368,12 @@ impl<'a> TfExec<'a> {
                     {
                         let v = i64_to_str(false, *v);
                         for _ in 0..rl {
-                            self.push_bytes(cmd_idx, arg_idx, v.as_bytes());
+                            self.push_bytes(
+                                op_id,
+                                cmd_idx,
+                                arg_idx,
+                                v.as_bytes(),
+                            );
                             cmd_idx += 1;
                         }
                     }
@@ -324,10 +384,10 @@ impl<'a> TfExec<'a> {
                         custom_types,
                     ) {
                         // TODO //PERF
-                        let mut buf = Vec::new();
+                        let mut buf = MaybeText::default();
 
                         match v.format_raw(
-                            &mut TextWriteIoAdapter(&mut buf),
+                            &mut buf,
                             &RealizedFormatKey::default(),
                         ) {
                             Err(e) => {
@@ -346,14 +406,22 @@ impl<'a> TfExec<'a> {
 
                             Ok(()) => {
                                 for _ in 0..rl {
-                                    self.push_bytes(cmd_idx, arg_idx, &buf);
+                                    if let Some(text) = buf.as_str() {
+                                        self.push_text(cmd_idx, arg_idx, text);
+                                    } else {
+                                        self.push_bytes(
+                                            op_id,
+                                            cmd_idx,
+                                            arg_idx,
+                                            buf.as_bytes(),
+                                        );
+                                    }
                                     cmd_idx += 1;
                                 }
                             }
                         }
                     }
                 }
-
                 FieldValueSlice::Error(errs) => {
                     for e in
                         RefAwareFieldValueRangeIter::from_range(&range, errs)
@@ -363,7 +431,6 @@ impl<'a> TfExec<'a> {
                         cmd_idx += 1;
                     }
                 }
-
                 FieldValueSlice::StreamValueId(svs) => {
                     if arg_idx == 0 {
                         for &sv in RefAwareFieldValueRangeIter::from_range(
@@ -454,10 +521,8 @@ impl<'a> Transform<'a> for TfExec<'a> {
 
         for _ in 0..batch_size {
             let command_args = CommandArgs {
-                args: vec![
-                    OsString::new();
-                    self.op.fmt_arg_part_ends.len() + 1
-                ],
+                stdin_data: Vec::new(),
+                args: vec![OsString::new(); self.op.fmt_arg_part_ends.len()],
                 error: None,
                 stdin_sv: None,
             };
@@ -481,12 +546,12 @@ impl<'a> Transform<'a> for TfExec<'a> {
                 match fmt_part {
                     FormatPart::ByteLiteral(bytes) => {
                         for i in 0..batch_size {
-                            self.push_bytes(i, arg_idx + 1, bytes);
+                            self.push_bytes(op_id, i, arg_idx + 1, bytes);
                         }
                     }
                     FormatPart::TextLiteral(text) => {
                         for i in 0..batch_size {
-                            self.push_bytes(i, arg_idx + 1, text.as_bytes());
+                            self.push_text(i, arg_idx + 1, text);
                         }
                     }
                     FormatPart::Key(fmt_key) => {
@@ -514,10 +579,16 @@ impl<'a> Transform<'a> for TfExec<'a> {
         let mut stderr_inserter =
             stderr_field.iter_hall.varying_type_inserter();
 
+        let mut exit_code_field =
+            jd.field_mgr.fields[self.exit_code_field].borrow_mut();
+        let mut exit_code_inserter =
+            exit_code_field.iter_hall.varying_type_inserter();
+
         for cmd_idx in 0..batch_size {
             if let Some(e) = self.command_args[cmd_idx].error.take() {
                 stderr_inserter.push_error(e.clone(), 1, true, false);
-                stdout_inserter.push_error(e, 1, true, false);
+                stdout_inserter.push_error(e.clone(), 1, true, false);
+                exit_code_inserter.push_error(e, 1, true, false);
                 continue;
             }
             let ca = &mut self.command_args[cmd_idx];
@@ -533,16 +604,24 @@ impl<'a> Transform<'a> for TfExec<'a> {
                             Some(StreamValueDataType::Bytes),
                             StreamValueBufferMode::Stream,
                         ));
+                    let exit_code_stream =
+                        jd.sv_mgr.claim_stream_value(StreamValue::new_empty(
+                            Some(StreamValueDataType::SingleValue(
+                                FieldValueKind::Int,
+                            )),
+                            StreamValueBufferMode::Stream,
+                        ));
                     let cmd_id = self.running_commands.claim_with_value(
                         RunningCommand {
                             proc,
                             stdout_sv_id: stdout_stream,
                             stderr_sv_id: stderr_stream,
-                            stdin_data: std::mem::take(&mut ca.args[0])
-                                .into_vec(),
+                            exit_code_sv_id: exit_code_stream,
+                            stdin_data: std::mem::take(&mut ca.stdin_data),
                             stdin_offset: 0,
                         },
                     );
+
                     self.running_command_ids.push_back(cmd_id);
                     stderr_inserter.push_stream_value_id(
                         stdout_stream,
@@ -556,15 +635,23 @@ impl<'a> Transform<'a> for TfExec<'a> {
                         true,
                         false,
                     );
+                    exit_code_inserter.push_stream_value_id(
+                        exit_code_stream,
+                        1,
+                        true,
+                        false,
+                    );
                 }
                 Err(e) => {
                     let e =
                         OperatorApplicationError::new_s(e.to_string(), op_id);
                     stderr_inserter.push_error(e.clone(), 1, true, false);
-                    stdout_inserter.push_error(e, 1, true, false);
+                    stdout_inserter.push_error(e.clone(), 1, true, false);
+                    exit_code_inserter.push_error(e, 1, true, false);
                 }
             }
         }
+        jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
     }
 
     fn stream_producer_update(
@@ -573,53 +660,105 @@ impl<'a> Transform<'a> for TfExec<'a> {
         tf_id: TransformId,
     ) {
         let batch_size = 1024; // TODO: configure properly
+        let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
         for &cmd_id in &self.running_command_ids {
             let cmd = &mut self.running_commands[cmd_id];
+            let (stdout_sv, stderr_sv, exit_code_sv) =
+                jd.sv_mgr.stream_values.three_distinct_mut(
+                    cmd.stdout_sv_id,
+                    cmd.stderr_sv_id,
+                    cmd.exit_code_sv_id,
+                );
 
-            let mut stdout_inserter = jd.sv_mgr.stream_values
-                    [cmd.stdout_sv_id]
-                    .data_inserter(cmd.stdout_sv_id, batch_size, true);
-            let mut stderr_inserter = jd.sv_mgr.stream_values
-                    [cmd.stdout_sv_id]
-                    .data_inserter(cmd.stdout_sv_id, batch_size, true);
+            let mut stdout_inserter =
+                stdout_sv.data_inserter(cmd.stdout_sv_id, batch_size, true);
+            let mut stderr_inserter =
+                stderr_sv.data_inserter(cmd.stdout_sv_id, batch_size, true);
+            let mut exit_code_inserter = exit_code_sv.data_inserter(
+                cmd.exit_code_sv_id,
+                batch_size,
+                true,
+            );
 
-            let stdin_done = true;
+            let mut res = Ok(None);
 
-            if let Some(stdin) =  cmd.proc.stdin {
+            if let Some(stdin) = &mut cmd.proc.stdin {
                 if cmd.stdin_data.len() > cmd.stdin_offset {
-                    match  stdin.write(&cmd.stdin_data[cmd.stdin_offset..]) {
-                        Ok(0) => {cmd.proc.stdin.take();},
+                    match stdin.write(&cmd.stdin_data[cmd.stdin_offset..]) {
+                        Ok(0) => {
+                            cmd.proc.stdin.take();
+                        }
                         Ok(n) => {
                             cmd.stdin_offset += n;
-                            stdin_done = false;
-                        },
+                        }
                         Err(e) => {
-                            let err = Arc::new(OperatorApplicationError)
-                            stdout_inserter.propagate_error(error)
+                            res = Err(e);
                         }
                     }
-
                 }
-
-            }
-
-            let mut stdout_ok = true;
-            if let Some(stdout) = &mut cmd.proc.stdout {
-
-                match  stdout_inserter.with_bytes_buffer(|buf| stdout.read(buf)) {
-                    Ok(0) => cmd.proc.try_wait()
-                }
-
             }
             if res.is_ok() {
-
-                res = stderr_inserter
-                    .with_bytes_buffer(|buf| cmd.stdout.read(buf));
+                if let Some(stdout) = &mut cmd.proc.stdout {
+                    res = match stdout_inserter
+                        .with_bytes_buffer(|buf| stdout.read(buf))
+                    {
+                        Ok(0) => cmd.proc.try_wait(),
+                        Ok(_n) => Ok(None),
+                        Err(e) => Err(e),
+                    }
+                }
+            }
+            if res.is_ok() {
+                if let Some(stderr) = &mut cmd.proc.stderr {
+                    res = match stderr_inserter
+                        .with_bytes_buffer(|buf| stderr.read(buf))
+                    {
+                        Ok(0) => cmd.proc.try_wait(),
+                        Ok(_n) => Ok(None),
+                        Err(e) => Err(e),
+                    }
+                }
+            }
+            let mut res = res.map_err(|e| {
+                OperatorApplicationError::new_s(
+                    format!(
+                        "program communication failed with I/O Error: {e}"
+                    ),
+                    op_id,
+                )
+            });
+            let mut done = false;
+            if let Ok(Some(code)) = res {
+                if !code.success() {
+                    res = Err(OperatorApplicationError::new_s(
+                        format!("program exited with code {code}"),
+                        op_id,
+                    ));
+                }
+                done = true;
             }
             if let Err(e) = res {
-                todo!()
+                let e = Some(Arc::new(e));
+                stdout_inserter.propagate_error(&e);
+                stderr_inserter.propagate_error(&e);
+                exit_code_inserter.propagate_error(&e);
+                done = true;
             }
-            if let Ok()
+            drop(stdout_inserter);
+            drop(stderr_inserter);
+            drop(exit_code_inserter);
+            for sv_id in
+                [cmd.stdout_sv_id, cmd.stderr_sv_id, cmd.exit_code_sv_id]
+            {
+                jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+                if done {
+                    jd.sv_mgr
+                        .drop_field_value_subscription(sv_id, Some(tf_id));
+                }
+            }
+            if done {
+                self.running_commands.release(cmd_id);
+            }
         }
     }
 
@@ -658,7 +797,9 @@ pub fn parse_op_exec(
         fmt_parts: parts,
         refs_idx: Vec::with_capacity(refs.len()),
         refs_str: refs,
-        fmt_arg_part_ends
+        fmt_arg_part_ends,
+        stderr_field_name: INVALID_STRING_STORE_ENTRY,
+        exit_code_field_name: INVALID_STRING_STORE_ENTRY
     })))
 }
 
