@@ -39,25 +39,24 @@ pub enum OperatorArgValue<'a> {
 
 #[derive(Clone)]
 pub struct OperatorArg<'a> {
-    value: OperatorArgValue<'a>,
-    span: Span,
+    pub value: OperatorArgValue<'a>,
+    pub span: Span,
 }
 
 #[derive(Clone, Copy)]
 pub struct Label<'a> {
-    value: &'a str,
-    is_atom: bool,
-    span: Span,
+    pub value: &'a str,
+    pub is_atom: bool,
+    pub span: Span,
 }
 
 #[derive(Clone)]
 pub struct OperatorCallExpr<'a> {
     pub append_mode: bool,
     pub transparent_mode: bool,
-    pub begins_scope: bool,
     pub op_name: &'a str,
     pub label: Option<Label<'a>>,
-    pub args: SmallVec<[OperatorArg<'a>; 1]>,
+    pub args: Vec<OperatorArg<'a>>,
     pub span: Span,
 }
 
@@ -123,6 +122,38 @@ impl Span {
             }
             Span::Generated => Span::Generated,
             Span::Builtin => Span::Builtin,
+        }
+    }
+    pub fn span_until(&self, end: Span) -> Result<Span, ()> {
+        match (*self, end) {
+            (
+                Span::CliArg {
+                    start,
+                    offset_start,
+                    end: _,
+                    offset_end: _,
+                },
+                Span::CliArg {
+                    start: _,
+                    offset_start: _,
+                    end,
+                    offset_end,
+                },
+            ) => Ok(Span::CliArg {
+                start,
+                end,
+                offset_start,
+                offset_end,
+            }),
+            (
+                Span::MacroExpansion { op_id: op_start },
+                Span::MacroExpansion { op_id: op_end },
+            ) if op_start == op_end => {
+                Ok(Span::MacroExpansion { op_id: op_start })
+            }
+            (Span::Generated, Span::Generated) => Ok(Span::Generated),
+            (Span::Builtin, Span::Builtin) => Ok(Span::Builtin),
+            (_, _) => Err(()),
         }
     }
 }

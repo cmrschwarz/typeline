@@ -155,7 +155,7 @@ impl ContextBuilder {
     }
     pub fn add_label(mut self, label: String) -> Self {
         self.ref_terminate_current_aggregate();
-        self.opts.add_label(label);
+        self.opts.add_chain(label);
         self
     }
     pub fn add_op(self, op_data: OperatorData) -> Self {

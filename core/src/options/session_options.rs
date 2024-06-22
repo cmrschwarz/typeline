@@ -152,7 +152,7 @@ impl SessionOptions {
         self.init_op(op_id, true);
         op_id
     }
-    pub fn add_label(&mut self, label: String) {
+    pub fn add_chain(&mut self, label: String) {
         let new_chain_id = self.chains.next_idx();
         let curr_chain = &mut self.chains[self.curr_chain];
         let new_chain = ChainOptions {
