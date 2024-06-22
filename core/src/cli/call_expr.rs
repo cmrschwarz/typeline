@@ -1,8 +1,7 @@
-use std::{borrow::Cow, fmt::Display, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 
 use bstr::ByteSlice;
 use num::{FromPrimitive, PrimInt};
-use serde_json::value;
 use smallvec::SmallVec;
 
 use crate::{
@@ -429,7 +428,7 @@ impl<'a> Iterator for ParsedArgsIter<'a> {
                 return self.next();
             }
             if !self.flags_over && value.starts_with(&[b'-']) {
-                if let Some((mut begin, mut end, _char)) =
+                if let Some((begin, end, _char)) =
                     value[1..].char_indices().next()
                 {
                     self.flag_offset = Some(end);

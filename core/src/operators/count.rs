@@ -1,6 +1,6 @@
 use crate::{
     cli::call_expr::OperatorCallExpr, job::JobData,
-    options::argument::CliArgIdx, record_data::push_interface::PushInterface,
+     record_data::push_interface::PushInterface,
 };
 
 use super::{

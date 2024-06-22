@@ -6,8 +6,6 @@ use crate::{
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
 
-use super::argument::CliArgIdx;
-
 #[derive(Clone)]
 pub struct OperatorBaseOptions {
     pub argname: StringStoreEntry,

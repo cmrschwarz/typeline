@@ -19,7 +19,6 @@ use crate::{
     context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
-    options::argument::CliArgIdx,
     record_data::{
         field::{Field, FieldIterRef, FieldManager},
         field_data::{

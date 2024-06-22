@@ -5,13 +5,12 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use once_cell::sync::Lazy;
-use regex::Regex;
+use bstr::ByteSlice;
 use smallstr::SmallString;
 
 use crate::{
     chain::{BufferingMode, Chain},
-    cli::call_expr::{OperatorCallExpr, ParsedArgValue},
+    cli::call_expr::{OperatorCallExpr, ParsedArgValue, Span},
     job::JobData,
     record_data::{
         field_data::INLINE_STR_MAX_LEN,
@@ -403,66 +402,87 @@ pub fn handle_tf_file_reader(
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 
-static ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(?<kind>~bytes|~str|file|stdin|in)(?<insert_count>[0-9]+)?(?<lines>-l)?$").unwrap()
-});
+fn parse_lines_flag(
+    expr: &OperatorCallExpr,
+    flag: &[u8],
+    span: Span,
+) -> Result<bool, OperatorCreationError> {
+    if flag == b"l" || flag == b"lines" {
+        return Ok(true);
+    }
+    return Err(expr.error_flag_value_unsupported(flag, span));
+}
 
-pub fn argument_matches_op_file_reader(arg: &str) -> bool {
-    ARG_REGEX.is_match(arg)
+fn parse_named_arg_count(
+    expr: &OperatorCallExpr,
+    key: &[u8],
+    value: &[u8],
+    span: Span,
+) -> Result<usize, OperatorCreationError> {
+    if key == b"n" || key == b"count" {
+        let value = value
+            .to_str()
+            .map_err(|_| expr.error_arg_invalid_utf8(key, span))?;
+        return Ok(value
+            .parse::<usize>()
+            .map_err(|_| expr.error_arg_invalid_int(key, span))?);
+    }
+    Err(expr.error_named_arg_unsupported(key, span))
 }
 
 pub fn parse_op_file_reader(
     expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let args = ARG_REGEX.captures(argument).ok_or_else(|| {
-        // can't happen from cli because of argument_matches_op_file_reader
-        OperatorCreationError::new(
-            "invalid argument syntax for file reader",
-            arg_idx,
-        )
-    })?;
-    let insert_count = args
-        .name("insert_count")
-        .map(|ic| {
-            ic.as_str().parse::<usize>().map_err(|_| {
-                OperatorCreationError::new(
-                    "failed to parse insertion count as an integer",
-                    arg_idx,
-                )
-            })
-        })
-        .transpose()?;
-
-    let lines = args.name("lines").is_some();
+    let mut count = None;
     let mut lines = false;
-    let mut insert_count = None;
     let mut value = None;
-
-    for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
+    for arg in expr.parsed_args_iter_with_bounded_positionals(0, 1) {
         let arg = arg?;
         match arg.value {
-            ParsedArgValue::Flag(flag) => {}
-            ParsedArgValue::NamedArg { key, value } => {
-                todo!()
+            ParsedArgValue::Flag(flag) => {
+                lines = parse_lines_flag(expr, flag, arg.span)?;
             }
-            ParsedArgValue::PositionalArg { idx, value } => todo!(),
+            ParsedArgValue::NamedArg { key, value } => {
+                count =
+                    Some(parse_named_arg_count(expr, key, value, arg.span)?);
+            }
+            ParsedArgValue::PositionalArg { value: v, .. } => {
+                value = Some(v.expect_plain(expr.op_name, arg.span)?);
+            }
         }
     }
+    build_op_file(value.unwrap(), count, lines, expr.span)
+}
 
-    match expr.op_name {
-        "file" => build_op_file(value, insert_count, lines),
-        "stdin" | "in" => build_op_stdin(insert_count, lines),
-        _ => unreachable!(),
+pub fn parse_op_stdin(
+    expr: &OperatorCallExpr,
+) -> Result<OperatorData, OperatorCreationError> {
+    let mut count = None;
+    let mut lines = false;
+    for arg in expr.parsed_args_iter() {
+        match arg.value {
+            ParsedArgValue::Flag(flag) => {
+                lines = parse_lines_flag(expr, flag, arg.span)?;
+            }
+            ParsedArgValue::NamedArg { key, value } => {
+                count =
+                    Some(parse_named_arg_count(expr, key, value, arg.span)?);
+            }
+            ParsedArgValue::PositionalArg { .. } => {
+                return Err(expr.error_positional_args_unsupported(arg.span));
+            }
+        }
     }
+    Ok(build_op_stdin(count, lines))
 }
 
 pub fn build_op_file(
-    value: Option<&[u8]>,
+    value: &[u8],
     insert_count: Option<usize>,
     lines: bool,
-    span: Span,
+    #[cfg_attr(unix, allow(unused))] span: Span,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let path = if let Some(value) = value {
+    let path = {
         #[cfg(unix)]
         {
             use std::ffi::OsStr;
@@ -480,11 +500,6 @@ pub fn build_op_file(
                 )
             })?)
         }
-    } else {
-        return Err(OperatorCreationError::new(
-            "missing path argument for file",
-            span,
-        ));
     };
     let op = create_op_file(path, insert_count.unwrap_or(0));
     if lines {
@@ -501,17 +516,17 @@ pub fn build_op_file(
 pub fn build_op_stdin(
     insert_count: Option<usize>,
     lines: bool,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> OperatorData {
     let op = create_op_stdin(insert_count.unwrap_or(0));
     if lines {
         // TODO: create optimized version of this
-        return Ok(create_multi_op([
+        return create_multi_op([
             op,
             create_op_regex_trim_trailing_newline(),
             create_op_regex_lines(),
-        ]));
+        ]);
     }
-    Ok(op)
+    op
 }
 
 // insert count 0 means all input will be consumed

@@ -3,9 +3,8 @@ use std::sync::Arc;
 use bstr::ByteSlice;
 
 use crate::{
-    cli::call_expr::{OperatorArg, OperatorCallExpr, ParsedArgValue},
+    cli::call_expr::{OperatorCallExpr, ParsedArgValue},
     job::JobData,
-    options::argument::CliArgIdx,
     record_data::{
         field_value_ref::FieldValueSlice,
         iter_hall::{IterId, IterKind},

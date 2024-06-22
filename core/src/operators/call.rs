@@ -4,7 +4,6 @@ use crate::{
     chain::ChainId,
     cli::call_expr::OperatorCallExpr,
     job::{Job, JobData},
-    options::argument::CliArgIdx,
     record_data::{
         field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
     },

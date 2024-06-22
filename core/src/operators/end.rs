@@ -1,7 +1,6 @@
 use crate::{
     chain::{ChainId, SubchainIndex},
     cli::call_expr::OperatorCallExpr,
-    options::argument::CliArgIdx,
 };
 
 use super::{

@@ -10,25 +10,22 @@ use crate::{
         count::parse_op_count,
         end::parse_op_end,
         errors::OperatorCreationError,
-        file_reader::{
-            argument_matches_op_file_reader, create_op_stdin,
-            parse_op_file_reader,
-        },
+        file_reader::{create_op_stdin, parse_op_file_reader, parse_op_stdin},
         foreach::parse_op_foreach,
         fork::parse_op_fork,
         forkcat::parse_op_forkcat,
         format::parse_op_format,
-        join::{argument_matches_op_join, parse_op_join},
+        join::parse_op_join,
         key::parse_op_key,
-        literal::{op_name_matches_op_literal, parse_op_literal},
+        literal::{
+            parse_op_bytes, parse_op_error, parse_op_int,
+            parse_op_literal_zst, parse_op_str, parse_op_tyson,
+            parse_op_tyson_value, Literal,
+        },
         next::parse_op_next,
         nop::parse_op_nop,
-        nop_copy::parse_op_nop_copy,
         operator::{OperatorData, OperatorId},
-        print::{
-            argument_matches_op_print, create_op_print_with_opts,
-            parse_op_print, PrintOptions,
-        },
+        print::{create_op_print_with_opts, parse_op_print, PrintOptions},
         regex::parse_op_regex,
         select::parse_op_select,
         sequence::{parse_op_seq, OpSequenceMode},
@@ -40,14 +37,16 @@ use crate::{
         argument::CliArgIdx, operator_base_options::OperatorBaseOptions,
         session_options::SessionOptions,
     },
+    record_data::field_value::FieldValueKind,
     scr_error::{ContextualizedScrError, ReplDisabledError, ScrError},
-    utils::indexing_type::IndexingType,
+    utils::{index_vec::IndexSlice, indexing_type::IndexingType},
 };
 pub mod call_expr;
 use bstr::ByteSlice;
 
-use call_expr::{OperatorArg, OperatorCallExpr, Span};
+use call_expr::{OperatorCallExpr, Span};
 use once_cell::sync::Lazy;
+use ref_cast::RefCast;
 
 use std::{
     borrow::Cow,
@@ -348,22 +347,30 @@ fn try_parse_operator_data(
     ctx_opts: &mut SessionOptions,
     expr: &OperatorCallExpr,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
-    if expr.op_name == "to_str" {
-        return Ok(Some(parse_op_to_str(expr)?));
-    }
-    if op_name_matches_op_literal(expr.op_name) {
-        return Ok(Some(parse_op_literal(expr, ctx_opts)?));
-    }
-    if argument_matches_op_file_reader(expr.op_name) {
-        return Ok(Some(parse_op_file_reader(expr)?));
-    }
-    if argument_matches_op_join(expr.op_name) {
-        return Ok(Some(parse_op_join(expr)?));
-    }
     Ok(Some(match expr.op_name {
+        "int" => parse_op_int(expr)?,
+        "bytes" => parse_op_bytes(expr, false)?,
+        "~bytes" => parse_op_bytes(expr, true)?,
+        "str" => parse_op_str(expr, false)?,
+        "~str" => parse_op_str(expr, true)?,
+        "object" => parse_op_tyson(expr, FieldValueKind::Object, ctx_opts)?,
+        "array" => parse_op_tyson(expr, FieldValueKind::Array, ctx_opts)?,
+        "float" => parse_op_tyson(expr, FieldValueKind::Float, ctx_opts)?,
+        "rational" => {
+            parse_op_tyson(expr, FieldValueKind::Rational, ctx_opts)?
+        }
+        "v" | "value" | "tyson" => parse_op_tyson_value(expr, Some(ctx_opts))?,
+        "error" => parse_op_error(expr, false)?,
+        "~error" => parse_op_error(expr, true)?,
+        "null" => parse_op_literal_zst(expr, Literal::Null)?,
+        "undefined" => parse_op_literal_zst(expr, Literal::Undefined)?,
+        "to_str" => parse_op_to_str(expr)?,
+        "join" | "j" => parse_op_join(expr)?,
         "r" | "regex" => parse_op_regex(expr)?,
         "print" | "p" => parse_op_print(expr)?,
         "format" | "f" => parse_op_format(expr)?,
+        "file" => parse_op_file_reader(expr)?,
+        "stdin" | "in" => parse_op_stdin(expr)?,
         "key" => parse_op_key(expr)?,
         "select" => parse_op_select(expr)?,
         "seq" => parse_op_seq(expr, OpSequenceMode::Sequence, false)?,
@@ -403,26 +410,29 @@ pub fn add_op_from_arg_and_op_data_uninit(
             argname,
             label,
             arg.transparent_mode,
-            Some(arg.cli_arg.idx),
+            arg.span,
         ),
         op_data,
     )
 }
 pub fn parse_cli_argument_parts(
-    arg: CliArgument,
+    args: &[Vec<u8>],
+    arg_idx: &mut usize,
 ) -> Result<OperatorCallExpr, CliArgumentError> {
-    let Some(arg_match) = CLI_ARG_REGEX.captures(arg.value) else {
-        return Err(CliArgumentError::new(
-            "invalid argument syntax",
-            arg.span,
-        ));
+    let arg_str = &args[*arg_idx];
+    let span = Span::CliArg {
+        start: arg_idx,
+        end: CliArgIdx::from_usize(*arg_idx + 1),
+        offset_start: 0,
+        offset_end: arg_str.len() as u16,
+    };
+
+    let Some(arg_match) = CLI_ARG_REGEX.captures(&arg_str) else {
+        return Err(CliArgumentError::new("invalid argument syntax", span));
     };
     let argname = from_utf8(arg_match.name("argname").unwrap().as_bytes())
         .map_err(|_| {
-            CliArgumentError::new(
-                "argument name must be valid UTF-8",
-                arg.span,
-            )
+            CliArgumentError::new("argument name must be valid UTF-8", span)
         })?;
     if let Some(modes) = arg_match.name("modes") {
         let modes_str = modes.as_bytes();
@@ -431,13 +441,13 @@ pub fn parse_cli_argument_parts(
         {
             return Err(CliArgumentError::new(
                 "operator modes cannot be specified twice",
-                arg.span,
+                span,
             ));
         }
     }
     let label = if let Some(lbl) = arg_match.name("label") {
         Some(from_utf8(lbl.as_bytes()).map_err(|_| {
-            CliArgumentError::new("label must be valid UTF-8", arg.span)
+            CliArgumentError::new("label must be valid UTF-8", span)
         })?)
     } else {
         None
@@ -446,7 +456,7 @@ pub fn parse_cli_argument_parts(
         op_name: argname,
         args: arg_match.name("value").map(|v| v.as_bytes()),
         label,
-        span: arg.span,
+        span,
         append_mode: arg_match.name("append_mode").is_some(),
         transparent_mode: arg_match.name("transparent_mode").is_some(),
     })
@@ -478,8 +488,7 @@ pub fn parse_cli_retain_args(
     );
 
     // primarily for skipping the executable name
-    let mut arg_idx =
-        CliArgIdx::from_usize(usize::from(cli_opts.skip_first_arg));
+    let mut arg_idx = usize::from(cli_opts.skip_first_arg);
 
     if args.len() <= arg_idx {
         return Err(MissingArgumentsError.into());
@@ -495,7 +504,7 @@ pub fn parse_cli_retain_args(
             ctx_opts.string_store.intern_cloned("stdin"),
             None,
             false,
-            None,
+            Span::Generated,
         );
         let op_data = create_op_stdin(1);
         last_non_append_op_id = Some(ctx_opts.add_op(op_base_opts, op_data));
@@ -503,24 +512,14 @@ pub fn parse_cli_retain_args(
     while arg_idx < args.len() {
         let arg_str = &args[arg_idx];
 
-        let cli_arg = CliArgument {
-            value: arg_str,
-            span: Span::CliArg {
-                start: arg_idx,
-                end: arg_idx + CliArgIdx::one(),
-            },
-        };
-
-        arg_idx += CliArgIdx::one();
+        arg_idx += 1;
 
         if try_parse_label(&mut ctx_opts, arg_str) {
             continue;
         }
 
-        let arg = parse_cli_argument_parts(cli_arg)?;
-        if let Some(op_data) =
-            try_parse_operator_data(&mut ctx_opts, &arg, args, &mut arg_idx)?
-        {
+        let arg = parse_cli_argument_parts(args, &mut arg_idx)?;
+        if let Some(op_data) = try_parse_operator_data(&mut ctx_opts, &arg)? {
             let prev_op_appendable = curr_op_appendable;
             curr_op_appendable = op_data.can_be_appended();
             let op_id = add_op_from_arg_and_op_data_uninit(
@@ -608,7 +607,7 @@ pub fn parse_cli_retain_args(
                 .intern_cloned(&op_data.default_op_name()),
             None,
             false,
-            None,
+            Span::Generated,
         );
         ctx_opts.add_op(op_base_opts, op_data);
     }
@@ -620,7 +619,7 @@ pub fn parse_cli_retain_args(
                 .intern_cloned(&op_data.default_op_name()),
             None,
             false,
-            None,
+            Span::Generated,
         );
         ctx_opts.add_op(op_base_opts, op_data);
     }
@@ -634,7 +633,7 @@ pub fn parse_cli_raw(
 ) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
     match parse_cli_retain_args(&args, cli_opts, extensions) {
         Ok(mut ctx) => {
-            ctx.cli_args = Some(args);
+            ctx.cli_args = Some(args.into());
             Ok(ctx)
         }
         Err(e) => Err((args, e)),
@@ -649,7 +648,7 @@ pub fn parse_cli(
     parse_cli_raw(args, cli_opts, extensions).map_err(|(args, err)| {
         ContextualizedScrError::from_scr_error(
             err,
-            Some(&args),
+            Some(IndexSlice::ref_cast(&args)),
             Some(&cli_opts),
             None,
             None,

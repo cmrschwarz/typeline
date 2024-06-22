@@ -294,7 +294,7 @@ pub fn parse_insert_count_reject_value(
             ParsedArgValue::Flag(flag) => {
                 return Err(expr.error_flag_value_unsupported(flag, arg.span));
             }
-            ParsedArgValue::PositionalArg { value: v, .. } => {
+            ParsedArgValue::PositionalArg { .. } => {
                 return Err(expr.error_positional_args_unsupported(arg.span))
             }
         }
@@ -464,29 +464,6 @@ pub fn parse_op_tyson_value(
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;
     build_op_tyson_value(value, value_span, insert_count, sess)
-}
-
-pub fn parse_op_literal(
-    expr: &OperatorCallExpr,
-    sess: &SessionOptions,
-) -> Result<OperatorData, OperatorCreationError> {
-    match expr.op_name {
-        "int" => parse_op_int(expr),
-        "bytes" => parse_op_bytes(expr, false),
-        "~bytes" => parse_op_bytes(expr, true),
-        "str" => parse_op_str(expr, false),
-        "~str" => parse_op_str(expr, true),
-        "object" => parse_op_tyson(expr, FieldValueKind::Object, sess),
-        "array" => parse_op_tyson(expr, FieldValueKind::Array, sess),
-        "float" => parse_op_tyson(expr, FieldValueKind::Float, sess),
-        "rational" => parse_op_tyson(expr, FieldValueKind::Rational, sess),
-        "v" | "value" | "tyson" => parse_op_tyson_value(expr, Some(sess)),
-        "error" => parse_op_error(expr, false),
-        "~error" => parse_op_error(expr, true),
-        "null" => parse_op_literal_zst(expr, Literal::Null),
-        "undefined" => parse_op_literal_zst(expr, Literal::Undefined),
-        _ => unreachable!(),
-    }
 }
 
 pub fn create_op_literal_with_insert_count(

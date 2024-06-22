@@ -1,13 +1,13 @@
 use std::{collections::VecDeque, sync::Arc};
 
+use bstr::ByteSlice;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    cli::call_expr::OperatorCallExpr,
+    cli::call_expr::{OperatorCallExpr, ParsedArgValue, Span},
     job::{JobData, TransformManager},
-    options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId,
         custom_data::CustomData,
@@ -142,30 +142,47 @@ pub fn argument_matches_op_join(arg: &str) -> bool {
 pub fn parse_op_join(
     expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let args = ARG_REGEX.captures(argument).ok_or_else(|| {
-        OperatorCreationError::new("invalid argument syntax for join", arg_idx)
-    })?;
-    let insert_count = args
-        .name("insert_count")
-        .map(|ic| {
-            ic.as_str().parse::<usize>().map_err(|_| {
-                OperatorCreationError::new(
-                    "failed to parse insertion count as an integer",
-                    arg_idx,
-                )
-            })
-        })
-        .transpose()?;
-    let drop_incomplete = args.name("drop_incomplete").is_some();
-    if drop_incomplete && insert_count.is_none() {
+    let mut count = None;
+    let mut drop_incomplete = false;
+    let mut drop_incomplete_span = Span::Generated;
+    let mut value = None;
+    for arg in expr.parsed_args_iter_with_bounded_positionals(0, 1) {
+        let arg = arg?;
+        match arg.value {
+            ParsedArgValue::Flag(flag) => {
+                if flag == b"d" || flag == b"drop_incomplete" {
+                    drop_incomplete = true;
+                    drop_incomplete_span = arg.span;
+                    continue;
+                }
+                return Err(expr.error_flag_value_unsupported(flag, arg.span));
+            }
+            ParsedArgValue::NamedArg { key, value } => {
+                if key == b"n" || key == b"count" {
+                    let value = value.to_str().map_err(|_| {
+                        expr.error_arg_invalid_utf8(key, arg.span)
+                    })?;
+                    count = Some(value.parse::<usize>().map_err(|_| {
+                        expr.error_arg_invalid_int(key, arg.span)
+                    })?);
+                    continue;
+                }
+                return Err(expr.error_named_arg_unsupported(key, arg.span));
+            }
+            ParsedArgValue::PositionalArg { value: v, .. } => {
+                value = Some(v.expect_plain(expr.op_name, arg.span)?);
+            }
+        }
+    }
+    if drop_incomplete && count.is_none() {
         return Err(OperatorCreationError::new(
-            "the 'd' option for join is only available in combination with a set size",
-            arg_idx,
+            "drop incomplete (-d) is only available in combination with a fixed join count (-n)",
+            drop_incomplete_span,
         ));
     }
     Ok(create_op_join(
         value.map(MaybeText::from_bytes_try_str),
-        insert_count,
+        count,
         drop_incomplete,
     ))
 }
