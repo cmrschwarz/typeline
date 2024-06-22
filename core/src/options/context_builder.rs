@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    cli::call_expr::Span,
     context::{Context, SessionData},
     extension::ExtensionRegistry,
     operators::{
@@ -60,7 +61,7 @@ impl ContextBuilder {
                 .intern_cloned(argname.unwrap_or(default_name().as_str())),
             label.map(|lbl| self.opts.string_store.intern_cloned(lbl)),
             transparent_mode,
-            None,
+            Span::Generated,
         )
     }
     fn add_op_uninit(
@@ -345,25 +346,25 @@ impl ContextBuilder {
 
 impl ContextBuilder {
     pub fn set_max_thread_count(mut self, j: usize) -> Self {
-        self.opts.max_threads.force_set(j, None);
+        self.opts.max_threads.force_set(j, Span::Generated);
         self
     }
     pub fn set_batch_size(mut self, bs: usize) -> Self {
         self.opts.chains[self.opts.curr_chain]
             .default_batch_size
-            .force_set(bs, None);
+            .force_set(bs, Span::Generated);
         self
     }
     pub fn set_stream_buffer_size(mut self, sbs: usize) -> Self {
         self.opts.chains[self.opts.curr_chain]
             .stream_buffer_size
-            .force_set(sbs, None);
+            .force_set(sbs, Span::Generated);
         self
     }
     pub fn set_stream_size_threshold(mut self, sbs: usize) -> Self {
         self.opts.chains[self.opts.curr_chain]
             .stream_size_threshold
-            .force_set(sbs, None);
+            .force_set(sbs, Span::Generated);
         self
     }
 }

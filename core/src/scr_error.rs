@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::{
     chain::ChainId,
     cli::{
-        CliArgumentError, CliOptions, MissingArgumentsError,
+        call_expr::Span, CliArgumentError, CliOptions, MissingArgumentsError,
         PrintInfoAndExitError,
     },
     context::SessionData,
@@ -24,6 +24,7 @@ use crate::{
         session_options::SessionOptions,
     },
     record_data::{field_data::FieldValueRepr, field_value::FieldValueKind},
+    utils::{index_vec::IndexSlice, indexing_type::IndexingType},
 };
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -46,7 +47,7 @@ impl ChainSetupError {
 #[error("{message}")]
 pub struct ReplDisabledError {
     pub message: &'static str,
-    pub cli_arg_idx: Option<CliArgIdx>,
+    pub span: Span,
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -99,7 +100,7 @@ pub struct ContextualizedScrError {
 impl ContextualizedScrError {
     pub fn from_scr_error(
         err: ScrError,
-        args: Option<&Vec<Vec<u8>>>,
+        args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
         cli_opts: Option<&CliOptions>,
         ctx_opts: Option<&SessionOptions>,
         sess: Option<&SessionData>,
@@ -126,21 +127,46 @@ pub fn result_into<T, E, EFrom: Into<E>>(
         Err(e) => Err(e.into()),
     }
 }
-fn contextualize_cli_arg(
+fn contextualize_span(
     msg: &str,
-    args: Option<&Vec<Vec<u8>>>,
-    cli_arg_idx: CliArgIdx,
+    args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
+    span: Span,
     skipped_first_cli_arg: bool,
 ) -> String {
-    if let Some(args) = args {
-        format!(
-            "in cli arg {} `{}`: {}",
-            cli_arg_idx + u32::from(!skipped_first_cli_arg),
-            String::from_utf8_lossy(&args[cli_arg_idx as usize]),
-            msg
-        )
-    } else {
-        msg.to_owned()
+    let cli_arg_offset =
+        CliArgIdx::from_usize(usize::from(!skipped_first_cli_arg));
+    match span {
+        Span::CliArg {
+            start,
+            end,
+            offset_start,
+            offset_end,
+        } => {
+            if start == end {
+                if let Some(args) = args {
+                    format!(
+                        "in cli arg {} `{}`: {msg}",
+                        start + cli_arg_offset,
+                        String::from_utf8_lossy(
+                            &args[start]
+                                [offset_start as usize..offset_end as usize]
+                        ),
+                    )
+                } else {
+                    format!("in cli arg {}: {msg}", start + cli_arg_offset,)
+                }
+            } else {
+                format!(
+                    "in cli args {}:-{}: {msg}",
+                    start + cli_arg_offset,
+                    end + cli_arg_offset,
+                )
+            }
+        }
+        Span::MacroExpansion { op_id } => {
+            format!("in macro expansion of op {op_id}: {msg}")
+        }
+        Span::Generated | Span::Builtin => msg.to_string(),
     }
 }
 
@@ -160,20 +186,18 @@ fn was_first_cli_arg_skipped(
 fn contextualize_op_id(
     msg: &str,
     op_id: OperatorId,
-    args: Option<&Vec<Vec<u8>>>,
+    args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
     cli_opts: Option<&CliOptions>,
     ctx_opts: Option<&SessionOptions>,
     sess: Option<&SessionData>,
 ) -> String {
-    let cli_arg_id = ctx_opts
-        .and_then(|o| o.operator_base_options[op_id].cli_arg_idx)
-        .or_else(|| {
-            sess.and_then(|sess| sess.operator_bases[op_id].cli_arg_idx)
-        });
-    if let (Some(args), Some(cli_arg_id)) = (args, cli_arg_id) {
+    let span = ctx_opts
+        .map(|o| o.operator_base_options[op_id].span)
+        .or_else(|| sess.map(|sess| sess.operator_bases[op_id].span));
+    if let (Some(args), Some(span)) = (args, span) {
         let first_arg_skipped =
             was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
-        contextualize_cli_arg(msg, Some(args), cli_arg_id, first_arg_skipped)
+        contextualize_span(msg, Some(args), span, first_arg_skipped)
     } else if let Some(sess) = sess {
         let op_base = &sess.operator_bases[op_id];
         // TODO: stringify chain id
@@ -196,7 +220,7 @@ impl ScrError {
     // PERF: could avoid allocations by taking a &impl Write
     pub fn contextualize_message(
         &self,
-        args: Option<&Vec<Vec<u8>>>,
+        args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
         cli_opts: Option<&CliOptions>,
         ctx_opts: Option<&SessionOptions>,
         sess: Option<&SessionData>,
@@ -204,45 +228,31 @@ impl ScrError {
         let first_arg_skipped =
             was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
         let args_gathered = args
-            .or_else(|| ctx_opts.and_then(|o| o.cli_args.as_ref()))
-            .or_else(|| sess.and_then(|sess| sess.cli_args.as_ref()));
+            .or_else(|| {
+                ctx_opts.and_then(|o| o.cli_args.as_ref().map(|a| &**a))
+            })
+            .or_else(|| {
+                sess.and_then(|sess| sess.cli_args.as_ref().map(|a| &**a))
+            });
         match self {
-            ScrError::CliArgumentError(e) => contextualize_cli_arg(
+            ScrError::CliArgumentError(e) => contextualize_span(
                 &e.message,
                 args_gathered,
-                e.cli_arg_idx,
+                e.span,
                 first_arg_skipped,
             ),
-            ScrError::ArgumentReassignmentError(e) => {
-                match (args_gathered, e.prev_cli_arg_idx, e.cli_arg_idx) {
-                    (Some(args), Some(prev_arg_idx), Some(arg_idx)) => {
-                        format!(
-                            "in cli arg {arg_idx} `{}`: {ARGUMENT_REASSIGNMENT_ERROR_MESSAGE} (at cli arg {prev_arg_idx} `{}`)",
-                            String::from_utf8_lossy(&args[arg_idx as usize - 1]),
-                            String::from_utf8_lossy(&args[prev_arg_idx as usize - 1]),
-                        )
-                    }
-                    (_, _, Some(arg_idx)) => contextualize_cli_arg(
-                        ARGUMENT_REASSIGNMENT_ERROR_MESSAGE,
-                        args_gathered,
-                        arg_idx,
-                        first_arg_skipped,
-                    ),
-                    _ => ARGUMENT_REASSIGNMENT_ERROR_MESSAGE.to_string(),
-                }
-            }
-            ScrError::ReplDisabledError(e) => {
-                if let Some(cli_arg_idx) = e.cli_arg_idx {
-                    contextualize_cli_arg(
-                        e.message,
-                        args_gathered,
-                        cli_arg_idx,
-                        first_arg_skipped,
-                    )
-                } else {
-                    e.message.to_string()
-                }
-            }
+            ScrError::ArgumentReassignmentError(e) => contextualize_span(
+                ARGUMENT_REASSIGNMENT_ERROR_MESSAGE,
+                args_gathered,
+                e.reassignment_span,
+                first_arg_skipped,
+            ),
+            ScrError::ReplDisabledError(e) => contextualize_span(
+                e.message,
+                args_gathered,
+                e.span,
+                first_arg_skipped,
+            ),
             ScrError::ChainSetupError(e) => e.to_string(),
             ScrError::OperationCreationError(e) => e.message.to_string(),
             ScrError::OperationSetupError(e) => contextualize_op_id(

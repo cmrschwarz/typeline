@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     chain::ChainId,
-    cli::parse_args_as_single_str,
+    cli::call_expr::OperatorCallExpr,
     job::{Job, JobData},
     options::argument::CliArgIdx,
     record_data::{
@@ -35,10 +35,9 @@ pub struct TfCall {
 }
 
 pub fn parse_op_call(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let target = parse_args_as_single_str("call", params, arg_idx)?;
+    let target = expr.require_single_string_param()?;
     Ok(OperatorData::Call(OpCall {
         lazy: true,
         target_name: target.to_owned(),

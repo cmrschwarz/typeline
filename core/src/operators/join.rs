@@ -5,6 +5,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
+    cli::call_expr::OperatorCallExpr,
     job::{JobData, TransformManager},
     options::argument::CliArgIdx,
     record_data::{
@@ -139,9 +140,7 @@ pub fn argument_matches_op_join(arg: &str) -> bool {
 }
 
 pub fn parse_op_join(
-    argument: &str,
-    value: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let args = ARG_REGEX.captures(argument).ok_or_else(|| {
         OperatorCreationError::new("invalid argument syntax for join", arg_idx)

@@ -2,7 +2,7 @@ use std::{borrow::Cow, cmp::Ordering};
 
 use thiserror::Error;
 
-use crate::options::argument::CliArgIdx;
+use crate::cli::call_expr::Span;
 
 use super::operator::OperatorId;
 
@@ -10,8 +10,8 @@ use super::operator::OperatorId;
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("{message}")]
 pub struct OperatorCreationError {
-    pub cli_arg_idx: Option<CliArgIdx>,
     pub message: Cow<'static, str>,
+    pub span: Span,
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -36,16 +36,16 @@ pub enum OperatorApplicationError {
 }
 
 impl OperatorCreationError {
-    pub fn new(message: &'static str, cli_arg_idx: Option<CliArgIdx>) -> Self {
+    pub fn new(message: &'static str, span: Span) -> Self {
         Self {
             message: message.into(),
-            cli_arg_idx,
+            span,
         }
     }
-    pub fn new_s(message: String, cli_arg_idx: Option<CliArgIdx>) -> Self {
+    pub fn new_s(message: String, span: Span) -> Self {
         Self {
             message: message.into(),
-            cli_arg_idx,
+            span,
         }
     }
 }

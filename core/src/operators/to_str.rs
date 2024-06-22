@@ -3,6 +3,7 @@ use std::sync::Arc;
 use bstr::ByteSlice;
 
 use crate::{
+    cli::call_expr::{OperatorArg, OperatorCallExpr, ParsedArgValue},
     job::JobData,
     options::argument::CliArgIdx,
     record_data::{
@@ -40,22 +41,29 @@ impl OpToStr {
 }
 
 pub fn parse_op_to_str(
-    _argument: &str,
-    values: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     // this should not happen in the cli parser because it checks using
     // `argument_matches_data_inserter`
     let mut force = false;
-    match &values {
-        [b"force"] => force = true,
-        [b"f"] => force = true,
-        [] => (),
-        [..] => {
-            return Err(OperatorCreationError::new(
-                "invalid argument syntax for to_str",
-                arg_idx,
-            ));
+
+    for arg in expr.parsed_args_iter() {
+        match arg.value {
+            ParsedArgValue::Flag(flag) => {
+                if flag == b"f" || flag == b"force" {
+                    force = true;
+                } else {
+                    return Err(
+                        expr.error_flag_value_unsupported(flag, arg.span)
+                    );
+                }
+            }
+            ParsedArgValue::NamedArg { .. } => {
+                return Err(expr.error_named_args_unsupported(arg.span))
+            }
+            ParsedArgValue::PositionalArg { .. } => {
+                return Err(expr.error_positional_args_unsupported(arg.span))
+            }
         }
     }
 

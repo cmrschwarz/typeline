@@ -1,6 +1,6 @@
 use crate::{
-    cli::reject_operator_params, job::JobData, options::argument::CliArgIdx,
-    record_data::push_interface::PushInterface,
+    cli::call_expr::OperatorCallExpr, job::JobData,
+    options::argument::CliArgIdx, record_data::push_interface::PushInterface,
 };
 
 use super::{
@@ -44,10 +44,8 @@ pub fn handle_tf_count(
 }
 
 pub fn parse_op_count(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params("count", params, arg_idx)?;
-
+    expr.reject_params()?;
     Ok(OperatorData::Count(OpCount {}))
 }

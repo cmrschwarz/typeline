@@ -7,14 +7,13 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::{Chain, ChainId, SubchainIndex},
-    cli::reject_operator_params,
+    cli::call_expr::OperatorCallExpr,
     context::ContextData,
     job::{Job, JobData},
     liveness_analysis::{
         LivenessData, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
     operators::operator::OperatorOffsetInChain,
-    options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorRef, field::FieldId, group_track::GroupTrackId,
         iter_hall::IterId, match_set::MatchSetId,
@@ -67,10 +66,9 @@ pub struct TfFork<'a> {
 }
 
 pub fn parse_op_fork(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params("fork", params, arg_idx);
+    expr.reject_params()?;
     Ok(OperatorData::Fork(OpFork {
         subchains_start: SubchainIndex::zero(),
         subchains_end: SubchainIndex::zero(),

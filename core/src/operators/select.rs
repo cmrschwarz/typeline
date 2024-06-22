@@ -1,8 +1,7 @@
 use crate::{
-    cli::parse_args_as_single_str,
+    cli::call_expr::OperatorCallExpr,
     job::JobData,
     liveness_analysis::{LivenessData, VarLivenessSlotKind},
-    options::argument::CliArgIdx,
     utils::{
         indexing_type::IndexingType,
         string_store::{StringStore, StringStoreEntry},
@@ -24,10 +23,9 @@ pub struct OpSelect {
 pub struct TfSelect {}
 
 pub fn parse_op_select(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let val = parse_args_as_single_str("select", params, arg_idx)?;
+    let val = expr.require_single_string_param()?;
     Ok(OperatorData::Select(OpSelect {
         key: val.to_owned(),
         key_interned: None,

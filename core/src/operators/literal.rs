@@ -2,16 +2,13 @@ use std::sync::Arc;
 
 use bstr::ByteSlice;
 use num::{BigInt, BigRational};
-use once_cell::sync::Lazy;
-use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    cli::{parse_args_as_single_str, require_single_operator_param},
+    cli::call_expr::{OperatorCallExpr, ParsedArgValue, Span},
     job::JobData,
     options::{
-        argument::CliArgIdx, chain_options::DEFAULT_CHAIN_OPTIONS,
-        session_options::SessionOptions,
+        chain_options::DEFAULT_CHAIN_OPTIONS, session_options::SessionOptions,
     },
     record_data::{
         array::Array,
@@ -223,48 +220,24 @@ pub fn handle_tf_literal(
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 pub fn parse_op_literal_zst(
-    arg: &str,
+    expr: &OperatorCallExpr,
     literal: Literal,
-    value: Option<&[u8]>,
-    insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_some() {
-        return Err(OperatorCreationError {
-            message: format!("{arg} takes no argument").into(),
-            cli_arg_idx: arg_idx,
-        });
-    }
+    let insert_count = parse_insert_count_reject_value(expr)?;
     Ok(OperatorData::Literal(OpLiteral {
         data: literal,
         insert_count,
     }))
 }
 pub fn parse_op_str(
-    value: Option<&[u8]>,
-    insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
-    stream_str: bool,
+    expr: &OperatorCallExpr,
+    stream: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let tilde = if stream_str { "~" } else { "" };
-    let value_str = value
-        .ok_or_else(|| {
-            OperatorCreationError::new_s(
-                format!("missing value for {tilde}str"),
-                arg_idx,
-            )
-        })?
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new_s(
-                format!("{tilde}str argument must be valid UTF-8, consider using {tilde}bytes=..."
-            ),
-                arg_idx,
-            )
-        })?;
-    let value_owned = value_str.to_owned();
+    let (insert_count, value, _value_span) =
+        parse_insert_count_and_value_args_str(expr)?;
+    let value_owned = value.to_owned();
     Ok(OperatorData::Literal(OpLiteral {
-        data: if stream_str {
+        data: if stream {
             Literal::StreamString(Arc::new(value_owned))
         } else {
             Literal::String(value_owned)
@@ -274,27 +247,12 @@ pub fn parse_op_str(
 }
 
 pub fn parse_op_error(
-    arg_str: &str,
-    value: Option<&[u8]>,
+    expr: &OperatorCallExpr,
     stream: bool,
-    insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let value_str = value
-        .ok_or_else(|| {
-            OperatorCreationError::new_s(
-                format!("missing value for {arg_str}"),
-                arg_idx,
-            )
-        })?
-        .to_str()
-        .map_err(|_| {
-            OperatorCreationError::new_s(
-                format!("{arg_str} argument must be valid UTF-8"),
-                arg_idx,
-            )
-        })?;
-    let value_owned = value_str.to_owned();
+    let (insert_count, value, _value_span) =
+        parse_insert_count_and_value_args_str(expr)?;
+    let value_owned = value.to_owned();
     Ok(OperatorData::Literal(OpLiteral {
         data: if stream {
             Literal::StreamError(value_owned)
@@ -305,46 +263,111 @@ pub fn parse_op_error(
     }))
 }
 
-pub fn parse_op_int(
-    params: &[&[u8]],
-    insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
-) -> Result<OperatorData, OperatorCreationError> {
-    let value = require_single_operator_param("int", params, arg_idx)?;
-    let value_str = parse_args_as_single_str("int", value, arg_idx)?;
+fn parse_named_arg_as_insert_count(
+    expr: &OperatorCallExpr,
+    key: &[u8],
+    value: &[u8],
+    span: Span,
+) -> Result<usize, OperatorCreationError> {
+    if key == b"i" || key == b"insert_count" {
+        let value = value
+            .to_str()
+            .map_err(|_| expr.error_arg_invalid_utf8(key, span))?;
+        return Ok(value
+            .parse::<usize>()
+            .map_err(|_| expr.error_arg_invalid_int(key, span))?);
+    }
+    Err(expr.error_named_arg_unsupported(key, span))
+}
 
-    let data = if let Ok(i) = str::parse::<i64>(value_str) {
+pub fn parse_insert_count_reject_value(
+    expr: &OperatorCallExpr,
+) -> Result<Option<usize>, OperatorCreationError> {
+    let mut insert_count = None;
+    for arg in expr.parsed_args_iter() {
+        match arg.value {
+            ParsedArgValue::NamedArg { key, value } => {
+                insert_count = Some(parse_named_arg_as_insert_count(
+                    expr, key, value, arg.span,
+                )?);
+            }
+            ParsedArgValue::Flag(flag) => {
+                return Err(expr.error_flag_value_unsupported(flag, arg.span));
+            }
+            ParsedArgValue::PositionalArg { value: v, .. } => {
+                return Err(expr.error_positional_args_unsupported(arg.span))
+            }
+        }
+    }
+    Ok(insert_count)
+}
+
+pub fn parse_insert_count_and_value_args<'a: 'b, 'b>(
+    expr: &'b OperatorCallExpr<'a>,
+) -> Result<(Option<usize>, &'b [u8], Span), OperatorCreationError> {
+    let mut insert_count = None;
+    let mut value = None;
+    for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
+        let arg = arg?;
+        match arg.value {
+            ParsedArgValue::Flag(flag) => {
+                return Err(expr.error_flag_value_unsupported(flag, arg.span));
+            }
+            ParsedArgValue::NamedArg { key, value } => {
+                insert_count = Some(parse_named_arg_as_insert_count(
+                    expr, key, value, arg.span,
+                )?);
+            }
+            ParsedArgValue::PositionalArg { value: v, .. } => {
+                value =
+                    Some((v.expect_plain(expr.op_name, arg.span)?, arg.span));
+            }
+        }
+    }
+    let (value, value_span) = value.unwrap();
+    Ok((insert_count, value, value_span))
+}
+
+pub fn parse_insert_count_and_value_args_str<'a: 'b, 'b>(
+    expr: &'b OperatorCallExpr<'a>,
+) -> Result<(Option<usize>, &'b str, Span), OperatorCreationError> {
+    let (insert_count, value, value_span) =
+        parse_insert_count_and_value_args(expr)?;
+
+    let value_str = value
+        .to_str()
+        .map_err(|_| expr.error_positional_arg_invalid_utf8(value_span))?;
+
+    Ok((insert_count, value_str, value_span))
+}
+
+pub fn parse_op_int(
+    expr: &OperatorCallExpr,
+) -> Result<OperatorData, OperatorCreationError> {
+    let (insert_count, value, value_span) =
+        parse_insert_count_and_value_args_str(expr)?;
+
+    let data = if let Ok(i) = str::parse::<i64>(value) {
         Literal::Int(i)
     } else {
-        let Ok(big_int) = str::parse::<BigInt>(value_str) else {
-            return Err(OperatorCreationError::new(
-                "failed to parse value as an integer",
-                arg_idx,
-            ));
+        let Ok(big_int) = str::parse::<BigInt>(value) else {
+            return Err(expr.error_positional_arg_invalid_int(value_span));
         };
         Literal::BigInt(big_int)
     };
     Ok(OperatorData::Literal(OpLiteral { data, insert_count }))
 }
 pub fn parse_op_bytes(
-    value: Option<&[u8]>,
-    insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
-    stream_bytes: bool,
+    expr: &OperatorCallExpr,
+    stream: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let parsed_value = if let Some(value) = value {
-        value.to_owned()
-    } else {
-        return Err(OperatorCreationError::new(
-            "missing value for bytes",
-            arg_idx,
-        ));
-    };
+    let (insert_count, value, _value_span) =
+        parse_insert_count_and_value_args(expr)?;
     Ok(OperatorData::Literal(OpLiteral {
-        data: if stream_bytes {
-            Literal::StreamBytes(Arc::new(parsed_value))
+        data: if stream {
+            Literal::StreamBytes(Arc::new(value.to_owned()))
         } else {
-            Literal::Bytes(parsed_value)
+            Literal::Bytes(value.to_owned())
         },
         insert_count,
     }))
@@ -372,18 +395,12 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
     }
 }
 pub fn parse_op_tyson(
-    value: Option<&[u8]>,
-    insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
     affinity: FieldValueKind,
     sess: &SessionOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let value = value.ok_or_else(|| {
-        OperatorCreationError::new_s(
-            format!("missing value for {}", affinity.to_str()),
-            arg_idx,
-        )
-    })?;
+    let (insert_count, value, value_span) =
+        parse_insert_count_and_value_args(expr)?;
     let value =
         parse_tyson(value, use_fpm(Some(sess)), Some(&sess.extensions))
             .map_err(|e| {
@@ -398,7 +415,7 @@ pub fn parse_op_tyson(
                             } => kind.to_string(),
                         }
                     ),
-                    arg_idx,
+                    value_span,
                 )
             })?;
     let lit = field_value_to_literal(value);
@@ -419,21 +436,18 @@ pub fn use_fpm(sess: Option<&SessionOptions>) -> bool {
     .unwrap_or(fpm_default)
 }
 
-pub fn parse_op_tyson_value(
-    value: Option<&[u8]>,
+pub fn build_op_tyson_value(
+    value: &[u8],
+    value_span: Span,
     insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
     sess: Option<&SessionOptions>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let value = value
-        .ok_or_else(|| OperatorCreationError::new("missing value", arg_idx))?;
-
     let value =
         parse_tyson(value, use_fpm(sess), sess.map(|sess| &*sess.extensions))
             .map_err(|e| {
                 OperatorCreationError::new_s(
                     format!("invalid tyson: {e}"),
-                    arg_idx,
+                    value_span,
                 )
             })?;
     let lit = field_value_to_literal(value);
@@ -443,99 +457,34 @@ pub fn parse_op_tyson_value(
     }))
 }
 
-static ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^(?<type>int|float|rational|~?bytes|~?str|~?error|null|undefined|object|array|v|tyson)(?<insert_count>[0-9]+)?$"
-    ).unwrap()
-});
-
-pub fn argument_matches_op_literal(arg: &str) -> bool {
-    ARG_REGEX.is_match(arg)
+pub fn parse_op_tyson_value(
+    expr: &OperatorCallExpr,
+    sess: Option<&SessionOptions>,
+) -> Result<OperatorData, OperatorCreationError> {
+    let (insert_count, value, value_span) =
+        parse_insert_count_and_value_args(expr)?;
+    build_op_tyson_value(value, value_span, insert_count, sess)
 }
 
 pub fn parse_op_literal(
-    argument: &str,
-    value: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
     sess: &SessionOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    // this should not happen in the cli parser because it checks using
-    // `argument_matches_data_inserter`
-    let args = ARG_REGEX.captures(argument).ok_or_else(|| {
-        OperatorCreationError::new(
-            "invalid argument syntax for literal",
-            arg_idx,
-        )
-    })?;
-    let insert_count = args
-        .name("insert_count")
-        .map(|ic| {
-            ic.as_str().parse::<usize>().map_err(|_| {
-                OperatorCreationError::new(
-                    "failed to parse insertion count as an integer",
-                    arg_idx,
-                )
-            })
-        })
-        .transpose()?;
-    let arg_str = args.name("type").unwrap().as_str();
-    match arg_str {
-        "int" => parse_op_int(value, insert_count, arg_idx),
-        "bytes" => parse_op_bytes(value, insert_count, arg_idx, false),
-        "~bytes" => parse_op_bytes(value, insert_count, arg_idx, true),
-        "str" => parse_op_str(value, insert_count, arg_idx, false),
-        "~str" => parse_op_str(value, insert_count, arg_idx, true),
-        "object" => parse_op_tyson(
-            value,
-            insert_count,
-            arg_idx,
-            FieldValueKind::Object,
-            sess,
-        ),
-        "array" => parse_op_tyson(
-            value,
-            insert_count,
-            arg_idx,
-            FieldValueKind::Array,
-            sess,
-        ),
-        "float" => parse_op_tyson(
-            value,
-            insert_count,
-            arg_idx,
-            FieldValueKind::Float,
-            sess,
-        ),
-        "rational" => parse_op_tyson(
-            value,
-            insert_count,
-            arg_idx,
-            FieldValueKind::Rational,
-            sess,
-        ),
-        "v" | "tyson" => {
-            parse_op_tyson_value(value, insert_count, arg_idx, Some(sess))
-        }
-        "error" => {
-            parse_op_error(arg_str, value, false, insert_count, arg_idx)
-        }
-        "~error" => {
-            parse_op_error(arg_str, value, true, insert_count, arg_idx)
-        }
-        v @ "null" => parse_op_literal_zst(
-            v,
-            Literal::Null,
-            value,
-            insert_count,
-            arg_idx,
-        ),
-        v @ "undefined" => parse_op_literal_zst(
-            v,
-            Literal::Undefined,
-            value,
-            insert_count,
-            arg_idx,
-        ),
+    match expr.op_name {
+        "int" => parse_op_int(expr),
+        "bytes" => parse_op_bytes(expr, false),
+        "~bytes" => parse_op_bytes(expr, true),
+        "str" => parse_op_str(expr, false),
+        "~str" => parse_op_str(expr, true),
+        "object" => parse_op_tyson(expr, FieldValueKind::Object, sess),
+        "array" => parse_op_tyson(expr, FieldValueKind::Array, sess),
+        "float" => parse_op_tyson(expr, FieldValueKind::Float, sess),
+        "rational" => parse_op_tyson(expr, FieldValueKind::Rational, sess),
+        "v" | "value" | "tyson" => parse_op_tyson_value(expr, Some(sess)),
+        "error" => parse_op_error(expr, false),
+        "~error" => parse_op_error(expr, true),
+        "null" => parse_op_literal_zst(expr, Literal::Null),
+        "undefined" => parse_op_literal_zst(expr, Literal::Undefined),
         _ => unreachable!(),
     }
 }
@@ -588,7 +537,7 @@ pub fn create_op_undefined() -> OperatorData {
     create_op_literal(Literal::Undefined)
 }
 pub fn create_op_v(str: &str) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_tyson_value(Some(str.as_bytes()), None, None, None)
+    build_op_tyson_value(str.as_bytes(), Span::Generated, None, None)
 }
 
 pub fn create_op_error_n(str: &str, insert_count: usize) -> OperatorData {
@@ -634,5 +583,10 @@ pub fn create_op_v_n(
     str: &str,
     insert_count: usize,
 ) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_tyson_value(Some(str.as_bytes()), Some(insert_count), None, None)
+    build_op_tyson_value(
+        str.as_bytes(),
+        Span::Generated,
+        Some(insert_count),
+        None,
+    )
 }

@@ -13,6 +13,7 @@ use subenum::subenum;
 
 use crate::{
     chain::{Chain, ChainId},
+    cli::call_expr::OperatorCallExpr,
     context::SessionData,
     index_newtype,
     operators::{

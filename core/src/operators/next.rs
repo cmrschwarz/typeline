@@ -1,4 +1,4 @@
-use crate::{cli::reject_operator_params, options::argument::CliArgIdx};
+use crate::cli::call_expr::OperatorCallExpr;
 
 use super::{errors::OperatorCreationError, operator::OperatorData};
 
@@ -6,10 +6,9 @@ use super::{errors::OperatorCreationError, operator::OperatorData};
 pub struct OpNext {}
 
 pub fn parse_op_next(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params("next", params, arg_idx)?;
+    expr.reject_params()?;
     Ok(OperatorData::Next(OpNext {}))
 }
 pub fn create_op_next() -> OperatorData {

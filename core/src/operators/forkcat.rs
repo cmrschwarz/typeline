@@ -7,14 +7,13 @@ use bitvec::vec::BitVec;
 
 use crate::{
     chain::{Chain, SubchainIndex},
-    cli::reject_operator_params,
+    cli::call_expr::OperatorCallExpr,
     context::SessionData,
     index_newtype,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
-    options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldRefOffset},
@@ -145,10 +144,9 @@ impl FcContinuationState {
 }
 
 pub fn parse_op_forkcat(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    args: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params("forkcat", params, arg_idx);
+    args.reject_params()?;
     Ok(OperatorData::ForkCat(OpForkCat::default()))
 }
 

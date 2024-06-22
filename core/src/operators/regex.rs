@@ -1,16 +1,15 @@
 use arrayvec::ArrayString;
 
-use once_cell::sync::Lazy;
-use regex::{bytes, Regex, RegexBuilder};
+use bstr::ByteSlice;
+use regex::bytes;
 use smallstr::SmallString;
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut};
 
 use crate::{
-    cli::require_single_operator_param,
+    cli::call_expr::{OperatorCallExpr, ParsedArgValue, Span},
     job::JobData,
     liveness_analysis::OpOutputIdx,
-    options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActionBuffer, ActorId, ActorRef},
         field::{Field, FieldId, FieldRefOffset},
@@ -42,7 +41,6 @@ use crate::{
         text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter},
     },
 };
-use bstr::ByteSlice;
 
 use super::{
     errors::{
@@ -168,72 +166,6 @@ impl OpRegex {
 }
 
 const MAX_DEFAULT_CAPTURE_GROUP_NAME_LEN: usize = USIZE_MAX_DECIMAL_DIGITS + 1;
-static REGEX_CLI_ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
-    RegexBuilder::new("^(r|regex)(-((?<a>a)|(?<b>b)|(?<d>d)|(?<f>f)|(?<i>i)|(?<l>l)|(?<m>m)|(?<n>n)|(?<o>o)|(?<u>u)|(?<v>v))*)?$")
-            .build()
-            .unwrap()
-});
-pub fn try_match_regex_cli_argument(
-    argname: &str,
-    idx: Option<CliArgIdx>,
-) -> Result<Option<RegexOptions>, OperatorCreationError> {
-    if let Some(c) = REGEX_CLI_ARG_REGEX.captures(argname) {
-        let mut opts = RegexOptions::default();
-        let mut unicode_mode = false;
-        if c.name("a").is_some() {
-            opts.ascii_mode = true;
-        }
-        if c.name("b").is_some() {
-            opts.binary_mode = true;
-        }
-        if c.name("d").is_some() {
-            opts.dotall = true;
-        }
-        if c.name("f").is_some() {
-            opts.full = true;
-        }
-        if c.name("i").is_some() {
-            opts.case_insensitive = true;
-        }
-        if c.name("l").is_some() {
-            opts.line_based = true;
-        }
-        if c.name("m").is_some() {
-            opts.multimatch = true;
-        }
-        if c.name("n").is_some() {
-            opts.non_mandatory = true;
-        }
-        if c.name("o").is_some() {
-            opts.overlapping = true;
-            opts.multimatch = true;
-        }
-        if c.name("u").is_some() {
-            unicode_mode = true;
-        }
-        if c.name("v").is_some() {
-            opts.invert_match = true;
-        }
-        if opts.ascii_mode && unicode_mode {
-            return Err(OperatorCreationError::new(
-                "[a]scii and [u]nicode are mutually exclusive",
-                idx,
-            ));
-        }
-        if opts.invert_match && opts.multimatch {
-            return Err(OperatorCreationError::new(
-                "in[v]ert match and [m]ultimatch are mutually exclusive",
-                idx,
-            ));
-        }
-        if opts.binary_mode && !unicode_mode {
-            opts.ascii_mode = true;
-        }
-        Ok(Some(opts))
-    } else {
-        Ok(None)
-    }
-}
 
 pub fn preparse_replace_empty_capture_group<'a>(
     regex_str: &'a str,
@@ -306,32 +238,21 @@ pub fn preparse_replace_empty_capture_group<'a>(
     Ok((re, opt_empty_group_replacement_str))
 }
 
-pub fn parse_op_regex(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+pub fn build_op_regex(
+    regex: &str,
     opts: RegexOptions,
+    span: Span,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut output_group_id = 0;
-    let val = require_single_operator_param("regex", params, arg_idx)?;
-    let value_str = val.to_str().map_err(|_| {
-        OperatorCreationError::new(
-            "regex pattern must be legal UTF-8",
-            arg_idx,
-        )
-    })?;
 
-    let (re, empty_group_replacement) = preparse_replace_empty_capture_group(
-        value_str, &opts,
-    )
-    .map_err(|e| OperatorCreationError {
-        cli_arg_idx: arg_idx,
-        message: e,
-    })?;
+    let (re, empty_group_replacement) =
+        preparse_replace_empty_capture_group(regex, &opts)
+            .map_err(|e| OperatorCreationError { span, message: e })?;
 
     if empty_group_replacement.is_some() && opts.full {
         return Err(OperatorCreationError::new(
             "-f is incompatible with an explicit output capture group",
-            arg_idx,
+            span,
         ));
     }
 
@@ -343,7 +264,7 @@ pub fn parse_op_regex(
         .build()
         .map_err(|e| OperatorCreationError {
             message: Cow::Owned(format!("failed to compile regex: {e}")),
-            cli_arg_idx: arg_idx,
+            span,
         })?;
 
     if let Some(egr) = empty_group_replacement {
@@ -375,46 +296,133 @@ pub fn parse_op_regex(
     }))
 }
 
-pub fn create_op_regex_b(
-    regex: &[u8],
-    opts: RegexOptions,
+pub fn parse_op_regex(
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_regex(&[regex], None, opts)
+    let mut opts = RegexOptions::default();
+    let mut unicode_mode = false;
+    let mut ascii_or_unicode_span = Span::Builtin;
+    let mut invert_or_multimatch_span = Span::Builtin;
+    let mut regex = None;
+    for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
+        let arg = arg?;
+        match arg.value {
+            ParsedArgValue::Flag(flag) => match flag {
+                b"a" => {
+                    opts.ascii_mode = true;
+                    ascii_or_unicode_span = arg.span;
+                }
+                b"b" => {
+                    opts.binary_mode = true;
+                }
+                b"d" => {
+                    opts.dotall = true;
+                }
+                b"f" => {
+                    opts.full = true;
+                }
+                b"i" => {
+                    opts.case_insensitive = true;
+                }
+                b"l" => {
+                    opts.line_based = true;
+                }
+                b"m" => {
+                    opts.multimatch = true;
+                    invert_or_multimatch_span = arg.span;
+                }
+                b"n" => {
+                    opts.non_mandatory = true;
+                }
+                b"o" => {
+                    opts.overlapping = true;
+                    opts.multimatch = true;
+                    invert_or_multimatch_span = arg.span;
+                }
+                b"u" => {
+                    unicode_mode = true;
+                    ascii_or_unicode_span = arg.span;
+                }
+                b"v" => {
+                    opts.invert_match = true;
+                    invert_or_multimatch_span = arg.span;
+                }
+                other => {
+                    return Err(
+                        expr.error_flag_value_unsupported(other, arg.span)
+                    );
+                }
+            },
+            ParsedArgValue::NamedArg { .. } => {
+                return Err(expr.error_named_args_unsupported(arg.span))
+            }
+            ParsedArgValue::PositionalArg { value, .. } => {
+                regex = Some(
+                    value
+                        .expect_plain(expr.op_name, arg.span)?
+                        .to_str()
+                        .map_err(|_| {
+                            OperatorCreationError::new(
+                                "regex must be valid utf-8",
+                                arg.span,
+                            )
+                        })?,
+                );
+            }
+        }
+        if opts.ascii_mode && unicode_mode {
+            return Err(OperatorCreationError::new(
+                "[a]scii and [u]nicode are mutually exclusive",
+                ascii_or_unicode_span,
+            ));
+        }
+        if opts.invert_match && opts.multimatch {
+            return Err(OperatorCreationError::new(
+                "in[v]ert match and [m]ultimatch/[o]verlapping are mutually exclusive",
+                invert_or_multimatch_span,
+            ));
+        }
+        if opts.binary_mode && !unicode_mode {
+            opts.ascii_mode = true;
+        }
+    }
+    build_op_regex(regex.unwrap(), opts, expr.span)
 }
+
 pub fn create_op_regex_with_opts(
     regex: &str,
     opts: RegexOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_regex(&[regex.as_bytes()], None, opts)
+    build_op_regex(&regex, opts, Span::Generated)
 }
 pub fn create_op_regex(
     regex: &str,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_regex_with_opts(regex, RegexOptions::default())
+    build_op_regex(regex, RegexOptions::default(), Span::Generated)
 }
 
 pub fn create_op_regex_lines() -> OperatorData {
-    parse_op_regex(
-        &["^(?<>.*)$".as_bytes()],
-        None,
+    build_op_regex(
+        "^(?<>.*)$",
         RegexOptions {
             ascii_mode: true,
             multimatch: true,
             line_based: true,
             ..Default::default()
         },
+        Span::Generated,
     )
     .unwrap()
 }
 
 pub fn create_op_regex_trim_trailing_newline() -> OperatorData {
-    parse_op_regex(
-        &["^(?<>.*?)\n?$".as_bytes()],
-        None,
+    build_op_regex(
+        "^(?<>.*?)\n?$",
         RegexOptions {
             dotall: true,
             ..Default::default()
         },
+        Span::Generated,
     )
     .unwrap()
 }
@@ -1361,15 +1369,14 @@ pub fn handle_tf_regex_stream_value_update(
 #[cfg(test)]
 mod test {
 
-    use super::{parse_op_regex, RegexOptions};
+    use crate::{cli::call_expr::Span, operators::regex::build_op_regex};
+
+    use super::RegexOptions;
 
     #[test]
     fn empty_capture_group_does_not_mess_with_error_string() {
-        let res = parse_op_regex(
-            &["?(<>)(".as_bytes()],
-            None,
-            RegexOptions::default(),
-        );
+        let res =
+            build_op_regex("?(<>)(", RegexOptions::default(), Span::Generated);
         assert!(res.is_err_and(|e| {
             // ENHANCE: improve this error message
             assert_eq!(e.message, "failed to compile regex: regex parse error:\n    ?(<>)(\n    ^\nerror: repetition operator missing expression");

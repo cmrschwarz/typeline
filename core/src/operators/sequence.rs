@@ -1,11 +1,10 @@
 use arrayvec::ArrayVec;
 
 use crate::{
-    cli::{parse_args_as_single_str, ParsedCliArgumentParts},
+    cli::call_expr::{OperatorCallExpr, Span},
     context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData, VarLivenessSlotKind},
-    options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId,
         field::Field,
@@ -243,28 +242,27 @@ pub fn handle_tf_sequence(
 }
 
 pub fn parse_op_seq(
-    arg: &ParsedCliArgumentParts,
+    call: &OperatorCallExpr,
     mode: OpSequenceMode,
     natural_number_mode: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let arg_idx = Some(arg.cli_arg.idx);
     if matches!(mode, OpSequenceMode::Enum | OpSequenceMode::EnumUnbounded)
-        && arg.params.is_empty()
+        && call.args.is_empty()
     {
         return create_op_sequence_with_opts(
             i64::from(natural_number_mode),
             i64::MAX,
             1,
             mode,
-            arg_idx,
+            call.span,
         );
     }
-    let value_str = parse_args_as_single_str("seq", &arg.params, arg_idx)?;
+    let value_str = call.require_single_string_param()?;
     let parts: ArrayVec<&str, 4> = value_str.split(',').take(4).collect();
     if parts.len() == 4 {
         return Err(OperatorCreationError::new(
             "failed to parse sequence parameter, got more than 3 comma separated values",
-            arg_idx,
+            call.span,
         ));
     }
     let start = match parts.len() {
@@ -272,7 +270,7 @@ pub fn parse_op_seq(
         2 | 3 => parse_int_with_units(parts[0]).map_err(|msg| {
             OperatorCreationError::new_s(
                 format!("failed to parse sequence start as an integer: {msg}"),
-                arg_idx,
+                call.span,
             )
         })?,
         _ => unreachable!(),
@@ -285,7 +283,7 @@ pub fn parse_op_seq(
                     format!(
                         "failed to parse sequence step size as an integer: {msg}"
                     ),
-                    arg_idx,
+                    call.span,
                 )
             })
         })
@@ -301,13 +299,13 @@ pub fn parse_op_seq(
     let mut end = parse_int_with_units(end_str).map_err(|msg| {
         OperatorCreationError::new_s(
             format!("failed to parse sequence end as an integer: {msg}"),
-            arg_idx,
+            call.span,
         )
     })?;
     if natural_number_mode {
         end += 1;
     }
-    create_op_sequence_with_opts(start, end, step, mode, arg_idx)
+    create_op_sequence_with_opts(start, end, step, mode, call.span)
 }
 
 fn create_op_sequence_with_opts(
@@ -315,19 +313,19 @@ fn create_op_sequence_with_opts(
     mut end: i64,
     step: i64,
     mode: OpSequenceMode,
-    arg_idx: Option<CliArgIdx>,
+    span: Span,
 ) -> Result<OperatorData, OperatorCreationError> {
     if step == 0 {
         return Err(OperatorCreationError::new(
             "sequence step size cannot be zero",
-            arg_idx,
+            span,
         ));
     }
     if step > 0 {
         if end < start {
             return Err(OperatorCreationError::new(
                 "end of sequence with positive step size must be at least as large as it's start",
-                arg_idx,
+                span,
             ));
         }
         end += (end - start) % step;
@@ -336,7 +334,7 @@ fn create_op_sequence_with_opts(
         if end > start {
             return Err(OperatorCreationError::new(
                 "end of sequence with negative step size must not be larger than it's start",
-                arg_idx,
+                span,
             ));
         }
         let rem = (start - end) % (-step);
@@ -363,7 +361,7 @@ pub fn create_op_sequence(
         end,
         step,
         OpSequenceMode::Sequence,
-        None,
+        Span::Generated,
     )
 }
 pub fn create_op_seq(
@@ -385,7 +383,13 @@ pub fn create_op_enum(
     end: i64,
     step: i64,
 ) -> Result<OperatorData, OperatorCreationError> {
-    create_op_sequence_with_opts(start, end, step, OpSequenceMode::Enum, None)
+    create_op_sequence_with_opts(
+        start,
+        end,
+        step,
+        OpSequenceMode::Enum,
+        Span::Generated,
+    )
 }
 pub fn create_op_enum_unbounded(
     start: i64,
@@ -397,6 +401,6 @@ pub fn create_op_enum_unbounded(
         end,
         step,
         OpSequenceMode::EnumUnbounded,
-        None,
+        Span::Generated,
     )
 }

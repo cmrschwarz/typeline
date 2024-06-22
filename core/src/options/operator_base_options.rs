@@ -1,5 +1,6 @@
 use crate::{
     chain::ChainId,
+    cli::call_expr::Span,
     liveness_analysis::OpOutputIdx,
     operators::operator::{OperatorBase, OperatorId, OperatorOffsetInChain},
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
@@ -11,7 +12,7 @@ use super::argument::CliArgIdx;
 pub struct OperatorBaseOptions {
     pub argname: StringStoreEntry,
     pub label: Option<StringStoreEntry>,
-    pub cli_arg_idx: Option<CliArgIdx>,
+    pub span: Span,
     pub transparent_mode: bool,
     // all following fields are set by the context on add_op
     pub desired_batch_size: usize,
@@ -25,12 +26,12 @@ impl OperatorBaseOptions {
         argname: StringStoreEntry,
         label: Option<StringStoreEntry>,
         transparent_mode: bool,
-        cli_arg_idx: Option<CliArgIdx>,
+        span: Span,
     ) -> OperatorBaseOptions {
         OperatorBaseOptions {
             argname,
             label,
-            cli_arg_idx,
+            span,
             transparent_mode,
             desired_batch_size: 0,
             chain_id: None,
@@ -39,14 +40,14 @@ impl OperatorBaseOptions {
         }
     }
     pub fn from_name(argname: StringStoreEntry) -> OperatorBaseOptions {
-        OperatorBaseOptions::new(argname, None, false, None)
+        OperatorBaseOptions::new(argname, None, false, Span::Generated)
     }
 
     pub fn build(&self) -> OperatorBase {
         OperatorBase {
             argname: self.argname,
             label: self.label,
-            cli_arg_idx: self.cli_arg_idx,
+            span: self.span,
             chain_id: self.chain_id,
             transparent_mode: self.transparent_mode,
             desired_batch_size: self.desired_batch_size,

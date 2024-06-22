@@ -1,8 +1,7 @@
 use crate::{
-    cli::reject_operator_params,
+    cli::call_expr::OperatorCallExpr,
     job::JobData,
     liveness_analysis::LivenessData,
-    options::argument::CliArgIdx,
     record_data::{
         field::FieldRefOffset, iter_hall::IterId,
         push_interface::PushInterface,
@@ -11,6 +10,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
+    nop::create_op_nop,
     operator::{OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
     utils::basic_transform_update::{basic_transform_update, BasicUpdateData},
@@ -31,11 +31,13 @@ pub struct TfNopCopy {
 }
 
 pub fn parse_op_nop_copy(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params("nop-c", params, arg_idx)?;
-    Ok(create_op_nop_copy())
+    if expr.require_at_most_one_param()? == Some(b"-c") {
+        Ok(create_op_nop_copy())
+    } else {
+        Ok(create_op_nop())
+    }
 }
 pub fn create_op_nop_copy() -> OperatorData {
     OperatorData::NopCopy(OpNopCopy::default())

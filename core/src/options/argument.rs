@@ -1,18 +1,22 @@
 use std::{error::Error, fmt};
 
-pub type CliArgIdx = u32;
+use crate::{
+    cli::call_expr::Span, utils::debuggable_nonmax::DebuggableNonMaxU32,
+};
+
+pub type CliArgIdx = DebuggableNonMaxU32;
 
 #[derive(Clone, derive_more::Deref)]
 pub struct Argument<T: Clone> {
     #[deref]
     pub value: Option<T>,
-    pub cli_arg_idx: Option<CliArgIdx>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArgumentReassignmentError {
-    pub prev_cli_arg_idx: Option<CliArgIdx>,
-    pub cli_arg_idx: Option<CliArgIdx>,
+    pub prev_assignment_span: Span,
+    pub reassignment_span: Span,
 }
 pub const ARGUMENT_REASSIGNMENT_ERROR_MESSAGE: &str = "option was already set";
 
@@ -27,48 +31,48 @@ impl<T: Clone> Default for Argument<T> {
     fn default() -> Self {
         Self {
             value: None,
-            cli_arg_idx: None,
+            span: Span::Builtin,
         }
     }
 }
 
 impl<T: Clone> Argument<T> {
-    pub const fn new(value: T, cli_arg_idx: Option<CliArgIdx>) -> Self {
+    pub const fn new(value: T, span: Span) -> Self {
         Self {
             value: Some(value),
-            cli_arg_idx,
+            span,
         }
     }
     pub const fn new_v(value: T) -> Self {
         Self {
             value: Some(value),
-            cli_arg_idx: None,
+            span: Span::Generated,
         }
     }
     pub const fn new_opt(value: Option<T>) -> Self {
         Self {
             value,
-            cli_arg_idx: None,
+            span: Span::Generated,
         }
     }
     pub fn set(
         &mut self,
         value: T,
-        cli_arg_idx: Option<CliArgIdx>,
+        span: Span,
     ) -> Result<(), ArgumentReassignmentError> {
         if self.value.is_some() {
             return Err(ArgumentReassignmentError {
-                cli_arg_idx,
-                prev_cli_arg_idx: self.cli_arg_idx,
+                reassignment_span: span,
+                prev_assignment_span: self.span,
             });
         }
         self.value = Some(value);
-        self.cli_arg_idx = cli_arg_idx;
+        self.span = span;
         Ok(())
     }
-    pub fn force_set(&mut self, value: T, cli_arg_idx: Option<CliArgIdx>) {
+    pub fn force_set(&mut self, value: T, span: Span) {
         self.value = Some(value);
-        self.cli_arg_idx = cli_arg_idx;
+        self.span = span;
     }
     pub fn get(&self) -> Option<T> {
         self.value.clone()

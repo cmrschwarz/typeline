@@ -1,10 +1,8 @@
-use crate::{
-    chain::Chain, cli::reject_operator_params, job::JobData,
-    options::argument::CliArgIdx,
-};
+use crate::{chain::Chain, cli::call_expr::OperatorCallExpr, job::JobData};
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
+    nop_copy::create_op_nop_copy,
     operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -14,11 +12,13 @@ pub struct OpNop {}
 pub struct TfNop {}
 
 pub fn parse_op_nop(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params("nop", params, arg_idx)?;
-    Ok(create_op_nop())
+    if expr.require_at_most_one_param()? == Some(b"-c") {
+        Ok(create_op_nop_copy())
+    } else {
+        Ok(create_op_nop())
+    }
 }
 pub fn create_op_nop() -> OperatorData {
     OperatorData::Nop(OpNop::default())

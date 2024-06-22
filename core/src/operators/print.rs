@@ -1,8 +1,5 @@
 use std::io::{IsTerminal, Write};
 
-use once_cell::sync::Lazy;
-use regex::Regex;
-
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{OperatorBase, OperatorData},
@@ -10,13 +7,12 @@ use super::{
     utils::writable::{AnyWriter, WritableTarget},
 };
 use crate::{
-    cli::reject_operator_params,
+    cli::call_expr::{OperatorCallExpr, ParsedArgValue},
     job::{JobData, TransformManager},
     operators::utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
     },
-    options::argument::CliArgIdx,
     record_data::{
         field::{Field, FieldManager},
         field_data::field_value_flags,
@@ -81,23 +77,29 @@ pub struct TfPrint {
     opts: PrintOptions,
 }
 
-pub static PRINT_CLI_ARG_REGEX: Lazy<Regex> =
-    Lazy::new(|| Regex::new("^(p|print)(-((?<n>n)|(?<e>e))*)?$").unwrap());
-
-pub fn argument_matches_op_print(arg: &str) -> Option<PrintOptions> {
-    PRINT_CLI_ARG_REGEX.captures(arg).map(|c| PrintOptions {
-        ignore_nulls: c.name("n").is_some(),
-        propagate_errors: c.name("e").is_some(),
-    })
-}
-
 pub fn parse_op_print(
-    arg: &str,
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
-    opts: PrintOptions,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params(arg, params, arg_idx)?;
+    let mut opts = PrintOptions::default();
+    for arg in expr.parsed_args_iter() {
+        match arg.value {
+            ParsedArgValue::Flag(flag) => match flag {
+                b"n" => opts.ignore_nulls = true,
+                b"e" => opts.propagate_errors = true,
+                _ => {
+                    return Err(
+                        expr.error_flag_value_unsupported(flag, arg.span)
+                    );
+                }
+            },
+            ParsedArgValue::NamedArg { .. } => {
+                return Err(expr.error_named_args_unsupported(arg.span));
+            }
+            ParsedArgValue::PositionalArg { .. } => {
+                return Err(expr.error_positional_args_unsupported(arg.span));
+            }
+        }
+    }
     Ok(OperatorData::Print(OpPrint {
         target: WritableTarget::Stdout,
         opts,

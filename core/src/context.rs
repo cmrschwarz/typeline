@@ -26,6 +26,7 @@ use crate::{
     operators::operator::{
         OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
     },
+    options::argument::CliArgIdx,
     record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -66,7 +67,7 @@ pub struct SessionData {
     pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub operator_bases: IndexVec<OperatorId, OperatorBase>,
     pub operator_data: IndexVec<OperatorId, OperatorData>,
-    pub cli_args: Option<Vec<Vec<u8>>>,
+    pub cli_args: Option<IndexVec<CliArgIdx, Vec<u8>>>,
     pub string_store: RwLock<StringStore>,
     pub extensions: Arc<ExtensionRegistry>,
     pub success: AtomicBool,
@@ -365,8 +366,10 @@ impl Context {
     #[cfg(feature = "repl")]
     pub fn run_repl(&mut self, mut cli_opts: crate::cli::CliOptions) {
         use crate::{
-            cli::parse_cli, options::session_options::SessionOptions,
-            repl_prompt::ScrPrompt, scr_error::ScrError,
+            cli::{call_expr::Span, parse_cli},
+            options::session_options::SessionOptions,
+            repl_prompt::ScrPrompt,
+            scr_error::ScrError,
         };
         debug_assert!(cli_opts.allow_repl);
         if !self.session.has_no_command(&cli_opts) {
@@ -435,7 +438,7 @@ impl Context {
                         sess_opts = sess_opts.map(|mut opts| {
                             exit_repl = opts.repl.get() == Some(false)
                                 || opts.exit_repl.get() == Some(true);
-                            opts.repl.force_set(true, None);
+                            opts.repl.force_set(true, Span::Builtin);
                             opts
                         });
                         match sess_opts.and_then(SessionOptions::build_session)

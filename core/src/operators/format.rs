@@ -15,7 +15,7 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 use crate::{
-    cli::require_single_operator_param,
+    cli::call_expr::{OperatorCallExpr, Span},
     context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
@@ -690,17 +690,16 @@ pub fn parse_format_string(
     }
 }
 
-pub fn parse_op_format(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+pub fn build_op_format(
+    fmt: &[u8],
+    span: Span,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let val = require_single_operator_param("format", params, arg_idx)?;
     let mut refs_str = Vec::new();
     let mut parts = Vec::new();
-    parse_format_string(val, &mut refs_str, &mut parts).map_err(
+    parse_format_string(fmt, &mut refs_str, &mut parts).map_err(
         |(i, msg)| OperatorCreationError {
             message: format!("format string index {i}: {msg}").into(),
-            cli_arg_idx: arg_idx,
+            span,
         },
     )?;
     let refs_idx = Vec::with_capacity(refs_str.len());
@@ -717,21 +716,24 @@ pub fn parse_op_format(
         contains_raw_bytes,
     }))
 }
+
+pub fn parse_op_format(
+    expr: &OperatorCallExpr,
+) -> Result<OperatorData, OperatorCreationError> {
+    let val = expr.require_single_param()?;
+    build_op_format(val, expr.span)
+}
 pub fn create_op_format(
     val: &str,
 ) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_format(Some(val.as_bytes()), None)
+    build_op_format(val.as_bytes(), Span::Generated)
 }
 pub fn create_op_format_b(
     val: &[u8],
 ) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_format(Some(val), None)
+    build_op_format(val, Span::Generated)
 }
-pub fn create_op_format_from_str(
-    val: &str,
-) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_format(Some(val.as_bytes()), None)
-}
+
 fn iter_output_states(
     fmt: &mut TfFormat,
     output_idx: &mut usize,

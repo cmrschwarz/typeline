@@ -5,13 +5,12 @@ use std::{
 
 use crate::{
     chain::ChainId,
-    cli::parse_args_as_single_str,
+    cli::call_expr::OperatorCallExpr,
     context::{ContextData, SessionSettings, VentureDescription},
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
-    options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager},
@@ -85,10 +84,9 @@ impl Drop for TfCalleeConcurrent {
 }
 
 pub fn parse_op_call_concurrent(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let target = parse_args_as_single_str("callcc", params, arg_idx)?;
+    let target = expr.require_single_string_param()?;
     Ok(OperatorData::CallConcurrent(OpCallConcurrent {
         target_name: target.to_owned(),
         target_resolved: None,

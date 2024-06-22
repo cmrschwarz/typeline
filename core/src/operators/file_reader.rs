@@ -11,9 +11,8 @@ use smallstr::SmallString;
 
 use crate::{
     chain::{BufferingMode, Chain},
-    cli::reject_operator_params,
+    cli::call_expr::{OperatorCallExpr, ParsedArgValue},
     job::JobData,
-    options::argument::CliArgIdx,
     record_data::{
         field_data::INLINE_STR_MAX_LEN,
         iter_hall::IterId,
@@ -413,9 +412,7 @@ pub fn argument_matches_op_file_reader(arg: &str) -> bool {
 }
 
 pub fn parse_op_file_reader(
-    argument: &str,
-    value: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let args = ARG_REGEX.captures(argument).ok_or_else(|| {
         // can't happen from cli because of argument_matches_op_file_reader
@@ -437,18 +434,33 @@ pub fn parse_op_file_reader(
         .transpose()?;
 
     let lines = args.name("lines").is_some();
-    match args.name("kind").unwrap().as_str() {
-        "file" => parse_op_file(value, insert_count, arg_idx, lines),
-        "stdin" | "in" => parse_op_stdin(value, insert_count, arg_idx, lines),
+    let mut lines = false;
+    let mut insert_count = None;
+    let mut value = None;
+
+    for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
+        let arg = arg?;
+        match arg.value {
+            ParsedArgValue::Flag(flag) => {}
+            ParsedArgValue::NamedArg { key, value } => {
+                todo!()
+            }
+            ParsedArgValue::PositionalArg { idx, value } => todo!(),
+        }
+    }
+
+    match expr.op_name {
+        "file" => build_op_file(value, insert_count, lines),
+        "stdin" | "in" => build_op_stdin(insert_count, lines),
         _ => unreachable!(),
     }
 }
 
-pub fn parse_op_file(
+pub fn build_op_file(
     value: Option<&[u8]>,
     insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
     lines: bool,
+    span: Span,
 ) -> Result<OperatorData, OperatorCreationError> {
     let path = if let Some(value) = value {
         #[cfg(unix)]
@@ -464,14 +476,14 @@ pub fn parse_op_file(
             PathBuf::from(value.to_str().map_err(|_| {
                 OperatorCreationError::new(
                     "failed to parse file path argument as unicode",
-                    arg_idx,
+                    span,
                 )
             })?)
         }
     } else {
         return Err(OperatorCreationError::new(
             "missing path argument for file",
-            arg_idx,
+            span,
         ));
     };
     let op = create_op_file(path, insert_count.unwrap_or(0));
@@ -486,13 +498,10 @@ pub fn parse_op_file(
     Ok(op)
 }
 
-pub fn parse_op_stdin(
-    params: &[&[u8]],
+pub fn build_op_stdin(
     insert_count: Option<usize>,
-    arg_idx: Option<CliArgIdx>,
     lines: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params("stdin", params, arg_idx)?;
     let op = create_op_stdin(insert_count.unwrap_or(0));
     if lines {
         // TODO: create optimized version of this

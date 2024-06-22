@@ -1,6 +1,5 @@
 use crate::{
-    cli::parse_args_as_single_str,
-    options::argument::CliArgIdx,
+    cli::call_expr::OperatorCallExpr,
     utils::string_store::{StringStore, StringStoreEntry},
 };
 
@@ -16,10 +15,9 @@ pub struct OpKey {
 }
 
 pub fn parse_op_key(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &OperatorCallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let key = parse_args_as_single_str("key", params, arg_idx)?;
+    let key = expr.require_single_string_param()?;
     Ok(OperatorData::Key(OpKey {
         key: key.to_owned(),
         key_interned: None,

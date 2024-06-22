@@ -4,6 +4,7 @@ use smallstr::SmallString;
 
 use crate::{
     chain::{ChainId, SubchainIndex},
+    cli::call_expr::Span,
     context::SessionData,
     index_newtype,
     job::{add_transform_to_job, Job},
@@ -11,10 +12,7 @@ use crate::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
         OperatorCallEffect, VarId,
     },
-    options::{
-        argument::CliArgIdx, chain_options::ChainOptions,
-        session_options::SessionOptions,
-    },
+    options::{chain_options::ChainOptions, session_options::SessionOptions},
     record_data::{field::FieldId, group_track::GroupTrackId},
     utils::{
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
@@ -117,7 +115,7 @@ pub enum OperatorData {
 pub struct OperatorBase {
     pub argname: StringStoreEntry,
     pub label: Option<StringStoreEntry>,
-    pub cli_arg_idx: Option<CliArgIdx>,
+    pub span: Span,
     // TODO: make this non optional if possible. it's annoying
     pub chain_id: Option<ChainId>,
     pub offset_in_chain: OperatorOffsetInChain,

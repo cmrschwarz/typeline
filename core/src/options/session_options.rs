@@ -34,7 +34,7 @@ use crate::{
 };
 
 use super::{
-    argument::Argument,
+    argument::{Argument, CliArgIdx},
     chain_options::{ChainOptions, DEFAULT_CHAIN_OPTIONS},
     operator_base_options::OperatorBaseOptions,
 };
@@ -52,7 +52,7 @@ pub struct SessionOptions {
     pub(crate) chains: IndexVec<ChainId, ChainOptions>,
     pub(crate) curr_chain: ChainId,
     pub(crate) allow_repl: bool,
-    pub cli_args: Option<Vec<Vec<u8>>>,
+    pub cli_args: Option<IndexVec<CliArgIdx, Vec<u8>>>,
     // needed for reporting the intuitive index in error messages
     pub skipped_first_cli_arg: bool,
     pub extensions: Arc<ExtensionRegistry>,
