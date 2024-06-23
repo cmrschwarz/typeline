@@ -302,7 +302,7 @@ impl<'a> TfExec<'a> {
             if cmd_args.error.is_some() {
                 return;
             }
-            match data.to_os_str() {
+            match <[u8] as bstr::ByteSlice>::to_os_str(data) {
                 Ok(data) => {
                     cmd_args.args[arg_idx].push(data);
                 }

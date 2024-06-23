@@ -3,7 +3,6 @@ use rstest::rstest;
 use scr::{
     cli::CliOptions,
     operators::nop_copy::create_op_nop_copy,
-    parse_cli_from_strings,
     utils::{maybe_text::MaybeText, test_utils::int_sequence_strings},
 };
 use scr_core::{
@@ -269,24 +268,23 @@ fn forkcat_on_unapplied_commands(
 
 #[test]
 fn parse_forkcat() -> Result<(), ScrError> {
-    let sess_opts = parse_cli_from_strings(
-        CliOptions::default(),
+    let res = ContextBuilder::from_cli_arg_strings(
+        &CliOptions::default(),
         ["scr", "seqn=10", "forkcat", "r=.*", "next", "drop", "end"],
-    )?;
-    let res = ContextBuilder::from_session_opts(sess_opts)
-        .run_collect_stringified()?;
+    )?
+    .run_collect_stringified()?;
     assert_eq!(res, int_sequence_strings(1..11));
     Ok(())
 }
 
 #[test]
 fn parse_forkcat_2() -> Result<(), ScrError> {
-    let sess_opts = parse_cli_from_strings(
-        CliOptions::default(),
+    let res = ContextBuilder::from_cli_arg_strings(
+        &CliOptions::default(),
         ["seqn=3", "fe", "forkcat", "seq=2", "next", "nop", "end"],
-    )?;
-    let res = ContextBuilder::from_session_opts(sess_opts)
-        .run_collect_stringified()?;
+    )?
+    .run_collect_stringified()?;
+
     assert_eq!(res, int_sequence_strings(1..11));
     Ok(())
 }

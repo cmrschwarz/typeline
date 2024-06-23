@@ -8,5 +8,7 @@ mod format;
 mod join;
 mod regex;
 
+mod parsing;
+
 // TODO: reenable this once we fixed callcc
 // mod callcc;

@@ -1061,7 +1061,7 @@ mod test {
                 data,
                 header_idx,
                 header_rl_offset,
-                #[cfg(feature = "debug_logging")]
+                #[cfg(feature = "debug")]
                 kind: crate::record_data::iter_hall::IterKind::Undefined,
             };
 

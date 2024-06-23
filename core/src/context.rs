@@ -430,11 +430,7 @@ impl Context {
                         Err("failed to tokenize command line arguments"
                             .to_string())
                     } else {
-                        let mut sess_opts = parse_cli(
-                            args,
-                            cli_opts,
-                            Arc::clone(&self.session.extensions),
-                        );
+                        let mut sess_opts = parse_cli(&cli_opts, args);
                         sess_opts = sess_opts.map(|mut opts| {
                             exit_repl = opts.repl.get() == Some(false)
                                 || opts.exit_repl.get() == Some(true);

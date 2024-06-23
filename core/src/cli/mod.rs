@@ -52,7 +52,7 @@ use unicode_ident::{is_xid_continue, is_xid_start};
 use std::{borrow::Cow, fmt::Display, path::PathBuf, str::FromStr, sync::Arc};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct CliOptions {
     pub allow_repl: bool,
     // useful if this comes from the cli, not the repl,
@@ -61,6 +61,7 @@ pub struct CliOptions {
     pub start_with_stdin: bool,
     pub print_output: bool,
     pub add_success_updator: bool,
+    pub extensions: Arc<ExtensionRegistry>,
 }
 
 #[must_use]
@@ -69,6 +70,15 @@ pub struct CliOptions {
 pub struct CliArgumentError {
     pub message: Cow<'static, str>,
     pub span: Span,
+}
+
+impl CliOptions {
+    pub fn with_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
+        CliOptions {
+            extensions,
+            ..CliOptions::default()
+        }
+    }
 }
 
 impl CliArgumentError {
@@ -447,20 +457,24 @@ pub fn gobble_cli_args_while_dashed<'a>(
     src: &'a [Vec<u8>],
     src_idx: &mut usize,
     args: &mut Vec<Argument<'a>>,
-) {
+) -> Option<Span> {
     let mut i = *src_idx;
+    let mut final_span = None;
     while i < src.len() {
         let arg = &src[i];
         if !arg.starts_with(b"-") {
             break;
         }
+        let span = Span::from_single_arg(i, arg.len());
         args.push(Argument {
             value: ArgumentValue::Plain(arg),
-            span: Span::from_single_arg(i, arg.len()),
+            span,
         });
+        final_span = Some(span);
         i += 1;
     }
     *src_idx = i;
+    final_span
 }
 
 pub fn gobble_cli_args_until_end<'a>(
@@ -602,9 +616,9 @@ pub fn parse_call_expr_raw<'a>(
     let mut first_found = false;
     let mut label_found = false;
     let mut label_is_atom = false;
-    let mut colon_found = true;
-    let mut equals_found = true;
-    let mut dash_found = true;
+    let mut colon_found = false;
+    let mut equals_found = false;
+    let mut dash_found = false;
     let op_start = i;
     let mut op_end = i;
 
@@ -765,11 +779,14 @@ pub fn parse_call_expr_raw<'a>(
         });
     }
 
-    gobble_cli_args_while_dashed(src, src_idx, args);
+    *src_idx += 1;
+
+    let mut end_span =
+        gobble_cli_args_while_dashed(src, src_idx, args).unwrap_or(arg_span);
 
     if colon_found {
         let mut block_args = Vec::new();
-        let end_span = gobble_cli_args_until_end(
+        let list_end_span = gobble_cli_args_until_end(
             src,
             src_idx,
             &mut block_args,
@@ -778,9 +795,9 @@ pub fn parse_call_expr_raw<'a>(
 
         complain_if_dashed_arg(src, *src_idx, true)?;
 
-        *end = CallExprEnd::End(end_span);
+        *end = CallExprEnd::End(list_end_span);
 
-        *expr_span = start_span.span_until(end_span).unwrap();
+        end_span = list_end_span;
     }
 
     if is_list {
@@ -802,8 +819,10 @@ pub fn parse_call_expr_raw<'a>(
 
         *end = CallExprEnd::ClosingBracket(list_end);
 
-        *expr_span = start_span.span_until(list_end).unwrap();
+        end_span = list_end;
     }
+
+    *expr_span = start_span.span_until(end_span).unwrap();
 
     Ok(())
 }
@@ -845,9 +864,8 @@ pub fn parse_call_expr<'a>(
 }
 
 pub fn parse_cli_retain_args(
+    cli_opts: &CliOptions,
     args: &[Vec<u8>],
-    cli_opts: CliOptions,
-    extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ScrError> {
     assert!(
         !cli_opts.allow_repl || cfg!(feature = "repl"),
@@ -860,7 +878,8 @@ pub fn parse_cli_retain_args(
     if args.len() <= arg_idx {
         return Err(MissingArgumentsError.into());
     }
-    let mut ctx_opts = SessionOptions::with_extensions(extensions);
+    let mut ctx_opts =
+        SessionOptions::with_extensions(cli_opts.extensions.clone());
     ctx_opts.allow_repl = cli_opts.allow_repl;
 
     let mut curr_aggregate = Vec::new();
@@ -878,8 +897,6 @@ pub fn parse_cli_retain_args(
         last_non_append_op_id = Some(ctx_opts.add_op(op_base_opts, op_data));
     }
     while arg_idx < args.len() {
-        arg_idx += 1;
-
         let expr = parse_call_expr(args, &mut arg_idx)?;
 
         if let Some(label) = expr.label {
@@ -996,10 +1013,9 @@ pub fn parse_cli_retain_args(
 
 pub fn parse_cli_raw(
     args: Vec<Vec<u8>>,
-    cli_opts: CliOptions,
-    extensions: Arc<ExtensionRegistry>,
+    cli_opts: &CliOptions,
 ) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
-    match parse_cli_retain_args(&args, cli_opts, extensions) {
+    match parse_cli_retain_args(cli_opts, &args) {
         Ok(mut ctx) => {
             ctx.cli_args = Some(args.into());
             Ok(ctx)
@@ -1009,15 +1025,14 @@ pub fn parse_cli_raw(
 }
 
 pub fn parse_cli(
+    cli_opts: &CliOptions,
     args: Vec<Vec<u8>>,
-    cli_opts: CliOptions,
-    extensions: Arc<ExtensionRegistry>,
 ) -> Result<SessionOptions, ContextualizedScrError> {
-    parse_cli_raw(args, cli_opts, extensions).map_err(|(args, err)| {
+    parse_cli_raw(args, cli_opts).map_err(|(args, err)| {
         ContextualizedScrError::from_scr_error(
             err,
             Some(IndexSlice::ref_cast(&args)),
-            Some(&cli_opts),
+            Some(cli_opts),
             None,
             None,
         )
@@ -1049,17 +1064,45 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
 }
 
 pub fn parse_cli_from_env(
-    cli_opts: CliOptions,
-    extensions: Arc<ExtensionRegistry>,
+    cli_opts: &CliOptions,
 ) -> Result<SessionOptions, ContextualizedScrError> {
     let args = collect_env_args().map_err(|e| {
         ContextualizedScrError::from_scr_error(
             e.into(),
             None,
-            Some(&cli_opts),
+            Some(cli_opts),
             None,
             None,
         )
     })?;
-    parse_cli(args, cli_opts, extensions)
+    parse_cli(cli_opts, args)
+}
+
+#[cfg(test)]
+mod test {
+    use crate::cli::{
+        call_expr::{Argument, ArgumentValue, CallExpr, CallExprEnd, Span},
+        parse_call_expr,
+    };
+
+    #[test]
+    fn test_parse_call_expr() {
+        let src = vec!["seq=10".as_bytes().to_owned()];
+        let expr = parse_call_expr(&src, &mut 0).unwrap();
+        assert_eq!(
+            expr,
+            CallExpr {
+                append_mode: false,
+                transparent_mode: false,
+                op_name: "seq",
+                label: None,
+                args: vec![Argument {
+                    value: ArgumentValue::Plain(b"10"),
+                    span: Span::from_single_arg_with_offset(0, 4, 6),
+                }],
+                end: CallExprEnd::Inline,
+                span: Span::from_single_arg(0, 6)
+            }
+        )
+    }
 }

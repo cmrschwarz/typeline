@@ -11,17 +11,13 @@ pub extern crate scr_core;
 
 use std::sync::Arc;
 
+use cli::CliOptions;
 use once_cell::sync::Lazy;
 use options::context_builder::ContextBuilder;
 // we reexport the scr_core interface from this lib
 pub use scr_core::*;
 
 use extension::ExtensionRegistry;
-use scr_core::{
-    cli::{parse_cli, CliOptions},
-    options::session_options::SessionOptions,
-    scr_error::ContextualizedScrError,
-};
 
 pub static DEFAULT_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
     Lazy::new(build_extension_registry);
@@ -64,15 +60,12 @@ impl ContextBuilderWithDefaultExts for ContextBuilder {
     }
 }
 
-pub fn parse_cli_from_strings<'a>(
-    cli_opts: CliOptions,
-    args: impl IntoIterator<Item = impl Into<&'a str>>,
-) -> Result<SessionOptions, ContextualizedScrError> {
-    parse_cli(
-        args.into_iter()
-            .map(|v| v.into().as_bytes().to_vec())
-            .collect(),
-        cli_opts,
-        build_extension_registry(),
-    )
+pub trait CliOptionsWithDefaultExts {
+    fn with_default_exts() -> Self;
+}
+
+impl CliOptionsWithDefaultExts for CliOptions {
+    fn with_default_exts() -> Self {
+        Self::with_extensions(DEFAULT_EXTENSION_REGISTRY.clone())
+    }
 }

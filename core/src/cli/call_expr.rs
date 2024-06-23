@@ -30,19 +30,19 @@ pub enum Span {
     Builtin,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ArgumentValue<'a> {
     List(Vec<Argument<'a>>),
     Plain(&'a [u8]),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Argument<'a> {
     pub value: ArgumentValue<'a>,
     pub span: Span,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Label<'a> {
     pub value: &'a str,
     pub is_atom: bool,
@@ -56,7 +56,7 @@ pub enum CallExprEnd {
     End(Span),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CallExpr<'a> {
     pub append_mode: bool,
     pub transparent_mode: bool,
@@ -100,6 +100,18 @@ pub struct ParsedArg<'a> {
 }
 
 impl Span {
+    pub fn from_single_arg_with_offset(
+        cli_arg_idx: usize,
+        offset_start: usize,
+        offset_end: usize,
+    ) -> Self {
+        Span::CliArg {
+            start: CliArgIdx::from_usize(cli_arg_idx),
+            end: CliArgIdx::from_usize(cli_arg_idx + 1),
+            offset_start: offset_start as u16,
+            offset_end: offset_end as u16,
+        }
+    }
     pub fn from_single_arg(cli_arg_idx: usize, len: usize) -> Self {
         Span::CliArg {
             start: CliArgIdx::from_usize(cli_arg_idx),

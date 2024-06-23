@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    cli::call_expr::Span,
+    cli::{call_expr::Span, parse_cli, CliOptions},
     context::{Context, SessionData},
     extension::ExtensionRegistry,
     operators::{
@@ -18,7 +18,7 @@ use crate::{
         field_value::FieldValue, push_interface::PushInterface,
         record_set::RecordSet,
     },
-    scr_error::{CollectTypeMissmatch, ContextualizedScrError},
+    scr_error::{CollectTypeMissmatch, ContextualizedScrError, ScrError},
 };
 
 use super::{
@@ -36,6 +36,22 @@ pub struct ContextBuilder {
 }
 
 impl ContextBuilder {
+    pub fn from_cli_args<'a>(
+        opts: &CliOptions,
+        args: impl IntoIterator<Item = impl Into<&'a [u8]>>,
+    ) -> Result<Self, ContextualizedScrError> {
+        let args = args.into_iter().map(|arg| arg.into().to_owned()).collect();
+        Ok(Self::from_session_opts(parse_cli(opts, args)?))
+    }
+    pub fn from_cli_arg_strings<'a>(
+        opts: &CliOptions,
+        args: impl IntoIterator<Item = impl Into<&'a str>>,
+    ) -> Result<Self, ContextualizedScrError> {
+        Self::from_cli_args(
+            opts,
+            args.into_iter().map(|v| v.into().as_bytes()),
+        )
+    }
     pub fn from_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
         Self::from_session_opts(SessionOptions::with_extensions(extensions))
     }
@@ -64,6 +80,14 @@ impl ContextBuilder {
             transparent_mode,
             output_is_atom,
             Span::Generated,
+        )
+    }
+    pub fn error_to_string(&self, err: &ScrError) -> String {
+        err.contextualize_message(
+            self.opts.cli_args.as_deref(),
+            None,
+            None,
+            None,
         )
     }
     fn add_op_uninit(
