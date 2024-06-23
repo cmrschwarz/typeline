@@ -7,7 +7,7 @@ use super::{
     utils::writable::{AnyWriter, WritableTarget},
 };
 use crate::{
-    cli::call_expr::{OperatorCallExpr, ParsedArgValue},
+    cli::call_expr::{CallExpr, ParsedArgValue},
     job::{JobData, TransformManager},
     operators::utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
@@ -78,7 +78,7 @@ pub struct TfPrint {
 }
 
 pub fn parse_op_print(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut opts = PrintOptions::default();
     for arg in expr.parsed_args_iter() {

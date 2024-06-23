@@ -34,17 +34,17 @@ use crate::{
 };
 
 use super::{
-    argument::{Argument, CliArgIdx},
+    setting::{CliArgIdx, Setting},
     chain_options::{ChainOptions, DEFAULT_CHAIN_OPTIONS},
     operator_base_options::OperatorBaseOptions,
 };
 
 pub struct SessionOptions {
-    pub debug_log_path: Argument<PathBuf>,
-    pub max_threads: Argument<usize>,
+    pub debug_log_path: Setting<PathBuf>,
+    pub max_threads: Setting<usize>,
     pub any_threaded_operations: bool,
-    pub repl: Argument<bool>,
-    pub exit_repl: Argument<bool>,
+    pub repl: Setting<bool>,
+    pub exit_repl: Setting<bool>,
     pub(crate) string_store: StringStore,
     pub(crate) operator_base_options:
         IndexVec<OperatorId, OperatorBaseOptions>,
@@ -62,13 +62,13 @@ static EMPTY_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
     Lazy::new(|| Arc::new(ExtensionRegistry::default()));
 static DEFAULT_CONTEXT_OPTIONS: Lazy<SessionOptions> =
     Lazy::new(|| SessionOptions {
-        max_threads: Argument::new_v(0),
-        debug_log_path: Argument::new_opt(
+        max_threads: Setting::new_v(0),
+        debug_log_path: Setting::new_opt(
             option_env!("SCR_DEBUG_LOG_PATH")
                 .map(|p| PathBuf::from_str(p).expect("valid debug log path")),
         ),
-        repl: Argument::new_v(false),
-        exit_repl: Argument::new_v(false),
+        repl: Setting::new_v(false),
+        exit_repl: Setting::new_v(false),
         chains: IndexVec::new(),
         operator_base_options: IndexVec::new(),
         operator_data: IndexVec::new(),
@@ -90,10 +90,10 @@ impl Default for SessionOptions {
 impl SessionOptions {
     pub fn with_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
         Self {
-            max_threads: Argument::default(),
-            repl: Argument::default(),
-            debug_log_path: Argument::default(),
-            exit_repl: Argument::default(),
+            max_threads: Setting::default(),
+            repl: Setting::default(),
+            debug_log_path: Setting::default(),
+            exit_repl: Setting::default(),
             chains: IndexVec::from(vec![ChainOptions::default()]),
             curr_chain: ChainId::zero(),
             operator_base_options: IndexVec::new(),

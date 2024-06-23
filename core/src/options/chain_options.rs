@@ -7,20 +7,20 @@ use crate::{
     utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
 
-use super::argument::Argument;
+use super::setting::Setting;
 
 #[derive(Clone, Default)]
 pub struct ChainOptions {
     pub label: Option<StringStoreEntry>,
-    pub default_text_encoding: Argument<TextEncoding>,
-    pub prefer_parent_text_encoding: Argument<bool>,
-    pub force_text_encoding: Argument<bool>,
-    pub floating_point_math: Argument<bool>,
-    pub print_rationals_raw: Argument<bool>,
-    pub default_batch_size: Argument<usize>,
-    pub stream_buffer_size: Argument<usize>,
-    pub stream_size_threshold: Argument<usize>,
-    pub buffering_mode: Argument<BufferingMode>,
+    pub default_text_encoding: Setting<TextEncoding>,
+    pub prefer_parent_text_encoding: Setting<bool>,
+    pub force_text_encoding: Setting<bool>,
+    pub floating_point_math: Setting<bool>,
+    pub print_rationals_raw: Setting<bool>,
+    pub default_batch_size: Setting<usize>,
+    pub stream_buffer_size: Setting<usize>,
+    pub stream_size_threshold: Setting<usize>,
+    pub buffering_mode: Setting<BufferingMode>,
     pub parent: ChainId,
     pub subchain_count: SubchainIndex,
     pub operators: IndexVec<OperatorOffsetInChain, OperatorId>,
@@ -28,15 +28,15 @@ pub struct ChainOptions {
 
 pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     label: None,
-    default_text_encoding: Argument::new_v(TextEncoding::UTF8),
-    prefer_parent_text_encoding: Argument::new_v(false),
-    force_text_encoding: Argument::new_v(false),
-    floating_point_math: Argument::new_v(false),
-    print_rationals_raw: Argument::new_v(false),
-    default_batch_size: Argument::new_v(1024),
-    stream_buffer_size: Argument::new_v(1024),
-    stream_size_threshold: Argument::new_v(1024),
-    buffering_mode: Argument::new_v(BufferingMode::LineBufferStdinIfTTY),
+    default_text_encoding: Setting::new_v(TextEncoding::UTF8),
+    prefer_parent_text_encoding: Setting::new_v(false),
+    force_text_encoding: Setting::new_v(false),
+    floating_point_math: Setting::new_v(false),
+    print_rationals_raw: Setting::new_v(false),
+    default_batch_size: Setting::new_v(1024),
+    stream_buffer_size: Setting::new_v(1024),
+    stream_size_threshold: Setting::new_v(1024),
+    buffering_mode: Setting::new_v(BufferingMode::LineBufferStdinIfTTY),
     parent: ChainId(0),
     subchain_count: SubchainIndex(0),
     operators: IndexVec::new(),

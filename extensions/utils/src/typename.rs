@@ -1,5 +1,5 @@
 use scr_core::{
-    cli::reject_operator_params,
+    cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -20,7 +20,6 @@ use scr_core::{
             basic_transform_update, BasicUpdateData,
         },
     },
-    options::argument::CliArgIdx,
     record_data::{
         field_value_ref::FieldValueSlice,
         iter_hall::{IterId, IterKind},
@@ -37,10 +36,9 @@ pub struct TfTypename {
 }
 
 pub fn parse_op_typename(
-    value: Option<&[u8]>,
-    arg_idx: Option<CliArgIdx>,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params("typename", value, arg_idx)?;
+    expr.reject_args()?;
     Ok(create_op_typename())
 }
 

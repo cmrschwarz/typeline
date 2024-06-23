@@ -1,5 +1,5 @@
 use crate::{
-    cli::call_expr::OperatorCallExpr,
+    cli::call_expr::CallExpr,
     job::JobData,
     liveness_analysis::{LivenessData, VarLivenessSlotKind},
     utils::{
@@ -23,9 +23,9 @@ pub struct OpSelect {
 pub struct TfSelect {}
 
 pub fn parse_op_select(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let val = expr.require_single_string_param()?;
+    let val = expr.require_single_string_arg()?;
     Ok(OperatorData::Select(OpSelect {
         key: val.to_owned(),
         key_interned: None,

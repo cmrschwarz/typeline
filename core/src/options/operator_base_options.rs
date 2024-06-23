@@ -12,6 +12,7 @@ pub struct OperatorBaseOptions {
     pub label: Option<StringStoreEntry>,
     pub span: Span,
     pub transparent_mode: bool,
+    pub output_is_atom: bool,
     // all following fields are set by the context on add_op
     pub desired_batch_size: usize,
     pub chain_id: Option<ChainId>,
@@ -24,6 +25,7 @@ impl OperatorBaseOptions {
         argname: StringStoreEntry,
         label: Option<StringStoreEntry>,
         transparent_mode: bool,
+        output_is_atom: bool,
         span: Span,
     ) -> OperatorBaseOptions {
         OperatorBaseOptions {
@@ -31,6 +33,7 @@ impl OperatorBaseOptions {
             label,
             span,
             transparent_mode,
+            output_is_atom,
             desired_batch_size: 0,
             chain_id: None,
             op_id: None,
@@ -38,7 +41,7 @@ impl OperatorBaseOptions {
         }
     }
     pub fn from_name(argname: StringStoreEntry) -> OperatorBaseOptions {
-        OperatorBaseOptions::new(argname, None, false, Span::Generated)
+        OperatorBaseOptions::new(argname, None, false, false, Span::Generated)
     }
 
     pub fn build(&self) -> OperatorBase {

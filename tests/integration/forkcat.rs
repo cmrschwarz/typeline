@@ -10,7 +10,7 @@ use scr_core::{
     operators::{
         end::create_op_end,
         forkcat::create_op_forkcat,
-        format::{create_op_format, create_op_format_from_str},
+        format::create_op_format,
         join::create_op_join,
         literal::create_op_str,
         next::create_op_next,
@@ -138,7 +138,7 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
             create_op_str("INSERT INTO T VALUES "),
             create_op_next(),
             create_op_seq(0, 5, 1).unwrap(),
-            create_op_format_from_str("({})").unwrap(),
+            create_op_format("({})").unwrap(),
             create_op_join(Some(MaybeText::from_bytes(b", ")), None, false),
             create_op_next(),
             create_op_str(";"),

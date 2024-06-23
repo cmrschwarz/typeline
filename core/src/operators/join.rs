@@ -6,7 +6,7 @@ use regex::Regex;
 use smallstr::SmallString;
 
 use crate::{
-    cli::call_expr::{OperatorCallExpr, ParsedArgValue, Span},
+    cli::call_expr::{CallExpr, ParsedArgValue, Span},
     job::{JobData, TransformManager},
     record_data::{
         action_buffer::ActorId,
@@ -140,7 +140,7 @@ pub fn argument_matches_op_join(arg: &str) -> bool {
 }
 
 pub fn parse_op_join(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut count = None;
     let mut drop_incomplete = false;

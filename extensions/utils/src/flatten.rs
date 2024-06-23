@@ -1,5 +1,5 @@
 use scr_core::{
-    cli::reject_operator_params,
+    cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -20,7 +20,6 @@ use scr_core::{
             basic_transform_update, BasicUpdateData,
         },
     },
-    options::argument::CliArgIdx,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         array::Array,
@@ -51,10 +50,9 @@ pub struct TfFlatten {
 }
 
 pub fn parse_op_flatten(
-    value: Option<&[u8]>,
-    arg_idx: Option<CliArgIdx>,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_params("flatten", value, arg_idx)?;
+    expr.reject_args()?;
     Ok(create_op_flatten())
 }
 

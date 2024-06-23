@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bstr::ByteSlice;
 
 use crate::{
-    cli::call_expr::{OperatorCallExpr, ParsedArgValue},
+    cli::call_expr::{CallExpr, ParsedArgValue},
     job::JobData,
     record_data::{
         field_value_ref::FieldValueSlice,
@@ -40,7 +40,7 @@ impl OpToStr {
 }
 
 pub fn parse_op_to_str(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     // this should not happen in the cli parser because it checks using
     // `argument_matches_data_inserter`

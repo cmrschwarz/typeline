@@ -3,6 +3,7 @@ use std::cell::{RefCell, RefMut};
 use indexmap::{indexmap, IndexMap};
 
 use scr_core::{
+    cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -20,7 +21,6 @@ use scr_core::{
             TransformState,
         },
     },
-    options::argument::CliArgIdx,
     record_data::{
         field::{FieldId, FieldManager, FieldRefOffset},
         field_data::FieldData,
@@ -67,15 +67,9 @@ pub struct TfExplode {
 unsafe impl Send for TfExplode {}
 
 pub fn parse_op_explode(
-    value: Option<&[u8]>,
-    arg_idx: Option<CliArgIdx>,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if value.is_some() {
-        return Err(OperatorCreationError::new(
-            "this operator takes no arguments",
-            arg_idx,
-        ));
-    }
+    expr.reject_args()?;
     Ok(create_op_explode())
 }
 

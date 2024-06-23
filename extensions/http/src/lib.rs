@@ -4,7 +4,7 @@ pub mod url;
 
 use http::create_op_GET;
 use scr_core::{
-    cli::OperatorCallExpr,
+    cli::call_expr::CallExpr,
     extension::Extension,
     operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
@@ -19,12 +19,10 @@ impl Extension for HttpExtension {
     fn try_match_cli_argument(
         &self,
         _ctx_opts: &SessionOptions,
-        arg: &OperatorCallExpr,
-        _args: &[Vec<u8>],
-        _next_arg_idx: &mut usize,
+        expr: &CallExpr,
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
-        if arg.op_name == "GET" || arg.op_name == "http-get" {
-            arg.reject_value()?;
+        if expr.op_name == "GET" || expr.op_name == "http-get" {
+            expr.reject_args()?;
             return Ok(Some(create_op_GET()));
         }
         Ok(None)

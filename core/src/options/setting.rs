@@ -7,27 +7,27 @@ use crate::{
 pub type CliArgIdx = DebuggableNonMaxU32;
 
 #[derive(Clone, derive_more::Deref)]
-pub struct Argument<T: Clone> {
+pub struct Setting<T: Clone> {
     #[deref]
     pub value: Option<T>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArgumentReassignmentError {
+pub struct SettingReassignmentError {
     pub prev_assignment_span: Span,
     pub reassignment_span: Span,
 }
-pub const ARGUMENT_REASSIGNMENT_ERROR_MESSAGE: &str = "option was already set";
+pub const SETTING_REASSIGNMENT_ERROR_MESSAGE: &str = "option was already set";
 
-impl fmt::Display for ArgumentReassignmentError {
+impl fmt::Display for SettingReassignmentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(ARGUMENT_REASSIGNMENT_ERROR_MESSAGE)
+        f.write_str(SETTING_REASSIGNMENT_ERROR_MESSAGE)
     }
 }
-impl Error for ArgumentReassignmentError {}
+impl Error for SettingReassignmentError {}
 
-impl<T: Clone> Default for Argument<T> {
+impl<T: Clone> Default for Setting<T> {
     fn default() -> Self {
         Self {
             value: None,
@@ -36,7 +36,7 @@ impl<T: Clone> Default for Argument<T> {
     }
 }
 
-impl<T: Clone> Argument<T> {
+impl<T: Clone> Setting<T> {
     pub const fn new(value: T, span: Span) -> Self {
         Self {
             value: Some(value),
@@ -59,9 +59,9 @@ impl<T: Clone> Argument<T> {
         &mut self,
         value: T,
         span: Span,
-    ) -> Result<(), ArgumentReassignmentError> {
+    ) -> Result<(), SettingReassignmentError> {
         if self.value.is_some() {
-            return Err(ArgumentReassignmentError {
+            return Err(SettingReassignmentError {
                 reassignment_span: span,
                 prev_assignment_span: self.span,
             });

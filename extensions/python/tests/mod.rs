@@ -1,5 +1,6 @@
 use num::BigRational;
 use scr_core::{
+    cli::call_expr::Span,
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
         literal::create_op_int,
@@ -48,8 +49,8 @@ fn python_multiline_indentation_error() {
     assert_eq!(
         create_op_py("a=42\n a").err().expect("this shouldn't parse"),
         OperatorCreationError::new(
-            "Python failed to parse: IndentationError: unexpected indent (<cmd>, line 2)"
-            , None
+            "Python failed to parse: IndentationError: unexpected indent (<cmd>, line 2)",
+            Span::Generated
         )
     );
 }

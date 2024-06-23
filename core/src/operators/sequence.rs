@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 
 use crate::{
-    cli::call_expr::{OperatorCallExpr, Span},
+    cli::call_expr::{CallExpr, Span},
     context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData, VarLivenessSlotKind},
@@ -242,7 +242,7 @@ pub fn handle_tf_sequence(
 }
 
 pub fn parse_op_seq(
-    call: &OperatorCallExpr,
+    call: &CallExpr,
     mode: OpSequenceMode,
     natural_number_mode: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -257,7 +257,7 @@ pub fn parse_op_seq(
             call.span,
         );
     }
-    let value_str = call.require_single_string_param()?;
+    let value_str = call.require_single_string_arg()?;
     let parts: ArrayVec<&str, 4> = value_str.split(',').take(4).collect();
     if parts.len() == 4 {
         return Err(OperatorCreationError::new(

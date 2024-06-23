@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     chain::ChainId,
-    cli::call_expr::OperatorCallExpr,
+    cli::call_expr::CallExpr,
     job::{Job, JobData},
     record_data::{
         field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
@@ -34,9 +34,9 @@ pub struct TfCall {
 }
 
 pub fn parse_op_call(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let target = expr.require_single_string_param()?;
+    let target = expr.require_single_string_arg()?;
     Ok(OperatorData::Call(OpCall {
         lazy: true,
         target_name: target.to_owned(),

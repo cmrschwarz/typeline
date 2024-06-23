@@ -15,7 +15,7 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 use crate::{
-    cli::call_expr::{OperatorCallExpr, Span},
+    cli::call_expr::{CallExpr, Span},
     context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
@@ -717,9 +717,9 @@ pub fn build_op_format(
 }
 
 pub fn parse_op_format(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let val = expr.require_single_param()?;
+    let val = expr.require_single_arg()?;
     build_op_format(val, expr.span)
 }
 pub fn create_op_format(

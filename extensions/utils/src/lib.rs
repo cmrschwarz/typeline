@@ -8,7 +8,7 @@ use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
 use head::parse_op_head;
 use scr_core::{
-    cli::OperatorCallExpr,
+    cli::call_expr::CallExpr,
     extension::Extension,
     operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
@@ -40,11 +40,9 @@ impl Extension for MiscCmdsExtension {
     fn try_match_cli_argument(
         &self,
         _ctx_opts: &SessionOptions,
-        arg: &OperatorCallExpr,
-        _args: &[Vec<u8>],
-        _next_arg_idx: &mut usize,
+        expr: &CallExpr,
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
-        let ctor_with_arg: Option<fn(_, _) -> _> = match arg.op_name {
+        let ctor_with_arg: Option<fn(_) -> _> = match expr.op_name {
             "head" => Some(parse_op_head),
             "tail" => Some(parse_op_tail),
             "dup" => Some(parse_op_dup),
@@ -54,10 +52,10 @@ impl Extension for MiscCmdsExtension {
             _ => None,
         };
         if let Some(ctor) = ctor_with_arg {
-            return Ok(Some(ctor(arg.args, Some(arg.cli_arg.idx))?));
+            return Ok(Some(ctor(expr)?));
         }
 
-        let ctor_without_arg: Option<fn() -> _> = match arg.op_name {
+        let ctor_without_arg: Option<fn() -> _> = match expr.op_name {
             "sum" => Some(create_op_sum),
             "primes" => Some(create_op_primes),
             "lines" | "l" => Some(create_op_lines),
@@ -70,7 +68,7 @@ impl Extension for MiscCmdsExtension {
             _ => None,
         };
         if let Some(ctor) = ctor_without_arg {
-            arg.reject_value()?;
+            expr.reject_args()?;
             return Ok(Some(ctor()));
         }
         Ok(None)

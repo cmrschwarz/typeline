@@ -1,5 +1,5 @@
 use scr_core::{
-    cli::parse_arg_value_as_number,
+    cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -17,7 +17,6 @@ use scr_core::{
             TransformState,
         },
     },
-    options::argument::CliArgIdx,
     record_data::{action_buffer::ActorId, field_action::FieldActionKind},
     smallbox,
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
@@ -209,13 +208,8 @@ pub fn create_op_head(count: isize) -> OperatorData {
 }
 
 pub fn parse_op_head(
-    value: Option<&[u8]>,
-    arg_idx: Option<CliArgIdx>,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let count = if value.is_none() {
-        1
-    } else {
-        parse_arg_value_as_number("head", value, arg_idx)?
-    };
+    let count = expr.require_at_most_one_number_arg()?.unwrap_or(1);
     Ok(create_op_head(count))
 }

@@ -1,6 +1,6 @@
 use scr::{
     build_extension_registry,
-    cli::{collect_env_args, parse_cli, CliOptions},
+    cli::{call_expr::Span, collect_env_args, parse_cli, CliOptions},
     context::Context,
     options::session_options::SessionOptions,
     record_data::record_set::RecordSet,
@@ -35,7 +35,7 @@ fn run() -> Result<bool, String> {
         Err(e) => match e.err {
             ScrError::MissingArgumentsError(_) if repl => {
                 let mut sess_opts = SessionOptions::default();
-                sess_opts.repl.set(true, None).unwrap();
+                sess_opts.repl.set(true, Span::Builtin).unwrap();
                 sess_opts.build_session().unwrap()
             }
             ScrError::PrintInfoAndExitError(_) => {

@@ -10,7 +10,7 @@ use smallstr::SmallString;
 
 use crate::{
     chain::{BufferingMode, Chain},
-    cli::call_expr::{OperatorCallExpr, ParsedArgValue, Span},
+    cli::call_expr::{CallExpr, ParsedArgValue, Span},
     job::JobData,
     record_data::{
         field_data::INLINE_STR_MAX_LEN,
@@ -403,18 +403,18 @@ pub fn handle_tf_file_reader(
 }
 
 fn parse_lines_flag(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
     flag: &[u8],
     span: Span,
 ) -> Result<bool, OperatorCreationError> {
     if flag == b"l" || flag == b"lines" {
         return Ok(true);
     }
-    return Err(expr.error_flag_value_unsupported(flag, span));
+    Err(expr.error_flag_value_unsupported(flag, span))
 }
 
 fn parse_named_arg_count(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
     key: &[u8],
     value: &[u8],
     span: Span,
@@ -423,15 +423,15 @@ fn parse_named_arg_count(
         let value = value
             .to_str()
             .map_err(|_| expr.error_arg_invalid_utf8(key, span))?;
-        return Ok(value
+        return value
             .parse::<usize>()
-            .map_err(|_| expr.error_arg_invalid_int(key, span))?);
+            .map_err(|_| expr.error_arg_invalid_int(key, span));
     }
     Err(expr.error_named_arg_unsupported(key, span))
 }
 
 pub fn parse_op_file_reader(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut count = None;
     let mut lines = false;
@@ -455,7 +455,7 @@ pub fn parse_op_file_reader(
 }
 
 pub fn parse_op_stdin(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut count = None;
     let mut lines = false;

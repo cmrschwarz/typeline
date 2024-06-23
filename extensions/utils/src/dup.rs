@@ -1,5 +1,5 @@
 use scr_core::{
-    cli::{parse_arg_value_as_number, reject_operator_params},
+    cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -17,7 +17,6 @@ use scr_core::{
             TransformState,
         },
     },
-    options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
         group_track::GroupTrackIterRef, iter_hall::IterKind,
@@ -164,21 +163,15 @@ pub fn create_op_dup(count: usize) -> OperatorData {
 }
 
 pub fn parse_op_dup(
-    value: Option<&[u8]>,
-    arg_idx: Option<CliArgIdx>,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let count = if value.is_none() {
-        2
-    } else {
-        parse_arg_value_as_number("dup", value, arg_idx)?
-    };
+    let count = expr.require_at_most_one_number_arg()?.unwrap_or(2);
     Ok(create_op_dup(count))
 }
 
 pub fn parse_op_drop(
-    reject_operator_parameters
-    arg_idx: Option<CliArgIdx>,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    reject_operator_argument("drop", value, arg_idx)?;
+    expr.reject_args()?;
     Ok(create_op_dup(0))
 }

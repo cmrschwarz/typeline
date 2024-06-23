@@ -7,7 +7,7 @@ use bitvec::vec::BitVec;
 
 use crate::{
     chain::{Chain, SubchainIndex},
-    cli::call_expr::OperatorCallExpr,
+    cli::call_expr::CallExpr,
     context::SessionData,
     index_newtype,
     job::{add_transform_to_job, Job, JobData},
@@ -144,9 +144,9 @@ impl FcContinuationState {
 }
 
 pub fn parse_op_forkcat(
-    args: &OperatorCallExpr,
+    args: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    args.reject_params()?;
+    args.reject_args()?;
     Ok(OperatorData::ForkCat(OpForkCat::default()))
 }
 

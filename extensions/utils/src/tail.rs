@@ -1,5 +1,5 @@
 use scr_core::{
-    cli::parse_args_as_single_str,
+    cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -17,7 +17,6 @@ use scr_core::{
             TransformState,
         },
     },
-    options::argument::CliArgIdx,
     record_data::{action_buffer::ActorId, field_action::FieldActionKind},
     smallbox,
     utils::{
@@ -220,21 +219,21 @@ pub fn create_op_tail_add(count: usize) -> OperatorData {
 }
 
 pub fn parse_op_tail(
-    params: &[&[u8]],
-    arg_idx: Option<CliArgIdx>,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if params.is_none() {
+    let arg = expr.require_at_most_one_string_arg()?;
+    let Some(arg) = arg else {
         return Ok(create_op_tail(1));
     };
-    let value_str = parse_args_as_single_str("tail", params, arg_idx)?.trim();
-    let add_mode = value_str.starts_with('+');
-    let count = parse_int_with_units::<isize>(value_str)
+    let arg = arg.trim();
+    let add_mode = arg.starts_with('+');
+    let count = parse_int_with_units::<isize>(arg)
         .map_err(|msg| {
             OperatorCreationError::new_s(
                 format!(
-                    "failed to parse `tail` parameter as an integer: {msg}"
+                    "failed to parse `tail` argument as an integer: {msg}"
                 ),
-                arg_idx,
+                expr.span,
             )
         })?
         .abs();

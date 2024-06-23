@@ -1,6 +1,6 @@
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::call_expr::OperatorCallExpr,
+    cli::call_expr::CallExpr,
 };
 
 use super::{
@@ -32,9 +32,9 @@ pub fn create_op_end() -> OperatorData {
 }
 
 pub fn parse_op_end(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    expr.reject_params()?;
+    expr.reject_args()?;
     Ok(create_op_end())
 }
 

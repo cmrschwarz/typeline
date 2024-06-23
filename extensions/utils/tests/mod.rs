@@ -23,7 +23,14 @@ use scr_ext_utils::{
 fn primes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op_with_opts(create_op_primes(), None, Some("p"), false, false)
+        .add_op_with_opts(
+            create_op_primes(),
+            None,
+            Some("p"),
+            false,
+            false,
+            false,
+        )
         .add_op(create_op_enum(0, 3, 1).unwrap())
         .add_op(create_op_select("p".into()))
         .add_op(create_op_string_sink(&ss))

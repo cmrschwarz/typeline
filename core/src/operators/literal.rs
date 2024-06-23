@@ -5,7 +5,7 @@ use num::{BigInt, BigRational};
 use smallstr::SmallString;
 
 use crate::{
-    cli::call_expr::{OperatorCallExpr, ParsedArgValue, Span},
+    cli::call_expr::{CallExpr, ParsedArgValue, Span},
     job::JobData,
     options::{
         chain_options::DEFAULT_CHAIN_OPTIONS, session_options::SessionOptions,
@@ -220,7 +220,7 @@ pub fn handle_tf_literal(
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 pub fn parse_op_literal_zst(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
     literal: Literal,
 ) -> Result<OperatorData, OperatorCreationError> {
     let insert_count = parse_insert_count_reject_value(expr)?;
@@ -230,7 +230,7 @@ pub fn parse_op_literal_zst(
     }))
 }
 pub fn parse_op_str(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
     stream: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
     let (insert_count, value, _value_span) =
@@ -247,7 +247,7 @@ pub fn parse_op_str(
 }
 
 pub fn parse_op_error(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
     stream: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
     let (insert_count, value, _value_span) =
@@ -264,7 +264,7 @@ pub fn parse_op_error(
 }
 
 fn parse_named_arg_as_insert_count(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
     key: &[u8],
     value: &[u8],
     span: Span,
@@ -273,15 +273,15 @@ fn parse_named_arg_as_insert_count(
         let value = value
             .to_str()
             .map_err(|_| expr.error_arg_invalid_utf8(key, span))?;
-        return Ok(value
+        return value
             .parse::<usize>()
-            .map_err(|_| expr.error_arg_invalid_int(key, span))?);
+            .map_err(|_| expr.error_arg_invalid_int(key, span));
     }
     Err(expr.error_named_arg_unsupported(key, span))
 }
 
 pub fn parse_insert_count_reject_value(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<Option<usize>, OperatorCreationError> {
     let mut insert_count = None;
     for arg in expr.parsed_args_iter() {
@@ -303,7 +303,7 @@ pub fn parse_insert_count_reject_value(
 }
 
 pub fn parse_insert_count_and_value_args<'a: 'b, 'b>(
-    expr: &'b OperatorCallExpr<'a>,
+    expr: &'b CallExpr<'a>,
 ) -> Result<(Option<usize>, &'b [u8], Span), OperatorCreationError> {
     let mut insert_count = None;
     let mut value = None;
@@ -329,7 +329,7 @@ pub fn parse_insert_count_and_value_args<'a: 'b, 'b>(
 }
 
 pub fn parse_insert_count_and_value_args_str<'a: 'b, 'b>(
-    expr: &'b OperatorCallExpr<'a>,
+    expr: &'b CallExpr<'a>,
 ) -> Result<(Option<usize>, &'b str, Span), OperatorCreationError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;
@@ -342,7 +342,7 @@ pub fn parse_insert_count_and_value_args_str<'a: 'b, 'b>(
 }
 
 pub fn parse_op_int(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args_str(expr)?;
@@ -358,7 +358,7 @@ pub fn parse_op_int(
     Ok(OperatorData::Literal(OpLiteral { data, insert_count }))
 }
 pub fn parse_op_bytes(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
     stream: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
     let (insert_count, value, _value_span) =
@@ -395,7 +395,7 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
     }
 }
 pub fn parse_op_tyson(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
     affinity: FieldValueKind,
     sess: &SessionOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -458,7 +458,7 @@ pub fn build_op_tyson_value(
 }
 
 pub fn parse_op_tyson_value(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
     sess: Option<&SessionOptions>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let (insert_count, value, value_span) =

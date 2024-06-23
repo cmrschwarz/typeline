@@ -1,5 +1,5 @@
 use crate::{
-    cli::call_expr::OperatorCallExpr,
+    cli::call_expr::CallExpr,
     utils::string_store::{StringStore, StringStoreEntry},
 };
 
@@ -15,9 +15,9 @@ pub struct OpKey {
 }
 
 pub fn parse_op_key(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let key = expr.require_single_string_param()?;
+    let key = expr.require_single_string_arg()?;
     Ok(OperatorData::Key(OpKey {
         key: key.to_owned(),
         key_interned: None,

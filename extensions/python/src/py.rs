@@ -11,6 +11,7 @@ use pyo3::{
 };
 use scr_core::{
     chain::ChainId,
+    cli::call_expr::Span,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -31,7 +32,6 @@ use scr_core::{
             TransformState,
         },
     },
-    options::argument::CliArgIdx,
     record_data::{
         array::Array,
         field::{CowFieldDataRef, FieldIterRef},
@@ -552,9 +552,9 @@ unsafe fn debug_print_py_object(
     }
 }
 
-pub fn parse_op_py(
+pub fn build_op_py(
     cmd: String,
-    cli_arg_idx: Option<CliArgIdx>,
+    span: Span,
 ) -> Result<OperatorData, OperatorCreationError> {
     let command = match CString::new(cmd) {
         Ok(cmd) => cmd,
@@ -564,7 +564,7 @@ pub fn parse_op_py(
                     "command contains a NULL byte as position {}",
                     e.nul_position()
                 ),
-                cli_arg_idx,
+                span,
             ))
         }
     };
@@ -625,7 +625,7 @@ pub fn parse_op_py(
             pyo3::PyErr::take(py);
             return Err(OperatorCreationError::new(
                 "failed to set __builtin__ on python module",
-                cli_arg_idx,
+                span,
             ));
         }
 
@@ -638,7 +638,7 @@ pub fn parse_op_py(
         if let Some(err) = pyo3::PyErr::take(py) {
             return Err(OperatorCreationError::new_s(
                 format!("Python failed to parse: {err}"),
-                cli_arg_idx,
+                span,
             ));
         }
 
@@ -682,7 +682,7 @@ else:
         if let Err(e) = py.run_bound(code, None, Some(&locals)) {
             return Err(OperatorCreationError::new_s(
                 format!("Python Command Compilation: {e}"),
-                cli_arg_idx,
+                span,
             ));
         }
         let statements = locals.get_item("statements").unwrap().unbind();
@@ -708,5 +708,5 @@ else:
 }
 
 pub fn create_op_py(cmd: &str) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_py(cmd.to_owned(), None)
+    build_op_py(cmd.to_owned(), Span::Generated)
 }

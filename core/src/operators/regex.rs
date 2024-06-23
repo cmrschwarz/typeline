@@ -7,7 +7,7 @@ use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut};
 
 use crate::{
-    cli::call_expr::{OperatorCallExpr, ParsedArgValue, Span},
+    cli::call_expr::{CallExpr, ParsedArgValue, Span},
     job::JobData,
     liveness_analysis::OpOutputIdx,
     record_data::{
@@ -297,7 +297,7 @@ pub fn build_op_regex(
 }
 
 pub fn parse_op_regex(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut opts = RegexOptions::default();
     let mut unicode_mode = false;
@@ -393,7 +393,7 @@ pub fn create_op_regex_with_opts(
     regex: &str,
     opts: RegexOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
-    build_op_regex(&regex, opts, Span::Generated)
+    build_op_regex(regex, opts, Span::Generated)
 }
 pub fn create_op_regex(
     regex: &str,

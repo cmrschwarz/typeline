@@ -34,8 +34,8 @@ use crate::{
         utils::writable::WritableTarget,
     },
     options::{
-        argument::CliArgIdx, operator_base_options::OperatorBaseOptions,
-        session_options::SessionOptions,
+        operator_base_options::OperatorBaseOptions,
+        session_options::SessionOptions, setting::CliArgIdx,
     },
     record_data::field_value::FieldValueKind,
     scr_error::{ContextualizedScrError, ReplDisabledError, ScrError},
@@ -44,12 +44,9 @@ use crate::{
 pub mod call_expr;
 use bstr::ByteSlice;
 
-use call_expr::{
-    Label, OperatorArg, OperatorArgValue, OperatorCallExpr, Span,
-};
+use call_expr::{Argument, ArgumentValue, CallExpr, CallExprEnd, Label, Span};
 use once_cell::sync::Lazy;
 use ref_cast::RefCast;
-use smallvec::SmallVec;
 use unicode_ident::{is_xid_continue, is_xid_start};
 
 use std::{borrow::Cow, fmt::Display, path::PathBuf, str::FromStr, sync::Arc};
@@ -72,11 +69,6 @@ pub struct CliOptions {
 pub struct CliArgumentError {
     pub message: Cow<'static, str>,
     pub span: Span,
-}
-
-struct CliArgument<'a> {
-    value: &'a [u8],
-    span: Span,
 }
 
 impl CliArgumentError {
@@ -136,19 +128,6 @@ static FALSY_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
         .build()
         .unwrap()
 });
-static LABEL_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
-    regex::bytes::RegexBuilder::new(
-        r"^(?<label>\p{XID_Start}\p{XID_Continue}*):$",
-    )
-    .build()
-    .unwrap()
-});
-static CLI_ARG_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
-    regex::bytes::RegexBuilder::new(
-        r"^(?<modes>(?:(?<append_mode>\+)|(?<transparent_mode>_))*)(?<argname>[^@=]+)(@(?<label>[^@=]+))?(=(?<value>(?:.|[\r\n])*))?$"
-    ).build()
-    .unwrap()
-});
 
 fn try_parse_bool(val: &[u8]) -> Option<bool> {
     if TRUTHY_REGEX.is_match(val) {
@@ -166,14 +145,14 @@ fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     Ok(())
 }
 
-fn try_parse_as_special_op(expr: &OperatorCallExpr) -> Result<bool, ScrError> {
+fn try_parse_as_special_op(expr: &CallExpr) -> Result<bool, ScrError> {
     if ["--version", "-v", "version"].contains(&expr.op_name) {
-        expr.reject_params()?;
+        expr.reject_args()?;
         return Err(PrintInfoAndExitError::Version.into());
     }
     if ["--help", "-h", "help", "h"].contains(&expr.op_name) {
         const MAIN_HELP_PAGE: &str = include_str!("help_sections/main.txt");
-        let text = if let Some(value) = expr.require_at_most_one_param()? {
+        let text = if let Some(value) = expr.require_at_most_one_arg()? {
             let section = String::from_utf8_lossy(value);
             match section.trim().to_lowercase().as_ref() {
                 "cast" => include_str!("help_sections/cast.txt"),
@@ -207,7 +186,7 @@ fn try_parse_as_special_op(expr: &OperatorCallExpr) -> Result<bool, ScrError> {
 
 fn try_parse_as_setting(
     ctx_opts: &mut SessionOptions,
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<bool, ScrError> {
     let chain = &mut ctx_opts.chains[ctx_opts.curr_chain];
 
@@ -220,11 +199,11 @@ fn try_parse_as_setting(
                 }
                 .into());
             }
-            let enabled = expr.require_single_bool_arg_or_default(true)?;
+            let enabled = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
             ctx_opts.exit_repl.set(enabled, expr.span)?;
         }
         "repl" => {
-            let enabled = expr.require_single_bool_arg_or_default(true)?;
+            let enabled = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
             if !ctx_opts.allow_repl && enabled {
                 return Err(ReplDisabledError {
                     message: "REPL mode is not allowed",
@@ -237,10 +216,10 @@ fn try_parse_as_setting(
         "tc" => {
             ctx_opts
                 .max_threads
-                .set(expr.require_single_usize_param()?, expr.span)?;
+                .set(expr.require_single_number_param()?, expr.span)?;
         }
         "debug_log" => {
-            let val = expr.require_single_param()?;
+            let val = expr.require_single_arg()?;
             match val.to_str().ok().and_then(|v| PathBuf::from_str(v).ok()) {
                 Some(path) => {
                     ctx_opts.debug_log_path.set(path, expr.span)?;
@@ -255,41 +234,41 @@ fn try_parse_as_setting(
             }
         }
         "denc" => {
-            let _val = expr.require_single_string_param()?;
+            let _val = expr.require_single_string_arg()?;
             todo!("parse text encoding");
         }
         "ppenc" => {
-            let ppte = expr.require_single_bool_arg_or_default(true)?;
+            let ppte = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
             chain.prefer_parent_text_encoding.set(ppte, expr.span)?;
         }
         "fenc" => {
-            let fte = expr.require_single_bool_arg_or_default(true)?;
+            let fte = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
             chain.force_text_encoding.set(fte, expr.span)?;
         }
         "fpm" => {
-            let fpm = expr.require_single_bool_arg_or_default(true)?;
+            let fpm = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
             chain.floating_point_math.set(fpm, expr.span)?;
         }
         "prr" => {
-            let prr = expr.require_single_bool_arg_or_default(true)?;
+            let prr = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
             chain.print_rationals_raw.set(prr, expr.span)?;
         }
         "bs" => {
-            let bs = expr.require_single_usize_param()?;
+            let bs = expr.require_single_number_param()?;
             chain.default_batch_size.set(bs, expr.span)?;
         }
         "sbs" => {
-            let bs = expr.require_single_usize_param()?;
+            let bs = expr.require_single_number_param()?;
             chain.stream_buffer_size.set(bs, expr.span)?;
         }
         "sst" => {
-            let bs = expr.require_single_usize_param()?;
+            let bs = expr.require_single_number_param()?;
             chain.stream_size_threshold.set(bs, expr.span)?;
         }
         "lb" => {
             let mut buffering_mode = BufferingMode::LineBuffer;
             if !expr.args.is_empty() {
-                let val = expr.require_single_string_param()?;
+                let val = expr.require_single_string_arg()?;
                 buffering_mode = if let Some(v) =
                     try_parse_bool(val.as_bytes())
                 {
@@ -330,14 +309,14 @@ fn try_parse_as_setting(
 
 fn parse_op_def(
     _ctx_opts: &mut SessionOptions,
-    _expr: &OperatorCallExpr,
+    _expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     todo!()
 }
 
 fn try_parse_operator_data(
     ctx_opts: &mut SessionOptions,
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<Option<OperatorData>, OperatorCreationError> {
     Ok(Some(match expr.op_name {
         "def" => parse_op_def(ctx_opts, expr)?,
@@ -372,9 +351,9 @@ fn try_parse_operator_data(
         "enumn" => parse_op_seq(expr, OpSequenceMode::Enum, true)?,
         "enum-u" => parse_op_seq(expr, OpSequenceMode::EnumUnbounded, false)?,
         "enumn-u" => parse_op_seq(expr, OpSequenceMode::EnumUnbounded, true)?,
-        "count" => parse_op_count(&expr)?,
-        "nop" | "scr" => parse_op_nop(&expr)?,
-        "fork" => parse_op_fork(&expr)?,
+        "count" => parse_op_count(expr)?,
+        "nop" | "scr" => parse_op_nop(expr)?,
+        "fork" => parse_op_fork(expr)?,
         "foreach" | "fe" => parse_op_foreach(expr)?,
         "forkcat" | "fc" => parse_op_forkcat(expr)?,
         "call" | "c" => parse_op_call(expr)?,
@@ -393,16 +372,19 @@ fn try_parse_operator_data(
 }
 pub fn add_op_from_arg_and_op_data_uninit(
     ctx_opts: &mut SessionOptions,
-    arg: &OperatorCallExpr,
+    arg: &CallExpr,
     op_data: OperatorData,
 ) -> OperatorId {
     let argname = ctx_opts.string_store.intern_cloned(arg.op_name);
-    let label = arg.label.map(|l| ctx_opts.string_store.intern_cloned(l));
+    let label = arg
+        .label
+        .map(|l| ctx_opts.string_store.intern_cloned(l.value));
     ctx_opts.add_op_uninit(
         OperatorBaseOptions::new(
             argname,
             label,
             arg.transparent_mode,
+            arg.label.map(|l| l.is_atom).unwrap_or(false),
             arg.span,
         ),
         op_data,
@@ -416,8 +398,8 @@ fn expect_equals_after_colon(
     span: Span,
 ) -> Result<(), CliArgumentError> {
     if char != '=' {
-        return Err(CliArgumentError::new_s(
-            format!("expected `=` or whitespace after `:`"),
+        return Err(CliArgumentError::new(
+            "expected `=` or whitespace after `:`",
             span.subslice(0, 1, start, end),
         ));
     }
@@ -442,13 +424,96 @@ fn require_list_start_as_separate_arg(
     Ok(())
 }
 
+pub fn complain_if_dashed_arg(
+    src: &[Vec<u8>],
+    src_idx: usize,
+    because_block: bool,
+) -> Result<(), CliArgumentError> {
+    if let Some(arg) = src.get(src_idx) {
+        if arg.starts_with(b"-") {
+            return Err(CliArgumentError::new_s(
+                format!(
+                    "dashed argument found after end of {}",
+                    if because_block { "block" } else { "list" }
+                ),
+                Span::from_single_arg(src_idx, arg.len()),
+            ));
+        }
+    };
+    Ok(())
+}
+
+pub fn gobble_cli_args_while_dashed<'a>(
+    src: &'a [Vec<u8>],
+    src_idx: &mut usize,
+    args: &mut Vec<Argument<'a>>,
+) {
+    let mut i = *src_idx;
+    while i < src.len() {
+        let arg = &src[i];
+        if !arg.starts_with(b"-") {
+            break;
+        }
+        args.push(Argument {
+            value: ArgumentValue::Plain(arg),
+            span: Span::from_single_arg(i, arg.len()),
+        });
+        i += 1;
+    }
+    *src_idx = i;
+}
+
 pub fn gobble_cli_args_until_end<'a>(
     src: &'a [Vec<u8>],
-    src_index: &mut usize,
-    args: &mut Vec<OperatorArg<'a>>,
-    end: &str,
-) -> Result<Option<Span>, CliArgumentError> {
-    let mut i = *src_index;
+    src_idx: &mut usize,
+    args: &mut Vec<Argument<'a>>,
+    block_start: Span,
+) -> Result<Span, CliArgumentError> {
+    let mut i = *src_idx;
+    while i < src.len() {
+        let arg = &src[i];
+        if arg == "]".as_bytes() {
+            return Err(CliArgumentError::new(
+                "found list end `]` while waiting for `end` to terminate block",
+                Span::from_single_arg(i, arg.len()),
+            ));
+        }
+        if arg == "end".as_bytes() {
+            return Ok(Span::from_single_arg(i, arg.len()));
+        }
+        let mut append = false;
+        let mut transparent = false;
+        let mut name = "";
+        let mut label = None;
+        let mut end = CallExprEnd::Inline;
+        let mut span = Span::Generated;
+        parse_call_expr_raw(
+            src,
+            &mut i,
+            true,
+            &mut append,
+            &mut transparent,
+            &mut name,
+            &mut label,
+            args,
+            &mut end,
+            &mut span,
+        )?;
+    }
+    *src_idx = i;
+    Err(CliArgumentError::new(
+        "unterminated block expression: eof reached while searching for `end`",
+        block_start,
+    ))
+}
+
+pub fn gobble_cli_args_until_bracket_close<'a>(
+    src: &'a [Vec<u8>],
+    list_start: Span,
+    src_idx: &mut usize,
+    args: &mut Vec<Argument<'a>>,
+) -> Result<Span, CliArgumentError> {
+    let mut i = *src_idx;
     while i < src.len() {
         let arg = &src[i];
         let span = Span::CliArg {
@@ -457,86 +522,80 @@ pub fn gobble_cli_args_until_end<'a>(
             offset_start: 0,
             offset_end: arg.len() as u16,
         };
-        if arg == end.as_bytes() {
-            return Ok(Some(span));
+        if arg == "]".as_bytes() {
+            return Ok(span);
         }
-        if arg[0] != b'[' {
-            args.push(OperatorArg {
-                value: OperatorArgValue::Plain(arg),
+        if arg != "[".as_bytes() {
+            args.push(Argument {
+                value: ArgumentValue::Plain(arg),
                 span,
             });
             i += 1;
             continue;
         }
-        require_list_start_as_separate_arg(arg, i)?;
         let mut list_args = Vec::new();
-        let mut list_end_idx = i + 1;
-        let Some(list_end) = gobble_cli_args_until_end(
+        let list_end = gobble_cli_args_until_bracket_close(
             src,
-            &mut list_end_idx,
+            span,
+            &mut i,
             &mut list_args,
-            "]",
-        )?
-        else {
-            *src_index = i;
-            return Err(CliArgumentError::new(
-                "unterminated list: eof reached while searching for `]`",
-                span,
-            ));
-        };
-        let list_span = span.span_until(list_end).unwrap();
-        args.push(OperatorArg {
-            value: OperatorArgValue::List(list_args),
-            span: list_span,
-        });
-        i = list_end_idx + 1;
+        )?;
+        args.push(Argument {
+            value: ArgumentValue::List(list_args),
+            span: span.span_until(list_end).unwrap(),
+        })
     }
-    *src_index = i;
-    Ok(None)
+    *src_idx = i;
+    Err(CliArgumentError::new(
+        "unterminated list: eof reached while searching for `]`",
+        list_start,
+    ))
 }
 
-pub fn parse_op_call_expr<'a>(
-    args: &'a [Vec<u8>],
-    arg_idx: &mut usize,
-) -> Result<OperatorCallExpr<'a>, CliArgumentError> {
-    let mut arg = &args[*arg_idx];
+pub fn parse_call_expr_raw<'a>(
+    src: &'a [Vec<u8>],
+    src_idx: &mut usize,
+    push_args_raw: bool,
+
+    append_mode: &mut bool,
+    transparent_mode: &mut bool,
+    op_name: &mut &'a str,
+    label: &mut Option<Label<'a>>,
+    args: &mut Vec<Argument<'a>>,
+    end: &mut CallExprEnd,
+    expr_span: &mut Span,
+) -> Result<(), CliArgumentError> {
+    let mut arg = &src[*src_idx];
 
     let mut is_list = false;
-    let mut cli_arg_offset = 0;
+
+    let start_span = Span::from_single_arg(*src_idx, arg.len());
+    let mut arg_span = start_span;
 
     if arg[0] == b'[' {
-        require_list_start_as_separate_arg(arg, *arg_idx)?;
+        require_list_start_as_separate_arg(arg, *src_idx)?;
         is_list = true;
-        *arg_idx += 1;
-        arg = &args[*arg_idx];
+        *src_idx += 1;
+        arg = &src[*src_idx];
+        arg_span = Span::from_single_arg(*src_idx, arg.len());
     }
-
-    let span = Span::CliArg {
-        start: CliArgIdx::from_usize(*arg_idx),
-        end: CliArgIdx::from_usize(*arg_idx + 1),
-        offset_start: 0,
-        offset_end: arg.len() as u16,
-    };
-
-    let mut transparent = false;
-    let mut append = false;
 
     let mut i = 0;
 
     if arg[i] == b'+' {
-        append = true;
+        *append_mode = true;
         i += 1;
     }
 
     if arg[i] == b'_' {
-        transparent = true;
+        *transparent_mode = true;
         i += 1;
     }
 
-    if transparent && arg[i] == b'+' {
+    if *transparent_mode && arg[i] == b'+' {
         return Err(CliArgumentError::new(
             "append mode `+` must be specified before transparent mode `_`",
-            span.subslice(0, 1, i, i + 1),
+            arg_span.subslice(0, 1, i, i + 1),
         ));
     }
 
@@ -552,7 +611,7 @@ pub fn parse_op_call_expr<'a>(
     for (start, end, char) in arg[op_start..].char_indices() {
         i = end;
         if colon_found {
-            expect_equals_after_colon(char, start, end, span)?;
+            expect_equals_after_colon(char, start, end, arg_span)?;
             equals_found = true;
             break;
         }
@@ -586,32 +645,31 @@ pub fn parse_op_call_expr<'a>(
                     format!(
                     "invalid character '{char}' to start operator identifier"
                 ),
-                    span.subslice(0, 1, start, end),
+                    arg_span.subslice(0, 1, start, end),
                 ));
             }
             first_found = true;
         } else if !is_xid_continue(char) {
             return Err(CliArgumentError::new_s(
                 format!("invalid character '{char}' in operator identifier"),
-                span.subslice(0, 1, start, end),
+                arg_span.subslice(0, 1, start, end),
             ));
         }
         op_end = end;
     }
-    let op_name = arg[op_start..op_end]
+    *op_name = arg[op_start..op_end]
         .to_str()
         .expect("op_name was checked to be valid utf-8");
 
     let label_kind = if label_is_atom { "label" } else { "atom" };
-    let mut label = None;
+    let mut label_end = i;
     if label_found {
         let mut label_start_found = false;
         let label_start = i;
-        let mut label_end = i;
         for (start, end, char) in arg[i..].char_indices() {
             i = end;
             if colon_found {
-                expect_equals_after_colon(char, start, end, span)?;
+                expect_equals_after_colon(char, start, end, arg_span)?;
                 equals_found = true;
                 break;
             }
@@ -636,35 +694,34 @@ pub fn parse_op_call_expr<'a>(
                         format!(
                             "invalid character '{char}' to start {label_kind} identifier"
                         ),
-                        span.subslice(0, 1, start, end),
+                        arg_span.subslice(0, 1, start, end),
                     ));
                 }
                 label_start_found = true;
             } else if !is_xid_continue(char) {
                 return Err(CliArgumentError::new_s(
                     format!("invalid character '{char}' in {label_kind} identifier"),
-                    span.subslice(0, 1, start, end),
+                    arg_span.subslice(0, 1, start, end),
                 ));
             }
             label_end = end;
         }
-        label = Some(Label {
+        *label = Some(Label {
             value: arg[label_start..label_end]
                 .to_str()
                 .expect("op_name was checked to be valid utf-8"),
             is_atom: label_is_atom,
-            span: span.subslice(0, 1, label_start, label_end),
+            span: arg_span.subslice(0, 1, label_start, label_end),
         });
     }
-    let mut args = Vec::new();
 
     if dash_found {
-        let sugar_arg_start = i;
-        let mut sugar_arg_end = i;
+        let squished_arg_start = i;
+        let mut squished_arg_end = i;
         for (start, end, char) in arg[i..].char_indices() {
             i = end;
             if colon_found {
-                expect_equals_after_colon(char, start, end, span)?;
+                expect_equals_after_colon(char, start, end, arg_span)?;
                 equals_found = true;
                 break;
             }
@@ -676,32 +733,114 @@ pub fn parse_op_call_expr<'a>(
                 equals_found = true;
                 break;
             }
-            sugar_arg_end = end;
+            squished_arg_end = end;
         }
-        args.push(OperatorArg {
-            value: OperatorArgValue::Plain(
-                &arg[sugar_arg_start..sugar_arg_end],
-            ),
-            span: span.subslice(0, 1, sugar_arg_start, sugar_arg_end),
+
+        if !push_args_raw {
+            args.push(Argument {
+                value: ArgumentValue::Plain(
+                    &arg[squished_arg_start..squished_arg_end],
+                ),
+                span: arg_span.subslice(
+                    0,
+                    1,
+                    squished_arg_start,
+                    squished_arg_end,
+                ),
+            });
+        }
+    }
+
+    if equals_found && !push_args_raw {
+        args.push(Argument {
+            value: ArgumentValue::Plain(&arg[i..]),
+            span: arg_span.subslice(0, 1, i, arg.len()),
         });
     }
 
-    if equals_found {
-        args.push(OperatorArg {
-            value: OperatorArgValue::Plain(&arg[i..]),
-            span: span.subslice(0, 1, i, arg.len()),
+    if push_args_raw {
+        args.push(Argument {
+            value: ArgumentValue::Plain(arg),
+            span: arg_span,
         });
     }
 
-    if colon_found {}
+    gobble_cli_args_while_dashed(src, src_idx, args);
 
-    Ok(OperatorCallExpr {
+    if colon_found {
+        let mut block_args = Vec::new();
+        let end_span = gobble_cli_args_until_end(
+            src,
+            src_idx,
+            &mut block_args,
+            arg_span,
+        )?;
+
+        complain_if_dashed_arg(src, *src_idx, true)?;
+
+        *end = CallExprEnd::End(end_span);
+
+        *expr_span = start_span.span_until(end_span).unwrap();
+    }
+
+    if is_list {
+        let index_before_list_end = *src_idx;
+        let list_end =
+            gobble_cli_args_until_end(src, src_idx, args, start_span)?;
+
+        if colon_found && index_before_list_end + 1 != *src_idx {
+            return Err(CliArgumentError::new(
+                "arguments cannot continue after `end` of block expression",
+                Span::from_single_arg(
+                    index_before_list_end,
+                    src[index_before_list_end].len(),
+                ),
+            ));
+        }
+
+        complain_if_dashed_arg(src, *src_idx, false)?;
+
+        *end = CallExprEnd::ClosingBracket(list_end);
+
+        *expr_span = start_span.span_until(list_end).unwrap();
+    }
+
+    Ok(())
+}
+
+pub fn parse_call_expr<'a>(
+    src: &'a [Vec<u8>],
+    src_idx: &mut usize,
+) -> Result<CallExpr<'a>, CliArgumentError> {
+    let mut op_name = "";
+    let mut args = Vec::new();
+    let mut label = None;
+    let mut span = Span::Generated;
+    let mut append_mode = false;
+    let mut transparent_mode = false;
+    let mut end = CallExprEnd::Inline;
+
+    parse_call_expr_raw(
+        src,
+        src_idx,
+        false,
+        &mut append_mode,
+        &mut transparent_mode,
+        &mut op_name,
+        &mut label,
+        &mut args,
+        &mut end,
+        &mut span,
+    )?;
+
+    Ok(CallExpr {
+        append_mode,
+        transparent_mode,
         op_name,
-        args,
         label,
+        args,
+        end,
         span,
-        append_mode: append,
-        transparent_mode: transparent,
     })
 }
 
@@ -732,6 +871,7 @@ pub fn parse_cli_retain_args(
             ctx_opts.string_store.intern_cloned("stdin"),
             None,
             false,
+            false,
             Span::Generated,
         );
         let op_data = create_op_stdin(1);
@@ -740,7 +880,7 @@ pub fn parse_cli_retain_args(
     while arg_idx < args.len() {
         arg_idx += 1;
 
-        let expr = parse_op_call_expr(args, &mut arg_idx)?;
+        let expr = parse_call_expr(args, &mut arg_idx)?;
 
         if let Some(label) = expr.label {
             if expr.op_name.is_empty() && label.is_atom {}
@@ -833,6 +973,7 @@ pub fn parse_cli_retain_args(
                 .intern_cloned(&op_data.default_op_name()),
             None,
             false,
+            false,
             Span::Generated,
         );
         ctx_opts.add_op(op_base_opts, op_data);
@@ -844,6 +985,7 @@ pub fn parse_cli_retain_args(
                 .string_store
                 .intern_cloned(&op_data.default_op_name()),
             None,
+            false,
             false,
             Span::Generated,
         );

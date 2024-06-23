@@ -7,7 +7,7 @@ pub struct TfSuccessUpdator {
 
 use crate::{
     chain::Chain,
-    cli::call_expr::OperatorCallExpr,
+    cli::call_expr::CallExpr,
     job::JobData,
     record_data::{
         field_data::field_value_flags, field_value_ref::FieldValueSlice,
@@ -22,9 +22,9 @@ use super::{
 };
 
 pub fn parse_op_success_updator(
-    arg: &OperatorCallExpr,
+    arg: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    arg.reject_params()?;
+    arg.reject_args()?;
     Ok(create_op_success_updator())
 }
 pub fn create_op_success_updator() -> OperatorData {

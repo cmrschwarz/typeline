@@ -2,7 +2,7 @@ use std::iter;
 
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::call_expr::OperatorCallExpr,
+    cli::call_expr::CallExpr,
     job::{add_transform_to_job, Job, JobData},
     record_data::{
         group_track::{GroupTrackId, GroupTrackIterId, GroupTrackIterRef},
@@ -34,9 +34,9 @@ pub struct TfForeachTrailer {
 }
 
 pub fn parse_op_foreach(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    expr.reject_params()?;
+    expr.reject_args()?;
     Ok(create_op_foreach())
 }
 pub fn create_op_foreach() -> OperatorData {

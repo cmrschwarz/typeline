@@ -26,7 +26,7 @@ use crate::{
     operators::operator::{
         OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
     },
-    options::argument::CliArgIdx,
+    options::setting::CliArgIdx,
     record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
     utils::{
         identity_hasher::BuildIdentityHasher,

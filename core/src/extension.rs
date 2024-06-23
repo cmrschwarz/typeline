@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use crate::{
-    cli::call_expr::OperatorCallExpr,
+    cli::call_expr::CallExpr,
     operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_options::SessionOptions,
     record_data::field_value::FieldValue,
@@ -25,7 +25,7 @@ impl ExtensionRegistry {
             fn try_match_cli_argument(
                 &self,
                 _ctx_opts: &SessionOptions,
-                _expr: &OperatorCallExpr,
+                _expr: &CallExpr,
             ) -> Result<Option<OperatorData>, OperatorCreationError>
             {
                 unimplemented!()
@@ -46,7 +46,7 @@ pub trait Extension: Send + Sync {
     fn try_match_cli_argument(
         &self,
         ctx_opts: &SessionOptions,
-        expr: &OperatorCallExpr,
+        expr: &CallExpr,
     ) -> Result<Option<OperatorData>, OperatorCreationError>;
 }
 

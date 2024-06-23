@@ -10,6 +10,7 @@ use bstr::ByteSlice;
 use metamatch::metamatch;
 use scr_core::{
     chain::ChainId,
+    cli::call_expr::{ArgumentValue, CallExpr, ParsedArgValue, Span},
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -33,7 +34,6 @@ use scr_core::{
             TransformState,
         },
     },
-    options::argument::CliArgIdx,
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, FieldIterRef},
@@ -773,24 +773,54 @@ impl<'a> Transform<'a> for TfExec<'a> {
     }
 }
 
+fn append_exec_arg(
+    arg_idx: usize,
+    value: &[u8],
+    span: Span,
+    refs: &mut Vec<Option<String>>,
+    parts: &mut Vec<FormatPart>,
+    fmt_arg_part_ends: &mut Vec<usize>,
+) -> Result<(), OperatorCreationError> {
+    parse_format_string(value.as_bytes(), refs, parts).map_err(
+        |(i, msg)| {
+            OperatorCreationError::new_s(
+                format!("exec format string arg {arg_idx} offset {i}: {msg}",),
+                span,
+            )
+        },
+    )?;
+    fmt_arg_part_ends.push(parts.len());
+    Ok(())
+}
+
 pub fn parse_op_exec(
-    args: Vec<Vec<u8>>,
-    arg_idx: Option<CliArgIdx>,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut parts = Vec::new();
     let mut refs = Vec::new();
     let mut fmt_arg_part_ends = Vec::new();
-    for (i, arg) in args.iter().enumerate() {
-        parse_format_string(arg, &mut refs, &mut parts).map_err(
-            |(idx, msg)| OperatorCreationError {
-                message: format!(
-                    "exec format string arg {i} index {idx}: {msg}"
-                )
-                .into(),
-                cli_arg_idx: arg_idx,
-            },
-        )?;
-        fmt_arg_part_ends.push(parts.len());
+    for arg in expr.parsed_args_iter() {
+        match arg.value {
+            ParsedArgValue::Flag(flag) => {
+                return Err(expr.error_flag_value_unsupported(flag, arg.span));
+            }
+            ParsedArgValue::NamedArg { .. } => {
+                return Err(expr.error_named_args_unsupported(arg.span));
+            }
+            ParsedArgValue::PositionalArg { idx, value } => {
+                let ArgumentValue::Plain(value) = value else {
+                    return Err(expr.error_list_arg_unsupported(arg.span));
+                };
+                append_exec_arg(
+                    idx,
+                    value,
+                    arg.span,
+                    &mut refs,
+                    &mut parts,
+                    &mut fmt_arg_part_ends,
+                )?;
+            }
+        }
     }
 
     Ok(OperatorData::Custom(smallbox!(OpExec {
@@ -806,8 +836,26 @@ pub fn parse_op_exec(
 pub fn create_op_exec_from_strings(
     args: Vec<String>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    parse_op_exec(
-        args.into_iter().map(|v| v.into_bytes()).collect::<Vec<_>>(),
-        None,
-    )
+    let mut parts = Vec::new();
+    let mut refs = Vec::new();
+    let mut fmt_arg_part_ends = Vec::new();
+    for (idx, value) in args.iter().enumerate() {
+        append_exec_arg(
+            idx,
+            value.as_bytes(),
+            Span::Generated,
+            &mut refs,
+            &mut parts,
+            &mut fmt_arg_part_ends,
+        )?;
+    }
+
+    Ok(OperatorData::Custom(smallbox!(OpExec {
+        fmt_parts: parts,
+        refs_idx: Vec::with_capacity(refs.len()),
+        refs_str: refs,
+        fmt_arg_part_ends,
+        stderr_field_name: INVALID_STRING_STORE_ENTRY,
+        exit_code_field_name: INVALID_STRING_STORE_ENTRY
+    })))
 }

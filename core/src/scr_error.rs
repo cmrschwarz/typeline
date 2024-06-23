@@ -17,11 +17,11 @@ use crate::{
         operator::OperatorId,
     },
     options::{
-        argument::{
-            ArgumentReassignmentError, CliArgIdx,
-            ARGUMENT_REASSIGNMENT_ERROR_MESSAGE,
-        },
         session_options::SessionOptions,
+        setting::{
+            CliArgIdx, SettingReassignmentError,
+            SETTING_REASSIGNMENT_ERROR_MESSAGE,
+        },
     },
     record_data::{field_data::FieldValueRepr, field_value::FieldValueKind},
     utils::{index_vec::IndexSlice, indexing_type::IndexingType},
@@ -67,7 +67,7 @@ pub enum ScrError {
     ReplDisabledError(#[from] ReplDisabledError),
 
     #[error(transparent)]
-    ArgumentReassignmentError(#[from] ArgumentReassignmentError),
+    ArgumentReassignmentError(#[from] SettingReassignmentError),
 
     #[error(transparent)]
     MissingArgumentsError(#[from] MissingArgumentsError),
@@ -228,12 +228,8 @@ impl ScrError {
         let first_arg_skipped =
             was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
         let args_gathered = args
-            .or_else(|| {
-                ctx_opts.and_then(|o| o.cli_args.as_ref().map(|a| &**a))
-            })
-            .or_else(|| {
-                sess.and_then(|sess| sess.cli_args.as_ref().map(|a| &**a))
-            });
+            .or_else(|| ctx_opts.and_then(|o| o.cli_args.as_deref()))
+            .or_else(|| sess.and_then(|sess| sess.cli_args.as_deref()));
         match self {
             ScrError::CliArgumentError(e) => contextualize_span(
                 &e.message,
@@ -242,7 +238,7 @@ impl ScrError {
                 first_arg_skipped,
             ),
             ScrError::ArgumentReassignmentError(e) => contextualize_span(
-                ARGUMENT_REASSIGNMENT_ERROR_MESSAGE,
+                SETTING_REASSIGNMENT_ERROR_MESSAGE,
                 args_gathered,
                 e.reassignment_span,
                 first_arg_skipped,

@@ -14,7 +14,7 @@ use scr_core::{
     operators::{
         file_reader::create_op_file_reader_custom,
         fork::create_op_fork,
-        format::{create_op_format, create_op_format_from_str},
+        format::create_op_format,
         join::create_op_join_str,
         key::create_op_key,
         literal::{
@@ -151,7 +151,7 @@ fn triple_sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
         .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "a")
         .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "b")
         .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "c")
-        .add_op(create_op_format_from_str("{a}{b}{c}").unwrap())
+        .add_op(create_op_format("{a}{b}{c}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -399,6 +399,7 @@ fn select() -> Result<(), ScrError> {
             create_op_literal_n(Literal::String("foo".to_owned()), 3),
             None,
             Some("a"),
+            false,
             false,
             false,
         )

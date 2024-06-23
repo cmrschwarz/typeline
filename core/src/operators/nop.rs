@@ -1,4 +1,4 @@
-use crate::{chain::Chain, cli::call_expr::OperatorCallExpr, job::JobData};
+use crate::{chain::Chain, cli::call_expr::CallExpr, job::JobData};
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
@@ -12,9 +12,9 @@ pub struct OpNop {}
 pub struct TfNop {}
 
 pub fn parse_op_nop(
-    expr: &OperatorCallExpr,
+    expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if expr.require_at_most_one_param()? == Some(b"-c") {
+    if expr.require_at_most_one_arg()? == Some(b"-c") {
         Ok(create_op_nop_copy())
     } else {
         Ok(create_op_nop())

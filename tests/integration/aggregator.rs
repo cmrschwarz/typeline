@@ -51,6 +51,7 @@ fn append_after_fork() -> Result<(), ScrError> {
             None,
             true,
             false,
+            false,
             [create_op_int(4)],
         )
         .add_op(create_op_string_sink(&ss))

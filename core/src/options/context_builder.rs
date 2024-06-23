@@ -54,6 +54,7 @@ impl ContextBuilder {
         argname: Option<&str>,
         label: Option<&str>,
         transparent_mode: bool,
+        output_is_atom: bool,
     ) -> OperatorBaseOptions {
         OperatorBaseOptions::new(
             self.opts
@@ -61,6 +62,7 @@ impl ContextBuilder {
                 .intern_cloned(argname.unwrap_or(default_name().as_str())),
             label.map(|lbl| self.opts.string_store.intern_cloned(lbl)),
             transparent_mode,
+            output_is_atom,
             Span::Generated,
         )
     }
@@ -70,12 +72,14 @@ impl ContextBuilder {
         argname: Option<&str>,
         label: Option<&str>,
         transparent_mode: bool,
+        output_is_atom: bool,
     ) -> OperatorId {
         let op_base = self.create_op_base_opts(
             || op_data.default_op_name(),
             argname,
             label,
             transparent_mode,
+            output_is_atom,
         );
         self.opts.add_op_uninit(op_base, op_data)
     }
@@ -86,11 +90,17 @@ impl ContextBuilder {
         label: Option<&str>,
         append_mode: bool,
         transparent_mode: bool,
+        output_is_atom: bool,
     ) {
         let prev_op_appendable = self.curr_op_appendable;
         self.curr_op_appendable = op_data.can_be_appended();
-        let op_id =
-            self.add_op_uninit(op_data, argname, label, transparent_mode);
+        let op_id = self.add_op_uninit(
+            op_data,
+            argname,
+            label,
+            transparent_mode,
+            output_is_atom,
+        );
         if !append_mode || !prev_op_appendable {
             self.ref_terminate_current_aggregate();
             if append_mode {
@@ -128,6 +138,7 @@ impl ContextBuilder {
                 None,
                 None,
                 false,
+                false,
             );
             self.opts.add_op(op_base, op_data);
         }
@@ -143,6 +154,7 @@ impl ContextBuilder {
         label: Option<&str>,
         append_mode: bool,
         transparent_mode: bool,
+        output_is_atom: bool,
     ) -> Self {
         self.ref_add_op_with_opts(
             op_data,
@@ -150,6 +162,7 @@ impl ContextBuilder {
             label,
             append_mode,
             transparent_mode,
+            output_is_atom,
         );
         self
     }
@@ -157,9 +170,6 @@ impl ContextBuilder {
         self.ref_terminate_current_aggregate();
         self.opts.add_chain(label);
         self
-    }
-    pub fn add_op(self, op_data: OperatorData) -> Self {
-        self.add_op_with_opts(op_data, None, None, false, false)
     }
     pub fn add_ops(
         self,
@@ -172,7 +182,11 @@ impl ContextBuilder {
         this
     }
     pub fn ref_add_op(&mut self, op_data: OperatorData) {
-        self.ref_add_op_with_opts(op_data, None, None, false, false)
+        self.ref_add_op_with_opts(op_data, None, None, false, false, false)
+    }
+    pub fn add_op(mut self, op_data: OperatorData) -> Self {
+        self.ref_add_op(op_data);
+        self
     }
     pub fn add_op_aggregate_with_opts(
         mut self,
@@ -180,6 +194,7 @@ impl ContextBuilder {
         label: Option<&str>,
         append_mode: bool,
         transparent_mode: bool,
+        output_is_atom: bool,
         sub_ops: impl IntoIterator<Item = OperatorData>,
     ) -> Self {
         self.ref_terminate_current_aggregate();
@@ -188,6 +203,7 @@ impl ContextBuilder {
             argname,
             label,
             transparent_mode,
+            output_is_atom,
         );
         self.last_non_append_op_id = Some(add_aggregate_to_sess_opts_uninit(
             &mut self.opts,
@@ -201,7 +217,9 @@ impl ContextBuilder {
         self,
         sub_ops: impl IntoIterator<Item = OperatorData>,
     ) -> Self {
-        self.add_op_aggregate_with_opts(None, None, false, false, sub_ops)
+        self.add_op_aggregate_with_opts(
+            None, None, false, false, false, sub_ops,
+        )
     }
 
     pub fn add_op_with_label(
@@ -209,16 +227,16 @@ impl ContextBuilder {
         op_data: OperatorData,
         label: &str,
     ) -> Self {
-        self.add_op_with_opts(op_data, None, Some(label), false, false)
+        self.add_op_with_opts(op_data, None, Some(label), false, false, false)
     }
     pub fn add_op_appending(self, op_data: OperatorData) -> Self {
-        self.add_op_with_opts(op_data, None, None, true, false)
+        self.add_op_with_opts(op_data, None, None, true, false, false)
     }
     pub fn add_op_transparent(self, op_data: OperatorData) -> Self {
-        self.add_op_with_opts(op_data, None, None, false, true)
+        self.add_op_with_opts(op_data, None, None, false, true, false)
     }
     pub fn add_op_transparent_appending(self, op_data: OperatorData) -> Self {
-        self.add_op_with_opts(op_data, None, None, true, true)
+        self.add_op_with_opts(op_data, None, None, true, true, false)
     }
     pub fn set_input(mut self, rs: RecordSet) -> Self {
         self.input_data = rs;
