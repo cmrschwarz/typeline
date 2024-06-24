@@ -1,7 +1,9 @@
 use rstest::rstest;
 use scr::{
     cli::CliOptions,
-    operators::nop_copy::create_op_nop_copy,
+    operators::{
+        forkcat::create_op_forkcat_with_opts, nop_copy::create_op_nop_copy,
+    },
     utils::{maybe_text::MaybeText, test_utils::int_sequence_strings},
 };
 use scr_core::{
@@ -19,6 +21,30 @@ use scr_core::{
     scr_error::ScrError,
 };
 use scr_ext_utils::dup::create_op_dup;
+
+#[test]
+fn empty_forkcat() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_str("foo"))
+        .add_op(create_op_forkcat_with_opts(vec![])?)
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), [""; 0]);
+    Ok(())
+}
+
+#[test]
+fn nop_forkcat() -> Result<(), ScrError> {
+    let ss = StringSinkHandle::default();
+    ContextBuilder::default()
+        .add_op(create_op_str("foo"))
+        .add_op(create_op_forkcat_with_opts(vec![vec![]])?)
+        .add_op(create_op_string_sink(&ss))
+        .run()?;
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
+    Ok(())
+}
 
 #[test]
 fn basic_forkcat() -> Result<(), ScrError> {

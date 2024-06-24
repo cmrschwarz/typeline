@@ -365,7 +365,7 @@ pub fn parse_operator_data<'a>(
         "enumn-u" => parse_op_seq(&expr, SequenceMode::EnumUnbounded, true)?,
         "count" => parse_op_count(&expr)?,
         "nop" | "scr" => parse_op_nop(&expr)?,
-        "fork" => parse_op_fork(&expr)?,
+        "fork" => parse_op_fork(sess_opts, expr)?,
         "foreach" | "fe" => parse_op_foreach(&expr)?,
         "forkcat" | "fc" => parse_op_forkcat(sess_opts, expr)?,
         "call" | "c" => parse_op_call(&expr)?,

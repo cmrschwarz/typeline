@@ -40,6 +40,7 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
+    nop::create_op_nop,
     operator::{
         OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain,
@@ -714,8 +715,16 @@ pub fn handle_tf_forcat_subchain_trailer(
 }
 
 pub fn create_op_forkcat_with_opts(
-    subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
+    mut subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
 ) -> Result<OperatorData, OperatorCreationError> {
+    for sc in &mut subchains {
+        if sc.is_empty() {
+            sc.push((
+                OperatorBaseOptions::from_name("nop".into()),
+                create_op_nop(),
+            ));
+        }
+    }
     Ok(OperatorData::ForkCat(OpForkCat {
         subchains,
         subchains_start: SubchainIndex::max_value(),

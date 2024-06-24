@@ -7,15 +7,20 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::call_expr::CallExpr,
+    cli::{
+        call_expr::CallExpr, call_expr_iter::CallExprIter, parse_operator_data,
+    },
     context::{ContextData, SessionSetupData},
     job::{Job, JobData},
     liveness_analysis::{
         LivenessData, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
     operators::operator::OffsetInChain,
-    options::operator_base_options::{
-        OperatorBaseOptions, OperatorBaseOptionsInterned,
+    options::{
+        operator_base_options::{
+            OperatorBaseOptions, OperatorBaseOptionsInterned,
+        },
+        session_options::SessionOptions,
     },
     record_data::{
         action_buffer::ActorRef, field::FieldId, group_track::GroupTrackId,
@@ -64,19 +69,6 @@ pub struct TfFork<'a> {
     pub targets: Vec<ForkTarget>,
     pub accessed_fields_per_subchain:
         &'a IndexVec<SubchainIndex, HashSet<Option<StringStoreEntry>>>,
-}
-
-pub fn parse_op_fork(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
-    // TODO: parse subchains
-    expr.reject_args()?;
-    Ok(OperatorData::Fork(OpFork {
-        subchains: Vec::new(),
-        subchains_start: SubchainIndex::max_value(),
-        subchains_end: SubchainIndex::max_value(),
-        accessed_fields_per_subchain: IndexVec::new(),
-    }))
 }
 
 pub fn setup_op_fork(
@@ -340,5 +332,27 @@ pub fn create_op_fork(
                 .collect::<Vec<_>>()
         })
         .collect();
+    create_op_fork_with_opts(subchains)
+}
+
+pub fn parse_op_fork(
+    sess_opts: &mut SessionOptions,
+    expr: CallExpr,
+) -> Result<OperatorData, OperatorCreationError> {
+    let mut subchains = Vec::new();
+    let mut curr_subchain = Vec::new();
+    for expr in CallExprIter::from_args_iter(expr.args) {
+        let expr = expr?;
+        if expr.op_name == "next" {
+            expr.reject_args()?;
+            subchains.push(curr_subchain);
+            curr_subchain = Vec::new();
+            continue;
+        };
+        let op_base = expr.op_base_options();
+        let op_data = parse_operator_data(sess_opts, expr)?;
+        curr_subchain.push((op_base, op_data));
+    }
+    subchains.push(curr_subchain);
     create_op_fork_with_opts(subchains)
 }

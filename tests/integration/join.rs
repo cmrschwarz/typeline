@@ -341,7 +341,7 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
         .add_op(create_op_format("{:#??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["ERROR: in op id 1: bar"]);
+    assert_eq!(ss.get().data.as_slice(), ["ERROR: in op id 2: bar"]);
 
     Ok(())
 }
