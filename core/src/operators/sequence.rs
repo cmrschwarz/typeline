@@ -22,7 +22,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
+    operator::{OperatorBase, OperatorData, OperatorId, OperatorName},
     transform::{TransformData, TransformId, TransformState},
     utils::generator_transform_update::{
         handle_generator_transform_update, GeneratorMode, GeneratorSequence,
@@ -47,7 +47,14 @@ pub struct OpSequence {
 }
 
 impl OpSequence {
-    pub fn default_op_name(&self) -> DefaultOperatorName {
+    pub fn default_op_name(&self) -> OperatorName {
+        match self.mode {
+            OpSequenceMode::Sequence => "seq",
+            OpSequenceMode::Enum | OpSequenceMode::EnumUnbounded => "enum",
+        }
+        .into()
+    }
+    pub fn debug_op_name(&self) -> OperatorName {
         match self.mode {
             OpSequenceMode::Sequence => "seq",
             OpSequenceMode::Enum => "enum",

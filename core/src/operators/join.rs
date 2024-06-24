@@ -3,7 +3,6 @@ use std::{collections::VecDeque, sync::Arc};
 use bstr::ByteSlice;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use smallstr::SmallString;
 
 use crate::{
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
@@ -47,7 +46,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
+    operator::{OperatorBase, OperatorData, OperatorId, OperatorName},
     print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
 };
@@ -59,19 +58,18 @@ pub struct OpJoin {
     drop_incomplete: bool,
 }
 impl OpJoin {
-    pub fn default_op_name(&self) -> DefaultOperatorName {
-        let mut small_str = SmallString::new();
-        small_str.push_str("join");
-        small_str.push_str(
+    pub fn debug_op_name(&self) -> OperatorName {
+        let mut str = String::from("join");
+        str.push_str(
             self.join_count
                 .map(usize_to_str)
                 .unwrap_or_default()
                 .as_str(),
         );
         if self.drop_incomplete {
-            small_str.push_str("-d");
+            str.push_str("-d");
         }
-        small_str
+        str.into()
     }
 }
 

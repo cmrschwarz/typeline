@@ -12,7 +12,7 @@ use scr_core::{
 pub struct UrlValueType(url::Url);
 
 impl CustomData for UrlValueType {
-    fn type_name(&self) -> std::borrow::Cow<str> {
+    fn type_name(&self) -> std::borrow::Cow<'static, str> {
         "url".into()
     }
 

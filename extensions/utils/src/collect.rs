@@ -7,7 +7,7 @@ use scr_core::{
     },
     operators::{
         operator::{
-            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
+            OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
@@ -45,9 +45,7 @@ pub struct TfCollect {
 }
 
 impl Operator for OpCollect {
-    fn default_name(
-        &self,
-    ) -> scr_core::operators::operator::DefaultOperatorName {
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "collect".into()
     }
 
@@ -68,7 +66,7 @@ impl Operator for OpCollect {
         _sess: &SessionData,
         _ld: &mut LivenessData,
         _access_flags: &mut AccessFlags,
-        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_offset_after_last_write: OffsetInChain,
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
@@ -91,10 +89,9 @@ impl Operator for OpCollect {
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
-        let floating_point_math = jd.session_data.chains
-            [op_base.chain_id.unwrap()]
-        .settings
-        .floating_point_math;
+        let floating_point_math = jd.session_data.chains[op_base.chain_id]
+            .settings
+            .floating_point_math;
 
         let iter_kind =
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());

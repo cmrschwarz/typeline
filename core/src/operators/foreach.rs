@@ -3,19 +3,20 @@ use std::iter;
 use crate::{
     chain::{ChainId, SubchainIndex},
     cli::call_expr::CallExpr,
+    context::SessionSetupData,
     job::{add_transform_to_job, Job, JobData},
+    options::operator_base_options::OperatorBaseOptionsInterned,
     record_data::{
         group_track::{GroupTrackId, GroupTrackIterId, GroupTrackIterRef},
         iter_hall::IterKind,
     },
-    utils::indexing_type::IndexingType,
 };
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
-        OperatorData, OperatorId, OperatorInstantiation, PreboundOutputsMap,
-        TransformContinuationKind,
+        OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
+        OperatorOffsetInChain, PreboundOutputsMap, TransformContinuationKind,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -44,17 +45,14 @@ pub fn create_op_foreach() -> OperatorData {
 }
 
 pub fn setup_op_foreach(
-    op: &mut OpForeach,
+    _op: &mut OpForeach,
+    _sess: &mut SessionSetupData,
     _chain_id: ChainId,
-    op_id: OperatorId,
-) -> Result<(), OperatorSetupError> {
-    if op.subchains_end > op.subchains_start + SubchainIndex::from_usize(1) {
-        return Err(OperatorSetupError::new(
-            "operator `foreach` does not support multiple subchains",
-            op_id,
-        )); // ENHANCE: error on the `next` already?
-    }
-    Ok(())
+    _offset_in_chain: OperatorOffsetInChain,
+    _op_base_opts_interned: OperatorBaseOptionsInterned,
+    _op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
+    todo!("implement this!")
 }
 
 pub fn insert_tf_foreach(

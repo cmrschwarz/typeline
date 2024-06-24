@@ -1,53 +1,68 @@
 use crate::{
     chain::{ChainId, SubchainIndex},
-    context::SessionData,
+    context::{SessionData, SessionSetupData},
     job::Job,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
         OperatorCallEffect,
     },
-    options::session_options::SessionOptions,
+    options::operator_base_options::{
+        OperatorBaseOptions, OperatorBaseOptionsInterned,
+    },
+    utils::index_vec::IndexVec,
 };
 
 use super::{
+    errors::OperatorSetupError,
     operator::{
-        DefaultOperatorName, Operator, OperatorBase, OperatorData, OperatorId,
-        OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
-        TransformInstatiation,
+        OffsetInAggregation, OffsetInChain, Operator, OperatorData,
+        OperatorDataId, OperatorId, OperatorName, OperatorOffsetInChain,
+        OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
     },
     transform::TransformState,
 };
 
 pub struct OpMultiOp {
-    ops: Vec<OperatorData>,
+    pub sub_op_data: Vec<OperatorData>,
+    pub sub_op_ids: IndexVec<OffsetInAggregation, OperatorId>,
 }
 
 impl Operator for OpMultiOp {
-    fn default_name(&self) -> super::operator::DefaultOperatorName {
-        let mut res = DefaultOperatorName::from("multi-op<");
-        let mut iter = self.ops.iter().peekable();
+    fn default_name(&self) -> OperatorName {
+        "<multi_op>".into()
+    }
+    fn debug_op_name(&self) -> super::operator::OperatorName {
+        let mut res = String::from("multi-op<");
+        let mut iter = self.sub_op_data.iter().peekable();
         while let Some(op) = iter.next() {
-            res.push_str(&op.default_op_name());
+            res.push_str(&op.debug_op_name());
             if iter.peek().is_some() {
                 res.push_str(", ");
             }
         }
         res.push('>');
-        res
+        res.into()
     }
 
-    fn output_count(&self, sess: &SessionData, op_id: OperatorId) -> usize {
-        self.ops.iter().map(|op| op.output_count(sess, op_id)).sum()
+    fn output_count(&self, sess: &SessionData, _op_id: OperatorId) -> usize {
+        self.sub_op_ids
+            .iter()
+            .map(|&op_id| {
+                sess.operator_data[sess.op_data_id(op_id)]
+                    .output_count(sess, op_id)
+            })
+            .sum()
     }
 
     fn has_dynamic_outputs(
         &self,
         sess: &SessionData,
-        op_id: OperatorId,
+        _op_id: OperatorId,
     ) -> bool {
-        self.ops
-            .iter()
-            .any(|op| op.has_dynamic_outputs(sess, op_id))
+        self.sub_op_ids.iter().any(|&op_id| {
+            sess.operator_data[sess.op_data_id(op_id)]
+                .has_dynamic_outputs(sess, op_id)
+        })
     }
 
     fn update_variable_liveness(
@@ -55,20 +70,16 @@ impl Operator for OpMultiOp {
         sess: &SessionData,
         ld: &mut LivenessData,
         flags: &mut AccessFlags,
-        op_offset_after_last_write: OperatorOffsetInChain,
+        op_offset_after_last_write: OffsetInChain,
         op_id: OperatorId,
         bb_id: BasicBlockId,
         input_field: OpOutputIdx,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        if self.ops.is_empty() {
-            return Some((input_field, OperatorCallEffect::NoCall));
-        }
-        let mut i = 0;
         let mut next_input = input_field;
         let mut outputs_offset = 0;
-        loop {
+        for (agg_offset, &sub_op_id) in self.sub_op_ids.iter_enumerated() {
             // TODO: manage access flags for subsequent ops correctly
-            let op = &self.ops[i];
+            let op = &sess.operator_data[sess.op_data_id(sub_op_id)];
             let (output, ce) = op.update_liveness_for_op(
                 sess,
                 ld,
@@ -79,36 +90,36 @@ impl Operator for OpMultiOp {
                 next_input,
                 outputs_offset,
             );
-            i += 1;
             outputs_offset += op.output_count(sess, op_id);
             next_input = output;
-            if i == self.ops.len() {
+            if agg_offset == self.sub_op_ids.last_idx().unwrap() {
                 return Some((output, ce));
             }
             assert!(
                 ce != OperatorCallEffect::Diverge,
                 "non final operator `{}`, index {} inside multi-op (len {}) may not diverge",
-                i - 1, // we already went to the next index
+                agg_offset , // we already went to the next index
                 op.debug_op_name(),
-                self.ops.len()
+                self.sub_op_ids.len()
             );
         }
+        Some((input_field, OperatorCallEffect::NoCall))
     }
 
     fn build_transforms<'a>(
         &'a self,
         job: &mut Job<'a>,
         tf_state: &mut TransformState,
-        op_id: OperatorId,
+        _op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation {
         TransformInstatiation::Multi(job.setup_transforms_for_op_iter(
-            self.ops.iter().map(|op_data| {
-                (
-                    op_id,
-                    &job.job_data.session_data.operator_bases[op_id],
-                    op_data,
-                )
+            self.sub_op_ids.iter().map(|&sub_op_id| {
+                let op_base =
+                    &job.job_data.session_data.operator_bases[sub_op_id];
+                let op_data = &job.job_data.session_data.operator_data
+                    [op_base.op_data_id];
+                (sub_op_id, op_base, op_data)
             }),
             tf_state.match_set_id,
             tf_state.input_field,
@@ -120,34 +131,19 @@ impl Operator for OpMultiOp {
 
     fn output_field_kind(
         &self,
-        op_base: &OperatorBase,
+        sess: &SessionData,
+        _op_id: OperatorId,
     ) -> super::operator::OutputFieldKind {
         // TODO: this is not correct, if the last one says same as
-        let Some(op) = self.ops.last() else {
-            return OutputFieldKind::SameAsInput;
-        };
-        let mut ofk = op.output_field_kind(op_base);
-        if ofk != OutputFieldKind::SameAsInput {
-            return ofk;
-        }
-        for op in self.ops.iter().rev().skip(1) {
-            ofk = op.output_field_kind(op_base);
+        let mut ofk = OutputFieldKind::SameAsInput;
+        for &op_id in self.sub_op_ids.iter().rev() {
+            ofk = sess.operator_data[sess.op_data_id(op_id)]
+                .output_field_kind(sess, op_id);
             if ofk != OutputFieldKind::SameAsInput {
                 return ofk;
             }
         }
         ofk
-    }
-
-    fn on_op_added(
-        &mut self,
-        so: &mut SessionOptions,
-        op_id: OperatorId,
-        add_to_chain: bool,
-    ) {
-        for op in &mut self.ops {
-            op.on_op_added(so, op_id, add_to_chain);
-        }
     }
 
     fn on_subchains_added(&mut self, _current_subchain_count: SubchainIndex) {}
@@ -156,41 +152,56 @@ impl Operator for OpMultiOp {
         &self,
         ld: &mut LivenessData,
         sess: &SessionData,
-        op_id: OperatorId,
+        _op_id: OperatorId,
     ) {
-        for op in &self.ops {
-            op.register_output_var_names(ld, sess, op_id)
+        for &op_id in &self.sub_op_ids {
+            sess.operator_data[sess.op_data_id(op_id)]
+                .register_output_var_names(ld, sess, op_id)
         }
     }
 
     fn setup(
         &mut self,
-        sess: &mut SessionData,
+        sess: &mut SessionSetupData,
         chain_id: ChainId,
-        op_id: OperatorId,
-    ) -> Result<(), super::errors::OperatorSetupError> {
-        for op in &mut self.ops {
-            op.setup(sess, chain_id, op_id)?;
+        offset_in_chain: OperatorOffsetInChain,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data_id: OperatorDataId,
+    ) -> Result<OperatorId, OperatorSetupError> {
+        let op_id = sess.add_op_from_offset_in_chain(
+            chain_id,
+            offset_in_chain,
+            op_base_opts_interned,
+            op_data_id,
+        );
+        for op_data in std::mem::take(&mut self.sub_op_data) {
+            let op_base =
+                OperatorBaseOptions::from_name(op_data.default_op_name())
+                    .intern(&mut sess.string_store);
+            self.sub_op_ids.push(sess.setup_for_op_data(
+                chain_id,
+                OperatorOffsetInChain::AggregationMember(
+                    op_id,
+                    self.sub_op_ids.next_idx(),
+                ),
+                op_base,
+                op_data,
+            )?);
         }
-        Ok(())
+        Ok(op_id)
     }
 
     fn on_liveness_computed(
         &mut self,
         sess: &mut SessionData,
         ld: &LivenessData,
-        op_id: OperatorId,
+        _op_id: OperatorId,
     ) {
-        for op in &mut self.ops {
-            op.on_liveness_computed(sess, ld, op_id)
+        for &op_id in &self.sub_op_ids {
+            sess.with_mut_op_data(sess.op_data_id(op_id), |sess, op_data| {
+                op_data.on_liveness_computed(sess, ld, op_id)
+            });
         }
-    }
-
-    fn can_be_appended(&self) -> bool {
-        self.ops
-            .last()
-            .map(OperatorData::can_be_appended)
-            .unwrap_or(true)
     }
 }
 
@@ -198,6 +209,7 @@ pub fn create_multi_op(
     ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
     OperatorData::MultiOp(OpMultiOp {
-        ops: ops.into_iter().collect(),
+        sub_op_data: ops.into_iter().collect(),
+        sub_op_ids: IndexVec::new(),
     })
 }

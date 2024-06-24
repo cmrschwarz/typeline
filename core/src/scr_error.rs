@@ -14,7 +14,7 @@ use crate::{
             OperatorApplicationError, OperatorCreationError,
             OperatorSetupError,
         },
-        operator::OperatorId,
+        operator::{OperatorDataId, OperatorId},
     },
     options::{
         session_options::SessionOptions,
@@ -119,8 +119,8 @@ impl From<ContextualizedScrError> for ScrError {
     }
 }
 
-pub fn result_into<T, E, EFrom: Into<E>>(
-    result: Result<T, EFrom>,
+pub fn result_into<T, E, IntoE: Into<E>>(
+    result: Result<T, IntoE>,
 ) -> Result<T, E> {
     match result {
         Ok(v) => Ok(v),
@@ -183,6 +183,32 @@ fn was_first_cli_arg_skipped(
     )
 }
 
+fn contextualize_op_data_id(
+    msg: &str,
+    op_data_id: OperatorDataId,
+    args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
+    cli_opts: Option<&CliOptions>,
+    ctx_opts: Option<&SessionOptions>,
+    sess: Option<&SessionData>,
+) -> String {
+    let span = ctx_opts.map(|o| o.operator_base_opts[op_data_id].span);
+    if let (Some(args), Some(span)) = (args, span) {
+        let first_arg_skipped =
+            was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
+        contextualize_span(msg, Some(args), span, first_arg_skipped)
+    } else if let Some(ctx_opts) = ctx_opts {
+        let op_base = &ctx_opts.operator_base_opts[op_data_id];
+        // TODO: stringify chain id
+        format!(
+            "in op '{}': {msg}",
+            // TODO: improve this
+            ctx_opts.string_store.lookup(op_base.argname),
+        )
+    } else {
+        format!("in global op data id {op_data_id}: {msg}")
+    }
+}
+
 fn contextualize_op_id(
     msg: &str,
     op_id: OperatorId,
@@ -191,9 +217,7 @@ fn contextualize_op_id(
     ctx_opts: Option<&SessionOptions>,
     sess: Option<&SessionData>,
 ) -> String {
-    let span = ctx_opts
-        .map(|o| o.operator_base_options[op_id].span)
-        .or_else(|| sess.map(|sess| sess.operator_bases[op_id].span));
+    let span = sess.map(|sess| sess.operator_bases[op_id].span);
     if let (Some(args), Some(span)) = (args, span) {
         let first_arg_skipped =
             was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
@@ -203,12 +227,10 @@ fn contextualize_op_id(
         // TODO: stringify chain id
         format!(
             "in op {} '{}' of chain {}: {}",
-            op_base.offset_in_chain,
+            // TODO: better message for aggregation members
+            op_base.offset_in_chain.base_chain_offset(sess),
             sess.string_store.read().unwrap().lookup(op_base.argname),
-            op_base
-                .chain_id
-                .map(|id| id.to_string())
-                .unwrap_or("<unknown chain>".to_owned()),
+            op_base.chain_id,
             msg
         )
     } else {
@@ -251,9 +273,9 @@ impl ScrError {
             ),
             ScrError::ChainSetupError(e) => e.to_string(),
             ScrError::OperationCreationError(e) => e.message.to_string(),
-            ScrError::OperationSetupError(e) => contextualize_op_id(
+            ScrError::OperationSetupError(e) => contextualize_op_data_id(
                 &e.message,
-                e.op_id,
+                e.op_data_id,
                 args_gathered,
                 cli_opts,
                 ctx_opts,

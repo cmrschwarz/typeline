@@ -11,7 +11,7 @@ use scr_core::{
     operators::{
         errors::OperatorApplicationError,
         operator::{
-            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
+            OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
@@ -52,9 +52,7 @@ pub struct TfFromTyson {
 }
 
 impl Operator for OpFromTyson {
-    fn default_name(
-        &self,
-    ) -> scr_core::operators::operator::DefaultOperatorName {
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "from_tyson".into()
     }
 
@@ -75,7 +73,7 @@ impl Operator for OpFromTyson {
         _sess: &SessionData,
         _ld: &mut LivenessData,
         _access_flags: &mut AccessFlags,
-        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_offset_after_last_write: OffsetInChain,
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
@@ -137,9 +135,9 @@ impl TfFromTyson {
             bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = output_field.iter_hall.varying_type_inserter();
         let fpm = bud.session_data.chains
-            [bud.session_data.operator_bases[op_id].chain_id.unwrap()]
-        .settings
-        .floating_point_math;
+            [bud.session_data.operator_bases[op_id].chain_id]
+            .settings
+            .floating_point_math;
         let exts = Some(&*bud.session_data.extensions);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             match range.base.data {

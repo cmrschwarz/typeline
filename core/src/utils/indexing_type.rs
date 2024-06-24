@@ -69,6 +69,12 @@ impl<I: IndexingType> DoubleEndedIterator for IndexingTypeRange<I> {
     }
 }
 
+impl<I: IndexingType> From<Range<I>> for IndexingTypeRange<I> {
+    fn from(r: Range<I>) -> Self {
+        IndexingTypeRange::new(r)
+    }
+}
+
 impl IndexingType for usize {
     type IndexBaseType = Self;
     #[inline(always)]
@@ -168,6 +174,9 @@ macro_rules! index_newtype {
         impl $name {
             pub const fn new(v: $base_type) -> Self {
                 $name(v)
+            }
+            pub fn index_range_to(&self, end: $name) -> $crate::utils::indexing_type::IndexingTypeRange<$name> {
+                $crate::utils::indexing_type::IndexingTypeRange::new(*self..end)
             }
         }
 

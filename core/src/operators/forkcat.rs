@@ -6,13 +6,16 @@ use std::{
 use bitvec::vec::BitVec;
 
 use crate::{
-    chain::{Chain, SubchainIndex},
+    chain::{ChainId, SubchainIndex},
     cli::call_expr::CallExpr,
-    context::SessionData,
+    context::{SessionData, SessionSetupData},
     index_newtype,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
+    },
+    options::operator_base_options::{
+        OperatorBaseOptions, OperatorBaseOptionsInterned,
     },
     record_data::{
         action_buffer::{ActorId, ActorRef},
@@ -33,8 +36,9 @@ use crate::{
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
-        OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
-        OperatorOffsetInChain, TransformContinuationKind, DUMMY_OP_NOP,
+        OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
+        OperatorInstantiation, OperatorOffsetInChain,
+        TransformContinuationKind, DUMMY_OP_NOP,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -59,12 +63,14 @@ index_newtype! {
     pub struct ContinuationVarIdx(u32);
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct OpForkCat {
+    pub subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
+
     pub subchains_start: SubchainIndex,
     pub subchains_end: SubchainIndex,
-    pub continuation: Option<OperatorId>,
 
+    pub direct_offset_in_chain: OffsetInChain,
     // list of input vars needed in each subchain
     input_mappings: HashMap<Var, BitVec<usize>>,
 
@@ -146,30 +152,42 @@ impl FcContinuationState {
 pub fn parse_op_forkcat(
     args: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
+    // TODO: parse subchains
     args.reject_args()?;
     Ok(OperatorData::ForkCat(OpForkCat::default()))
 }
-
 pub fn setup_op_forkcat(
-    chain: &Chain,
-    op_base: &OperatorBase,
     op: &mut OpForkCat,
-    op_id: OperatorId,
-) -> Result<(), OperatorSetupError> {
-    if op.subchains_end == SubchainIndex::zero() {
-        op.subchains_end = chain.subchains.next_idx();
-    }
-    if (op.subchains_end - op.subchains_start).into_usize() < 2 {
+    sess: &mut SessionSetupData,
+    chain_id: ChainId,
+    offset_in_chain: OperatorOffsetInChain,
+    opts_interned: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
+    let OperatorOffsetInChain::Direct(direct_offset_in_chain) =
+        offset_in_chain
+    else {
         return Err(OperatorSetupError::new(
-            "forkcat must have at least two subchains",
-            op_id,
+            "operator `forkcat` cannot be part of an aggregation",
+            op_data_id,
         ));
+    };
+    op.direct_offset_in_chain = direct_offset_in_chain;
+
+    let op_id = sess.add_op_from_offset_in_chain(
+        chain_id,
+        offset_in_chain,
+        opts_interned,
+        op_data_id,
+    );
+
+    op.subchains_start = sess.chains[chain_id].subchains.next_idx();
+
+    for sc in std::mem::take(&mut op.subchains) {
+        sess.add_subchain(chain_id, sc);
     }
-    op.continuation = chain
-        .operators
-        .get(op_base.offset_in_chain + OperatorOffsetInChain::one())
-        .copied();
-    Ok(())
+
+    Ok(op_id)
 }
 
 pub fn setup_op_forkcat_liveness_data(
@@ -217,6 +235,7 @@ pub fn insert_tf_forkcat<'a>(
     tf_state: TransformState,
 ) -> OperatorInstantiation {
     let tf_op = tf_state.op_id.unwrap();
+    let chain_id = job.job_data.session_data.operator_bases[tf_op].chain_id;
     let input_field = tf_state.input_field;
     let cont_ms_id = job
         .job_data
@@ -289,10 +308,15 @@ pub fn insert_tf_forkcat<'a>(
         subchains.push(sc_entry);
     }
 
-    let cont_inst = if let Some(cont) = op.continuation {
+    let cont_inst = if let Some(cont_op_id) = job.job_data.session_data.chains
+        [chain_id]
+        .operators
+        .get(op.direct_offset_in_chain + OffsetInChain::one())
+        .copied()
+    {
         job.setup_transforms_from_op(
             cont_ms_id,
-            cont,
+            cont_op_id,
             cont_input_field,
             cont_group_track,
             None,
@@ -365,9 +389,8 @@ fn setup_subchain<'a>(
         ActorRef::Unconfirmed(0),
     );
 
-    let sc_chain_id = job.job_data.session_data.chains
-        [op_base.chain_id.unwrap()]
-    .subchains[sc_idx];
+    let sc_chain_id =
+        job.job_data.session_data.chains[op_base.chain_id].subchains[sc_idx];
 
     let mut sc_input_field = sc_dummy_field;
     for (&var, needing_subchains) in &op.input_mappings {
@@ -476,9 +499,9 @@ fn setup_subchain<'a>(
     }
 
     let desired_batch_size = job.job_data.session_data.chains
-        [op_base.chain_id.unwrap()]
-    .settings
-    .default_batch_size;
+        [op_base.chain_id]
+        .settings
+        .default_batch_size;
 
     let actor_id = job.job_data.match_set_mgr.match_sets[sc_ms_id]
         .action_buffer
@@ -691,6 +714,26 @@ pub fn handle_tf_forcat_subchain_trailer(
         .push_undefined(fields_to_consume, true);
 }
 
-pub fn create_op_forkcat() -> OperatorData {
-    OperatorData::ForkCat(OpForkCat::default())
+pub fn create_op_forkcat(
+    subchains: impl IntoIterator<Item = impl IntoIterator<Item = OperatorData>>,
+) -> Result<OperatorData, OperatorCreationError> {
+    let subchains = subchains
+        .into_iter()
+        .map(|sc| {
+            sc.into_iter()
+                .map(|op_data| {
+                    (
+                        OperatorBaseOptions::from_name(
+                            op_data.default_op_name(),
+                        ),
+                        op_data,
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    Ok(OperatorData::ForkCat(OpForkCat {
+        subchains,
+        ..OpForkCat::default()
+    }))
 }

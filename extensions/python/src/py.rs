@@ -12,7 +12,7 @@ use pyo3::{
 use scr_core::{
     chain::ChainId,
     cli::call_expr::Span,
-    context::SessionData,
+    context::{SessionData, SessionSetupData},
     job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
@@ -24,14 +24,15 @@ use scr_core::{
             OperatorSetupError,
         },
         operator::{
-            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
-            PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+            OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
             TransformState,
         },
     },
+    options::operator_base_options::OperatorBaseOptionsInterned,
     record_data::{
         array::Array,
         field::{CowFieldDataRef, FieldIterRef},
@@ -91,9 +92,7 @@ pub struct TfPy<'a> {
 unsafe impl<'a> Send for TfPy<'a> {}
 
 impl Operator for OpPy {
-    fn default_name(
-        &self,
-    ) -> scr_core::operators::operator::DefaultOperatorName {
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "py".into()
     }
 
@@ -114,20 +113,26 @@ impl Operator for OpPy {
 
     fn setup(
         &mut self,
-        sess: &mut SessionData,
-        _chain_id: ChainId,
-        _op_id: OperatorId,
-    ) -> Result<(), OperatorSetupError> {
-        let mut string_store = sess.string_store.write().unwrap();
+        sess: &mut SessionSetupData,
+        chain_id: ChainId,
+        operator_offset_in_chain: OperatorOffsetInChain,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data_id: OperatorDataId,
+    ) -> Result<OperatorId, OperatorSetupError> {
         for fvs in &self.free_vars_str {
             if fvs == "_" {
                 self.free_vars_sse.push(None);
             } else {
                 self.free_vars_sse
-                    .push(Some(string_store.intern_cloned(fvs)));
+                    .push(Some(sess.string_store.intern_cloned(fvs)));
             }
         }
-        Ok(())
+        Ok(sess.add_op_from_offset_in_chain(
+            chain_id,
+            operator_offset_in_chain,
+            op_base_opts_interned,
+            op_data_id,
+        ))
     }
 
     fn has_dynamic_outputs(
@@ -143,7 +148,7 @@ impl Operator for OpPy {
         sess: &SessionData,
         ld: &mut LivenessData,
         access_flags: &mut AccessFlags,
-        op_offset_after_last_write: OperatorOffsetInChain,
+        op_offset_after_last_write: OffsetInChain,
         op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,

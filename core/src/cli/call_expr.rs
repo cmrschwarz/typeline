@@ -5,17 +5,23 @@ use num::{FromPrimitive, PrimInt};
 
 use crate::{
     operators::{errors::OperatorCreationError, operator::OperatorId},
-    options::setting::CliArgIdx,
+    options::{
+        operator_base_options::OperatorBaseOptionsInterned, setting::CliArgIdx,
+    },
     utils::{
         indexing_type::IndexingType,
         int_string_conversions::parse_int_with_units,
+        string_store::StringStore,
     },
 };
 
 use super::try_parse_bool;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Span {
+    #[default]
+    Generated,
+    Builtin,
     CliArg {
         start: CliArgIdx,
         end: CliArgIdx,
@@ -26,8 +32,6 @@ pub enum Span {
         op_id: OperatorId,
         // TODO: do some interned way to refer to expanded macro location
     },
-    Generated,
-    Builtin,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -485,6 +489,19 @@ impl<'a> CallExpr<'a> {
                 ),
                 self.span,
             ))
+        }
+    }
+    pub fn op_base_options_interned(
+        &self,
+        string_store: &mut StringStore,
+    ) -> OperatorBaseOptionsInterned {
+        OperatorBaseOptionsInterned {
+            argname: string_store.intern_cloned(self.op_name),
+            label: self.label.map(|l| string_store.intern_cloned(l.value)),
+            span: self.span,
+            transparent_mode: self.transparent_mode,
+            append_mode: self.append_mode,
+            output_is_atom: self.label.map(|l| l.is_atom).unwrap_or(false),
         }
     }
 }

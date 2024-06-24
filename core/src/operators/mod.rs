@@ -2,7 +2,6 @@ pub mod aggregator;
 pub mod call;
 pub mod call_concurrent;
 pub mod count;
-pub mod end;
 pub mod errors;
 pub mod field_value_sink;
 pub mod file_reader;

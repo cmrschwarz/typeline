@@ -1,11 +1,12 @@
 use crate::{
     index_newtype,
-    operators::operator::{OperatorId, OperatorOffsetInChain},
+    operators::operator::{OffsetInChain, OperatorId},
     utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
 
 index_newtype! {
     pub struct ChainId (pub(crate) u32);
+
     #[derive(derive_more::Add, derive_more::Sub, derive_more::AddAssign, derive_more::SubAssign)]
     pub struct SubchainIndex(pub(crate) u32);
 }
@@ -45,6 +46,6 @@ pub struct ChainSettings {
 pub struct Chain {
     pub label: Option<StringStoreEntry>,
     pub settings: ChainSettings,
-    pub operators: IndexVec<OperatorOffsetInChain, OperatorId>,
+    pub operators: IndexVec<OffsetInChain, OperatorId>,
     pub subchains: IndexVec<SubchainIndex, ChainId>,
 }

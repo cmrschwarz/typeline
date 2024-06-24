@@ -11,7 +11,7 @@ use metamatch::metamatch;
 use scr_core::{
     chain::ChainId,
     cli::call_expr::{ArgumentValue, CallExpr, ParsedArgValue, Span},
-    context::SessionData,
+    context::{SessionData, SessionSetupData},
     job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
@@ -26,14 +26,15 @@ use scr_core::{
             parse_format_string, FormatKey, FormatPart, FormatWidthSpec,
         },
         operator::{
-            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
-            PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+            OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
             TransformState,
         },
     },
+    options::operator_base_options::OperatorBaseOptionsInterned,
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, FieldIterRef},
@@ -105,9 +106,7 @@ pub struct TfExec<'a> {
 }
 
 impl Operator for OpExec {
-    fn default_name(
-        &self,
-    ) -> scr_core::operators::operator::DefaultOperatorName {
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "exec".into()
     }
 
@@ -117,17 +116,25 @@ impl Operator for OpExec {
 
     fn setup(
         &mut self,
-        sess: &mut SessionData,
-        _chain_id: ChainId,
-        _op_id: OperatorId,
-    ) -> Result<(), OperatorSetupError> {
-        let mut string_store = sess.string_store.write().unwrap();
+        sess: &mut SessionSetupData,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data_id: OperatorDataId,
+    ) -> Result<OperatorId, OperatorSetupError> {
         for r in std::mem::take(&mut self.refs_str) {
-            self.refs_idx.push(r.map(|r| string_store.intern_moved(r)));
+            self.refs_idx
+                .push(r.map(|r| sess.string_store.intern_moved(r)));
         }
-        self.stderr_field_name = string_store.intern_cloned("stderr");
-        self.exit_code_field_name = string_store.intern_cloned("exit_code");
-        Ok(())
+        self.stderr_field_name = sess.string_store.intern_cloned("stderr");
+        self.exit_code_field_name =
+            sess.string_store.intern_cloned("exit_code");
+        Ok(sess.add_op_from_offset_in_chain(
+            chain_id,
+            offset_in_chain,
+            op_base_opts_interned,
+            op_data_id,
+        ))
     }
 
     fn has_dynamic_outputs(
@@ -143,7 +150,7 @@ impl Operator for OpExec {
         sess: &SessionData,
         ld: &mut LivenessData,
         access_flags: &mut AccessFlags,
-        op_offset_after_last_write: OperatorOffsetInChain,
+        op_offset_after_last_write: OffsetInChain,
         op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,

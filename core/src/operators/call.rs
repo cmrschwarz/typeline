@@ -3,22 +3,20 @@ use std::collections::HashMap;
 use crate::{
     chain::ChainId,
     cli::call_expr::CallExpr,
+    context::SessionSetupData,
     job::{Job, JobData},
+    options::operator_base_options::OperatorBaseOptionsInterned,
     record_data::{
         field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
     },
-    utils::{
-        identity_hasher::BuildIdentityHasher,
-        indexing_type::IndexingType,
-        string_store::{StringStore, StringStoreEntry},
-    },
+    utils::indexing_type::IndexingType,
 };
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
-        OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
-        OperatorOffsetInChain,
+        OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
+        OperatorInstantiation, OperatorOffsetInChain,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -45,29 +43,36 @@ pub fn parse_op_call(
 }
 
 pub fn setup_op_call(
-    chain_labels: &HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
-    string_store: &StringStore,
     op: &mut OpCall,
-    op_id: OperatorId,
-) -> Result<(), OperatorSetupError> {
+    sess: &mut SessionSetupData,
+    curr_chain_id: ChainId,
+    offset_in_chain: OperatorOffsetInChain,
+    op_opts: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
     if op.target_resolved.is_some() {
         // this happens in case of call targets caused by labels ending the
         // chain
         debug_assert!(!op.lazy);
-        return Ok(());
-    }
-    if let Some(target) = string_store
+    } else if let Some(target) = sess
+        .string_store
         .lookup_str(&op.target_name)
-        .and_then(|sse| chain_labels.get(&sse))
+        .and_then(|sse| sess.chain_labels.get(&sse))
     {
         op.target_resolved = Some(*target);
-        Ok(())
     } else {
-        Err(OperatorSetupError::new_s(
+        return Err(OperatorSetupError::new_s(
             format!("unknown chain label '{}'", op.target_name),
-            op_id,
-        ))
+            op_data_id,
+        ));
     }
+    let op_id = sess.add_op_from_offset_in_chain(
+        curr_chain_id,
+        offset_in_chain,
+        op_opts,
+        op_data_id,
+    );
+    Ok(op_id)
 }
 
 pub fn create_op_call(name: String) -> OperatorData {
@@ -108,7 +113,7 @@ pub(crate) fn handle_eager_call_expansion(
         &sess.job_data.session_data.chains[op.target_resolved.unwrap()];
     sess.setup_transforms_from_op(
         ms_id,
-        chain.operators[OperatorOffsetInChain::zero()],
+        chain.operators[OffsetInChain::zero()],
         input_field,
         group_track,
         predecessor_tf,
@@ -130,7 +135,7 @@ pub(crate) fn handle_lazy_call_expansion(sess: &mut Job, tf_id: TransformId) {
     let instantiation = sess.setup_transforms_from_op(
         ms_id,
         sess.job_data.session_data.chains[call.target].operators
-            [OperatorOffsetInChain::zero()],
+            [OffsetInChain::zero()],
         input_field,
         input_group_track,
         Some(tf_id),

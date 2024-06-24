@@ -1,5 +1,8 @@
 use rstest::rstest;
-use scr::operators::sequence::create_op_enum;
+use scr::{
+    operators::{fork::create_op_fork_with_opts, sequence::create_op_enum},
+    options::operator_base_options::OperatorBaseOptions,
+};
 use scr_core::{
     operators::{
         fork::create_op_fork,
@@ -22,10 +25,23 @@ fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 2, 1).unwrap())
-        .add_op(create_op_fork())
-        .add_op_appending(create_op_int(2))
-        .add_op_appending(create_op_int(3))
-        .add_op(create_op_string_sink(&ss))
+        .add_op(create_op_fork_with_opts(vec![vec![
+            (
+                OperatorBaseOptions {
+                    append_mode: true,
+                    ..Default::default()
+                },
+                create_op_int(2),
+            ),
+            (
+                OperatorBaseOptions {
+                    append_mode: true,
+                    ..Default::default()
+                },
+                create_op_int(2),
+            ),
+            (OperatorBaseOptions::default(), create_op_string_sink(&ss)),
+        ]])?)
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1", "2", "3"]);
     Ok(())
@@ -42,10 +58,20 @@ fn unlink_without_append_after_fork(
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 3, 1).unwrap())
-        .add_op(create_op_fork())
-        .add_op(create_op_enum(0, 1, 1).unwrap())
-        .add_op_appending(create_op_enum(1, 3, 1).unwrap())
-        .add_op(create_op_string_sink(&ss))
+        .add_op(create_op_fork_with_opts(vec![vec![
+            (
+                OperatorBaseOptions::default(),
+                create_op_enum(0, 1, 1).unwrap(),
+            ),
+            (
+                OperatorBaseOptions {
+                    append_mode: true,
+                    ..Default::default()
+                },
+                create_op_enum(1, 3, 1).unwrap(),
+            ),
+            (OperatorBaseOptions::default(), create_op_string_sink(&ss)),
+        ]])?)
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1", "2"]);
     Ok(())
@@ -57,8 +83,7 @@ fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
     ContextBuilder::default()
         .add_op(create_op_seq(1, 11, 1).unwrap())
         .add_op(create_op_regex(".*[24680]$").unwrap())
-        .add_op(create_op_fork())
-        .add_op(create_op_string_sink(&ss))
+        .add_op(create_op_fork([[create_op_string_sink(&ss)]])?)
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),
@@ -74,11 +99,10 @@ fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
 fn fork_without_input() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_fork())
-        .add_op(create_op_str("foo"))
-        .add_op(create_op_string_sink(&ss))
-        .add_op(create_op_str("bar"))
-        .add_op(create_op_string_sink(&ss))
+        .add_op(create_op_fork([
+            [create_op_str("foo"), create_op_string_sink(&ss)],
+            [create_op_str("bar"), create_op_string_sink(&ss)],
+        ])?)
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar"]);
     Ok(())

@@ -5,7 +5,6 @@ use std::{
 };
 
 use bstr::ByteSlice;
-use smallstr::SmallString;
 
 use crate::{
     job::JobData,
@@ -41,7 +40,7 @@ use crate::{
 
 use super::{
     errors::OperatorApplicationError,
-    operator::{DefaultOperatorName, OperatorBase, OperatorData, OperatorId},
+    operator::{OperatorBase, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -121,12 +120,6 @@ impl StringSinkHandle {
 #[derive(Clone)]
 pub struct OpStringSink {
     pub handle: StringSinkHandle,
-}
-
-impl OpStringSink {
-    pub fn default_op_name(&self) -> DefaultOperatorName {
-        SmallString::from("<String Sink>")
-    }
 }
 
 pub fn create_op_string_sink(handle: &'_ StringSinkHandle) -> OperatorData {

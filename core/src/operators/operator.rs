@@ -1,18 +1,19 @@
-use std::{collections::HashMap, fmt::Write};
-
-use smallstr::SmallString;
+use std::{borrow::Cow, collections::HashMap, fmt::Write};
 
 use crate::{
     chain::{ChainId, SubchainIndex},
     cli::call_expr::Span,
-    context::SessionData,
+    context::{SessionData, SessionSetupData},
     index_newtype,
     job::{add_transform_to_job, Job},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
         OperatorCallEffect, VarId,
     },
-    options::{chain_options::ChainOptions, session_options::SessionOptions},
+    options::{
+        operator_base_options::OperatorBaseOptionsInterned,
+        session_options::SessionOptions,
+    },
     record_data::{field::FieldId, group_track::GroupTrackId},
     utils::{
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
@@ -22,8 +23,8 @@ use crate::{
 
 use super::{
     aggregator::{
-        insert_tf_aggregator, setup_op_aggregator, OpAggregator,
-        AGGREGATOR_DEFAULT_NAME,
+        insert_tf_aggregator, on_op_aggregator_liveness_computed,
+        setup_op_aggregator, OpAggregator, AGGREGATOR_DEFAULT_NAME,
     },
     call::{build_tf_call, setup_op_call, OpCall},
     call_concurrent::{
@@ -31,7 +32,6 @@ use super::{
         setup_op_call_concurrent_liveness_data, OpCallConcurrent,
     },
     count::{build_tf_count, OpCount},
-    end::{setup_op_end, OpEnd},
     errors::OperatorSetupError,
     field_value_sink::{build_tf_field_value_sink, OpFieldValueSink},
     file_reader::{build_tf_file_reader, setup_op_file_reader, OpFileReader},
@@ -74,8 +74,16 @@ use super::{
 
 index_newtype! {
     pub struct OperatorId(u32);
+    pub struct OperatorDataId(u32);
+
     #[derive(derive_more::Add, derive_more::Sub)]
-    pub struct OperatorOffsetInChain(u32);
+    pub struct OffsetInChain(u32);
+
+    #[derive(derive_more::Add, derive_more::Sub)]
+    pub struct OffsetInAggregation(u32);
+
+    #[derive(derive_more::Add, derive_more::Sub)]
+    pub struct OffsetInChainOptions(u32);
 }
 
 pub type PreboundOutputsMap =
@@ -95,7 +103,6 @@ pub enum OperatorData {
     Fork(OpFork),
     ForkCat(OpForkCat),
     Next(OpNext),
-    End(OpEnd),
     Key(OpKey),
     Select(OpSelect),
     Regex(OpRegex),
@@ -112,15 +119,26 @@ pub enum OperatorData {
     Custom(SmallBox<dyn Operator, 96>),
 }
 
+#[derive(Clone, Copy)]
+pub enum OperatorOffsetInChain {
+    Direct(OffsetInChain),
+    AggregationMember(OperatorId, OffsetInAggregation),
+}
+
 pub struct OperatorBase {
     pub argname: StringStoreEntry,
     pub label: Option<StringStoreEntry>,
-    pub span: Span,
-    // TODO: make this non optional if possible. it's annoying
-    pub chain_id: Option<ChainId>,
-    pub offset_in_chain: OperatorOffsetInChain,
     pub transparent_mode: bool,
+    pub span: Span,
+
+    // initially set to MAX values when add_op_uninit is called
+    // initialized during init_op
+    pub chain_id: ChainId,
+    pub op_data_id: OperatorDataId,
+    // this can be zero e.g. for members of aggregations
+    pub offset_in_chain: OperatorOffsetInChain,
     pub desired_batch_size: usize,
+
     // this is not part of the OperatorLivenessData struct because it is
     // used in the `prebound_outputs` mechanism that is used during
     // operators -> transforms expansion long after liveness analysis
@@ -152,7 +170,7 @@ pub enum OutputFieldKind {
     Unconfigured,
 }
 
-pub type DefaultOperatorName = SmallString<[u8; 16]>;
+pub type OperatorName = Cow<'static, str>;
 
 impl Default for OperatorData {
     fn default() -> Self {
@@ -160,60 +178,170 @@ impl Default for OperatorData {
     }
 }
 
+impl OperatorBase {
+    pub fn from_opts_interned(
+        opts: OperatorBaseOptionsInterned,
+        chain_id: ChainId,
+        op_data_id: OperatorDataId,
+        offset_in_chain: OperatorOffsetInChain,
+        desired_batch_size: usize,
+    ) -> Self {
+        Self {
+            argname: opts.argname,
+            label: opts.label,
+            transparent_mode: opts.transparent_mode,
+            span: opts.span,
+            chain_id,
+            op_data_id,
+            offset_in_chain,
+            desired_batch_size,
+            outputs_start: OpOutputIdx::max_value(),
+            outputs_end: OpOutputIdx::max_value(),
+        }
+    }
+}
+
+impl OperatorOffsetInChain {
+    pub fn base_chain_offset(&self, sess: &SessionData) -> OffsetInChain {
+        match self {
+            OperatorOffsetInChain::Direct(chain_offset) => *chain_offset,
+            OperatorOffsetInChain::AggregationMember(op_id, agg_offset) => {
+                let op_data_id = sess.op_data_id(*op_id);
+                let agg_member_op_id = sess.operator_data[op_data_id]
+                    .aggregation_member(*agg_offset)
+                    .unwrap();
+                sess.operator_bases[agg_member_op_id]
+                    .offset_in_chain
+                    .base_chain_offset(sess)
+            }
+        }
+    }
+}
+
 impl OperatorData {
     pub fn setup(
         &mut self,
-        sess: &mut SessionData,
+        sess: &mut SessionSetupData,
         chain_id: ChainId,
-        op_id: OperatorId,
-    ) -> Result<(), OperatorSetupError> {
-        let chain = &sess.chains[chain_id];
-        let op_base = &mut sess.operator_bases[op_id];
+        offset_in_chain: OperatorOffsetInChain,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data_id: OperatorDataId,
+    ) -> Result<OperatorId, OperatorSetupError> {
         match self {
-            OperatorData::Regex(op) => {
-                setup_op_regex(op, sess.string_store.get_mut().unwrap())
-            }
-            OperatorData::Format(op) => {
-                setup_op_format(op, sess.string_store.get_mut().unwrap())
-            }
-            OperatorData::Key(op) => {
-                setup_op_key(op, sess.string_store.get_mut().unwrap())
-            }
-            OperatorData::Select(op) => {
-                setup_op_select(op, sess.string_store.get_mut().unwrap())
-            }
-            OperatorData::FileReader(op) => setup_op_file_reader(chain, op),
-            OperatorData::Fork(op) => setup_op_fork(chain, op_base, op, op_id),
-            OperatorData::Foreach(op) => setup_op_foreach(op, chain_id, op_id),
-            OperatorData::Nop(op) => setup_op_nop(chain, op_base, op, op_id),
-            OperatorData::ForkCat(op) => {
-                setup_op_forkcat(chain, op_base, op, op_id)
-            }
+            OperatorData::Regex(op) => setup_op_regex(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::Format(op) => setup_op_format(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::Key(op) => setup_op_key(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::Select(op) => setup_op_select(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::FileReader(op) => setup_op_file_reader(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::Fork(op) => setup_op_fork(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::Foreach(op) => setup_op_foreach(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::Nop(op) => setup_op_nop(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::ForkCat(op) => setup_op_forkcat(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
 
             OperatorData::Next(_) => unreachable!(),
-            OperatorData::End(op) => setup_op_end(op, op_id),
             OperatorData::Call(op) => setup_op_call(
-                &sess.chain_labels,
-                sess.string_store.get_mut().unwrap(),
                 op,
-                op_id,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
             ),
             OperatorData::CallConcurrent(op) => setup_op_call_concurrent(
-                &sess.settings,
-                &sess.chain_labels,
-                sess.string_store.get_mut().unwrap(),
                 op,
-                op_id,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
             ),
-            OperatorData::Custom(op) => {
-                Operator::setup(&mut **op, sess, chain_id, op_id)
-            }
-            OperatorData::MultiOp(op) => {
-                Operator::setup(op, sess, chain_id, op_id)
-            }
-            OperatorData::Aggregator(op) => {
-                setup_op_aggregator(op, sess, chain_id)
-            }
+            OperatorData::Custom(op) => Operator::setup(
+                &mut **op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::MultiOp(op) => Operator::setup(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::Aggregator(op) => setup_op_aggregator(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
             OperatorData::ToStr(_)
             | OperatorData::Count(_)
             | OperatorData::Sequence(_)
@@ -223,7 +351,13 @@ impl OperatorData {
             | OperatorData::NopCopy(_)
             | OperatorData::StringSink(_)
             | OperatorData::SuccessUpdator(_)
-            | OperatorData::FieldValueSink(_) => Ok(()),
+            | OperatorData::FieldValueSink(_) => Ok(sess
+                .add_op_from_offset_in_chain(
+                    chain_id,
+                    offset_in_chain,
+                    op_base_opts_interned,
+                    op_data_id,
+                )),
         }
     }
     pub fn has_dynamic_outputs(
@@ -244,7 +378,6 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Next(_)
             | OperatorData::SuccessUpdator(_)
-            | OperatorData::End(_)
             | OperatorData::Key(_)
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
@@ -285,7 +418,6 @@ impl OperatorData {
             // separate BB so we don't want to allocate slots for that
             OperatorData::ForkCat(_) => 0,
             OperatorData::Next(_) => 0,
-            OperatorData::End(_) => 0,
             OperatorData::Key(_) => 1,
             OperatorData::Select(_) => 0,
             OperatorData::Regex(re) => {
@@ -306,7 +438,7 @@ impl OperatorData {
                 let mut op_count = 1;
                 // TODO: do this properly, merging field names etc.
                 for &sub_op in &agg.sub_ops {
-                    op_count += sess.operator_data[sub_op]
+                    op_count += sess.operator_data[sess.op_data_id(sub_op)]
                         .output_count(sess, sub_op)
                         .saturating_sub(1);
                 }
@@ -321,7 +453,7 @@ impl OperatorData {
         }
     }
 
-    pub fn default_op_name(&self) -> DefaultOperatorName {
+    pub fn default_op_name(&self) -> OperatorName {
         match self {
             OperatorData::Print(_) => "p".into(),
             OperatorData::Sequence(op) => op.default_op_name(),
@@ -329,32 +461,35 @@ impl OperatorData {
             OperatorData::Foreach(_) => "foreach".into(),
             OperatorData::ForkCat(_) => "forkcat".into(),
             OperatorData::Key(_) => "key".into(),
-            OperatorData::Regex(op) => op.default_op_name(),
+            OperatorData::Regex(_) => "regex".into(),
             OperatorData::FileReader(op) => op.default_op_name(),
             OperatorData::Format(_) => "f".into(),
             OperatorData::Select(_) => "select".into(),
-            OperatorData::StringSink(op) => op.default_op_name(),
-            OperatorData::FieldValueSink(op) => op.default_op_name(),
             OperatorData::Literal(op) => op.default_op_name(),
-            OperatorData::Join(op) => op.default_op_name(),
             OperatorData::Next(_) => "next".into(),
-            OperatorData::End(_) => "end".into(),
             OperatorData::Count(_) => "count".into(),
-            OperatorData::ToStr(op) => op.default_op_name(),
+            OperatorData::ToStr(_) => "to_str".into(),
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
+            OperatorData::NopCopy(_) => "nop_copy".into(),
             OperatorData::SuccessUpdator(_) => "success_updator".into(),
-            OperatorData::NopCopy(_) => "nop-c".into(),
+            OperatorData::Join(_) => "join".into(),
+            OperatorData::StringSink(_) => "<string_sink>".into(),
+            OperatorData::FieldValueSink(_) => "<field_value_sink>".into(),
+            OperatorData::MultiOp(_) => "<multi_op>".into(),
             OperatorData::Custom(op) => op.default_name(),
             OperatorData::Aggregator(_) => AGGREGATOR_DEFAULT_NAME.into(),
-            OperatorData::MultiOp(op) => op.default_name(),
         }
     }
-    pub fn debug_op_name(&self) -> DefaultOperatorName {
+    pub fn debug_op_name(&self) -> OperatorName {
         match self {
+            OperatorData::MultiOp(op) => op.debug_op_name(),
+            OperatorData::Regex(op) => op.debug_op_name(),
+            OperatorData::Join(op) => op.debug_op_name(),
+            OperatorData::Sequence(op) => op.debug_op_name(),
             OperatorData::Aggregator(op) => {
-                let mut n = self.default_op_name();
+                let mut n = self.default_op_name().into_owned();
                 n.push('<');
                 for (i, &so) in op.sub_ops.iter().enumerate() {
                     if i > 0 {
@@ -363,44 +498,15 @@ impl OperatorData {
                     n.write_fmt(format_args!("{so}")).unwrap();
                 }
                 n.push('>');
-                n
+                n.into()
             }
             _ => self.default_op_name(),
         }
     }
-    pub fn can_be_appended(&self) -> bool {
-        match self {
-            OperatorData::Print(_)
-            | OperatorData::Sequence(_)
-            | OperatorData::Regex(_)
-            | OperatorData::FileReader(_)
-            | OperatorData::Format(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
-            | OperatorData::Literal(_)
-            | OperatorData::Join(_)
-            | OperatorData::Count(_)
-            | OperatorData::ToStr(_)
-            | OperatorData::Call(_)
-            | OperatorData::CallConcurrent(_)
-            | OperatorData::Nop(_)
-            | OperatorData::SuccessUpdator(_)
-            | OperatorData::Aggregator(_)
-            | OperatorData::NopCopy(_) => true,
-            OperatorData::Fork(_)
-            | OperatorData::Foreach(_)
-            | OperatorData::ForkCat(_)
-            | OperatorData::Key(_)
-            | OperatorData::Select(_)
-            | OperatorData::Next(_)
-            | OperatorData::End(_) => false,
-            OperatorData::Custom(op) => Operator::can_be_appended(&**op),
-            OperatorData::MultiOp(op) => Operator::can_be_appended(op),
-        }
-    }
     pub fn output_field_kind(
         &self,
-        op_base: &OperatorBase,
+        sess: &SessionData,
+        op_id: OperatorId,
     ) -> OutputFieldKind {
         match self {
             OperatorData::Print(_)
@@ -425,13 +531,12 @@ impl OperatorData {
             OperatorData::ForkCat(_)
             | OperatorData::Key(_)
             | OperatorData::Select(_)
-            | OperatorData::Next(_)
-            | OperatorData::End(_) => OutputFieldKind::Unconfigured,
+            | OperatorData::Next(_) => OutputFieldKind::Unconfigured,
             OperatorData::Custom(op) => {
-                Operator::output_field_kind(&**op, op_base)
+                Operator::output_field_kind(&**op, sess, op_id)
             }
             OperatorData::MultiOp(op) => {
-                Operator::output_field_kind(op, op_base)
+                Operator::output_field_kind(op, sess, op_id)
             }
         }
     }
@@ -474,7 +579,6 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Next(_)
-            | OperatorData::End(_)
             | OperatorData::Nop(_)
             | OperatorData::SuccessUpdator(_)
             | OperatorData::Foreach(_)
@@ -491,7 +595,7 @@ impl OperatorData {
         sess: &SessionData,
         ld: &mut LivenessData,
         flags: &mut AccessFlags,
-        op_offset_after_last_write: OperatorOffsetInChain,
+        op_offset_after_last_write: OffsetInChain,
         op_id: OperatorId,
         bb_id: BasicBlockId,
         input_field: OpOutputIdx,
@@ -608,7 +712,7 @@ impl OperatorData {
             OperatorData::FieldValueSink(_) | OperatorData::ToStr(_) => {
                 flags.may_dup_or_drop = false;
             }
-            OperatorData::Next(_) | OperatorData::End(_) => unreachable!(),
+            OperatorData::Next(_) => unreachable!(),
             OperatorData::Custom(op) => {
                 if let Some(res) = Operator::update_variable_liveness(
                     &**op,
@@ -647,16 +751,17 @@ impl OperatorData {
                         non_stringified_input_access: true,
                         may_dup_or_drop: true,
                     };
-                    sess.operator_data[sub_op].update_liveness_for_op(
-                        sess,
-                        ld,
-                        &mut sub_op_flags,
-                        op_offset_after_last_write,
-                        sub_op,
-                        bb_id,
-                        input_field,
-                        0,
-                    );
+                    sess.operator_data[sess.op_data_id(op_id)]
+                        .update_liveness_for_op(
+                            sess,
+                            ld,
+                            &mut sub_op_flags,
+                            op_offset_after_last_write,
+                            sub_op,
+                            bb_id,
+                            input_field,
+                            0,
+                        );
                     *flags = flags.or(&sub_op_flags);
                     let sub_op = &sess.operator_bases[sub_op];
                     if sub_op.outputs_start != sub_op.outputs_end {
@@ -700,10 +805,8 @@ impl OperatorData {
             OperatorData::Custom(op) => {
                 op.on_liveness_computed(sess, ld, op_id)
             }
-            OperatorData::Aggregator(agg) => {
-                for &sc_id in &agg.sub_ops {
-                    SessionOptions::setup_op_liveness(sess, ld, sc_id);
-                }
+            OperatorData::Aggregator(op) => {
+                on_op_aggregator_liveness_computed(op, sess, ld, op_id)
             }
             OperatorData::ToStr(_)
             | OperatorData::Call(_)
@@ -714,7 +817,6 @@ impl OperatorData {
             | OperatorData::Join(_)
             | OperatorData::Foreach(_)
             | OperatorData::Next(_)
-            | OperatorData::End(_)
             | OperatorData::Key(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
@@ -724,103 +826,7 @@ impl OperatorData {
             | OperatorData::Literal(_) => (),
         }
     }
-    pub fn on_op_added(
-        &mut self,
-        so: &mut SessionOptions,
-        op_id: OperatorId,
-        add_to_chain: bool,
-    ) {
-        let chain_opts = &mut so.chains[so.curr_chain];
-        let op_base_opts = &mut so.operator_base_options[op_id];
-        match self {
-            OperatorData::CallConcurrent(_) => {
-                so.any_threaded_operations = true;
-            }
-            OperatorData::Foreach(OpForeach {
-                subchains_start, ..
-            })
-            | OperatorData::Fork(OpFork {
-                subchains_start, ..
-            })
-            | OperatorData::ForkCat(OpForkCat {
-                subchains_start, ..
-            }) => {
-                *subchains_start = so.chains[so.curr_chain].subchain_count;
-                so.chains[so.curr_chain].subchain_count +=
-                    SubchainIndex::from_usize(1);
-                let new_chain = ChainOptions {
-                    parent: so.curr_chain,
-                    ..Default::default()
-                };
-                so.curr_chain = so.chains.next_idx();
-                so.chains.push(new_chain);
-            }
-            OperatorData::Next(_) => {
-                if add_to_chain {
-                    chain_opts.operators.pop();
-                }
-                let parent = so.chains[so.curr_chain].parent;
-                so.chains[parent].subchain_count +=
-                    SubchainIndex::from_usize(1);
-                let new_chain = ChainOptions {
-                    parent,
-                    ..Default::default()
-                };
-                so.curr_chain = so.chains.next_idx();
-                so.chains.push(new_chain);
-                op_base_opts.chain_id = None;
-            }
-            OperatorData::End(end) => {
-                if add_to_chain {
-                    chain_opts.operators.pop();
-                }
-                end.chain_id_before = so.curr_chain;
-                // the parent of the root chain is itsess
-                so.curr_chain = so.chains[so.curr_chain].parent;
 
-                op_base_opts.chain_id = Some(so.curr_chain);
-                end.subchain_count_after =
-                    so.chains[so.curr_chain].subchain_count;
-                let subchain_count_after = end.subchain_count_after;
-                if let Some(&op_id) = so.chains[so.curr_chain].operators.last()
-                {
-                    SessionOptions::on_operator_subchains_ended(
-                        &mut so.operator_data[op_id],
-                        subchain_count_after,
-                    );
-                }
-            }
-            OperatorData::Aggregator(agg) => {
-                for i in 0..agg.sub_ops.len() {
-                    let sub_op_id = agg.sub_ops[i];
-                    so.init_op(sub_op_id, false);
-                }
-            }
-            OperatorData::Custom(op) => {
-                Operator::on_op_added(&mut **op, so, op_id, add_to_chain);
-            }
-            OperatorData::MultiOp(op) => {
-                Operator::on_op_added(op, so, op_id, add_to_chain)
-            }
-            OperatorData::Print(_)
-            | OperatorData::Call(_)
-            | OperatorData::Count(_)
-            | OperatorData::ToStr(_)
-            | OperatorData::Key(_)
-            | OperatorData::Nop(_)
-            | OperatorData::SuccessUpdator(_)
-            | OperatorData::NopCopy(_)
-            | OperatorData::Select(_)
-            | OperatorData::Regex(_)
-            | OperatorData::Format(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
-            | OperatorData::Literal(_)
-            | OperatorData::Sequence(_)
-            | OperatorData::Join(_) => (),
-        }
-    }
     pub fn operator_build_transforms<'a>(
         &'a self,
         job: &mut Job<'a>,
@@ -844,7 +850,7 @@ impl OperatorData {
                     job,
                     op,
                     tf_state,
-                    op_base.chain_id.unwrap(),
+                    op_base.chain_id,
                     op_id,
                     prebound_outputs,
                 );
@@ -879,9 +885,7 @@ impl OperatorData {
             OperatorData::CallConcurrent(op) => {
                 build_tf_call_concurrent(jd, op_base, op, tfs)
             }
-            OperatorData::Key(_)
-            | OperatorData::Next(_)
-            | OperatorData::End(_) => unreachable!(),
+            OperatorData::Key(_) | OperatorData::Next(_) => unreachable!(),
             OperatorData::Custom(op) => {
                 match Operator::build_transforms(
                     &**op,
@@ -941,6 +945,43 @@ impl OperatorData {
             continuation: TransformContinuationKind::Regular,
         }
     }
+
+    fn aggregation_member(
+        &self,
+        agg_offset: OffsetInAggregation,
+    ) -> Option<OperatorId> {
+        match self {
+            OperatorData::Aggregator(agg) => {
+                agg.sub_ops.get(agg_offset).copied()
+            }
+            OperatorData::MultiOp(mop) => {
+                mop.sub_op_ids.get(agg_offset).copied()
+            }
+            OperatorData::Nop(_)
+            | OperatorData::NopCopy(_)
+            | OperatorData::Call(_)
+            | OperatorData::CallConcurrent(_)
+            | OperatorData::ToStr(_)
+            | OperatorData::Count(_)
+            | OperatorData::Print(_)
+            | OperatorData::Join(_)
+            | OperatorData::Fork(_)
+            | OperatorData::ForkCat(_)
+            | OperatorData::Next(_)
+            | OperatorData::Key(_)
+            | OperatorData::Select(_)
+            | OperatorData::Regex(_)
+            | OperatorData::Format(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_)
+            | OperatorData::FileReader(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Sequence(_)
+            | OperatorData::Foreach(_)
+            | OperatorData::SuccessUpdator(_)
+            | OperatorData::Custom(_) => None,
+        }
+    }
 }
 
 pub enum TransformInstatiation<'a> {
@@ -950,7 +991,10 @@ pub enum TransformInstatiation<'a> {
 }
 
 pub trait Operator: Send + Sync {
-    fn default_name(&self) -> DefaultOperatorName;
+    fn default_name(&self) -> OperatorName;
+    fn debug_op_name(&self) -> super::operator::OperatorName {
+        self.default_name()
+    }
 
     // mainly used for operators that start subchains
     // makes sure that e.g. `scr seqn=10 fork +int=11 p`
@@ -960,7 +1004,11 @@ pub trait Operator: Send + Sync {
     fn can_be_appended(&self) -> bool {
         true
     }
-    fn output_field_kind(&self, _op_base: &OperatorBase) -> OutputFieldKind {
+    fn output_field_kind(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> OutputFieldKind {
         OutputFieldKind::Unique
     }
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize;
@@ -993,18 +1041,25 @@ pub trait Operator: Send + Sync {
         _sess: &SessionData,
         _ld: &mut LivenessData,
         _access_flags: &mut AccessFlags,
-        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_offset_after_last_write: OffsetInChain,
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)>;
     fn setup(
         &mut self,
-        _sess: &mut SessionData,
-        _chain_id: ChainId,
-        _op_id: OperatorId,
-    ) -> Result<(), OperatorSetupError> {
-        Ok(())
+        sess: &mut SessionSetupData,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data_id: OperatorDataId,
+    ) -> Result<OperatorId, OperatorSetupError> {
+        Ok(sess.add_op_from_offset_in_chain(
+            chain_id,
+            offset_in_chain,
+            op_base_opts_interned,
+            op_data_id,
+        ))
     }
     fn on_liveness_computed(
         &mut self,

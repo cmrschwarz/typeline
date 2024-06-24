@@ -6,12 +6,13 @@ use std::{
 };
 
 use bstr::ByteSlice;
-use smallstr::SmallString;
 
 use crate::{
-    chain::{BufferingMode, Chain},
+    chain::{BufferingMode, ChainId},
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
+    context::SessionSetupData,
     job::JobData,
+    options::operator_base_options::OperatorBaseOptionsInterned,
     record_data::{
         field_data::INLINE_STR_MAX_LEN,
         iter_hall::IterId,
@@ -28,7 +29,10 @@ use super::{
         io_error_to_op_error, OperatorCreationError, OperatorSetupError,
     },
     multi_op::create_multi_op,
-    operator::{DefaultOperatorName, OperatorBase, OperatorData},
+    operator::{
+        OperatorBase, OperatorData, OperatorDataId, OperatorId, OperatorName,
+        OperatorOffsetInChain,
+    },
     regex::{create_op_regex_lines, create_op_regex_trim_trailing_newline},
     transform::{TransformData, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
@@ -63,16 +67,13 @@ pub struct OpFileReader {
 }
 
 impl OpFileReader {
-    pub fn default_op_name(&self) -> DefaultOperatorName {
-        let mut res = SmallString::new();
+    pub fn default_op_name(&self) -> OperatorName {
         match self.file_kind {
-            ReadableFileKind::Stdin => res.push_str("stdin"),
-            ReadableFileKind::File(_) => res.push_str("file"),
-            ReadableFileKind::Custom(_) => {
-                res.push_str("<custom_file_stream>")
-            }
+            ReadableFileKind::Stdin => "stdin",
+            ReadableFileKind::File(_) => "file",
+            ReadableFileKind::Custom(_) => "<custom_file_stream>",
         }
-        res
+        .into()
     }
 }
 
@@ -588,10 +589,14 @@ pub fn create_op_file_reader_custom_not_cloneable(
 }
 
 pub fn setup_op_file_reader(
-    chain: &Chain,
     op: &mut OpFileReader,
-) -> Result<(), OperatorSetupError> {
-    op.line_buffered = match chain.settings.buffering_mode {
+    sess: &mut SessionSetupData,
+    chain_id: ChainId,
+    offset_in_chain: OperatorOffsetInChain,
+    op_base_opts_interned: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
+    op.line_buffered = match sess.chains[chain_id].settings.buffering_mode {
         BufferingMode::BlockBuffer => LineBufferedSetting::No,
         BufferingMode::LineBuffer => LineBufferedSetting::Yes,
         BufferingMode::LineBufferStdin => match op.file_kind {
@@ -604,7 +609,12 @@ pub fn setup_op_file_reader(
             _ => LineBufferedSetting::No,
         },
     };
-    Ok(())
+    Ok(sess.add_op_from_offset_in_chain(
+        chain_id,
+        offset_in_chain,
+        op_base_opts_interned,
+        op_data_id,
+    ))
 }
 
 #[derive(Clone)]

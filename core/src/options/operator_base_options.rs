@@ -1,29 +1,35 @@
+use std::borrow::Cow;
+
 use crate::{
-    chain::ChainId,
     cli::call_expr::Span,
-    liveness_analysis::OpOutputIdx,
-    operators::operator::{OperatorBase, OperatorId, OperatorOffsetInChain},
-    utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
+    utils::string_store::{StringStore, StringStoreEntry},
 };
 
-#[derive(Clone)]
-pub struct OperatorBaseOptions {
+#[derive(Clone, Copy)]
+pub struct OperatorBaseOptionsInterned {
     pub argname: StringStoreEntry,
     pub label: Option<StringStoreEntry>,
     pub span: Span,
     pub transparent_mode: bool,
+    pub append_mode: bool,
     pub output_is_atom: bool,
-    // all following fields are set by the context on add_op
-    pub desired_batch_size: usize,
-    pub chain_id: Option<ChainId>,
-    pub op_id: Option<OperatorId>,
-    pub offset_in_chain: OperatorOffsetInChain,
+}
+
+#[derive(Clone, Default)]
+pub struct OperatorBaseOptions {
+    pub argname: Cow<'static, str>,
+    pub label: Option<Cow<'static, str>>,
+    pub span: Span,
+    pub transparent_mode: bool,
+    pub append_mode: bool,
+    pub output_is_atom: bool,
 }
 
 impl OperatorBaseOptions {
     pub fn new(
-        argname: StringStoreEntry,
-        label: Option<StringStoreEntry>,
+        argname: Cow<'static, str>,
+        label: Option<Cow<'static, str>>,
+        append_mode: bool,
         transparent_mode: bool,
         output_is_atom: bool,
         span: Span,
@@ -33,29 +39,31 @@ impl OperatorBaseOptions {
             label,
             span,
             transparent_mode,
+            append_mode,
             output_is_atom,
-            desired_batch_size: 0,
-            chain_id: None,
-            op_id: None,
-            offset_in_chain: OperatorOffsetInChain::zero(),
         }
     }
-    pub fn from_name(argname: StringStoreEntry) -> OperatorBaseOptions {
-        OperatorBaseOptions::new(argname, None, false, false, Span::Generated)
+    pub fn from_name(argname: Cow<'static, str>) -> OperatorBaseOptions {
+        OperatorBaseOptions::new(
+            argname,
+            None,
+            false,
+            false,
+            false,
+            Span::Generated,
+        )
     }
-
-    pub fn build(&self) -> OperatorBase {
-        OperatorBase {
-            argname: self.argname,
-            label: self.label,
+    pub fn intern(
+        self,
+        string_store: &mut StringStore,
+    ) -> OperatorBaseOptionsInterned {
+        OperatorBaseOptionsInterned {
+            argname: string_store.intern_cow(self.argname),
+            label: self.label.map(|l| string_store.intern_cow(l)),
             span: self.span,
-            chain_id: self.chain_id,
             transparent_mode: self.transparent_mode,
-            desired_batch_size: self.desired_batch_size,
-            offset_in_chain: self.offset_in_chain,
-            // set during setup
-            outputs_start: OpOutputIdx::zero(),
-            outputs_end: OpOutputIdx::zero(),
+            append_mode: self.append_mode,
+            output_is_atom: self.output_is_atom,
         }
     }
 }

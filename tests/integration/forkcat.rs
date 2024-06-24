@@ -1,4 +1,3 @@
-#![allow(unused_imports)] // TODO
 use rstest::rstest;
 use scr::{
     cli::CliOptions,
@@ -7,12 +6,10 @@ use scr::{
 };
 use scr_core::{
     operators::{
-        end::create_op_end,
         forkcat::create_op_forkcat,
         format::create_op_format,
         join::create_op_join,
         literal::create_op_str,
-        next::create_op_next,
         nop::create_op_nop,
         regex::create_op_regex,
         sequence::{create_op_seq, create_op_seqn},
@@ -27,11 +24,10 @@ use scr_ext_utils::dup::create_op_dup;
 fn basic_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_forkcat())
-        .add_op(create_op_str("foo"))
-        .add_op(create_op_next())
-        .add_op(create_op_str("bar"))
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([
+            [create_op_str("foo")],
+            [create_op_str("bar")],
+        ])?)
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar"]);
@@ -44,11 +40,10 @@ fn forkcat_with_input() -> Result<(), ScrError> {
     let ss2 = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat())
-        .add_op(create_op_string_sink(&ss1))
-        .add_op(create_op_next())
-        .add_op(create_op_string_sink(&ss2))
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([
+            [create_op_string_sink(&ss1)],
+            [create_op_string_sink(&ss2)],
+        ])?)
         .add_op(create_op_nop())
         .run()?;
     assert_eq!(ss1.get_data().unwrap().as_slice(), ["foo"]);
@@ -61,11 +56,7 @@ fn forkcat_dup() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat())
-        .add_op(create_op_nop())
-        .add_op(create_op_next())
-        .add_op(create_op_nop())
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]])?)
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "foo"]);
@@ -77,13 +68,11 @@ fn forkcat_sandwiched_write() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat())
-        .add_op(create_op_nop())
-        .add_op(create_op_next())
-        .add_op(create_op_format("{}{}").unwrap())
-        .add_op(create_op_next())
-        .add_op(create_op_nop())
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([
+            [create_op_nop()],
+            [create_op_format("{}{}").unwrap()],
+            [create_op_nop()],
+        ])?)
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "foofoo", "foo"]);
@@ -95,11 +84,10 @@ fn forkcat_double_field_refs() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat())
-        .add_op(create_op_nop_copy())
-        .add_op(create_op_next())
-        .add_op(create_op_nop_copy())
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([
+            [create_op_nop_copy()],
+            [create_op_nop_copy()],
+        ])?)
         .add_op(create_op_nop_copy())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -112,11 +100,7 @@ fn forkcat_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat())
-        .add_op(create_op_nop())
-        .add_op(create_op_next())
-        .add_op(create_op_nop())
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]])?)
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b",")),
             None,
@@ -133,15 +117,19 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_ops([
-            create_op_forkcat(),
-            create_op_str("INSERT INTO T VALUES "),
-            create_op_next(),
-            create_op_seq(0, 5, 1).unwrap(),
-            create_op_format("({})").unwrap(),
-            create_op_join(Some(MaybeText::from_bytes(b", ")), None, false),
-            create_op_next(),
-            create_op_str(";"),
-            create_op_end(),
+            create_op_forkcat([
+                vec![create_op_str("INSERT INTO T VALUES ")],
+                vec![
+                    create_op_seq(0, 5, 1).unwrap(),
+                    create_op_format("({})").unwrap(),
+                    create_op_join(
+                        Some(MaybeText::from_bytes(b", ")),
+                        None,
+                        false,
+                    ),
+                ],
+                vec![create_op_str(";")],
+            ])?,
             create_op_join(None, None, false),
             create_op_string_sink(&ss),
         ])
@@ -157,12 +145,11 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
 fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op_with_label(create_op_str("a"), "a")
-        .add_op(create_op_forkcat())
-        .add_op(create_op_format("{a}").unwrap())
-        .add_op(create_op_next())
-        .add_op(create_op_nop())
-        .add_op(create_op_end())
+        .add_op_with_label(create_op_str("a"), "a".into())
+        .add_op(create_op_forkcat([
+            [create_op_format("{a}").unwrap()],
+            [create_op_nop()],
+        ])?)
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["a", "a"]);
@@ -173,12 +160,11 @@ fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
 fn forkcat_surviving_vars() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "lbl")
-        .add_op(create_op_forkcat())
-        .add_op(create_op_str("a"))
-        .add_op(create_op_next())
-        .add_op(create_op_str("b"))
-        .add_op(create_op_end())
+        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "lbl".into())
+        .add_op(create_op_forkcat([
+            [create_op_str("a")],
+            [create_op_str("b")],
+        ])?)
         .add_op(create_op_format("{lbl:?}: {}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -194,11 +180,10 @@ fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_forkcat())
-        .add_op(create_op_regex("2").unwrap())
-        .add_op(create_op_next())
-        .add_op(create_op_nop())
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([
+            [create_op_regex("2").unwrap()],
+            [create_op_nop()],
+        ])?)
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -212,11 +197,10 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(3)
         .add_op(create_op_seqn(1, 5, 1).unwrap())
-        .add_op(create_op_forkcat())
-        .add_op(create_op_regex("[24]").unwrap())
-        .add_op(create_op_next())
-        .add_op(create_op_dup(0))
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([
+            [create_op_regex("[24]").unwrap()],
+            [create_op_dup(0)],
+        ])?)
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["2", "4"]);
@@ -229,11 +213,10 @@ fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(2)
         .add_op(create_op_seqn(1, 5, 1).unwrap())
-        .add_op(create_op_forkcat())
-        .add_op(create_op_regex("[24]").unwrap())
-        .add_op(create_op_next())
-        .add_op(create_op_nop())
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([
+            [create_op_regex("[24]").unwrap()],
+            [create_op_nop()],
+        ])?)
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -254,11 +237,7 @@ fn forkcat_on_unapplied_commands(
         .set_batch_size(batch_size)
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_regex("[24]").unwrap())
-        .add_op(create_op_forkcat())
-        .add_op(create_op_nop())
-        .add_op(create_op_next())
-        .add_op(create_op_dup(0))
-        .add_op(create_op_end())
+        .add_op(create_op_forkcat([[create_op_nop()], [create_op_dup(0)]])?)
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))
         .run()?;

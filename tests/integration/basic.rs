@@ -21,7 +21,6 @@ use scr_core::{
             create_op_error, create_op_int_n, create_op_literal,
             create_op_literal_n, create_op_str, Literal,
         },
-        next::create_op_next,
         nop_copy::create_op_nop_copy,
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
         select::create_op_select,
@@ -148,9 +147,9 @@ fn triple_sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(batch_size)
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "a")
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "b")
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "c")
+        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "a".into())
+        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "b".into())
+        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "c".into())
         .add_op(create_op_format("{a}{b}{c}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -309,7 +308,7 @@ fn unbounded_enum_backoff() -> Result<(), ScrError> {
 fn unset_field_value_in_forkeach() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "foo")
+        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "foo".into())
         .add_op(create_op_foreach())
         .add_op(create_op_enum_unbounded(0, 2, 1).unwrap())
         .add_op(create_op_format("{foo:?}: {}").unwrap())
@@ -398,7 +397,7 @@ fn select() -> Result<(), ScrError> {
         .add_op_with_opts(
             create_op_literal_n(Literal::String("foo".to_owned()), 3),
             None,
-            Some("a"),
+            Some("a".into()),
             false,
             false,
             false,
@@ -431,18 +430,16 @@ fn basic_cow() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("123", 1)
-        .add_op(create_op_fork())
-        .add_op(
-            create_op_regex_with_opts(
+        .add_op(create_op_fork([
+            [create_op_regex_with_opts(
                 ".",
                 RegexOptions {
                     multimatch: true,
                     ..Default::default()
                 },
-            )
-            .unwrap(),
-        )
-        .add_op(create_op_string_sink(&ss))
+            )?],
+            [create_op_string_sink(&ss)],
+        ])?)
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
     Ok(())
@@ -461,20 +458,19 @@ fn cow_not_affecting_original(
     ContextBuilder::default()
         .set_batch_size(batch_size)
         .push_str("123", 1)
-        .add_op(create_op_fork())
-        .add_op(
-            create_op_regex_with_opts(
-                ".",
-                RegexOptions {
-                    multimatch: true,
-                    ..Default::default()
-                },
-            )
-            .unwrap(),
-        )
-        .add_op(create_op_string_sink(&ss1))
-        .add_op(create_op_next())
-        .add_op(create_op_string_sink(&ss2))
+        .add_op(create_op_fork([
+            vec![
+                create_op_regex_with_opts(
+                    ".",
+                    RegexOptions {
+                        multimatch: true,
+                        ..Default::default()
+                    },
+                )?,
+                create_op_string_sink(&ss1),
+            ],
+            vec![create_op_string_sink(&ss2)],
+        ])?)
         .run()?;
     assert_eq!(ss1.get_data().unwrap().as_slice(), ["1", "2", "3"]);
     assert_eq!(ss2.get_data().unwrap().as_slice(), ["123"]);

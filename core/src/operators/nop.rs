@@ -1,9 +1,14 @@
-use crate::{chain::Chain, cli::call_expr::CallExpr, job::JobData};
+use crate::{
+    chain::ChainId, cli::call_expr::CallExpr, context::SessionSetupData,
+    job::JobData, options::operator_base_options::OperatorBaseOptionsInterned,
+};
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     nop_copy::create_op_nop_copy,
-    operator::{OperatorBase, OperatorData, OperatorId},
+    operator::{
+        OperatorData, OperatorDataId, OperatorId, OperatorOffsetInChain,
+    },
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -25,13 +30,20 @@ pub fn create_op_nop() -> OperatorData {
 }
 
 pub fn setup_op_nop(
-    _chain: &Chain,
-    op_base: &mut OperatorBase,
     _op: &mut OpNop,
-    _op_id: OperatorId,
-) -> Result<(), OperatorSetupError> {
-    op_base.transparent_mode = true;
-    Ok(())
+    sess: &mut SessionSetupData,
+    chain_id: ChainId,
+    offset_in_chain: OperatorOffsetInChain,
+    mut op_base_opts_interned: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
+    op_base_opts_interned.transparent_mode = true;
+    Ok(sess.add_op_from_offset_in_chain(
+        chain_id,
+        offset_in_chain,
+        op_base_opts_interned,
+        op_data_id,
+    ))
 }
 
 pub fn build_tf_nop<'a>(

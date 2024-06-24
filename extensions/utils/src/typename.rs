@@ -9,8 +9,8 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            DefaultOperatorName, Operator, OperatorData, OperatorId,
-            OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
+            OperatorName, Operator, OperatorData, OperatorId,
+            OffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
@@ -47,7 +47,7 @@ pub fn create_op_typename() -> OperatorData {
 }
 
 impl Operator for OpTypename {
-    fn default_name(&self) -> DefaultOperatorName {
+    fn default_name(&self) -> OperatorName {
         "typename".into()
     }
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
@@ -66,7 +66,7 @@ impl Operator for OpTypename {
         _sess: &SessionData,
         _ld: &mut LivenessData,
         access_flags: &mut AccessFlags,
-        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_offset_after_last_write: OffsetInChain,
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,

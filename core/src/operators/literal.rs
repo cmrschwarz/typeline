@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use bstr::ByteSlice;
 use num::{BigInt, BigRational};
-use smallstr::SmallString;
 
 use crate::{
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
@@ -23,7 +22,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{DefaultOperatorName, OperatorBase, OperatorData},
+    operator::{OperatorBase, OperatorData, OperatorName},
     transform::{TransformData, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
@@ -61,26 +60,25 @@ pub struct TfLiteral<'a> {
 }
 
 impl OpLiteral {
-    pub fn default_op_name(&self) -> DefaultOperatorName {
-        let mut res = SmallString::new();
+    pub fn default_op_name(&self) -> OperatorName {
         match &self.data {
-            Literal::Null => res.push_str("null"),
-            Literal::Undefined => res.push_str("undefined"),
-            Literal::String(_) => res.push_str("str"),
-            Literal::StreamString(_) => res.push_str("~str"),
-            Literal::Bytes(_) => res.push_str("bytes"),
-            Literal::StreamBytes(_) => res.push_str("~bytes"),
-            Literal::Error(_) => res.push_str("error"),
-            Literal::StreamError(_) => res.push_str("~error"),
-            Literal::Int(_) => res.push_str("int"),
-            Literal::BigInt(_) => res.push_str("integer"),
-            Literal::Float(_) => res.push_str("float"),
-            Literal::Rational(_) => res.push_str("rational"),
-            Literal::Object(_) => res.push_str("object"),
-            Literal::Array(_) => res.push_str("array"),
-            Literal::Custom(v) => res.push_str(&v.type_name()),
+            Literal::Null => "null",
+            Literal::Undefined => "undefined",
+            Literal::String(_) => "str",
+            Literal::StreamString(_) => "~str",
+            Literal::Bytes(_) => "bytes",
+            Literal::StreamBytes(_) => "~bytes",
+            Literal::Error(_) => "error",
+            Literal::StreamError(_) => "~error",
+            Literal::Int(_) => "int",
+            Literal::BigInt(_) => "integer",
+            Literal::Float(_) => "float",
+            Literal::Rational(_) => "rational",
+            Literal::Object(_) => "object",
+            Literal::Array(_) => "array",
+            Literal::Custom(v) => return v.type_name(),
         }
-        res
+        .into()
     }
 }
 

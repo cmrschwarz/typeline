@@ -1,16 +1,13 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use crate::{
     cli::{call_expr::Span, parse_cli, CliOptions},
     context::{Context, SessionData},
     extension::ExtensionRegistry,
     operators::{
-        aggregator::{
-            add_aggregate_to_sess_opts_uninit, create_op_aggregate,
-            create_op_aggregator_append_leader, AGGREGATOR_DEFAULT_NAME,
-        },
+        aggregator::create_op_aggregate,
         field_value_sink::{create_op_field_value_sink, FieldValueSinkHandle},
-        operator::{DefaultOperatorName, OperatorData, OperatorId},
+        operator::{OperatorData, OperatorDataId},
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     record_data::{
@@ -30,9 +27,6 @@ use super::{
 pub struct ContextBuilder {
     opts: SessionOptions,
     input_data: RecordSet,
-    pending_aggregate: Vec<OperatorId>,
-    last_non_append_op_id: Option<OperatorId>,
-    curr_op_appendable: bool,
 }
 
 impl ContextBuilder {
@@ -59,29 +53,9 @@ impl ContextBuilder {
         Self {
             opts,
             input_data: RecordSet::default(),
-            pending_aggregate: Vec::new(),
-            last_non_append_op_id: None,
-            curr_op_appendable: true,
         }
     }
-    fn create_op_base_opts<F: FnOnce() -> DefaultOperatorName>(
-        &mut self,
-        default_name: F,
-        argname: Option<&str>,
-        label: Option<&str>,
-        transparent_mode: bool,
-        output_is_atom: bool,
-    ) -> OperatorBaseOptions {
-        OperatorBaseOptions::new(
-            self.opts
-                .string_store
-                .intern_cloned(argname.unwrap_or(default_name().as_str())),
-            label.map(|lbl| self.opts.string_store.intern_cloned(lbl)),
-            transparent_mode,
-            output_is_atom,
-            Span::Generated,
-        )
-    }
+
     pub fn error_to_string(&self, err: &ScrError) -> String {
         err.contextualize_message(
             self.opts.cli_args.as_deref(),
@@ -90,92 +64,33 @@ impl ContextBuilder {
             None,
         )
     }
-    fn add_op_uninit(
-        &mut self,
-        op_data: OperatorData,
-        argname: Option<&str>,
-        label: Option<&str>,
-        transparent_mode: bool,
-        output_is_atom: bool,
-    ) -> OperatorId {
-        let op_base = self.create_op_base_opts(
-            || op_data.default_op_name(),
-            argname,
-            label,
-            transparent_mode,
-            output_is_atom,
-        );
-        self.opts.add_op_uninit(op_base, op_data)
-    }
+
     pub fn ref_add_op_with_opts(
         &mut self,
         op_data: OperatorData,
-        argname: Option<&str>,
-        label: Option<&str>,
+        argname: Option<Cow<'static, str>>,
+        label: Option<Cow<'static, str>>,
         append_mode: bool,
         transparent_mode: bool,
         output_is_atom: bool,
-    ) {
-        let prev_op_appendable = self.curr_op_appendable;
-        self.curr_op_appendable = op_data.can_be_appended();
-        let op_id = self.add_op_uninit(
+    ) -> OperatorDataId {
+        self.opts.add_op(
+            OperatorBaseOptions {
+                argname: argname.unwrap_or_else(|| op_data.debug_op_name()),
+                label,
+                span: Span::Generated,
+                transparent_mode,
+                append_mode,
+                output_is_atom,
+            },
             op_data,
-            argname,
-            label,
-            transparent_mode,
-            output_is_atom,
-        );
-        if !append_mode || !prev_op_appendable {
-            self.ref_terminate_current_aggregate();
-            if append_mode {
-                let (op_base_opts, op_data) =
-                    create_op_aggregator_append_leader(&mut self.opts);
-                self.pending_aggregate
-                    .push(self.opts.add_op_uninit(op_base_opts, op_data));
-                self.pending_aggregate.push(op_id);
-                self.last_non_append_op_id = None;
-                return;
-            }
-            self.last_non_append_op_id = Some(op_id);
-            return;
-        }
-        if self.pending_aggregate.is_empty() {
-            if let Some(pred) = self.last_non_append_op_id {
-                self.pending_aggregate.push(pred);
-                self.last_non_append_op_id = None;
-            } else {
-                let (op_base_opts, op_data) =
-                    create_op_aggregator_append_leader(&mut self.opts);
-                self.pending_aggregate
-                    .push(self.opts.add_op_uninit(op_base_opts, op_data));
-            }
-        }
-        self.pending_aggregate.push(op_id);
-    }
-    fn ref_terminate_current_aggregate(&mut self) {
-        if !self.pending_aggregate.is_empty() {
-            let op_data = create_op_aggregate(std::mem::take(
-                &mut self.pending_aggregate,
-            ));
-            let op_base = self.create_op_base_opts(
-                || op_data.default_op_name(),
-                None,
-                None,
-                false,
-                false,
-            );
-            self.opts.add_op(op_base, op_data);
-        }
-        if let Some(pred) = self.last_non_append_op_id {
-            self.opts.init_op(pred, true);
-            self.last_non_append_op_id = None;
-        }
+        )
     }
     pub fn add_op_with_opts(
         mut self,
         op_data: OperatorData,
-        argname: Option<&str>,
-        label: Option<&str>,
+        argname: Option<Cow<'static, str>>,
+        label: Option<Cow<'static, str>>,
         append_mode: bool,
         transparent_mode: bool,
         output_is_atom: bool,
@@ -191,7 +106,6 @@ impl ContextBuilder {
         self
     }
     pub fn add_label(mut self, label: String) -> Self {
-        self.ref_terminate_current_aggregate();
         self.opts.add_chain(label);
         self
     }
@@ -205,7 +119,7 @@ impl ContextBuilder {
         }
         this
     }
-    pub fn ref_add_op(&mut self, op_data: OperatorData) {
+    pub fn ref_add_op(&mut self, op_data: OperatorData) -> OperatorDataId {
         self.ref_add_op_with_opts(op_data, None, None, false, false, false)
     }
     pub fn add_op(mut self, op_data: OperatorData) -> Self {
@@ -214,27 +128,21 @@ impl ContextBuilder {
     }
     pub fn add_op_aggregate_with_opts(
         mut self,
-        argname: Option<&str>,
-        label: Option<&str>,
+        argname: Option<Cow<'static, str>>,
+        label: Option<Cow<'static, str>>,
         append_mode: bool,
         transparent_mode: bool,
         output_is_atom: bool,
         sub_ops: impl IntoIterator<Item = OperatorData>,
     ) -> Self {
-        self.ref_terminate_current_aggregate();
-        let op_base = self.create_op_base_opts(
-            || AGGREGATOR_DEFAULT_NAME.into(),
+        self.ref_add_op_with_opts(
+            create_op_aggregate(sub_ops),
             argname,
             label,
+            append_mode,
             transparent_mode,
             output_is_atom,
         );
-        self.last_non_append_op_id = Some(add_aggregate_to_sess_opts_uninit(
-            &mut self.opts,
-            op_base,
-            append_mode,
-            sub_ops,
-        ));
         self
     }
     pub fn add_op_aggregate(
@@ -249,7 +157,7 @@ impl ContextBuilder {
     pub fn add_op_with_label(
         self,
         op_data: OperatorData,
-        label: &str,
+        label: Cow<'static, str>,
     ) -> Self {
         self.add_op_with_opts(op_data, None, Some(label), false, false, false)
     }
@@ -266,10 +174,7 @@ impl ContextBuilder {
         self.input_data = rs;
         self
     }
-    pub fn build_session(
-        mut self,
-    ) -> Result<SessionData, ContextualizedScrError> {
-        self.ref_terminate_current_aggregate();
+    pub fn build_session(self) -> Result<SessionData, ContextualizedScrError> {
         self.opts.build_session()
     }
     pub fn build(self) -> Result<Context, ContextualizedScrError> {

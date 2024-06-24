@@ -1,9 +1,12 @@
 use crate::{
     chain::ChainId,
-    context::SessionData,
+    context::{SessionData, SessionSetupData},
     job::{add_transform_to_job, Job, JobData},
+    liveness_analysis::LivenessData,
     options::{
-        operator_base_options::OperatorBaseOptions,
+        operator_base_options::{
+            OperatorBaseOptions, OperatorBaseOptionsInterned,
+        },
         session_options::SessionOptions,
     },
     record_data::{
@@ -12,20 +15,23 @@ use crate::{
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
     },
+    utils::index_vec::IndexVec,
 };
 
 use super::{
     errors::OperatorSetupError,
     nop_copy::create_op_nop_copy,
     operator::{
-        OperatorData, OperatorId, OperatorInstantiation, PreboundOutputsMap,
+        OffsetInAggregation, OperatorData, OperatorDataId, OperatorId,
+        OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
         TransformContinuationKind,
     },
     transform::{TransformData, TransformId, TransformState},
 };
 
 pub struct OpAggregator {
-    pub sub_ops: Vec<OperatorId>,
+    pub sub_ops_from_user: Vec<(OperatorBaseOptions, OperatorData)>,
+    pub sub_ops: IndexVec<OffsetInAggregation, OperatorId>,
 }
 
 pub const AGGREGATOR_DEFAULT_NAME: &str = "aggregator";
@@ -59,58 +65,93 @@ pub struct TfAggregatorTrailer {
     header_tf_id: TransformId,
 }
 
-pub fn create_op_aggregate(sub_ops: Vec<OperatorId>) -> OperatorData {
-    OperatorData::Aggregator(OpAggregator { sub_ops })
+pub(crate) fn create_op_aggregate_raw(
+    sub_ops: Vec<OperatorId>,
+) -> OperatorData {
+    OperatorData::Aggregator(OpAggregator {
+        sub_ops_from_user: Vec::new(),
+        sub_ops: IndexVec::from(sub_ops),
+    })
+}
+
+pub fn create_op_aggregate(
+    sub_ops: impl IntoIterator<Item = OperatorData>,
+) -> OperatorData {
+    OperatorData::Aggregator(OpAggregator {
+        sub_ops_from_user: sub_ops
+            .into_iter()
+            .map(|op_data| {
+                (
+                    OperatorBaseOptions::from_name(op_data.default_op_name()),
+                    op_data,
+                )
+            })
+            .collect(),
+        sub_ops: IndexVec::new(),
+    })
+}
+
+pub fn create_op_aggregate_with_opts(
+    sub_ops: Vec<(OperatorBaseOptions, OperatorData)>,
+) -> OperatorData {
+    OperatorData::Aggregator(OpAggregator {
+        sub_ops_from_user: sub_ops,
+        sub_ops: IndexVec::new(),
+    })
 }
 
 pub fn create_op_aggregator_append_leader(
-    ctx_opts: &mut SessionOptions,
+    _ctx_opts: &mut SessionOptions,
 ) -> (OperatorBaseOptions, OperatorData) {
     let op_data = create_op_nop_copy();
-    let op_base_opts = OperatorBaseOptions::from_name(
-        ctx_opts
-            .string_store
-            .intern_cloned(op_data.default_op_name().as_str()),
-    );
+    let op_base_opts =
+        OperatorBaseOptions::from_name(op_data.default_op_name());
     (op_base_opts, op_data)
 }
 
 pub fn setup_op_aggregator(
     agg: &mut OpAggregator,
-    sess: &mut SessionData,
+    sess: &mut SessionSetupData,
     chain_id: ChainId,
-) -> Result<(), OperatorSetupError> {
-    for i in 0..agg.sub_ops.len() {
-        let sub_op_id = agg.sub_ops[i];
-        SessionOptions::setup_operator(sess, chain_id, sub_op_id)?;
+    operator_offset_in_chain: OperatorOffsetInChain,
+    op_base_opts_interned: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
+    let op_id = sess.add_op_from_offset_in_chain(
+        chain_id,
+        operator_offset_in_chain,
+        op_base_opts_interned,
+        op_data_id,
+    );
+
+    for (op_base, op_data) in std::mem::take(&mut agg.sub_ops_from_user) {
+        let op_base = op_base.intern(&mut sess.string_store);
+
+        agg.sub_ops.push(sess.setup_for_op_data(
+            chain_id,
+            OperatorOffsetInChain::AggregationMember(
+                op_id,
+                agg.sub_ops.next_idx(),
+            ),
+            op_base,
+            op_data,
+        )?);
     }
-    Ok(())
+
+    Ok(op_id)
 }
 
-pub fn add_aggregate_to_sess_opts_uninit(
-    sess: &mut SessionOptions,
-    op_aggregate_base: OperatorBaseOptions,
-    aggregate_starter_is_appending: bool,
-    ops: impl IntoIterator<Item = OperatorData>,
-) -> OperatorId {
-    let mut sub_ops = Vec::new();
-    if aggregate_starter_is_appending {
-        let op_data = create_op_nop_copy();
-        let op_base = OperatorBaseOptions::from_name(
-            sess.string_store
-                .intern_cloned(op_data.default_op_name().as_str()),
-        );
-        sub_ops.push(sess.add_op_uninit(op_base, op_data));
+pub fn on_op_aggregator_liveness_computed(
+    op: &OpAggregator,
+    sess: &mut SessionData,
+    ld: &LivenessData,
+    _op_id: OperatorId,
+) {
+    for &op_id in &op.sub_ops {
+        sess.with_mut_op_data(sess.op_data_id(op_id), |sess, op_data| {
+            op_data.on_liveness_computed(sess, ld, op_id)
+        });
     }
-    for op_data in ops {
-        let op_base = OperatorBaseOptions::from_name(
-            sess.string_store
-                .intern_cloned(op_data.default_op_name().as_str()),
-        );
-        sub_ops.push(sess.add_op_uninit(op_base, op_data));
-    }
-    let op_data = create_op_aggregate(sub_ops);
-    sess.add_op_uninit(op_aggregate_base, op_data)
 }
 
 pub fn insert_tf_aggregator(
@@ -171,13 +212,14 @@ pub fn insert_tf_aggregator(
             active_group_track,
         );
         sub_tf_state.is_split = i + 1 != op.sub_ops.len();
-        let instantiation = job.job_data.session_data.operator_data[sub_op_id]
-            .operator_build_transforms(
-                job,
-                sub_tf_state,
-                sub_op_id,
-                prebound_outputs,
-            );
+        let instantiation = job.job_data.session_data.operator_data
+            [job.job_data.session_data.op_data_id(sub_op_id)]
+        .operator_build_transforms(
+            job,
+            sub_tf_state,
+            sub_op_id,
+            prebound_outputs,
+        );
         sub_tfs.push(instantiation.tfs_begin);
     }
     let trailer_tf_state = TransformState::new(

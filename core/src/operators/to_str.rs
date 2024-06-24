@@ -23,7 +23,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{DefaultOperatorName, OperatorBase, OperatorData},
+    operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -31,12 +31,6 @@ use super::{
 pub struct OpToStr {
     invalid_unicode_handler: Option<InvalidUnicodeHandler>,
     convert_errors: bool,
-}
-
-impl OpToStr {
-    pub fn default_op_name(&self) -> DefaultOperatorName {
-        "to_str".into()
-    }
 }
 
 pub fn parse_op_to_str(

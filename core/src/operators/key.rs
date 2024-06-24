@@ -1,11 +1,14 @@
 use crate::{
-    cli::call_expr::CallExpr,
-    utils::string_store::{StringStore, StringStoreEntry},
+    chain::ChainId, cli::call_expr::CallExpr, context::SessionSetupData,
+    options::operator_base_options::OperatorBaseOptionsInterned,
+    utils::string_store::StringStoreEntry,
 };
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
-    operator::OperatorData,
+    operator::{
+        OperatorData, OperatorDataId, OperatorId, OperatorOffsetInChain,
+    },
 };
 
 #[derive(Clone)]
@@ -26,11 +29,20 @@ pub fn parse_op_key(
 
 pub fn setup_op_key(
     op: &mut OpKey,
-    string_store: &mut StringStore,
-) -> Result<(), OperatorSetupError> {
+    sess: &mut SessionSetupData,
+    chain_id: ChainId,
+    offset_in_chain: OperatorOffsetInChain,
+    op_base_opts_interned: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
     op.key_interned =
-        Some(string_store.intern_moved(std::mem::take(&mut op.key)));
-    Ok(())
+        Some(sess.string_store.intern_moved(std::mem::take(&mut op.key)));
+    Ok(sess.add_op_from_offset_in_chain(
+        chain_id,
+        offset_in_chain,
+        op_base_opts_interned,
+        op_data_id,
+    ))
 }
 
 pub fn create_op_key(key: String) -> OperatorData {

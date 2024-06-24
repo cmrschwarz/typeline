@@ -13,7 +13,7 @@ use scr_core::{
 struct DummyCustomType;
 
 impl CustomData for DummyCustomType {
-    fn type_name(&self) -> Cow<str> {
+    fn type_name(&self) -> Cow<'static, str> {
         "dummy".into()
     }
 
@@ -35,7 +35,7 @@ impl CustomData for DummyCustomType {
 struct DummyCustomTypeNoStringify;
 
 impl CustomData for DummyCustomTypeNoStringify {
-    fn type_name(&self) -> Cow<str> {
+    fn type_name(&self) -> Cow<'static, str> {
         "dummy_no_stringify".into()
     }
     fn clone_dyn(&self) -> Box<dyn CustomData> {

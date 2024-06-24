@@ -26,7 +26,7 @@ fn primes() -> Result<(), ScrError> {
         .add_op_with_opts(
             create_op_primes(),
             None,
-            Some("p"),
+            Some("p".into()),
             false,
             false,
             false,

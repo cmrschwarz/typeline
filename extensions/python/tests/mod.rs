@@ -58,7 +58,7 @@ fn python_multiline_indentation_error() {
 #[test]
 fn python_input_vars() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
-        .add_op_with_label(create_op_int(7), "foo")
+        .add_op_with_label(create_op_int(7), "foo".into())
         .add_op(create_op_py("foo * 2").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["14"]);
@@ -83,7 +83,7 @@ fn python_undefined_var() -> Result<(), ScrError> {
 #[test]
 fn python_multi_invocation() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
-        .add_op_with_label(create_op_seqn(1, 3, 1).unwrap(), "foo")
+        .add_op_with_label(create_op_seqn(1, 3, 1).unwrap(), "foo".into())
         .add_op(create_op_py("foo * 2").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "4", "6"]);

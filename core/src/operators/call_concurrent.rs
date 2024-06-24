@@ -6,11 +6,12 @@ use std::{
 use crate::{
     chain::ChainId,
     cli::call_expr::CallExpr,
-    context::{ContextData, SessionSettings, VentureDescription},
+    context::{ContextData, SessionSetupData, VentureDescription},
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
+    options::operator_base_options::OperatorBaseOptionsInterned,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager},
@@ -25,17 +26,16 @@ use crate::{
         },
     },
     utils::{
-        identity_hasher::BuildIdentityHasher,
-        indexing_type::IndexingType,
-        string_store::{StringStore, StringStoreEntry},
+        identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
+        string_store::StringStoreEntry,
     },
 };
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
-        OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
-        OperatorOffsetInChain,
+        OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
+        OperatorInstantiation, OperatorOffsetInChain,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -95,30 +95,37 @@ pub fn parse_op_call_concurrent(
 }
 
 pub fn setup_op_call_concurrent(
-    settings: &SessionSettings,
-    chain_labels: &HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
-    string_store: &StringStore,
     op: &mut OpCallConcurrent,
-    op_id: OperatorId,
-) -> Result<(), OperatorSetupError> {
-    if settings.max_threads == 1 {
+    sess: &mut SessionSetupData,
+    chain_id: ChainId,
+    offset_in_chain: OperatorOffsetInChain,
+    op_base_opts_interned: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
+    if sess.settings.max_threads == 1 {
         return Err(OperatorSetupError::new(
             "callcc cannot be used with a max thread count of 1, see `h=j`",
-            op_id,
+            op_data_id,
         ));
     }
-    if let Some(target) = string_store
+    if let Some(target) = sess
+        .string_store
         .lookup_str(&op.target_name)
-        .and_then(|sse| chain_labels.get(&sse))
+        .and_then(|sse| sess.chain_labels.get(&sse))
     {
         op.target_resolved = Some(*target);
-        Ok(())
     } else {
-        Err(OperatorSetupError::new_s(
+        return Err(OperatorSetupError::new_s(
             format!("unknown chain label '{}'", op.target_name),
-            op_id,
-        ))
+            op_data_id,
+        ));
     }
+    Ok(sess.add_op_from_offset_in_chain(
+        chain_id,
+        offset_in_chain,
+        op_base_opts_interned,
+        op_data_id,
+    ))
 }
 
 pub fn setup_op_call_concurrent_liveness_data(
@@ -292,7 +299,7 @@ pub(crate) fn handle_call_concurrent_expansion(
     call.expanded = true;
     setup_target_field_mappings(&mut job.job_data, tf_id, call);
     let starting_op = job.job_data.session_data.chains[call.target_chain]
-        .operators[OperatorOffsetInChain::zero()];
+        .operators[OffsetInChain::zero()];
     let mut venture_desc = VentureDescription {
         participans_needed: 2,
         starting_points: smallvec::smallvec![
@@ -393,9 +400,8 @@ pub fn setup_callee_concurrent(
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
 ) -> OperatorInstantiation {
-    let chain_id = sess.job_data.session_data.operator_bases[start_op_id]
-        .chain_id
-        .unwrap();
+    let chain_id =
+        sess.job_data.session_data.operator_bases[start_op_id].chain_id;
     let chain = &sess.job_data.session_data.chains[chain_id];
     // TODO //HACK: this is busted
     let group_track = VOID_GROUP_TRACK_ID;

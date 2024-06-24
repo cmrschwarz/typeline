@@ -11,7 +11,8 @@ use crate::{
         call_concurrent::setup_callee_concurrent,
         operator::{
             OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
-            OutputFieldKind, PreboundOutputsMap, TransformContinuationKind,
+            OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
+            TransformContinuationKind,
         },
         terminator::add_terminator_tf_cont_dependant,
         transform::{
@@ -556,16 +557,21 @@ impl<'a> Job<'a> {
         prebound_outputs: &PreboundOutputsMap,
     ) -> OperatorInstantiation {
         let start_op = &self.job_data.session_data.operator_bases[start_op_id];
-        let ops = &self.job_data.session_data.chains
-            [start_op.chain_id.unwrap()]
-        .operators[start_op.offset_in_chain..];
+        let OperatorOffsetInChain::Direct(offset_in_chain) =
+            start_op.offset_in_chain
+        else {
+            panic!("starting op cannot be part of an aggregation");
+        };
+
+        let ops = &self.job_data.session_data.chains[start_op.chain_id]
+            .operators[offset_in_chain..];
         self.setup_transforms_for_op_iter(
             ops.iter().map(|op_id| {
-                (
-                    *op_id,
-                    &self.job_data.session_data.operator_bases[*op_id],
-                    &self.job_data.session_data.operator_data[*op_id],
-                )
+                let op_base =
+                    &self.job_data.session_data.operator_bases[*op_id];
+                let op_data = &self.job_data.session_data.operator_data
+                    [op_base.op_data_id];
+                (*op_id, op_base, op_data)
             }),
             ms_id,
             input_field_id,
@@ -653,7 +659,8 @@ impl<'a> Job<'a> {
                 _ => (),
             }
             let mut label_added = false;
-            let output_field_kind = op_data.output_field_kind(op_base);
+            let output_field_kind =
+                op_data.output_field_kind(self.job_data.session_data, op_id);
             let output_field = match output_field_kind {
                 OutputFieldKind::Dummy => {
                     let dummy_field =
@@ -731,8 +738,13 @@ impl<'a> Job<'a> {
                     self.job_data.field_mgr.fields[output_field].borrow_mut();
                 of.producing_transform_id =
                     Some(self.job_data.tf_mgr.transforms.peek_claim_id());
+
+                let op_data_id = self.job_data.session_data.operator_bases
+                    [op_id]
+                    .op_data_id;
+
                 of.producing_transform_arg =
-                    self.job_data.session_data.operator_data[op_id]
+                    self.job_data.session_data.operator_data[op_data_id]
                         .default_op_name()
                         .to_string();
             }
@@ -991,8 +1003,7 @@ impl JobData<'_> {
         tf_state: &TransformState,
     ) -> &Chain {
         let op_id = tf_state.op_id.unwrap();
-        let chain_id =
-            self.session_data.operator_bases[op_id].chain_id.unwrap();
+        let chain_id = self.session_data.operator_bases[op_id].chain_id;
         &self.session_data.chains[chain_id]
     }
     pub fn get_transform_chain(&self, tf_id: TransformId) -> &Chain {

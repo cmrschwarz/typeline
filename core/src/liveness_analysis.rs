@@ -21,7 +21,7 @@ use crate::{
         foreach::OpForeach,
         fork::OpFork,
         forkcat::OpForkCat,
-        operator::{OperatorData, OperatorId, OperatorOffsetInChain},
+        operator::{OffsetInChain, OperatorData, OperatorId},
     },
     utils::{
         get_two_distinct_mut,
@@ -97,8 +97,8 @@ pub const VOID_VAR_OUTPUT_IDX: OpOutputIdx = OpOutputIdx(VOID_VAR_ID.0);
 
 pub struct BasicBlock {
     pub chain_id: ChainId,
-    pub operators_start: OperatorOffsetInChain,
-    pub operators_end: OperatorOffsetInChain,
+    pub operators_start: OffsetInChain,
+    pub operators_end: OffsetInChain,
     pub calls: SmallVec<[BasicBlockId; 2]>,
     pub successors: SmallVec<[BasicBlockId; 2]>,
     // if this block is a callee, this contains the bb ids of all blocks
@@ -447,11 +447,13 @@ impl LivenessData {
             .take(self.vars.len()),
         );
         for op_id in IndexingTypeRange::new(
-            OperatorId::zero()..sess.operator_data.next_idx(),
+            OperatorId::zero()..sess.operator_bases.next_idx(),
         ) {
+            let op_data_id = sess.operator_bases[op_id].op_data_id;
             let op_output_count =
-                sess.operator_data[op_id].output_count(sess, op_id);
+                sess.operator_data[op_data_id].output_count(sess, op_id);
             let op_base = &mut sess.operator_bases[op_id];
+
             if op_output_count == 0 {
                 op_base.transparent_mode = true;
             }
@@ -493,8 +495,11 @@ impl LivenessData {
         }
     }
     pub fn setup_op_vars(&mut self, sess: &SessionData, op_id: OperatorId) {
-        self.add_var_name_opt(sess.operator_bases[op_id].label);
-        sess.operator_data[op_id].register_output_var_names(self, sess, op_id);
+        let op_base = &sess.operator_bases[op_id];
+        let op_data_id = op_base.op_data_id;
+        self.add_var_name_opt(op_base.label);
+        sess.operator_data[op_data_id]
+            .register_output_var_names(self, sess, op_id);
     }
     pub fn setup_vars(&mut self, sess: &SessionData) {
         // the order of these special vars has to match the IDs specified
@@ -508,16 +513,12 @@ impl LivenessData {
             }
         }
     }
-    fn split_bb_at_call(
-        &mut self,
-        bb_id: BasicBlockId,
-        op_n: OperatorOffsetInChain,
-    ) {
+    fn split_bb_at_call(&mut self, bb_id: BasicBlockId, op_n: OffsetInChain) {
         let curr_bb_count = self.basic_blocks.len();
         let bb = &mut self.basic_blocks[bb_id];
         let end = bb.operators_end;
         let chain_id = bb.chain_id;
-        let op_offset_one = OperatorOffsetInChain::from_usize(1);
+        let op_offset_one = OffsetInChain::from_usize(1);
         bb.operators_end = op_n + op_offset_one;
         if op_n + op_offset_one != end {
             bb.operators_end = op_n;
@@ -542,12 +543,13 @@ impl LivenessData {
         &mut self,
         sess: &SessionData,
         op_id: OperatorId,
-        op_n: OperatorOffsetInChain,
+        op_n: OffsetInChain,
         cn: &Chain,
         bb_id: BasicBlockId,
     ) -> bool {
         let bb = &mut self.basic_blocks[bb_id];
-        match &sess.operator_data[op_id] {
+        let op_base = &sess.operator_bases[op_id];
+        match &sess.operator_data[op_base.op_data_id] {
             OperatorData::CallConcurrent(OpCallConcurrent {
                 target_resolved,
                 ..
@@ -586,7 +588,7 @@ impl LivenessData {
                 bb.calls.push(cn.subchains[*subchains_start].into_bb_id());
                 self.split_bb_at_call(bb_id, op_n);
             }
-            OperatorData::Next(_) | OperatorData::End(_) => unreachable!(),
+            OperatorData::Next(_) => unreachable!(),
             OperatorData::ToStr(_)
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
@@ -620,7 +622,7 @@ impl LivenessData {
         for (chain_id, c) in sess.chains.iter_enumerated() {
             self.basic_blocks.push(BasicBlock {
                 chain_id,
-                operators_start: OperatorOffsetInChain::zero(),
+                operators_start: OffsetInChain::zero(),
                 operators_end: c.operators.next_idx(),
                 calls: SmallVec::new(),
                 successors: SmallVec::new(),
@@ -641,7 +643,7 @@ impl LivenessData {
                 [bb.operators_start..bb.operators_end]
                 .iter_enumerated(bb.operators_start)
             {
-                let op_n = op_n as OperatorOffsetInChain;
+                let op_n = op_n as OffsetInChain;
                 if self.update_bb_for_op(sess, op, op_n, cn, bb_id) {
                     break;
                 }
@@ -680,7 +682,7 @@ impl LivenessData {
         sess: &SessionData,
         op_id: OperatorId,
         var_id: VarId,
-        op_offset_after_last_write: OperatorOffsetInChain,
+        op_offset_after_last_write: OffsetInChain,
         non_stringified: bool,
     ) {
         self.operator_liveness_data[op_id]
@@ -701,7 +703,7 @@ impl LivenessData {
         sess: &SessionData,
         op_id: OperatorId,
         op_output_idx: OpOutputIdx,
-        op_offset_after_last_write: OperatorOffsetInChain,
+        op_offset_after_last_write: OffsetInChain,
         non_stringified: bool,
         direct_access: bool,
     ) {
@@ -717,11 +719,13 @@ impl LivenessData {
         let header_write = if let Some(oo_producing_op) =
             self.op_outputs[op_output_idx].producing_op
         {
-            sess.operator_bases[oo_producing_op].offset_in_chain
-                + OperatorOffsetInChain::from_usize(1)
+            sess.operator_bases[oo_producing_op]
+                .offset_in_chain
+                .base_chain_offset(sess)
+                + OffsetInChain::from_usize(1)
                 < op_offset_after_last_write
         } else {
-            op_offset_after_last_write != OperatorOffsetInChain::zero()
+            op_offset_after_last_write != OffsetInChain::zero()
         };
         match ld.accessed_outputs.entry(op_output_idx) {
             Entry::Occupied(mut e) => {
@@ -806,18 +810,19 @@ impl LivenessData {
         let mut bb = &mut self.basic_blocks[bb_id];
         let cn = &sess.chains[bb.chain_id];
         let mut input_field = BB_INPUT_VAR_OUTPUT_IDX;
-        let mut op_offset_after_last_write = OperatorOffsetInChain::zero();
+        let mut op_offset_after_last_write = OffsetInChain::zero();
         for op_n in
             IndexingTypeRange::new(bb.operators_start..bb.operators_end)
         {
             let op_id = cn.operators[op_n];
             let op_base = &sess.operator_bases[op_id];
+            let op_data_id = op_base.op_data_id;
             let mut flags = AccessFlags {
                 input_accessed: true,
                 non_stringified_input_access: true,
                 may_dup_or_drop: true,
             };
-            let (output_field, ce) = sess.operator_data[op_id]
+            let (output_field, ce) = sess.operator_data[op_data_id]
                 .update_liveness_for_op(
                     sess,
                     self,
@@ -847,7 +852,7 @@ impl LivenessData {
             }
             if flags.may_dup_or_drop {
                 op_offset_after_last_write =
-                    op_n + OperatorOffsetInChain::from_usize(1);
+                    op_n + OffsetInChain::from_usize(1);
             }
             if let Some(label) = sess.operator_bases[op_id].label {
                 let var_id = self.var_names[&label];
@@ -863,7 +868,7 @@ impl LivenessData {
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
         let var_data_start = bb_id.into_usize() * SLOTS_PER_BASIC_BLOCK * vc;
-        if op_offset_after_last_write != OperatorOffsetInChain::zero() {
+        if op_offset_after_last_write != OffsetInChain::zero() {
             // TODO: maybe do something more sophisticated than this
             // for now we just assume that any op_output that is bound
             // after the bb might be accessed by someone and therefore needs
@@ -874,9 +879,8 @@ impl LivenessData {
                 {
                     let producing_op_offset =
                         sess.operator_bases[producing_op].offset_in_chain;
-                    if producing_op_offset
-                        >= op_offset_after_last_write
-                            - OperatorOffsetInChain::one()
+                    if producing_op_offset.base_chain_offset(sess)
+                        >= op_offset_after_last_write - OffsetInChain::one()
                     {
                         continue;
                     }
@@ -1316,9 +1320,10 @@ impl LivenessData {
             }
             eprint!(": ");
             for &op_id in &c.operators {
+                let op_data_id = sess.operator_bases[op_id].op_data_id;
                 eprint!(
                     "(op {op_id} `{}`) ",
-                    sess.operator_data[op_id].default_op_name()
+                    sess.operator_data[op_data_id].default_op_name()
                 );
             }
             eprintln!();
@@ -1331,9 +1336,10 @@ impl LivenessData {
                 IndexingTypeRange::new(bb.operators_start..bb.operators_end)
             {
                 let op_id = sess.chains[bb.chain_id].operators[op_n];
+                let op_data_id = sess.operator_bases[op_id].op_data_id;
                 eprint!(
                     "(op {op_id} `{}`) ",
-                    sess.operator_data[op_id].debug_op_name()
+                    sess.operator_data[op_data_id].debug_op_name()
                 );
             }
             if !bb.calls.is_empty() {
@@ -1379,9 +1385,10 @@ impl LivenessData {
         eprintln!();
         let flag = |c: bool, t: char| if c { t } else { '-' };
         for (op_id, old) in self.operator_liveness_data.iter_enumerated() {
+            let op_data_id = sess.operator_bases[op_id].op_data_id;
             eprint!(
                 "op {op_id:02} ({}):",
-                sess.operator_data[op_id].debug_op_name(),
+                sess.operator_data[op_data_id].debug_op_name(),
             );
             if !old.accessed_outputs.is_empty() {
                 eprint!(" [acc:");
@@ -1414,11 +1421,12 @@ impl LivenessData {
                 ..op_base.outputs_end.into_usize()
             {
                 let op_output_idx = OpOutputIdx::from_usize(op_output_idx);
+                let op_data_id = sess.operator_bases[op_id].op_data_id;
                 eprint!(
                     "op_output {op_output_idx:02}: chain {:02}, bb {:02}, op_id {op_id:02} `{}`",
-                    op_base.chain_id.map_or(-1, |cn_id|cn_id.into_usize() as isize),
+                    op_base.chain_id,
                     self.operator_liveness_data[op_id].basic_block_id,
-                    sess.operator_data[op_id].default_op_name()
+                    sess.operator_data[op_data_id].default_op_name()
                 );
                 let oo = &self.op_outputs[op_output_idx];
                 if !oo.bound_vars.is_empty() {

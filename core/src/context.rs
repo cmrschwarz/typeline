@@ -23,15 +23,27 @@ use crate::{
     cli::CliOptions,
     extension::ExtensionRegistry,
     job::{Job, JobData},
-    operators::operator::{
-        OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
+    liveness_analysis::{self, LivenessData},
+    operators::{
+        aggregator::create_op_aggregate_raw,
+        errors::OperatorSetupError,
+        operator::{
+            OffsetInAggregation, OffsetInChain, OperatorBase, OperatorData,
+            OperatorDataId, OperatorId, OperatorOffsetInChain,
+        },
     },
-    options::setting::CliArgIdx,
+    options::{
+        operator_base_options::{
+            OperatorBaseOptions, OperatorBaseOptionsInterned,
+        },
+        setting::CliArgIdx,
+    },
     record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
+    scr_error::ChainSetupError,
     utils::{
         identity_hasher::BuildIdentityHasher,
         index_vec::IndexVec,
-        indexing_type::IndexingType,
+        indexing_type::{IndexingType, IndexingTypeRange},
         maybe_boxed::MaybeBoxed,
         string_store::{StringStore, StringStoreEntry},
     },
@@ -61,12 +73,22 @@ pub struct SessionSettings {
     pub debug_log_path: Option<PathBuf>,
 }
 
+pub struct SessionSetupData {
+    pub settings: SessionSettings,
+    pub chains: IndexVec<ChainId, Chain>,
+    pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
+    pub operator_bases: IndexVec<OperatorId, OperatorBase>,
+    pub operator_data: IndexVec<OperatorDataId, OperatorData>,
+    pub string_store: StringStore,
+    pub extensions: Arc<ExtensionRegistry>,
+}
+
 pub struct SessionData {
     pub settings: SessionSettings,
     pub chains: IndexVec<ChainId, Chain>,
     pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub operator_bases: IndexVec<OperatorId, OperatorBase>,
-    pub operator_data: IndexVec<OperatorId, OperatorData>,
+    pub operator_data: IndexVec<OperatorDataId, OperatorData>,
     pub cli_args: Option<IndexVec<CliArgIdx, Vec<u8>>>,
     pub string_store: RwLock<StringStore>,
     pub extensions: Arc<ExtensionRegistry>,
@@ -501,7 +523,253 @@ impl Drop for Context {
     }
 }
 
+impl SessionSetupData {
+    pub fn validate_chains(&self) -> Result<(), ChainSetupError> {
+        for (chain_id, chain) in self.chains.iter_enumerated() {
+            let mut message = "";
+            // TODO: maybe insert a nop if the chain is empty?
+            if chain.settings.default_batch_size == 0 {
+                message = "default batch size cannot be zero";
+            } else if chain.settings.stream_buffer_size == 0 {
+                message = "stream buffer size cannot be zero";
+            }
+            if !message.is_empty() {
+                return Err(ChainSetupError::new(message, chain_id));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn add_op_base_raw(
+        &mut self,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data_id: OperatorDataId,
+    ) -> OperatorId {
+        let op_base = OperatorBase::from_opts_interned(
+            op_base_opts_interned,
+            chain_id,
+            op_data_id,
+            offset_in_chain,
+            self.chains[chain_id].settings.default_batch_size,
+        );
+        self.operator_bases.push_get_id(op_base)
+    }
+
+    pub fn add_op_data_raw(
+        &mut self,
+        op_data: OperatorData,
+    ) -> OperatorDataId {
+        self.operator_data.push_get_id(op_data)
+    }
+
+    pub fn setup_for_op_data_id(
+        &mut self,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data_id: OperatorDataId,
+    ) -> Result<OperatorId, OperatorSetupError> {
+        let mut op_data = std::mem::take(&mut self.operator_data[op_data_id]);
+        let op_id = op_data.setup(
+            self,
+            chain_id,
+            offset_in_chain,
+            op_base_opts_interned,
+            op_data_id,
+        )?;
+        self.operator_data[op_data_id] = op_data;
+        Ok(op_id)
+    }
+
+    pub fn setup_for_op_data(
+        &mut self,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data: OperatorData,
+    ) -> Result<OperatorId, OperatorSetupError> {
+        let op_data_id = self.operator_data.push_get_id(op_data);
+        self.setup_for_op_data_id(
+            chain_id,
+            offset_in_chain,
+            op_base_opts_interned,
+            op_data_id,
+        )
+    }
+
+    pub fn add_op_from_offset_in_chain(
+        &mut self,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data_id: OperatorDataId,
+    ) -> OperatorId {
+        let op_id = self.add_op_base_raw(
+            chain_id,
+            offset_in_chain,
+            op_base_opts_interned,
+            op_data_id,
+        );
+        match offset_in_chain {
+            OperatorOffsetInChain::Direct(offset) => {
+                debug_assert_eq!(
+                    offset,
+                    self.chains[chain_id].operators.next_idx()
+                );
+                self.chains[chain_id].operators.push(op_id);
+            }
+            OperatorOffsetInChain::AggregationMember(_, _) => (),
+        }
+        op_id
+    }
+
+    pub fn add_op_from_opts_interned_direct(
+        &mut self,
+        chain_id: ChainId,
+        op_base_opts_interned: OperatorBaseOptionsInterned,
+        op_data_id: OperatorDataId,
+    ) -> OperatorId {
+        debug_assert!(!op_base_opts_interned.append_mode);
+        let op_id = self.add_op_base_raw(
+            chain_id,
+            OperatorOffsetInChain::Direct(
+                self.chains[chain_id].operators.next_idx(),
+            ),
+            op_base_opts_interned,
+            op_data_id,
+        );
+        self.chains[chain_id].operators.push(op_id);
+        op_id
+    }
+
+    pub fn add_op_from_opts_direct(
+        &mut self,
+        chain_id: ChainId,
+        op_base_opts: OperatorBaseOptions,
+        op_data_id: OperatorDataId,
+    ) -> OperatorId {
+        let op_base_opts_interned =
+            op_base_opts.intern(&mut self.string_store);
+        self.add_op_from_opts_interned_direct(
+            chain_id,
+            op_base_opts_interned,
+            op_data_id,
+        )
+    }
+
+    pub fn add_op_direct(
+        &mut self,
+        chain_id: ChainId,
+        op_base_opts: OperatorBaseOptions,
+        op_data: OperatorData,
+    ) -> OperatorId {
+        let op_data_id = self.operator_data.push_get_id(op_data);
+        self.add_op_from_opts_direct(chain_id, op_base_opts, op_data_id)
+    }
+
+    pub fn add_subchain(
+        &mut self,
+        chain_id: ChainId,
+        mut subchain_data: Vec<(OperatorBaseOptions, OperatorData)>,
+    ) -> ChainId {
+        let sc_id = self.chains.next_idx();
+        self.chains.push(Chain {
+            label: None,
+            settings: self.chains[chain_id].settings.clone(),
+            operators: IndexVec::new(),
+            subchains: IndexVec::new(),
+        });
+
+        let mut curr_aggregation_op_id = None;
+        let mut curr_aggregation = Vec::new();
+
+        let mut i = 0;
+        while i < subchain_data.len() {
+            let successor_append = subchain_data
+                .get(i + 1)
+                .map(|(base_opts, _)| base_opts.append_mode)
+                .unwrap_or(false);
+
+            let (op_base_opts, op_data) = &mut subchain_data[i];
+            let op_base_opts = std::mem::take(op_base_opts);
+            let op_data = std::mem::take(op_data);
+
+            let add_to_aggregation =
+                op_base_opts.append_mode || successor_append;
+
+            if add_to_aggregation {
+                let curr_agg =
+                    *curr_aggregation_op_id.get_or_insert_with(|| {
+                        let aggregate_op_opts =
+                            OperatorBaseOptions::from_name("aggregate".into());
+                        self.add_op_from_opts_direct(
+                            chain_id,
+                            aggregate_op_opts,
+                            OperatorDataId::max_value(),
+                        )
+                    });
+                let op_data_id = self.operator_data.push_get_id(op_data);
+                let op_base_opts = op_base_opts.intern(&mut self.string_store);
+                let op_id = self.add_op_from_offset_in_chain(
+                    chain_id,
+                    OperatorOffsetInChain::AggregationMember(
+                        curr_agg,
+                        OffsetInAggregation::zero(),
+                    ),
+                    op_base_opts,
+                    op_data_id,
+                );
+                curr_aggregation.push(op_id);
+            } else {
+                if let Some(curr_agg_id) = curr_aggregation_op_id.take() {
+                    let op_data_id =
+                        self.add_op_data_raw(create_op_aggregate_raw(
+                            std::mem::take(&mut curr_aggregation),
+                        ));
+                    self.operator_bases[curr_agg_id].op_data_id = op_data_id;
+                }
+                self.add_op_direct(sc_id, op_base_opts, op_data);
+            }
+            i += 1;
+        }
+
+        if let Some(curr_ag) = curr_aggregation_op_id {
+            self.operator_bases[curr_ag].op_data_id = self
+                .add_op_data_raw(create_op_aggregate_raw(curr_aggregation));
+        }
+
+        sc_id
+    }
+}
+
 impl SessionData {
+    pub fn with_mut_op_data<R>(
+        &mut self,
+        op_data_id: OperatorDataId,
+        f: impl FnOnce(&mut Self, &mut OperatorData) -> R,
+    ) -> R {
+        let mut op_data = std::mem::take(&mut self.operator_data[op_data_id]);
+        let res = f(self, &mut op_data);
+        self.operator_data[op_data_id] = op_data;
+        res
+    }
+    pub fn setup_op_liveness(&mut self, ld: &LivenessData, op_id: OperatorId) {
+        let op_data_id = self.op_data_id(op_id);
+        self.with_mut_op_data(op_data_id, |sess, op_data| {
+            op_data.on_liveness_computed(sess, ld, op_id)
+        });
+    }
+    pub fn compute_liveness(&mut self) {
+        let ld = liveness_analysis::compute_liveness_data(self);
+        for op_id in
+            IndexingTypeRange::from_zero(self.operator_bases.next_idx())
+        {
+            Self::setup_op_liveness(self, &ld, op_id);
+        }
+    }
+
     pub fn has_no_command(&self, opts: &CliOptions) -> bool {
         let op_count = self.chains[ChainId::zero()].operators.len();
         // HACK this sucks. we should probably add some bool like
@@ -525,12 +793,15 @@ impl SessionData {
         &self,
         input_data: RecordSet,
     ) -> JobDescription {
-        let operator = self.chains[ChainId::zero()].operators
-            [OperatorOffsetInChain::zero()];
+        let operator =
+            self.chains[ChainId::zero()].operators[OffsetInChain::zero()];
         JobDescription {
             operator,
             data: input_data,
         }
+    }
+    pub fn op_data_id(&self, op_id: OperatorId) -> OperatorDataId {
+        self.operator_bases[op_id].op_data_id
     }
     pub fn run_job_unthreaded(&self, job: JobDescription) {
         assert!(!self.settings.repl);

@@ -49,6 +49,12 @@ impl<I, T> From<Vec<T>> for IndexVec<I, T> {
     }
 }
 
+impl<I, T> From<IndexVec<I, T>> for Vec<T> {
+    fn from(value: IndexVec<I, T>) -> Self {
+        value.data
+    }
+}
+
 impl<I, T> Default for IndexVec<I, T> {
     fn default() -> Self {
         Self {
@@ -105,6 +111,12 @@ impl<I: IndexingType, T> IndexVec<I, T> {
     }
     pub fn resize_with(&mut self, new_len: usize, f: impl FnMut() -> T) {
         self.data.resize_with(new_len, f)
+    }
+    pub fn truncate(&mut self, new_end_index: I) {
+        self.data.truncate(new_end_index.into_usize());
+    }
+    pub fn truncate_len(&mut self, len: usize) {
+        self.data.truncate(len);
     }
     pub fn iter_enumerated(&self) -> IndexSliceIterEnumerated<I, T> {
         IndexSliceIterEnumerated {

@@ -9,7 +9,7 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            Operator, OperatorData, OperatorId, OperatorOffsetInChain,
+            Operator, OperatorData, OperatorId, OffsetInChain,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
@@ -40,7 +40,7 @@ pub struct TfDup {
 impl Operator for OpDup {
     fn default_name(
         &self,
-    ) -> scr_core::operators::operator::DefaultOperatorName {
+    ) -> scr_core::operators::operator::OperatorName {
         "dup".into()
     }
 
@@ -61,7 +61,7 @@ impl Operator for OpDup {
         _sess: &SessionData,
         _ld: &mut LivenessData,
         access_flags: &mut AccessFlags,
-        _op_offset_after_last_write: OperatorOffsetInChain,
+        _op_offset_after_last_write: OffsetInChain,
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,

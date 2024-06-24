@@ -2,14 +2,16 @@ use arrayvec::ArrayString;
 
 use bstr::ByteSlice;
 use regex::bytes;
-use smallstr::SmallString;
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut};
 
 use crate::{
+    chain::ChainId,
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
+    context::SessionSetupData,
     job::JobData,
     liveness_analysis::OpOutputIdx,
+    options::operator_base_options::OperatorBaseOptionsInterned,
     record_data::{
         action_buffer::{ActionBuffer, ActorId, ActorRef},
         field::{Field, FieldId, FieldRefOffset},
@@ -37,7 +39,7 @@ use crate::{
         int_string_conversions::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
         },
-        string_store::{StringStore, StringStoreEntry},
+        string_store::StringStoreEntry,
         text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter},
     },
 };
@@ -47,7 +49,8 @@ use super::{
         OperatorApplicationError, OperatorCreationError, OperatorSetupError,
     },
     operator::{
-        DefaultOperatorName, OperatorBase, OperatorData, PreboundOutputsMap,
+        OperatorBase, OperatorData, OperatorDataId, OperatorId, OperatorName,
+        OperatorOffsetInChain, PreboundOutputsMap,
     },
     transform::{TransformData, TransformId, TransformState},
     utils::buffer_stream_values::{
@@ -122,8 +125,8 @@ pub struct RegexOptions {
 }
 
 impl OpRegex {
-    pub fn default_op_name(&self) -> DefaultOperatorName {
-        let mut res = SmallString::from_str("r");
+    pub fn debug_op_name(&self) -> OperatorName {
+        let mut res = String::from("regex");
         if self.opts != RegexOptions::default() {
             res.push('-');
         }
@@ -161,7 +164,7 @@ impl OpRegex {
             res.push('v');
         }
 
-        res
+        res.into()
     }
 }
 
@@ -429,8 +432,12 @@ pub fn create_op_regex_trim_trailing_newline() -> OperatorData {
 
 pub fn setup_op_regex(
     op: &mut OpRegex,
-    string_store: &mut StringStore,
-) -> Result<(), OperatorSetupError> {
+    sess: &mut SessionSetupData,
+    chain_id: ChainId,
+    offset_in_chain: OperatorOffsetInChain,
+    op_base_opts_interned: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
     let mut unnamed_capture_groups: usize = 0;
 
     op.capture_group_names
@@ -439,20 +446,27 @@ pub fn setup_op_regex(
                 if i == op.output_group_id {
                     None
                 } else {
-                    Some(string_store.intern_cloned(name))
+                    Some(sess.string_store.intern_cloned(name))
                 }
             } else {
                 unnamed_capture_groups += 1;
                 if i == 0 {
                     None
                 } else {
-                    let id = string_store
+                    let id = sess
+                        .string_store
                         .intern_moved(unnamed_capture_groups.to_string());
                     Some(id)
                 }
             }
         }));
-    Ok(())
+
+    Ok(sess.add_op_from_offset_in_chain(
+        chain_id,
+        offset_in_chain,
+        op_base_opts_interned,
+        op_data_id,
+    ))
 }
 
 pub fn build_tf_regex<'a>(

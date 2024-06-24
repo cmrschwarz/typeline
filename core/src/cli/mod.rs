@@ -2,13 +2,9 @@ use crate::{
     chain::BufferingMode,
     extension::ExtensionRegistry,
     operators::{
-        aggregator::{
-            create_op_aggregate, create_op_aggregator_append_leader,
-        },
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
         count::parse_op_count,
-        end::parse_op_end,
         errors::OperatorCreationError,
         file_reader::{create_op_stdin, parse_op_file_reader, parse_op_stdin},
         foreach::parse_op_foreach,
@@ -24,7 +20,7 @@ use crate::{
         },
         next::parse_op_next,
         nop::parse_op_nop,
-        operator::{OperatorData, OperatorId},
+        operator::OperatorData,
         print::{create_op_print_with_opts, parse_op_print, PrintOptions},
         regex::parse_op_regex,
         select::parse_op_select,
@@ -369,7 +365,6 @@ fn try_parse_operator_data(
         "call" | "c" => parse_op_call(expr)?,
         "callcc" | "cc" => parse_op_call_concurrent(expr)?,
         "next" | "n" => parse_op_next(expr)?,
-        "end" | "e" => parse_op_end(expr)?,
         _ => {
             for e in &ctx_opts.extensions.extensions {
                 if let Some(op) = e.try_match_cli_argument(ctx_opts, expr)? {
@@ -379,26 +374,6 @@ fn try_parse_operator_data(
             return Ok(None);
         }
     }))
-}
-pub fn add_op_from_arg_and_op_data_uninit(
-    ctx_opts: &mut SessionOptions,
-    arg: &CallExpr,
-    op_data: OperatorData,
-) -> OperatorId {
-    let argname = ctx_opts.string_store.intern_cloned(arg.op_name);
-    let label = arg
-        .label
-        .map(|l| ctx_opts.string_store.intern_cloned(l.value));
-    ctx_opts.add_op_uninit(
-        OperatorBaseOptions::new(
-            argname,
-            label,
-            arg.transparent_mode,
-            arg.label.map(|l| l.is_atom).unwrap_or(false),
-            arg.span,
-        ),
-        op_data,
-    )
 }
 
 fn expect_equals_after_colon(
@@ -882,19 +857,17 @@ pub fn parse_cli_retain_args(
         SessionOptions::with_extensions(cli_opts.extensions.clone());
     ctx_opts.allow_repl = cli_opts.allow_repl;
 
-    let mut curr_aggregate = Vec::new();
-    let mut last_non_append_op_id = None;
-    let mut curr_op_appendable = true;
     if cli_opts.start_with_stdin {
         let op_base_opts = OperatorBaseOptions::new(
-            ctx_opts.string_store.intern_cloned("stdin"),
+            "stdin".into(),
             None,
+            false,
             false,
             false,
             Span::Generated,
         );
         let op_data = create_op_stdin(1);
-        last_non_append_op_id = Some(ctx_opts.add_op(op_base_opts, op_data));
+        ctx_opts.add_op(op_base_opts, op_data);
     }
     while arg_idx < args.len() {
         let expr = parse_call_expr(args, &mut arg_idx)?;
@@ -904,54 +877,11 @@ pub fn parse_cli_retain_args(
         }
 
         if let Some(op_data) = try_parse_operator_data(&mut ctx_opts, &expr)? {
-            let prev_op_appendable = curr_op_appendable;
-            curr_op_appendable = op_data.can_be_appended();
-            let op_id = add_op_from_arg_and_op_data_uninit(
-                &mut ctx_opts,
-                &expr,
-                op_data,
-            );
-            if !expr.append_mode || !prev_op_appendable {
-                if !curr_aggregate.is_empty() {
-                    let op_data = create_op_aggregate(std::mem::take(
-                        &mut curr_aggregate,
-                    ));
-                    let op_base = OperatorBaseOptions::from_name(
-                        ctx_opts
-                            .string_store
-                            .intern_cloned(&op_data.default_op_name()),
-                    );
-                    ctx_opts.add_op(op_base, op_data);
-                }
-                if let Some(pred) = last_non_append_op_id {
-                    ctx_opts.init_op(pred, true);
-                }
-                if expr.append_mode {
-                    let (op_base_opts, op_data) =
-                        create_op_aggregator_append_leader(&mut ctx_opts);
-                    curr_aggregate
-                        .push(ctx_opts.add_op_uninit(op_base_opts, op_data));
-                    curr_aggregate.push(op_id);
-                    last_non_append_op_id = None;
-                    continue;
-                }
-                last_non_append_op_id = Some(op_id);
-                continue;
-            }
-            if curr_aggregate.is_empty() {
-                if let Some(pred) = last_non_append_op_id {
-                    curr_aggregate.push(pred);
-                    last_non_append_op_id = None;
-                } else {
-                    let (op_base_opts, op_data) =
-                        create_op_aggregator_append_leader(&mut ctx_opts);
-                    curr_aggregate
-                        .push(ctx_opts.add_op_uninit(op_base_opts, op_data));
-                }
-            }
-            curr_aggregate.push(op_id);
-            continue;
+            let op_base_opts =
+                expr.op_base_options_interned(&mut ctx_opts.string_store);
+            ctx_opts.add_op_from_interned_ops(op_base_opts, op_data);
         }
+
         if try_parse_as_special_op(&expr)? {
             continue;
         }
@@ -964,18 +894,6 @@ pub fn parse_cli_retain_args(
         }
         .into());
     }
-    if !curr_aggregate.is_empty() {
-        let op_data = create_op_aggregate(std::mem::take(&mut curr_aggregate));
-        let op_base = OperatorBaseOptions::from_name(
-            ctx_opts
-                .string_store
-                .intern_cloned(&op_data.default_op_name()),
-        );
-        ctx_opts.add_op(op_base, op_data);
-    }
-    if let Some(pred) = last_non_append_op_id {
-        ctx_opts.init_op(pred, true);
-    }
     if cli_opts.print_output {
         let op_data = create_op_print_with_opts(
             WritableTarget::Stdout,
@@ -985,10 +903,9 @@ pub fn parse_cli_retain_args(
             },
         );
         let op_base_opts = OperatorBaseOptions::new(
-            ctx_opts
-                .string_store
-                .intern_cloned(&op_data.default_op_name()),
+            op_data.default_op_name(),
             None,
+            false,
             false,
             false,
             Span::Generated,
@@ -998,10 +915,9 @@ pub fn parse_cli_retain_args(
     if cli_opts.add_success_updator {
         let op_data = create_op_success_updator();
         let op_base_opts = OperatorBaseOptions::new(
-            ctx_opts
-                .string_store
-                .intern_cloned(&op_data.default_op_name()),
+            op_data.default_op_name(),
             None,
+            false,
             false,
             false,
             Span::Generated,

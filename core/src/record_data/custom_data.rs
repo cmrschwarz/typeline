@@ -28,7 +28,7 @@ pub enum CustomDataWritingError {}
 
 pub trait CustomData: Any + Send + Sync + Debug {
     fn clone_dyn(&self) -> CustomDataBox;
-    fn type_name(&self) -> Cow<str>;
+    fn type_name(&self) -> Cow<'static, str>;
     fn cmp(&self, _rhs: &dyn CustomData) -> Option<Ordering> {
         None
     }

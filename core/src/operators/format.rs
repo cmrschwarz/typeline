@@ -10,15 +10,18 @@ use super::{
         OperatorApplicationError, OperatorCreationError, OperatorSetupError,
     },
     operator::{
-        OperatorBase, OperatorData, OperatorId, OperatorOffsetInChain,
+        OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
+        OperatorOffsetInChain,
     },
     transform::{TransformData, TransformId, TransformState},
 };
 use crate::{
+    chain::ChainId,
     cli::call_expr::{CallExpr, Span},
-    context::SessionData,
+    context::{SessionData, SessionSetupData},
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
+    options::operator_base_options::OperatorBaseOptionsInterned,
     record_data::{
         field::{Field, FieldIterRef, FieldManager},
         field_data::{
@@ -230,12 +233,22 @@ unsafe impl<'a> Send for TfFormat<'a> {}
 
 pub fn setup_op_format(
     op: &mut OpFormat,
-    string_store: &mut StringStore,
-) -> Result<(), OperatorSetupError> {
+    sess: &mut SessionSetupData,
+    chain_id: ChainId,
+    offset_in_chain: OperatorOffsetInChain,
+    op_base_opts_interned: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
+) -> Result<OperatorId, OperatorSetupError> {
     for r in std::mem::take(&mut op.refs_str) {
-        op.refs_idx.push(r.map(|r| string_store.intern_moved(r)));
+        op.refs_idx
+            .push(r.map(|r| sess.string_store.intern_moved(r)));
     }
-    Ok(())
+    Ok(sess.add_op_from_offset_in_chain(
+        chain_id,
+        offset_in_chain,
+        op_base_opts_interned,
+        op_data_id,
+    ))
 }
 
 pub fn build_tf_format<'a>(
@@ -306,7 +319,7 @@ pub fn update_op_format_variable_liveness(
     ld: &mut LivenessData,
     op_id: OperatorId,
     access_flags: &mut AccessFlags,
-    op_offset_after_last_write: OperatorOffsetInChain,
+    op_offset_after_last_write: OffsetInChain,
 ) {
     access_flags.may_dup_or_drop = false;
     // might be set to true again in the loop below

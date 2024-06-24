@@ -1,7 +1,5 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use smallstr::SmallString;
-
 use crate::{
     job::JobData,
     record_data::{
@@ -25,7 +23,7 @@ use crate::{
 
 use super::{
     errors::OperatorApplicationError,
-    operator::{DefaultOperatorName, OperatorBase, OperatorData},
+    operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -45,12 +43,6 @@ impl FieldValueSinkHandle {
 #[derive(Clone)]
 pub struct OpFieldValueSink {
     pub handle: FieldValueSinkHandle,
-}
-
-impl OpFieldValueSink {
-    pub fn default_op_name(&self) -> DefaultOperatorName {
-        SmallString::from("<Field Value Sink>")
-    }
 }
 
 pub fn create_op_field_value_sink(
