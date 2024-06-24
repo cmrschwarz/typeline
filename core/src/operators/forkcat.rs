@@ -716,7 +716,7 @@ pub fn handle_tf_forcat_subchain_trailer(
 
 pub fn create_op_forkcat_with_opts(
     mut subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> OperatorData {
     for sc in &mut subchains {
         if sc.is_empty() {
             sc.push((
@@ -725,19 +725,19 @@ pub fn create_op_forkcat_with_opts(
             ));
         }
     }
-    Ok(OperatorData::ForkCat(OpForkCat {
+    OperatorData::ForkCat(OpForkCat {
         subchains,
         subchains_start: SubchainIndex::max_value(),
         subchains_end: SubchainIndex::max_value(),
         direct_offset_in_chain: OffsetInChain::max_value(),
         input_mappings: HashMap::default(),
         continuation_vars: IndexVec::new(),
-    }))
+    })
 }
 
 pub fn create_op_forkcat(
     subchains: impl IntoIterator<Item = impl IntoIterator<Item = OperatorData>>,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> OperatorData {
     let subchains = subchains
         .into_iter()
         .map(|sc| {
@@ -758,11 +758,11 @@ pub fn create_op_forkcat(
 
 pub fn parse_op_forkcat(
     sess_opts: &mut SessionOptions,
-    args: CallExpr,
+    expr: CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
-    for expr in CallExprIter::from_args_iter(args.args) {
+    for expr in CallExprIter::from_args_iter(expr.args) {
         let expr = expr?;
         if expr.op_name == "next" {
             expr.reject_args()?;
@@ -775,5 +775,5 @@ pub fn parse_op_forkcat(
         curr_subchain.push((op_base, op_data));
     }
     subchains.push(curr_subchain);
-    create_op_forkcat_with_opts(subchains)
+    Ok(create_op_forkcat_with_opts(subchains))
 }

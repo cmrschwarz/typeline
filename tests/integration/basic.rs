@@ -309,10 +309,11 @@ fn unset_field_value_in_forkeach() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "foo".into())
-        .add_op(create_op_foreach())
-        .add_op(create_op_enum_unbounded(0, 2, 1).unwrap())
-        .add_op(create_op_format("{foo:?}: {}").unwrap())
-        .add_op(create_op_string_sink(&ss))
+        .add_op(create_op_foreach([
+            create_op_enum_unbounded(0, 2, 1).unwrap(),
+            create_op_format("{foo:?}: {}").unwrap(),
+            create_op_string_sink(&ss),
+        ]))
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),

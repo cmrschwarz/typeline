@@ -582,10 +582,8 @@ impl LivenessData {
                 self.split_bb_at_call(bb_id, op_n);
                 return true;
             }
-            OperatorData::Foreach(OpForeach {
-                subchains_start, ..
-            }) => {
-                bb.calls.push(cn.subchains[*subchains_start].into_bb_id());
+            OperatorData::Foreach(OpForeach { subchain_idx, .. }) => {
+                bb.calls.push(cn.subchains[*subchain_idx].into_bb_id());
                 self.split_bb_at_call(bb_id, op_n);
             }
             OperatorData::Next(_) => unreachable!(),

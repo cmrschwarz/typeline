@@ -9,15 +9,10 @@ use std::{
 use once_cell::sync::Lazy;
 
 use crate::{
-    chain::{Chain, ChainId, SubchainIndex},
+    chain::{Chain, ChainId},
     context::{SessionData, SessionSettings, SessionSetupData},
     extension::ExtensionRegistry,
-    operators::{
-        foreach::OpForeach,
-        fork::OpFork,
-        forkcat::OpForkCat,
-        operator::{Operator, OperatorData, OperatorDataId},
-    },
+    operators::operator::{OperatorData, OperatorDataId},
     scr_error::ContextualizedScrError,
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -145,40 +140,6 @@ impl SessionOptions {
         // self.add_op(op_base, create_op_call_eager(new_chain_id));
         self.curr_chain = new_chain_id;
         self.chains.push(new_chain);
-    }
-    pub fn on_operator_subchains_ended(
-        op: &mut OperatorData,
-        scs_end: SubchainIndex,
-    ) {
-        match op {
-            OperatorData::Fork(OpFork { subchains_end, .. })
-            | OperatorData::Foreach(OpForeach { subchains_end, .. })
-            | OperatorData::ForkCat(OpForkCat { subchains_end, .. }) => {
-                *subchains_end = scs_end;
-            }
-            OperatorData::Custom(op) => op.on_subchains_added(scs_end),
-            OperatorData::MultiOp(op) => op.on_subchains_added(scs_end),
-            OperatorData::Call(_)
-            | OperatorData::CallConcurrent(_)
-            | OperatorData::ToStr(_)
-            | OperatorData::Count(_)
-            | OperatorData::Print(_)
-            | OperatorData::Join(_)
-            | OperatorData::Next(_)
-            | OperatorData::Nop(_)
-            | OperatorData::NopCopy(_)
-            | OperatorData::SuccessUpdator(_)
-            | OperatorData::Key(_)
-            | OperatorData::Select(_)
-            | OperatorData::Regex(_)
-            | OperatorData::Format(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
-            | OperatorData::Literal(_)
-            | OperatorData::Sequence(_)
-            | OperatorData::Aggregator(_) => (),
-        }
     }
 
     fn build_session_settings(&self) -> SessionSettings {

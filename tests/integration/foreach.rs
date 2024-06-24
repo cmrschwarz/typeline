@@ -11,10 +11,10 @@ use scr_core::{
 use scr_ext_utils::{dup::create_op_dup, sum::create_op_sum};
 
 #[test]
-fn basic_foreach() -> Result<(), ScrError> {
+fn empty_foreach() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_str_n("foo", 2))
-        .add_op(create_op_foreach())
+        .add_op(create_op_foreach([]))
         .run_collect_stringified()?;
     assert_eq!(res, ["foo", "foo"]);
     Ok(())
@@ -24,8 +24,7 @@ fn basic_foreach() -> Result<(), ScrError> {
 fn foreach_sum() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_foreach())
-        .add_op(create_op_sum())
+        .add_op(create_op_foreach([create_op_sum()]))
         .run_collect()?;
     assert_eq!(
         res,
@@ -38,9 +37,10 @@ fn foreach_sum() -> Result<(), ScrError> {
 fn foreach_sum_nested() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_foreach())
-        .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_sum())
+        .add_op(create_op_foreach([
+            create_op_seqn(1, 3, 1).unwrap(),
+            create_op_sum(),
+        ]))
         .run_collect()?;
     assert_eq!(
         res,
@@ -53,9 +53,7 @@ fn foreach_sum_nested() -> Result<(), ScrError> {
 fn foreach_dup_sum() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_foreach())
-        .add_op(create_op_dup(2))
-        .add_op(create_op_sum())
+        .add_op(create_op_foreach([create_op_dup(2), create_op_sum()]))
         .run_collect()?;
     assert_eq!(
         res,
@@ -68,9 +66,10 @@ fn foreach_dup_sum() -> Result<(), ScrError> {
 fn foreach_dup_join() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_foreach())
-        .add_op(create_op_dup(2))
-        .add_op(create_op_join(None, None, false))
+        .add_op(create_op_foreach([
+            create_op_dup(2),
+            create_op_join(None, None, false),
+        ]))
         .run_collect_stringified()?;
     assert_eq!(res, &["11", "22", "33"]);
     Ok(())
@@ -80,9 +79,10 @@ fn foreach_dup_join() -> Result<(), ScrError> {
 fn foreach_seq_seq() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seq(0, 3, 1).unwrap())
-        .add_op(create_op_foreach())
-        .add_op(create_op_seq(0, 3, 1).unwrap())
-        .add_op(create_op_sum())
+        .add_op(create_op_foreach([
+            create_op_seq(0, 3, 1).unwrap(),
+            create_op_sum(),
+        ]))
         .run_collect_stringified()?;
     assert_eq!(res, &["3", "3", "3"]);
     Ok(())

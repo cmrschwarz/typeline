@@ -366,7 +366,7 @@ pub fn parse_operator_data<'a>(
         "count" => parse_op_count(&expr)?,
         "nop" | "scr" => parse_op_nop(&expr)?,
         "fork" => parse_op_fork(sess_opts, expr)?,
-        "foreach" | "fe" => parse_op_foreach(&expr)?,
+        "foreach" | "fe" => parse_op_foreach(sess_opts, expr)?,
         "forkcat" | "fc" => parse_op_forkcat(sess_opts, expr)?,
         "call" | "c" => parse_op_call(&expr)?,
         "callcc" | "cc" => parse_op_call_concurrent(&expr)?,

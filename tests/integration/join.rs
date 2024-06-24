@@ -43,9 +43,10 @@ fn join() -> Result<(), ScrError> {
 fn join_groups() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_foreach())
-        .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_join(None, None, false))
+        .add_op(create_op_foreach([
+            create_op_seqn(1, 3, 1).unwrap(),
+            create_op_join(None, None, false),
+        ]))
         .run_collect_stringified()?;
     assert_eq!(res, ["123", "123", "123"]);
     Ok(())
@@ -55,8 +56,7 @@ fn join_groups() -> Result<(), ScrError> {
 fn join_size_one_groups() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_foreach())
-        .add_op(create_op_join(None, None, false))
+        .add_op(create_op_foreach([create_op_join(None, None, false)]))
         .run_collect_stringified()?;
     assert_eq!(res, ["1", "2", "3"]);
     Ok(())
@@ -66,13 +66,10 @@ fn join_size_one_groups() -> Result<(), ScrError> {
 fn join_bounded_groups() -> Result<(), ScrError> {
     let res = ContextBuilder::default()
         .add_op(create_op_seqn(1, 2, 1).unwrap())
-        .add_op(create_op_foreach())
-        .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_join(
-            Some(MaybeText::from_bytes(b",")),
-            Some(2),
-            false,
-        ))
+        .add_op(create_op_foreach([
+            create_op_seqn(1, 3, 1).unwrap(),
+            create_op_join(Some(MaybeText::from_bytes(b",")), Some(2), false),
+        ]))
         .run_collect_stringified()?;
     assert_eq!(res, ["1,2", "3", "1,2", "3"]);
     Ok(())

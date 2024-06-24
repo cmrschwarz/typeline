@@ -2,18 +2,27 @@ use std::iter;
 
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::call_expr::CallExpr,
+    cli::{
+        call_expr::CallExpr, call_expr_iter::CallExprIter, parse_operator_data,
+    },
     context::SessionSetupData,
     job::{add_transform_to_job, Job, JobData},
-    options::operator_base_options::OperatorBaseOptionsInterned,
+    options::{
+        operator_base_options::{
+            OperatorBaseOptions, OperatorBaseOptionsInterned,
+        },
+        session_options::SessionOptions,
+    },
     record_data::{
         group_track::{GroupTrackId, GroupTrackIterId, GroupTrackIterRef},
         iter_hall::IterKind,
     },
+    utils::indexing_type::IndexingType,
 };
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
+    nop::create_op_nop,
     operator::{
         OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
         OperatorOffsetInChain, PreboundOutputsMap, TransformContinuationKind,
@@ -21,10 +30,9 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-#[derive(Clone, Default)]
 pub struct OpForeach {
-    pub subchains_start: SubchainIndex,
-    pub subchains_end: SubchainIndex,
+    pub subchain: Vec<(OperatorBaseOptions, OperatorData)>,
+    pub subchain_idx: SubchainIndex,
 }
 pub struct TfForeachHeader {
     parent_group_track_iter: GroupTrackIterId,
@@ -34,25 +42,23 @@ pub struct TfForeachTrailer {
     group_track: GroupTrackId,
 }
 
-pub fn parse_op_foreach(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
-    expr.reject_args()?;
-    Ok(create_op_foreach())
-}
-pub fn create_op_foreach() -> OperatorData {
-    OperatorData::Foreach(OpForeach::default())
-}
-
 pub fn setup_op_foreach(
-    _op: &mut OpForeach,
-    _sess: &mut SessionSetupData,
-    _chain_id: ChainId,
-    _offset_in_chain: OperatorOffsetInChain,
-    _op_base_opts_interned: OperatorBaseOptionsInterned,
-    _op_data_id: OperatorDataId,
+    op: &mut OpForeach,
+    sess: &mut SessionSetupData,
+    chain_id: ChainId,
+    offset_in_chain: OperatorOffsetInChain,
+    opts_interned: OperatorBaseOptionsInterned,
+    op_data_id: OperatorDataId,
 ) -> Result<OperatorId, OperatorSetupError> {
-    todo!("implement this!")
+    let op_id = sess.add_op_from_offset_in_chain(
+        chain_id,
+        offset_in_chain,
+        opts_interned,
+        op_data_id,
+    );
+    op.subchain_idx = sess.chains[chain_id].subchains.next_idx();
+    sess.create_subchain(chain_id, std::mem::take(&mut op.subchain))?;
+    Ok(op_id)
 }
 
 pub fn insert_tf_foreach(
@@ -63,8 +69,8 @@ pub fn insert_tf_foreach(
     op_id: OperatorId,
     prebound_outputs: &PreboundOutputsMap,
 ) -> OperatorInstantiation {
-    let subchain_id = job.job_data.session_data.chains[chain_id].subchains
-        [op.subchains_start];
+    let subchain_id =
+        job.job_data.session_data.chains[chain_id].subchains[op.subchain_idx];
     let sc_start_op_id = job.job_data.session_data.chains[subchain_id]
         .operators
         .first();
@@ -228,4 +234,46 @@ pub fn handle_tf_foreach_trailer(
     group_track.apply_field_actions(&jd.match_set_mgr);
     group_track.drop_leading_fields(true, batch_size, ps.input_done);
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+}
+
+pub fn parse_op_foreach(
+    sess_opts: &mut SessionOptions,
+    expr: CallExpr,
+) -> Result<OperatorData, OperatorCreationError> {
+    let mut subchain = Vec::new();
+    for expr in CallExprIter::from_args_iter(expr.args) {
+        let expr = expr?;
+        let op_base = expr.op_base_options();
+        let op_data = parse_operator_data(sess_opts, expr)?;
+        subchain.push((op_base, op_data));
+    }
+    Ok(create_op_foreach_with_opts(subchain))
+}
+pub fn create_op_foreach_with_opts(
+    mut subchain: Vec<(OperatorBaseOptions, OperatorData)>,
+) -> OperatorData {
+    if subchain.is_empty() {
+        subchain.push((
+            OperatorBaseOptions::from_name("nop".into()),
+            create_op_nop(),
+        ));
+    }
+    OperatorData::Foreach(OpForeach {
+        subchain,
+        subchain_idx: SubchainIndex::max_value(),
+    })
+}
+pub fn create_op_foreach(
+    subchain: impl IntoIterator<Item = OperatorData>,
+) -> OperatorData {
+    let subchain_with_opts = subchain
+        .into_iter()
+        .map(|op_data| {
+            (
+                OperatorBaseOptions::from_name(op_data.default_op_name()),
+                op_data,
+            )
+        })
+        .collect();
+    create_op_foreach_with_opts(subchain_with_opts)
 }
