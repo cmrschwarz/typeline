@@ -1,6 +1,6 @@
 use std::{
     alloc::Layout, borrow::Cow, cmp::min, collections::HashMap, hash::Hash,
-    num::NonZeroU32,
+    mem::ManuallyDrop, num::NonZeroU32,
 };
 
 pub type StringStoreEntry = NonZeroU32;
@@ -8,7 +8,7 @@ pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry = StringStoreEntry::MAX;
 
 pub struct StringStore {
     arena: Vec<Vec<u8>>,
-    existing_strings: Vec<Vec<OwnedStrPtr>>,
+    existing_strings: Vec<OwnedStrPtr>,
     table_idx_to_str: Vec<StrPtr>,
     table_str_to_idx: HashMap<StrPtr, StringStoreEntry>,
 }
@@ -42,6 +42,9 @@ impl StrPtr {
 
 impl Clone for OwnedStrPtr {
     fn clone(&self) -> Self {
+        if self.0.len == 0 {
+            return Self(self.0);
+        }
         let data;
         unsafe {
             data = std::alloc::alloc(Layout::from_size_align_unchecked(
@@ -58,6 +61,9 @@ impl Clone for OwnedStrPtr {
 }
 impl Drop for OwnedStrPtr {
     fn drop(&mut self) {
+        if self.0.len == 0 {
+            return;
+        }
         unsafe {
             std::alloc::dealloc(
                 self.0.data.cast_mut(),
@@ -89,7 +95,7 @@ impl Default for StringStore {
             table_str_to_idx: HashMap::default(),
             table_idx_to_str: Vec::new(),
             arena: vec![Vec::with_capacity(1024)],
-            existing_strings: vec![Vec::with_capacity(8)],
+            existing_strings: Vec::new(),
         }
     }
 }
@@ -98,7 +104,7 @@ impl Clone for StringStore {
     fn clone(&self) -> Self {
         let mut res = Self {
             arena: self.arena.clone(),
-            existing_strings: self.existing_strings.clone(),
+            existing_strings: Vec::with_capacity(self.existing_strings.len()),
             table_idx_to_str: Vec::with_capacity(
                 self.table_idx_to_str.capacity(),
             ),
@@ -107,10 +113,6 @@ impl Clone for StringStore {
             ),
         };
 
-        for ex_str_buf in &self.existing_strings {
-            res.existing_strings
-                .push(Vec::with_capacity(ex_str_buf.capacity()));
-        }
         for arena_buf in &self.arena {
             res.arena.push(Vec::with_capacity(arena_buf.capacity()));
         }
@@ -118,8 +120,7 @@ impl Clone for StringStore {
         let mut arena_outer_idx = 0;
         let mut arena_inner_idx = 0;
 
-        let mut existing_strs_outer_idx = 0;
-        let mut existing_strs_inner_idx = 0;
+        let mut existing_strs_idx = 0;
         for i in 0..self.table_idx_to_str.len() {
             let idx = StringStoreEntry::try_from(i as u32 + 1).unwrap();
             let str = self.table_idx_to_str[i];
@@ -142,24 +143,20 @@ impl Clone for StringStore {
                     arena_outer_idx += 1;
                     arena_inner_idx = 0;
                 }
-            } else {
-                let ex_str = &self.existing_strings[existing_strs_outer_idx]
-                    [existing_strs_inner_idx];
-                assert!(ex_str.0.data == str.data);
-                let str_clone = ex_str.clone();
-                // SAFETY: same argument as for normal interning, we are just
-                // cloning here
-                res.table_idx_to_str[i] = str_clone.0;
-                res.table_str_to_idx.insert(str_clone.0, idx);
-                res.existing_strings[existing_strs_outer_idx].push(str_clone);
-                existing_strs_inner_idx += 1;
-                if existing_strs_inner_idx
-                    == self.arena[existing_strs_outer_idx].len()
-                {
-                    existing_strs_outer_idx += 1;
-                    existing_strs_inner_idx = 0;
-                }
+                continue;
             }
+            let ex_str = &self.existing_strings[existing_strs_idx];
+            if ex_str.0.data != str.data {
+                //'static strs
+                continue;
+            }
+            let str_clone = ex_str.clone();
+            // SAFETY: same argument as for normal interning, we are just
+            // cloning here
+            res.table_idx_to_str[i] = str_clone.0;
+            res.table_str_to_idx.insert(str_clone.0, idx);
+            res.existing_strings.push(str_clone);
+            existing_strs_idx += 1;
         }
 
         res
@@ -180,6 +177,14 @@ impl StringStore {
         entry: &'static str,
     ) -> StringStoreEntry {
         self.claim_id_for_str_ptr(StrPtr::from_str(entry))
+    }
+    pub fn intern_static(&mut self, entry: &'static str) -> StringStoreEntry {
+        if let Some(key) = self.table_str_to_idx.get(&StrPtr::from_str(entry))
+        {
+            return *key;
+        }
+        let str_ptr = StrPtr::from_str(entry);
+        self.claim_id_for_str_ptr(str_ptr)
     }
     pub fn intern_cloned(&mut self, entry: &str) -> StringStoreEntry {
         if let Some(key) = self.table_str_to_idx.get(&StrPtr::from_str(entry))
@@ -214,27 +219,23 @@ impl StringStore {
         {
             return *key;
         }
-        let mut bucket = self.existing_strings.last_mut().unwrap();
-        let mut bucket_cap = bucket.capacity();
-        let bucket_len = bucket.len();
-        if bucket_cap == bucket_len {
-            bucket_cap *= 2;
-            self.existing_strings.push(Vec::with_capacity(bucket_cap));
-            bucket = self.existing_strings.last_mut().unwrap();
-        }
         let len = entry.len();
+        if len == 0 {
+            let str_ptr = StrPtr::from_str("");
+            return self.claim_id_for_str_ptr(str_ptr);
+        }
         let data_ptr =
             std::boxed::Box::into_raw(entry.into_bytes().into_boxed_slice());
         let str_ptr = StrPtr {
             data: data_ptr as *const u8,
             len,
         };
-        bucket.push(OwnedStrPtr(str_ptr));
+        self.existing_strings.push(OwnedStrPtr(str_ptr));
         self.claim_id_for_str_ptr(str_ptr)
     }
     pub fn intern_cow(&mut self, cow: Cow<'static, str>) -> StringStoreEntry {
         match cow {
-            Cow::Borrowed(s) => self.intern_cloned(s),
+            Cow::Borrowed(s) => self.intern_static(s),
             Cow::Owned(s) => self.intern_moved(s),
         }
     }
