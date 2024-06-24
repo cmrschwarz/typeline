@@ -539,6 +539,9 @@ impl FieldValueFormat {
 }
 
 impl FieldValueHeader {
+    pub fn shared_value_or_rl_one(self) -> bool {
+        self.run_length == 1 || self.shared_value()
+    }
     pub fn set_shared_value_if_rl_1(&mut self) {
         self.fmt.set_shared_value_if_rl_1(self.run_length);
     }

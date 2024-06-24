@@ -597,7 +597,9 @@ pub fn parse_call_expr_raw<'a>(
     let op_start = i;
     let mut op_end = i;
 
-    for (start, end, char) in arg[op_start..].char_indices() {
+    for (mut start, mut end, char) in arg[op_start..].char_indices() {
+        start += op_start;
+        end += op_start;
         i = end;
         if colon_found {
             expect_equals_after_colon(char, start, end, arg_span)?;
@@ -655,7 +657,9 @@ pub fn parse_call_expr_raw<'a>(
     if label_found {
         let mut label_start_found = false;
         let label_start = i;
-        for (start, end, char) in arg[i..].char_indices() {
+        for (mut start, mut end, char) in arg[label_start..].char_indices() {
+            start += label_start;
+            end += label_start;
             i = end;
             if colon_found {
                 expect_equals_after_colon(char, start, end, arg_span)?;
@@ -707,7 +711,11 @@ pub fn parse_call_expr_raw<'a>(
     if dash_found {
         let squished_arg_start = i;
         let mut squished_arg_end = i;
-        for (start, end, char) in arg[i..].char_indices() {
+        for (mut start, mut end, char) in
+            arg[squished_arg_start..].char_indices()
+        {
+            start += squished_arg_start;
+            end += squished_arg_start;
             i = end;
             if colon_found {
                 expect_equals_after_colon(char, start, end, arg_span)?;

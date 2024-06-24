@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use arrayvec::ArrayVec;
 
 use crate::{
@@ -75,7 +77,11 @@ impl SequenceMode {
         }
     }
     pub fn to_str_with_seq_spec(&self, ss: SequenceSpec) -> String {
-        format!("{}={},{},{}", self.to_str(), ss.start, ss.step, ss.end)
+        let mut res = format!("{}={},{}", self.to_str(), ss.start, ss.end,);
+        if ss.step != 1 {
+            res.write_fmt(format_args!(",{}", ss.step)).unwrap();
+        }
+        res
     }
 }
 
