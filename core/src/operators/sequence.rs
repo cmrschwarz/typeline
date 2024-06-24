@@ -23,7 +23,9 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     operator::{OperatorBase, OperatorData, OperatorId, OperatorName},
-    transform::{TransformData, TransformId, TransformState},
+    transform::{
+        DefaultTransformName, TransformData, TransformId, TransformState,
+    },
     utils::generator_transform_update::{
         handle_generator_transform_update, GeneratorMode, GeneratorSequence,
     },
@@ -41,38 +43,13 @@ pub struct SequenceSpec {
 #[derive(Clone)]
 pub struct OpSequence {
     ss: SequenceSpec,
-    mode: OpSequenceMode,
+    mode: SequenceMode,
     non_string_reads: bool,
     seq_len_total: u64,
 }
 
-impl OpSequence {
-    pub fn default_op_name(&self) -> OperatorName {
-        match self.mode {
-            OpSequenceMode::Sequence => "seq",
-            OpSequenceMode::Enum | OpSequenceMode::EnumUnbounded => "enum",
-        }
-        .into()
-    }
-    pub fn debug_op_name(&self) -> OperatorName {
-        match self.mode {
-            OpSequenceMode::Sequence => "seq",
-            OpSequenceMode::Enum => "enum",
-            OpSequenceMode::EnumUnbounded => "enum-u",
-        }
-        .into()
-    }
-}
-
 #[derive(Clone, Copy)]
-pub enum OpSequenceMode {
-    Sequence,
-    Enum,
-    EnumUnbounded,
-}
-
-#[derive(Clone, Copy)]
-pub enum TfSequenceMode {
+pub enum SequenceMode {
     Sequence,
     Enum,
     EnumUnbounded,
@@ -82,11 +59,43 @@ pub struct TfSequence {
     pub non_string_reads: bool,
     pub ss: SequenceSpec,
     pub current_value: i64,
-    pub mode: TfSequenceMode,
+    pub mode: SequenceMode,
     pub iter_id: IterId,
     pub actor_id: ActorId,
     pub seq_len_total: u64,
     pub group_track_iter_ref: Option<GroupTrackIterRef>,
+}
+
+impl SequenceMode {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            SequenceMode::Sequence => "seq",
+            SequenceMode::Enum => "enum",
+            SequenceMode::EnumUnbounded => "enum-u",
+        }
+    }
+    pub fn to_str_with_seq_spec(&self, ss: SequenceSpec) -> String {
+        format!("{}={},{},{}", self.to_str(), ss.start, ss.step, ss.end)
+    }
+}
+
+impl TfSequence {
+    pub fn display_name(&self) -> DefaultTransformName {
+        self.mode.to_str_with_seq_spec(self.ss).into()
+    }
+}
+
+impl OpSequence {
+    pub fn default_op_name(&self) -> OperatorName {
+        match self.mode {
+            SequenceMode::Sequence => "seq",
+            SequenceMode::Enum | SequenceMode::EnumUnbounded => "enum",
+        }
+        .into()
+    }
+    pub fn debug_op_name(&self) -> OperatorName {
+        self.mode.to_str_with_seq_spec(self.ss).into()
+    }
 }
 
 pub fn build_tf_sequence<'a>(
@@ -95,13 +104,7 @@ pub fn build_tf_sequence<'a>(
     op: &'a OpSequence,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    let mode = match op.mode {
-        OpSequenceMode::Enum => TfSequenceMode::Enum,
-        OpSequenceMode::EnumUnbounded => TfSequenceMode::EnumUnbounded,
-        OpSequenceMode::Sequence => TfSequenceMode::Sequence {},
-    };
-
-    let group_track_iter_ref = (!matches!(op.mode, OpSequenceMode::Sequence))
+    let group_track_iter_ref = (!matches!(op.mode, SequenceMode::Sequence))
         .then(|| {
             jd.group_track_manager.claim_group_track_iter_ref(
                 tf_state.input_group_track_id,
@@ -112,7 +115,7 @@ pub fn build_tf_sequence<'a>(
     TransformData::Sequence(TfSequence {
         ss: op.ss,
         current_value: op.ss.start,
-        mode,
+        mode: op.mode,
         non_string_reads: op.non_string_reads,
         iter_id: jd.add_iter_for_tf_state(tf_state),
         actor_id: jd.add_actor_for_tf_state(tf_state),
@@ -241,19 +244,19 @@ pub fn handle_tf_sequence(
         seq.group_track_iter_ref,
         seq,
         match seq.mode {
-            TfSequenceMode::Sequence => GeneratorMode::Foreach,
-            TfSequenceMode::Enum => GeneratorMode::Alongside,
-            TfSequenceMode::EnumUnbounded => GeneratorMode::AlongsideUnbounded,
+            SequenceMode::Sequence => GeneratorMode::Foreach,
+            SequenceMode::Enum => GeneratorMode::Alongside,
+            SequenceMode::EnumUnbounded => GeneratorMode::AlongsideUnbounded,
         },
     )
 }
 
 pub fn parse_op_seq(
     call: &CallExpr,
-    mode: OpSequenceMode,
+    mode: SequenceMode,
     natural_number_mode: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if matches!(mode, OpSequenceMode::Enum | OpSequenceMode::EnumUnbounded)
+    if matches!(mode, SequenceMode::Enum | SequenceMode::EnumUnbounded)
         && call.args.is_empty()
     {
         return create_op_sequence_with_opts(
@@ -319,7 +322,7 @@ fn create_op_sequence_with_opts(
     start: i64,
     mut end: i64,
     step: i64,
-    mode: OpSequenceMode,
+    mode: SequenceMode,
     span: Span,
 ) -> Result<OperatorData, OperatorCreationError> {
     if step == 0 {
@@ -367,7 +370,7 @@ pub fn create_op_sequence(
         start,
         end,
         step,
-        OpSequenceMode::Sequence,
+        SequenceMode::Sequence,
         Span::Generated,
     )
 }
@@ -394,7 +397,7 @@ pub fn create_op_enum(
         start,
         end,
         step,
-        OpSequenceMode::Enum,
+        SequenceMode::Enum,
         Span::Generated,
     )
 }
@@ -407,7 +410,7 @@ pub fn create_op_enum_unbounded(
         start,
         end,
         step,
-        OpSequenceMode::EnumUnbounded,
+        SequenceMode::EnumUnbounded,
         Span::Generated,
     )
 }

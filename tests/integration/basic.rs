@@ -300,7 +300,7 @@ fn unbounded_enum_backoff() -> Result<(), ScrError> {
         .add_op_appending(create_op_enum_unbounded(1, 3, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1", "2"]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2"]);
     Ok(())
 }
 

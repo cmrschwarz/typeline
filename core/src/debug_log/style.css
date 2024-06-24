@@ -119,6 +119,8 @@ body {
     display: flex;
     flex-grow: 1;
     min-width: 2em;
+    align-items: center;
+    justify-content: center;
 }
 
 .iter {

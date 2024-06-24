@@ -52,7 +52,9 @@ use super::{
         OperatorBase, OperatorData, OperatorDataId, OperatorId, OperatorName,
         OperatorOffsetInChain, PreboundOutputsMap,
     },
-    transform::{TransformData, TransformId, TransformState},
+    transform::{
+        DefaultTransformName, TransformData, TransformId, TransformState,
+    },
     utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
@@ -124,47 +126,59 @@ pub struct RegexOptions {
     pub invert_match: bool,
 }
 
-impl OpRegex {
-    pub fn debug_op_name(&self) -> OperatorName {
-        let mut res = String::from("regex");
-        if self.opts != RegexOptions::default() {
+impl RegexOptions {
+    pub fn to_tf_string(&self, prefix: &str) -> String {
+        let mut res = String::from(prefix);
+        if *self != RegexOptions::default() {
             res.push('-');
         }
-        if self.opts.ascii_mode && !self.opts.binary_mode {
+        if self.ascii_mode && !self.binary_mode {
             res.push('a');
         }
-        if self.opts.binary_mode {
+        if self.binary_mode {
             res.push('b');
         }
-        if self.opts.dotall {
+        if self.dotall {
             res.push('d');
         }
-        if self.opts.full {
+        if self.full {
             res.push('f');
         }
-        if self.opts.case_insensitive {
+        if self.case_insensitive {
             res.push('i');
         }
-        if self.opts.line_based {
+        if self.line_based {
             res.push('l');
         }
-        if self.opts.multimatch {
+        if self.multimatch {
             res.push('m');
         }
-        if self.opts.non_mandatory {
+        if self.non_mandatory {
             res.push('n');
         }
-        if self.opts.overlapping {
+        if self.overlapping {
             res.push('o');
         }
-        if self.opts.binary_mode && !self.opts.ascii_mode {
+        if self.binary_mode && !self.ascii_mode {
             res.push('u');
         }
-        if self.opts.invert_match {
+        if self.invert_match {
             res.push('v');
         }
 
-        res.into()
+        res
+    }
+}
+
+impl OpRegex {
+    pub fn debug_op_name(&self) -> OperatorName {
+        self.opts.to_tf_string("regex").into()
+    }
+}
+
+impl TfRegex<'_> {
+    pub fn display_name(&self) -> DefaultTransformName {
+        self.op.opts.to_tf_string("regex").into()
     }
 }
 

@@ -326,6 +326,7 @@ fn handle_enum_unbounded_mode<G: GeneratorSequence>(
     let seq_len_trunc =
         usize::try_from(seq_len_total).unwrap_or(isize::MAX as usize);
 
+    // helping out splitcat by yielding early
     let mut yield_to_split = false;
 
     let mut seq_len_rem = bgs.generator.seq_len_rem();
@@ -372,8 +373,7 @@ fn handle_enum_unbounded_mode<G: GeneratorSequence>(
                 yield_to_split = true;
                 break;
             }
-            group_iter.drop(fields_rem);
-            out_batch_size_rem -= fields_rem;
+            group_iter.drop_backwards(fields_rem);
         }
         let fields_overhang = seq_adv.saturating_sub(field_count);
         if fields_overhang > 0 {
