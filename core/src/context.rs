@@ -744,13 +744,13 @@ impl SessionSetupData {
         chain_id: ChainId,
         subchain_data: Vec<(OperatorBaseOptions, OperatorData)>,
     ) -> Result<ChainId, OperatorSetupError> {
-        let chain_id = self.chains.push_get_id(Chain {
+        let subchain_id = self.chains.push_get_id(Chain {
             label: None,
             settings: self.chains[chain_id].settings.clone(),
             operators: IndexVec::new(),
             subchains: IndexVec::new(),
         });
-        self.chains[chain_id].subchains.push(chain_id);
+        self.chains[chain_id].subchains.push(subchain_id);
         // PERF: :/
         let subchain_processed = subchain_data
             .into_iter()
@@ -761,7 +761,7 @@ impl SessionSetupData {
                 )
             })
             .collect::<Vec<_>>();
-        self.setup_chain(chain_id, subchain_processed)
+        self.setup_chain(subchain_id, subchain_processed)
     }
 }
 

@@ -10,7 +10,7 @@ use head::parse_op_head;
 use scr_core::{
     cli::call_expr::CallExpr,
     extension::Extension,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    operators::{errors::OperatorParsingError, operator::OperatorData},
     options::session_options::SessionOptions,
 };
 use string_utils::{
@@ -34,14 +34,17 @@ pub mod tail;
 pub mod typename;
 
 #[derive(Default)]
-pub struct MiscCmdsExtension {}
+pub struct UtilsExtension {}
 
-impl Extension for MiscCmdsExtension {
-    fn try_match_cli_argument(
+impl Extension for UtilsExtension {
+    fn name(&self) -> std::borrow::Cow<'static, str> {
+        "scr_ext_utils".into()
+    }
+    fn parse_call_expr<'a>(
         &self,
-        _ctx_opts: &SessionOptions,
-        expr: &CallExpr,
-    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+        _ctx_opts: &mut SessionOptions,
+        expr: CallExpr<'a>,
+    ) -> Result<OperatorData, OperatorParsingError<'a>> {
         let ctor_with_arg: Option<fn(_) -> _> = match expr.op_name {
             "head" => Some(parse_op_head),
             "tail" => Some(parse_op_tail),
@@ -52,7 +55,7 @@ impl Extension for MiscCmdsExtension {
             _ => None,
         };
         if let Some(ctor) = ctor_with_arg {
-            return Ok(Some(ctor(expr)?));
+            return Ok(ctor(&expr)?);
         }
 
         let ctor_without_arg: Option<fn() -> _> = match expr.op_name {
@@ -69,9 +72,9 @@ impl Extension for MiscCmdsExtension {
         };
         if let Some(ctor) = ctor_without_arg {
             expr.reject_args()?;
-            return Ok(Some(ctor()));
+            return Ok(ctor());
         }
-        Ok(None)
+        Err(OperatorParsingError::UnknownOperator(expr))
     }
 
     fn setup(

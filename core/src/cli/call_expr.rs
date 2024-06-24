@@ -6,7 +6,10 @@ use num::{FromPrimitive, PrimInt};
 use crate::{
     operators::{errors::OperatorCreationError, operator::OperatorId},
     options::{
-        operator_base_options::OperatorBaseOptionsInterned, setting::CliArgIdx,
+        operator_base_options::{
+            OperatorBaseOptions, OperatorBaseOptionsInterned,
+        },
+        setting::CliArgIdx,
     },
     utils::{
         indexing_type::IndexingType,
@@ -15,7 +18,7 @@ use crate::{
     },
 };
 
-use super::try_parse_bool;
+use super::{try_parse_bool, CliArgumentError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Span {
@@ -321,6 +324,12 @@ impl<'a> CallExpr<'a> {
             span,
         )
     }
+    pub fn error_invalid_operator(&self) -> CliArgumentError {
+        CliArgumentError::new_s(
+            format!("unknown operator '{}'", self.op_name),
+            self.span,
+        )
+    }
     pub fn parsed_args_iter(&self) -> ParsedArgsIter {
         ParsedArgsIter {
             args: &self.args,
@@ -489,6 +498,16 @@ impl<'a> CallExpr<'a> {
                 ),
                 self.span,
             ))
+        }
+    }
+    pub fn op_base_options(&self) -> OperatorBaseOptions {
+        OperatorBaseOptions {
+            argname: self.op_name.to_owned().into(),
+            label: self.label.map(|l| l.value.to_owned().into()),
+            span: self.span,
+            transparent_mode: self.transparent_mode,
+            append_mode: self.append_mode,
+            output_is_atom: self.label.map(|l| l.is_atom).unwrap_or(false),
         }
     }
     pub fn op_base_options_interned(

@@ -5,7 +5,7 @@ use crate::{
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
         count::parse_op_count,
-        errors::OperatorCreationError,
+        errors::{OperatorCreationError, OperatorParsingError},
         file_reader::{create_op_stdin, parse_op_file_reader, parse_op_stdin},
         foreach::parse_op_foreach,
         fork::parse_op_fork,
@@ -38,6 +38,7 @@ use crate::{
     utils::index_vec::IndexSlice,
 };
 pub mod call_expr;
+pub mod call_expr_iter;
 use bstr::ByteSlice;
 
 use call_expr::{Argument, ArgumentValue, CallExpr, CallExprEnd, Label, Span};
@@ -317,66 +318,78 @@ fn try_parse_as_setting(
 }
 
 fn parse_op_def(
-    _ctx_opts: &mut SessionOptions,
+    _ctx_opts: &SessionOptions,
     _expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     todo!()
 }
 
-fn try_parse_operator_data(
-    ctx_opts: &mut SessionOptions,
-    expr: &CallExpr,
-) -> Result<Option<OperatorData>, OperatorCreationError> {
-    Ok(Some(match expr.op_name {
-        "def" => parse_op_def(ctx_opts, expr)?,
-        "int" => parse_op_int(expr)?,
-        "bytes" => parse_op_bytes(expr, false)?,
-        "~bytes" => parse_op_bytes(expr, true)?,
-        "str" => parse_op_str(expr, false)?,
-        "~str" => parse_op_str(expr, true)?,
-        "object" => parse_op_tyson(expr, FieldValueKind::Object, ctx_opts)?,
-        "array" => parse_op_tyson(expr, FieldValueKind::Array, ctx_opts)?,
-        "float" => parse_op_tyson(expr, FieldValueKind::Float, ctx_opts)?,
+pub fn parse_operator_data<'a>(
+    sess_opts: &mut SessionOptions,
+    expr: CallExpr,
+) -> Result<OperatorData, OperatorParsingError<'a>> {
+    Ok(match expr.op_name {
+        "def" => parse_op_def(sess_opts, &expr)?,
+        "int" => parse_op_int(&expr)?,
+        "bytes" => parse_op_bytes(&expr, false)?,
+        "~bytes" => parse_op_bytes(&expr, true)?,
+        "str" => parse_op_str(&expr, false)?,
+        "~str" => parse_op_str(&expr, true)?,
+        "object" => parse_op_tyson(&expr, FieldValueKind::Object, sess_opts)?,
+        "array" => parse_op_tyson(&expr, FieldValueKind::Array, sess_opts)?,
+        "float" => parse_op_tyson(&expr, FieldValueKind::Float, sess_opts)?,
         "rational" => {
-            parse_op_tyson(expr, FieldValueKind::Rational, ctx_opts)?
+            parse_op_tyson(&expr, FieldValueKind::Rational, sess_opts)?
         }
-        "v" | "value" | "tyson" => parse_op_tyson_value(expr, Some(ctx_opts))?,
-        "error" => parse_op_error(expr, false)?,
-        "~error" => parse_op_error(expr, true)?,
-        "null" => parse_op_literal_zst(expr, Literal::Null)?,
-        "undefined" => parse_op_literal_zst(expr, Literal::Undefined)?,
-        "to_str" => parse_op_to_str(expr)?,
-        "join" | "j" => parse_op_join(expr)?,
-        "r" | "regex" => parse_op_regex(expr)?,
-        "print" | "p" => parse_op_print(expr)?,
-        "format" | "f" => parse_op_format(expr)?,
-        "file" => parse_op_file_reader(expr)?,
-        "stdin" | "in" => parse_op_stdin(expr)?,
-        "key" => parse_op_key(expr)?,
-        "select" => parse_op_select(expr)?,
-        "seq" => parse_op_seq(expr, SequenceMode::Sequence, false)?,
-        "seqn" => parse_op_seq(expr, SequenceMode::Sequence, true)?,
-        "enum" => parse_op_seq(expr, SequenceMode::Enum, false)?,
-        "enumn" => parse_op_seq(expr, SequenceMode::Enum, true)?,
-        "enum-u" => parse_op_seq(expr, SequenceMode::EnumUnbounded, false)?,
-        "enumn-u" => parse_op_seq(expr, SequenceMode::EnumUnbounded, true)?,
-        "count" => parse_op_count(expr)?,
-        "nop" | "scr" => parse_op_nop(expr)?,
-        "fork" => parse_op_fork(expr)?,
-        "foreach" | "fe" => parse_op_foreach(expr)?,
-        "forkcat" | "fc" => parse_op_forkcat(expr)?,
-        "call" | "c" => parse_op_call(expr)?,
-        "callcc" | "cc" => parse_op_call_concurrent(expr)?,
-        "next" | "n" => parse_op_next(expr)?,
+        "v" | "value" | "tyson" => {
+            parse_op_tyson_value(&expr, Some(sess_opts))?
+        }
+        "error" => parse_op_error(&expr, false)?,
+        "~error" => parse_op_error(&expr, true)?,
+        "null" => parse_op_literal_zst(&expr, Literal::Null)?,
+        "undefined" => parse_op_literal_zst(&expr, Literal::Undefined)?,
+        "to_str" => parse_op_to_str(&expr)?,
+        "join" | "j" => parse_op_join(&expr)?,
+        "r" | "regex" => parse_op_regex(&expr)?,
+        "print" | "p" => parse_op_print(&expr)?,
+        "format" | "f" => parse_op_format(&expr)?,
+        "file" => parse_op_file_reader(&expr)?,
+        "stdin" | "in" => parse_op_stdin(&expr)?,
+        "key" => parse_op_key(&expr)?,
+        "select" => parse_op_select(&expr)?,
+        "seq" => parse_op_seq(&expr, SequenceMode::Sequence, false)?,
+        "seqn" => parse_op_seq(&expr, SequenceMode::Sequence, true)?,
+        "enum" => parse_op_seq(&expr, SequenceMode::Enum, false)?,
+        "enumn" => parse_op_seq(&expr, SequenceMode::Enum, true)?,
+        "enum-u" => parse_op_seq(&expr, SequenceMode::EnumUnbounded, false)?,
+        "enumn-u" => parse_op_seq(&expr, SequenceMode::EnumUnbounded, true)?,
+        "count" => parse_op_count(&expr)?,
+        "nop" | "scr" => parse_op_nop(&expr)?,
+        "fork" => parse_op_fork(&expr)?,
+        "foreach" | "fe" => parse_op_foreach(&expr)?,
+        "forkcat" | "fc" => parse_op_forkcat(sess_opts, expr)?,
+        "call" | "c" => parse_op_call(&expr)?,
+        "callcc" | "cc" => parse_op_call_concurrent(&expr)?,
+        "next" | "n" => parse_op_next(&expr)?,
         _ => {
-            for e in &ctx_opts.extensions.extensions {
-                if let Some(op) = e.try_match_cli_argument(ctx_opts, expr)? {
-                    return Ok(Some(op));
+            let mut expr = expr;
+            let ext_registry = sess_opts.extensions.clone();
+            for ext in &ext_registry.extensions {
+                match ext.parse_call_expr(sess_opts, expr) {
+                    Ok(op_data) => return Ok(op_data),
+                    Err(OperatorParsingError::CreationFailed(e)) => {
+                        return Err(OperatorParsingError::CreationFailed(e));
+                    }
+                    Err(OperatorParsingError::UnknownOperator(e)) => {
+                        expr = e;
+                    }
                 }
             }
-            return Ok(None);
+            return Err(OperatorParsingError::CreationFailed(
+                expr.error_invalid_operator().into(),
+            ));
         }
-    }))
+    })
 }
 
 fn expect_equals_after_colon(
@@ -802,9 +815,7 @@ pub fn parse_call_expr_raw<'a>(
         gobble_cli_args_while_dashed(src, args).unwrap_or(arg_span);
 
     if colon_found {
-        let mut block_args = Vec::new();
-        let list_end_span =
-            gobble_cli_args_until_end(src, &mut block_args, arg_span)?;
+        let list_end_span = gobble_cli_args_until_end(src, args, arg_span)?;
 
         complain_if_dashed_arg(src, true)?;
 
@@ -920,24 +931,27 @@ pub fn parse_cli_retain_args<'a>(
             }
         }
 
-        if let Some(op_data) = try_parse_operator_data(&mut ctx_opts, &expr)? {
-            let op_base_opts =
-                expr.op_base_options_interned(&mut ctx_opts.string_store);
-            ctx_opts.add_op_from_interned_opts(op_base_opts, op_data);
-            continue;
-        }
-
         if try_parse_as_special_op(&expr)? {
             continue;
         }
         if try_parse_as_setting(&mut ctx_opts, &expr)? {
             continue;
         }
-        return Err(CliArgumentError {
-            message: format!("unknown operator '{}'", expr.op_name).into(),
-            span: expr.span,
-        }
-        .into());
+
+        let op_base_opts =
+            expr.op_base_options_interned(&mut ctx_opts.string_store);
+
+        let op_data = match parse_operator_data(&mut ctx_opts, expr) {
+            Ok(op_data) => op_data,
+            Err(OperatorParsingError::CreationFailed(e)) => {
+                return Err(e.into());
+            }
+            Err(OperatorParsingError::UnknownOperator(e)) => {
+                return Err(e.error_invalid_operator().into());
+            }
+        };
+
+        ctx_opts.add_op_from_interned_opts(op_base_opts, op_data);
     }
     if cli_opts.print_output {
         let op_data = create_op_print_with_opts(

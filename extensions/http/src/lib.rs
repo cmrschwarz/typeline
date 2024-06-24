@@ -6,7 +6,7 @@ use http::create_op_GET;
 use scr_core::{
     cli::call_expr::CallExpr,
     extension::Extension,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    operators::{errors::OperatorParsingError, operator::OperatorData},
     options::session_options::SessionOptions,
 };
 
@@ -16,21 +16,25 @@ extern crate scr_core;
 pub struct HttpExtension {}
 
 impl Extension for HttpExtension {
-    fn try_match_cli_argument(
+    fn parse_call_expr<'a>(
         &self,
-        _ctx_opts: &SessionOptions,
-        expr: &CallExpr,
-    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+        _ctx_opts: &mut SessionOptions,
+        expr: CallExpr<'a>,
+    ) -> Result<OperatorData, OperatorParsingError<'a>> {
         if expr.op_name == "GET" || expr.op_name == "http-get" {
             expr.reject_args()?;
-            return Ok(Some(create_op_GET()));
+            return Ok(create_op_GET());
         }
-        Ok(None)
+        Err(OperatorParsingError::UnknownOperator(expr))
     }
 
     fn setup(
         &mut self,
         _registry: &mut scr_core::extension::ExtensionRegistry,
     ) {
+    }
+
+    fn name(&self) -> std::borrow::Cow<'static, str> {
+        "scr_ext_http".into()
     }
 }

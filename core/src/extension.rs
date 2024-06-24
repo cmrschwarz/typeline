@@ -1,8 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use crate::{
     cli::call_expr::CallExpr,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    operators::{errors::OperatorParsingError, operator::OperatorData},
     options::session_options::SessionOptions,
     record_data::field_value::FieldValue,
     tyson::TysonParseError,
@@ -22,13 +22,16 @@ impl ExtensionRegistry {
     pub fn setup(&mut self) {
         struct DummyExt;
         impl Extension for DummyExt {
-            fn try_match_cli_argument(
+            fn parse_call_expr<'a>(
                 &self,
-                _ctx_opts: &SessionOptions,
-                _expr: &CallExpr,
-            ) -> Result<Option<OperatorData>, OperatorCreationError>
-            {
-                unimplemented!()
+                _sess_opts: &mut SessionOptions,
+                expr: CallExpr<'a>,
+            ) -> Result<OperatorData, OperatorParsingError<'a>> {
+                Err(OperatorParsingError::UnknownOperator(expr))
+            }
+
+            fn name(&self) -> Cow<'static, str> {
+                "dummy_extension".into()
             }
         }
         let mut dummy_ext: Box<dyn Extension> = Box::new(DummyExt);
@@ -42,12 +45,13 @@ impl ExtensionRegistry {
 }
 
 pub trait Extension: Send + Sync {
+    fn name(&self) -> Cow<'static, str>;
     fn setup(&mut self, _registry: &mut ExtensionRegistry) {}
-    fn try_match_cli_argument(
+    fn parse_call_expr<'a>(
         &self,
-        ctx_opts: &SessionOptions,
-        expr: &CallExpr,
-    ) -> Result<Option<OperatorData>, OperatorCreationError>;
+        sess_opts: &mut SessionOptions,
+        expr: CallExpr<'a>,
+    ) -> Result<OperatorData, OperatorParsingError<'a>>;
 }
 
 pub fn build_empty_extension_registry() -> Arc<ExtensionRegistry> {

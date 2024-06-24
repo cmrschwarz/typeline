@@ -7,15 +7,20 @@ use bitvec::vec::BitVec;
 
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::call_expr::CallExpr,
+    cli::{
+        call_expr::CallExpr, call_expr_iter::CallExprIter, parse_operator_data,
+    },
     context::{SessionData, SessionSetupData},
     index_newtype,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
-    options::operator_base_options::{
-        OperatorBaseOptions, OperatorBaseOptionsInterned,
+    options::{
+        operator_base_options::{
+            OperatorBaseOptions, OperatorBaseOptionsInterned,
+        },
+        session_options::SessionOptions,
     },
     record_data::{
         action_buffer::{ActorId, ActorRef},
@@ -743,9 +748,23 @@ pub fn create_op_forkcat(
 }
 
 pub fn parse_op_forkcat(
-    args: &CallExpr,
+    sess_opts: &mut SessionOptions,
+    args: CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    // TODO: parse subchains
-    args.reject_args()?;
-    create_op_forkcat_with_opts(Vec::new())
+    let mut subchains = Vec::new();
+    let mut curr_subchain = Vec::new();
+    for expr in CallExprIter::from_args_iter(args.args) {
+        let expr = expr?;
+        if expr.op_name == "next" {
+            expr.reject_args()?;
+            subchains.push(curr_subchain);
+            curr_subchain = Vec::new();
+            continue;
+        };
+        let op_base = expr.op_base_options();
+        let op_data = parse_operator_data(sess_opts, expr)?;
+        curr_subchain.push((op_base, op_data));
+    }
+    subchains.push(curr_subchain);
+    create_op_forkcat_with_opts(subchains)
 }

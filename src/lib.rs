@@ -34,7 +34,7 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
     #[cfg(feature = "utils")]
     extensions
         .extensions
-        .push(Box::<scr_ext_utils::MiscCmdsExtension>::default());
+        .push(Box::<scr_ext_utils::UtilsExtension>::default());
 
     #[cfg(feature = "http")]
     extensions

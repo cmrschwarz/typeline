@@ -2,7 +2,10 @@ use std::{borrow::Cow, cmp::Ordering};
 
 use thiserror::Error;
 
-use crate::cli::call_expr::Span;
+use crate::cli::{
+    call_expr::{CallExpr, Span},
+    CliArgumentError,
+};
 
 use super::operator::OperatorId;
 
@@ -12,6 +15,11 @@ use super::operator::OperatorId;
 pub struct OperatorCreationError {
     pub message: Cow<'static, str>,
     pub span: Span,
+}
+
+pub enum OperatorParsingError<'a> {
+    CreationFailed(OperatorCreationError),
+    UnknownOperator(CallExpr<'a>),
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -49,6 +57,33 @@ impl OperatorCreationError {
         }
     }
 }
+
+impl From<CliArgumentError> for OperatorCreationError {
+    fn from(e: CliArgumentError) -> Self {
+        Self {
+            message: e.message,
+            span: e.span,
+        }
+    }
+}
+
+impl From<OperatorCreationError> for OperatorParsingError<'static> {
+    fn from(e: OperatorCreationError) -> Self {
+        OperatorParsingError::CreationFailed(e)
+    }
+}
+
+impl<'a> From<OperatorParsingError<'a>> for OperatorCreationError {
+    fn from(e: OperatorParsingError) -> Self {
+        match e {
+            OperatorParsingError::CreationFailed(e) => e,
+            OperatorParsingError::UnknownOperator(e) => {
+                e.error_invalid_operator().into()
+            }
+        }
+    }
+}
+
 impl OperatorSetupError {
     pub fn new(message: &'static str, op_id: OperatorId) -> Self {
         Self {
