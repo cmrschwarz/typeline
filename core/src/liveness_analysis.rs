@@ -713,6 +713,8 @@ impl LivenessData {
             return;
         }
 
+        let mut propagate_change = false;
+
         let ooc = self.op_outputs.len();
         let ld = &mut self.operator_liveness_data[op_id];
 
@@ -727,17 +729,25 @@ impl LivenessData {
         } else {
             op_offset_after_last_write != OffsetInChain::zero()
         };
+
         match ld.accessed_outputs.entry(op_output_idx) {
             Entry::Occupied(mut e) => {
                 let acc = e.get_mut();
                 if direct_access && !acc.direct_access {
+                    propagate_change |= !acc.direct_access;
                     acc.direct_access = true;
+
+                    propagate_change |=
+                        acc.direct_access_index != ld.direct_access_count;
                     acc.direct_access_index = ld.direct_access_count;
                 }
+                propagate_change |= !acc.header_write && header_write;
                 acc.header_write |= header_write;
+                propagate_change |= !acc.non_stringified && non_stringified;
                 acc.non_stringified |= non_stringified;
             }
             Entry::Vacant(e) => {
+                propagate_change = true;
                 e.insert(OutputAcccess {
                     header_write,
                     non_stringified,
@@ -749,31 +759,35 @@ impl LivenessData {
         ld.direct_access_count +=
             DirectOperatorAccessIndex::from(direct_access);
         let oo_idx = op_output_idx.into_usize();
-        self.op_outputs_data.set_aliased(
-            VarLivenessSlotKind::Reads.index() * ooc + oo_idx,
-            true,
-        );
+
+        let reads_bit = VarLivenessSlotKind::Reads.index() * ooc + oo_idx;
+        propagate_change |= !self.op_outputs_data[reads_bit];
+        self.op_outputs_data.set_aliased(reads_bit, true);
         if non_stringified {
-            self.op_outputs_data.set_aliased(
-                VarLivenessSlotKind::NonStringReads.index() * ooc + oo_idx,
-                true,
-            );
+            let non_string_reads_bit =
+                VarLivenessSlotKind::NonStringReads.index() * ooc + oo_idx;
+            propagate_change |= !self.op_outputs_data[non_string_reads_bit];
+            self.op_outputs_data.set_aliased(non_string_reads_bit, true);
         }
         if header_write {
-            self.op_outputs_data.set_aliased(
-                VarLivenessSlotKind::HeaderWrites.index() * ooc + oo_idx,
-                true,
-            );
+            let header_writes_bit =
+                VarLivenessSlotKind::HeaderWrites.index() * ooc + oo_idx;
+            propagate_change |= !self.op_outputs_data[header_writes_bit];
+            self.op_outputs_data.set_aliased(header_writes_bit, true);
         }
-        for fri in 0..self.op_outputs[op_output_idx].field_references.len() {
-            self.access_output(
-                sess,
-                op_id,
-                self.op_outputs[op_output_idx].field_references[fri],
-                op_offset_after_last_write,
-                non_stringified,
-                false,
-            );
+
+        if propagate_change {
+            for fri in 0..self.op_outputs[op_output_idx].field_references.len()
+            {
+                self.access_output(
+                    sess,
+                    op_id,
+                    self.op_outputs[op_output_idx].field_references[fri],
+                    op_offset_after_last_write,
+                    non_stringified,
+                    false,
+                );
+            }
         }
     }
     fn reset_op_outputs_data_for_vars(&mut self) {
