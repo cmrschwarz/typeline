@@ -14,7 +14,7 @@ use crate::{
             OperatorApplicationError, OperatorCreationError,
             OperatorSetupError,
         },
-        operator::{OperatorDataId, OperatorId},
+        operator::OperatorId,
     },
     options::{
         session_options::SessionOptions,
@@ -183,32 +183,6 @@ fn was_first_cli_arg_skipped(
     )
 }
 
-fn contextualize_op_data_id(
-    msg: &str,
-    op_data_id: OperatorDataId,
-    args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-    cli_opts: Option<&CliOptions>,
-    ctx_opts: Option<&SessionOptions>,
-    sess: Option<&SessionData>,
-) -> String {
-    let span = ctx_opts.map(|o| o.operator_base_opts[op_data_id].span);
-    if let (Some(args), Some(span)) = (args, span) {
-        let first_arg_skipped =
-            was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
-        contextualize_span(msg, Some(args), span, first_arg_skipped)
-    } else if let Some(ctx_opts) = ctx_opts {
-        let op_base = &ctx_opts.operator_base_opts[op_data_id];
-        // TODO: stringify chain id
-        format!(
-            "in op '{}': {msg}",
-            // TODO: improve this
-            ctx_opts.string_store.lookup(op_base.argname),
-        )
-    } else {
-        format!("in global op data id {op_data_id}: {msg}")
-    }
-}
-
 fn contextualize_op_id(
     msg: &str,
     op_id: OperatorId,
@@ -273,9 +247,9 @@ impl ScrError {
             ),
             ScrError::ChainSetupError(e) => e.to_string(),
             ScrError::OperationCreationError(e) => e.message.to_string(),
-            ScrError::OperationSetupError(e) => contextualize_op_data_id(
+            ScrError::OperationSetupError(e) => contextualize_op_id(
                 &e.message,
-                e.op_data_id,
+                e.op_id,
                 args_gathered,
                 cli_opts,
                 ctx_opts,

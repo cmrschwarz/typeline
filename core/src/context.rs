@@ -28,8 +28,8 @@ use crate::{
         aggregator::create_op_aggregate_raw,
         errors::OperatorSetupError,
         operator::{
-            OffsetInAggregation, OffsetInChain, OperatorBase, OperatorData,
-            OperatorDataId, OperatorId, OperatorOffsetInChain,
+            OffsetInChain, OperatorBase, OperatorData, OperatorDataId,
+            OperatorId, OperatorOffsetInChain,
         },
     },
     options::{
@@ -669,21 +669,22 @@ impl SessionSetupData {
         self.add_op_from_opts_direct(chain_id, op_base_opts, op_data_id)
     }
 
-    pub fn add_subchain(
+    pub fn setup_subchain(
         &mut self,
         chain_id: ChainId,
         mut subchain_data: Vec<(OperatorBaseOptions, OperatorData)>,
-    ) -> ChainId {
-        let sc_id = self.chains.next_idx();
-        self.chains.push(Chain {
+    ) -> Result<ChainId, OperatorSetupError> {
+        let sc_id = self.chains.push_get_id(Chain {
             label: None,
             settings: self.chains[chain_id].settings.clone(),
             operators: IndexVec::new(),
             subchains: IndexVec::new(),
         });
 
+        self.chains[chain_id].subchains.push(sc_id);
+
         let mut curr_aggregation_op_id = None;
-        let mut curr_aggregation = Vec::new();
+        let mut curr_aggregation = IndexVec::new();
 
         let mut i = 0;
         while i < subchain_data.len() {
@@ -694,6 +695,7 @@ impl SessionSetupData {
 
             let (op_base_opts, op_data) = &mut subchain_data[i];
             let op_base_opts = std::mem::take(op_base_opts);
+            let op_base_opts = op_base_opts.intern(&mut self.string_store);
             let op_data = std::mem::take(op_data);
 
             let add_to_aggregation =
@@ -711,36 +713,44 @@ impl SessionSetupData {
                         )
                     });
                 let op_data_id = self.operator_data.push_get_id(op_data);
-                let op_base_opts = op_base_opts.intern(&mut self.string_store);
-                let op_id = self.add_op_from_offset_in_chain(
+
+                let op_id = self.setup_for_op_data_id(
                     chain_id,
                     OperatorOffsetInChain::AggregationMember(
                         curr_agg,
-                        OffsetInAggregation::zero(),
+                        curr_aggregation.next_idx(),
                     ),
                     op_base_opts,
                     op_data_id,
-                );
+                )?;
                 curr_aggregation.push(op_id);
             } else {
                 if let Some(curr_agg_id) = curr_aggregation_op_id.take() {
                     let op_data_id =
                         self.add_op_data_raw(create_op_aggregate_raw(
-                            std::mem::take(&mut curr_aggregation),
+                            std::mem::take(&mut curr_aggregation).into(),
                         ));
                     self.operator_bases[curr_agg_id].op_data_id = op_data_id;
                 }
-                self.add_op_direct(sc_id, op_base_opts, op_data);
+                self.setup_for_op_data(
+                    sc_id,
+                    OperatorOffsetInChain::Direct(
+                        self.chains[sc_id].operators.next_idx(),
+                    ),
+                    op_base_opts,
+                    op_data,
+                )?;
             }
             i += 1;
         }
 
         if let Some(curr_ag) = curr_aggregation_op_id {
-            self.operator_bases[curr_ag].op_data_id = self
-                .add_op_data_raw(create_op_aggregate_raw(curr_aggregation));
+            self.operator_bases[curr_ag].op_data_id = self.add_op_data_raw(
+                create_op_aggregate_raw(curr_aggregation.into()),
+            );
         }
 
-        sc_id
+        Ok(sc_id)
     }
 }
 

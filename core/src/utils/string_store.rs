@@ -1,6 +1,6 @@
 use std::{
     alloc::Layout, borrow::Cow, cmp::min, collections::HashMap, hash::Hash,
-    mem::ManuallyDrop, num::NonZeroU32,
+    num::NonZeroU32,
 };
 
 pub type StringStoreEntry = NonZeroU32;

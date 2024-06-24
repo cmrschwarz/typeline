@@ -127,7 +127,14 @@ pub fn setup_op_aggregator(
     for (op_base, op_data) in std::mem::take(&mut agg.sub_ops_from_user) {
         let op_base = op_base.intern(&mut sess.string_store);
 
-        agg.sub_ops.push(sess.setup_for_op_data(
+        let err_msg = op_base.append_mode.then(|| {
+            format!(
+                "aggregation member `{}` cannot be in append mode (`+`)",
+                op_data.default_op_name()
+            )
+        });
+
+        let op_id = sess.setup_for_op_data(
             chain_id,
             OperatorOffsetInChain::AggregationMember(
                 op_id,
@@ -135,7 +142,12 @@ pub fn setup_op_aggregator(
             ),
             op_base,
             op_data,
-        )?);
+        )?;
+        agg.sub_ops.push(op_id);
+
+        if let Some(err_msg) = err_msg {
+            return Err(OperatorSetupError::new_s(err_msg, op_id));
+        }
     }
 
     Ok(op_id)

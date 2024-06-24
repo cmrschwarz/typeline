@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::cli::call_expr::Span;
 
-use super::operator::{OperatorDataId, OperatorId};
+use super::operator::OperatorId;
 
 #[must_use]
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -15,9 +15,9 @@ pub struct OperatorCreationError {
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
-#[error("in op id {op_data_id}: {message}")]
+#[error("in op id {op_id}: {message}")]
 pub struct OperatorSetupError {
-    pub op_data_id: OperatorDataId,
+    pub op_id: OperatorId,
     pub message: Cow<'static, str>,
 }
 
@@ -50,16 +50,16 @@ impl OperatorCreationError {
     }
 }
 impl OperatorSetupError {
-    pub fn new(message: &'static str, op_data_id: OperatorDataId) -> Self {
+    pub fn new(message: &'static str, op_id: OperatorId) -> Self {
         Self {
             message: Cow::Borrowed(message),
-            op_data_id,
+            op_id,
         }
     }
-    pub fn new_s(msg: String, op_data_id: OperatorDataId) -> Self {
+    pub fn new_s(msg: String, op_id: OperatorId) -> Self {
         Self {
             message: Cow::Owned(msg),
-            op_data_id,
+            op_id,
         }
     }
 }

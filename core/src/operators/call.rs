@@ -50,6 +50,13 @@ pub fn setup_op_call(
     op_opts: OperatorBaseOptionsInterned,
     op_data_id: OperatorDataId,
 ) -> Result<OperatorId, OperatorSetupError> {
+    let op_id = sess.add_op_from_offset_in_chain(
+        curr_chain_id,
+        offset_in_chain,
+        op_opts,
+        op_data_id,
+    );
+
     if op.target_resolved.is_some() {
         // this happens in case of call targets caused by labels ending the
         // chain
@@ -63,15 +70,10 @@ pub fn setup_op_call(
     } else {
         return Err(OperatorSetupError::new_s(
             format!("unknown chain label '{}'", op.target_name),
-            op_data_id,
+            op_id,
         ));
     }
-    let op_id = sess.add_op_from_offset_in_chain(
-        curr_chain_id,
-        offset_in_chain,
-        op_opts,
-        op_data_id,
-    );
+
     Ok(op_id)
 }
 

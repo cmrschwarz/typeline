@@ -1,7 +1,4 @@
-use scr::{
-    operators::aggregator::create_op_aggregate_with_opts,
-    options::operator_base_options::OperatorBaseOptions,
-};
+use scr::operators::aggregator::create_op_aggregate;
 use scr_core::{
     operators::{
         fork::create_op_fork,
@@ -50,16 +47,12 @@ fn append_after_fork() -> Result<(), ScrError> {
         //.set_batch_size(2)
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(
-            create_op_fork([[create_op_aggregate_with_opts(vec![(
-                OperatorBaseOptions {
-                    append_mode: true,
-                    ..Default::default()
-                },
+            create_op_fork([[create_op_aggregate([
                 create_op_int(4),
-            )])]])
+                create_op_string_sink(&ss),
+            ])]])
             .unwrap(),
         )
-        .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
         ss.get_data().unwrap().as_slice(),

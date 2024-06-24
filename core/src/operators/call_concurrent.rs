@@ -102,12 +102,13 @@ pub fn setup_op_call_concurrent(
     op_base_opts_interned: OperatorBaseOptionsInterned,
     op_data_id: OperatorDataId,
 ) -> Result<OperatorId, OperatorSetupError> {
-    if sess.settings.max_threads == 1 {
-        return Err(OperatorSetupError::new(
-            "callcc cannot be used with a max thread count of 1, see `h=j`",
-            op_data_id,
-        ));
-    }
+    let op_id = sess.add_op_from_offset_in_chain(
+        chain_id,
+        offset_in_chain,
+        op_base_opts_interned,
+        op_data_id,
+    );
+
     if let Some(target) = sess
         .string_store
         .lookup_str(&op.target_name)
@@ -117,15 +118,17 @@ pub fn setup_op_call_concurrent(
     } else {
         return Err(OperatorSetupError::new_s(
             format!("unknown chain label '{}'", op.target_name),
-            op_data_id,
+            op_id,
         ));
     }
-    Ok(sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        op_base_opts_interned,
-        op_data_id,
-    ))
+
+    if sess.settings.max_threads == 1 {
+        return Err(OperatorSetupError::new(
+            "callcc cannot be used with a max thread count of 1, see `h=j`",
+            op_id,
+        ));
+    }
+    Ok(op_id)
 }
 
 pub fn setup_op_call_concurrent_liveness_data(

@@ -175,11 +175,12 @@ impl TransformData<'_> {
             | TransformData::Format(_)
             | TransformData::FileReader(_)
             | TransformData::Literal(_)
-            | TransformData::Sequence(_) => fields.push(tf_state.output_field),
-
-            TransformData::FieldValueSink(_) => {
+            | TransformData::Sequence(_)
+            | TransformData::AggregatorTrailer(_)
+            | TransformData::FieldValueSink(_) => {
                 fields.push(tf_state.output_field)
             }
+
             // TODO: fix this
             TransformData::ForkCat(_)
             | TransformData::SuccessUpdator(_)
@@ -189,7 +190,6 @@ impl TransformData<'_> {
             | TransformData::Terminator(_)
             | TransformData::Fork(_)
             | TransformData::AggregatorHeader(_)
-            | TransformData::AggregatorTrailer(_)
             | TransformData::ForeachHeader(_)
             | TransformData::ForeachTrailer(_)
             | TransformData::Call(_)

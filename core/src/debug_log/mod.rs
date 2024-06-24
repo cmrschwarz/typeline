@@ -10,7 +10,8 @@ use serde_json::{json, Value};
 use crate::{
     job::JobData,
     operators::{
-        forkcat::FcSubchainIdx,
+        fork::TfFork,
+        forkcat::{FcSubchainIdx, TfForkCat},
         transform::{TransformData, TransformId},
     },
     record_data::{
@@ -180,67 +181,34 @@ fn setup_transform_chain_tf_envs(
     loop {
         let tf = &jd.tf_mgr.transforms[tf_id];
         // TODO: handle multiple output fields
-        let mut subchains = Vec::new();
-        let mut fields = Vec::new();
-        let mut group_tracks = Vec::new();
-        if let TransformData::ForkCat(fc) = &tf_data[tf_id] {
-            let fc_cont = fc.continuation_state.lock().unwrap();
-            match_chains.push(match_chain);
-            match_chain = MatchChain::new(jd, fc_cont.continuation_tf_id);
-            for sce in &fc_cont.subchains {
-                let mut sc_match_chain = MatchChain::new(jd, sce.start_tf_id);
-                let mut input_tf_env = TransformEnv {
-                    tf_id: None,
-                    group_tracks: vec![
-                        jd.tf_mgr.transforms[sce.start_tf_id]
-                            .input_group_track_id,
-                    ],
-                    subchains: Vec::new(),
-                    fields: Vec::new(),
-                };
-                push_field_component_with_refs(
-                    jd,
-                    jd.tf_mgr.transforms[sce.start_tf_id].input_field,
-                    &mut input_tf_env.fields,
-                );
-                sc_match_chain.tf_envs.push(input_tf_env);
-                let mut subchain =
-                    setup_transform_chain_tf_envs(jd, tf_data, sc_match_chain);
-                setup_transform_chain_dead_slots(&mut subchain, jd);
-                subchains.push(subchain);
-            }
-            let TransformData::ForkCatSubchainTrailer(trailer) = &tf_data
-                [fc_cont.subchains[FcSubchainIdx::zero()].trailer_tf_id]
-            else {
-                unreachable!()
-            };
-            for cont_mapping in
-                trailer.continuation_field_mappings.iter().rev()
-            {
-                push_field_component_with_refs(
-                    jd,
-                    cont_mapping.cont_field_id,
-                    &mut fields,
-                );
-            }
-            group_tracks.push(
-                jd.tf_mgr.transforms[fc_cont.continuation_tf_id]
-                    .input_group_track_id,
-            );
-        } else {
-            let tf = &jd.tf_mgr.transforms[tf_id];
-            if tf.output_group_track_id != tf.input_group_track_id {
-                group_tracks.push(tf.output_group_track_id);
-            }
-            tf_data[tf_id].get_out_fields(tf, &mut fields);
-        }
 
-        match_chain.tf_envs.push(TransformEnv {
-            tf_id: Some(tf_id),
-            group_tracks,
-            subchains,
-            fields,
-        });
+        match &tf_data[tf_id] {
+            TransformData::ForkCat(fc) => {
+                match_chains.push(match_chain);
+                match_chain =
+                    setup_forkcat_match_chain(jd, tf_data, fc, tf_id);
+            }
+            TransformData::Fork(fc) => {
+                match_chain
+                    .tf_envs
+                    .push(setup_fork_tf_env(jd, tf_data, fc, tf_id));
+            }
+            _ => {
+                let mut fields = Vec::new();
+                let mut group_tracks = Vec::new();
+                let tf = &jd.tf_mgr.transforms[tf_id];
+                if tf.output_group_track_id != tf.input_group_track_id {
+                    group_tracks.push(tf.output_group_track_id);
+                }
+                tf_data[tf_id].get_out_fields(tf, &mut fields);
+                match_chain.tf_envs.push(TransformEnv {
+                    tf_id: Some(tf_id),
+                    group_tracks,
+                    subchains: Vec::new(),
+                    fields,
+                });
+            }
+        }
 
         if let Some(succ) = tf.successor {
             tf_id = succ;
@@ -253,6 +221,102 @@ fn setup_transform_chain_tf_envs(
         add_hidden_fields(jd, mc);
     }
     TransformChain { match_chains }
+}
+
+fn setup_fork_tf_env(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    fork: &TfFork,
+    tf_id: TransformId,
+) -> TransformEnv {
+    let mut subchains = Vec::new();
+
+    for tgt in &fork.targets {
+        let mut sc_match_chain = MatchChain::new(jd, tgt.tf_id);
+        let mut input_tf_env = TransformEnv {
+            tf_id: None,
+            group_tracks: vec![tgt.gt_id],
+            subchains: Vec::new(),
+            fields: Vec::new(),
+        };
+        push_field_component_with_refs(
+            jd,
+            jd.tf_mgr.transforms[tgt.tf_id].input_field,
+            &mut input_tf_env.fields,
+        );
+        sc_match_chain.tf_envs.push(input_tf_env);
+        let mut subchain =
+            setup_transform_chain_tf_envs(jd, tf_data, sc_match_chain);
+        setup_transform_chain_dead_slots(&mut subchain, jd);
+        subchains.push(subchain);
+    }
+
+    TransformEnv {
+        tf_id: Some(tf_id),
+        group_tracks: Vec::new(),
+        subchains,
+        fields: Vec::new(),
+    }
+}
+
+fn setup_forkcat_match_chain(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    fc: &TfForkCat,
+    tf_id: TransformId,
+) -> MatchChain {
+    let fc_cont = fc.continuation_state.lock().unwrap();
+
+    let mut match_chain = MatchChain::new(jd, fc_cont.continuation_tf_id);
+    let mut subchains = Vec::new();
+    let mut fields = Vec::new();
+    let mut group_tracks = Vec::new();
+
+    for sce in &fc_cont.subchains {
+        let mut sc_match_chain = MatchChain::new(jd, sce.start_tf_id);
+        let mut input_tf_env = TransformEnv {
+            tf_id: None,
+            group_tracks: vec![
+                jd.tf_mgr.transforms[sce.start_tf_id].input_group_track_id,
+            ],
+            subchains: Vec::new(),
+            fields: Vec::new(),
+        };
+        push_field_component_with_refs(
+            jd,
+            jd.tf_mgr.transforms[sce.start_tf_id].input_field,
+            &mut input_tf_env.fields,
+        );
+        sc_match_chain.tf_envs.push(input_tf_env);
+        let mut subchain =
+            setup_transform_chain_tf_envs(jd, tf_data, sc_match_chain);
+        setup_transform_chain_dead_slots(&mut subchain, jd);
+        subchains.push(subchain);
+    }
+    let TransformData::ForkCatSubchainTrailer(trailer) =
+        &tf_data[fc_cont.subchains[FcSubchainIdx::zero()].trailer_tf_id]
+    else {
+        unreachable!()
+    };
+    for cont_mapping in trailer.continuation_field_mappings.iter().rev() {
+        push_field_component_with_refs(
+            jd,
+            cont_mapping.cont_field_id,
+            &mut fields,
+        );
+    }
+    group_tracks.push(
+        jd.tf_mgr.transforms[fc_cont.continuation_tf_id].input_group_track_id,
+    );
+
+    match_chain.tf_envs.push(TransformEnv {
+        tf_id: Some(tf_id),
+        group_tracks,
+        subchains,
+        fields,
+    });
+
+    match_chain
 }
 
 fn push_field_component_with_refs(

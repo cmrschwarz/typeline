@@ -519,11 +519,11 @@ impl OperatorData {
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Aggregator(_)
-            | OperatorData::NopCopy(_)
-            | OperatorData::Fork(_) => OutputFieldKind::Unique,
+            | OperatorData::NopCopy(_) => OutputFieldKind::Unique,
             OperatorData::Foreach(_)
             | OperatorData::Nop(_)
-            | OperatorData::SuccessUpdator(_) => OutputFieldKind::SameAsInput,
+            | OperatorData::SuccessUpdator(_)
+            | OperatorData::Fork(_) => OutputFieldKind::SameAsInput,
             OperatorData::ForkCat(_)
             | OperatorData::Key(_)
             | OperatorData::Select(_)
@@ -747,7 +747,7 @@ impl OperatorData {
                         non_stringified_input_access: true,
                         may_dup_or_drop: true,
                     };
-                    sess.operator_data[sess.op_data_id(op_id)]
+                    sess.operator_data[sess.op_data_id(sub_op)]
                         .update_liveness_for_op(
                             sess,
                             ld,

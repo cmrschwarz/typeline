@@ -55,8 +55,8 @@ pub struct TfForkFieldMapping {
 }
 
 pub struct ForkTarget {
-    tf_id: TransformId,
-    gt_id: GroupTrackId,
+    pub tf_id: TransformId,
+    pub gt_id: GroupTrackId,
 }
 
 pub struct TfFork<'a> {
@@ -73,8 +73,8 @@ pub fn parse_op_fork(
     expr.reject_args()?;
     Ok(OperatorData::Fork(OpFork {
         subchains: Vec::new(),
-        subchains_start: SubchainIndex::zero(),
-        subchains_end: SubchainIndex::zero(),
+        subchains_start: SubchainIndex::max_value(),
+        subchains_end: SubchainIndex::max_value(),
         accessed_fields_per_subchain: IndexVec::new(),
     }))
 }
@@ -87,13 +87,6 @@ pub fn setup_op_fork(
     op_base_opts_interned: OperatorBaseOptionsInterned,
     op_data_id: OperatorDataId,
 ) -> Result<OperatorId, OperatorSetupError> {
-    if !matches!(offset_in_chain, OperatorOffsetInChain::Direct(_)) {
-        return Err(OperatorSetupError::new(
-            "operator `fork` cannot be part of an aggregation",
-            op_data_id,
-        ));
-    };
-
     let op_id = sess.add_op_from_offset_in_chain(
         chain_id,
         offset_in_chain,
@@ -101,11 +94,20 @@ pub fn setup_op_fork(
         op_data_id,
     );
 
+    if !matches!(offset_in_chain, OperatorOffsetInChain::Direct(_)) {
+        return Err(OperatorSetupError::new(
+            "operator `fork` cannot be part of an aggregation",
+            op_id,
+        ));
+    };
+
     op.subchains_start = sess.chains[chain_id].subchains.next_idx();
 
     for sc in std::mem::take(&mut op.subchains) {
-        sess.add_subchain(chain_id, sc);
+        sess.setup_subchain(chain_id, sc)?;
     }
+
+    op.subchains_end = sess.chains[chain_id].subchains.next_idx();
 
     Ok(op_id)
 }

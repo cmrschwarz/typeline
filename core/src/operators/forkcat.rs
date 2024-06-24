@@ -63,7 +63,6 @@ index_newtype! {
     pub struct ContinuationVarIdx(u32);
 }
 
-#[derive(Default)]
 pub struct OpForkCat {
     pub subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
 
@@ -149,13 +148,6 @@ impl FcContinuationState {
     }
 }
 
-pub fn parse_op_forkcat(
-    args: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
-    // TODO: parse subchains
-    args.reject_args()?;
-    Ok(OperatorData::ForkCat(OpForkCat::default()))
-}
 pub fn setup_op_forkcat(
     op: &mut OpForkCat,
     sess: &mut SessionSetupData,
@@ -164,16 +156,6 @@ pub fn setup_op_forkcat(
     opts_interned: OperatorBaseOptionsInterned,
     op_data_id: OperatorDataId,
 ) -> Result<OperatorId, OperatorSetupError> {
-    let OperatorOffsetInChain::Direct(direct_offset_in_chain) =
-        offset_in_chain
-    else {
-        return Err(OperatorSetupError::new(
-            "operator `forkcat` cannot be part of an aggregation",
-            op_data_id,
-        ));
-    };
-    op.direct_offset_in_chain = direct_offset_in_chain;
-
     let op_id = sess.add_op_from_offset_in_chain(
         chain_id,
         offset_in_chain,
@@ -181,11 +163,23 @@ pub fn setup_op_forkcat(
         op_data_id,
     );
 
+    let OperatorOffsetInChain::Direct(direct_offset_in_chain) =
+        offset_in_chain
+    else {
+        return Err(OperatorSetupError::new(
+            "operator `forkcat` cannot be part of an aggregation",
+            op_id,
+        ));
+    };
+    op.direct_offset_in_chain = direct_offset_in_chain;
+
     op.subchains_start = sess.chains[chain_id].subchains.next_idx();
 
     for sc in std::mem::take(&mut op.subchains) {
-        sess.add_subchain(chain_id, sc);
+        sess.setup_subchain(chain_id, sc)?;
     }
+
+    op.subchains_end = sess.chains[chain_id].subchains.next_idx();
 
     Ok(op_id)
 }
@@ -714,6 +708,19 @@ pub fn handle_tf_forcat_subchain_trailer(
         .push_undefined(fields_to_consume, true);
 }
 
+pub fn create_op_forkcat_with_opts(
+    subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
+) -> Result<OperatorData, OperatorCreationError> {
+    Ok(OperatorData::ForkCat(OpForkCat {
+        subchains,
+        subchains_start: SubchainIndex::max_value(),
+        subchains_end: SubchainIndex::max_value(),
+        direct_offset_in_chain: OffsetInChain::max_value(),
+        input_mappings: HashMap::default(),
+        continuation_vars: IndexVec::new(),
+    }))
+}
+
 pub fn create_op_forkcat(
     subchains: impl IntoIterator<Item = impl IntoIterator<Item = OperatorData>>,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -732,8 +739,13 @@ pub fn create_op_forkcat(
                 .collect::<Vec<_>>()
         })
         .collect();
-    Ok(OperatorData::ForkCat(OpForkCat {
-        subchains,
-        ..OpForkCat::default()
-    }))
+    create_op_forkcat_with_opts(subchains)
+}
+
+pub fn parse_op_forkcat(
+    args: &CallExpr,
+) -> Result<OperatorData, OperatorCreationError> {
+    // TODO: parse subchains
+    args.reject_args()?;
+    create_op_forkcat_with_opts(Vec::new())
 }
