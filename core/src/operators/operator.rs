@@ -205,12 +205,8 @@ impl OperatorOffsetInChain {
     pub fn base_chain_offset(&self, sess: &SessionData) -> OffsetInChain {
         match self {
             OperatorOffsetInChain::Direct(chain_offset) => *chain_offset,
-            OperatorOffsetInChain::AggregationMember(op_id, agg_offset) => {
-                let op_data_id = sess.op_data_id(*op_id);
-                let agg_member_op_id = sess.operator_data[op_data_id]
-                    .aggregation_member(*agg_offset)
-                    .unwrap();
-                sess.operator_bases[agg_member_op_id]
+            OperatorOffsetInChain::AggregationMember(op_id, _agg_offset) => {
+                sess.operator_bases[*op_id]
                     .offset_in_chain
                     .base_chain_offset(sess)
             }
@@ -946,7 +942,7 @@ impl OperatorData {
         }
     }
 
-    fn aggregation_member(
+    pub fn aggregation_member(
         &self,
         agg_offset: OffsetInAggregation,
     ) -> Option<OperatorId> {

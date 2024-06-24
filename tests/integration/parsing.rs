@@ -4,7 +4,7 @@ use scr::{
 };
 
 #[test]
-fn join_size_one_groups() -> Result<(), ContextualizedScrError> {
+fn seq_sum() -> Result<(), ContextualizedScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
         &CliOptions::with_default_exts(),
         ["seq=10", "sum"],

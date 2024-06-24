@@ -110,18 +110,7 @@ impl SessionOptions {
     pub fn get_current_chain(&mut self) -> ChainId {
         self.curr_chain
     }
-    pub fn add_op(
-        &mut self,
-        op_base_opts: OperatorBaseOptions,
-        op_data: OperatorData,
-    ) -> OperatorDataId {
-        let op_id = self.operator_data.next_idx();
-        self.operator_base_opts
-            .push(op_base_opts.intern(&mut self.string_store));
-        self.operator_data.push(op_data);
-        op_id
-    }
-    pub fn add_op_from_interned_ops(
+    pub fn add_op_from_interned_opts(
         &mut self,
         op_base_opts_interned: OperatorBaseOptionsInterned,
         op_data: OperatorData,
@@ -129,7 +118,16 @@ impl SessionOptions {
         let op_id = self.operator_data.next_idx();
         self.operator_base_opts.push(op_base_opts_interned);
         self.operator_data.push(op_data);
+        self.chains[self.curr_chain].operators.push(op_id);
         op_id
+    }
+    pub fn add_op(
+        &mut self,
+        op_base_opts: OperatorBaseOptions,
+        op_data: OperatorData,
+    ) -> OperatorDataId {
+        let opts_interned = op_base_opts.intern(&mut self.string_store);
+        self.add_op_from_interned_opts(opts_interned, op_data)
     }
     pub fn add_chain(&mut self, label: String) {
         let new_chain_id = self.chains.next_idx();

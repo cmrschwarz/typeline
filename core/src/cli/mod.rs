@@ -873,13 +873,16 @@ pub fn parse_cli_retain_args(
         let expr = parse_call_expr(args, &mut arg_idx)?;
 
         if let Some(label) = expr.label {
-            if expr.op_name.is_empty() && label.is_atom {}
+            if expr.op_name.is_empty() && label.is_atom {
+                todo!("settings");
+            }
         }
 
         if let Some(op_data) = try_parse_operator_data(&mut ctx_opts, &expr)? {
             let op_base_opts =
                 expr.op_base_options_interned(&mut ctx_opts.string_store);
-            ctx_opts.add_op_from_interned_ops(op_base_opts, op_data);
+            ctx_opts.add_op_from_interned_opts(op_base_opts, op_data);
+            continue;
         }
 
         if try_parse_as_special_op(&expr)? {
