@@ -15,7 +15,7 @@ fn seq_sum() -> Result<(), ContextualizedScrError> {
 }
 
 #[test]
-fn foreach_block() -> Result<(), ContextualizedScrError> {
+fn empty_foreach_block() -> Result<(), ContextualizedScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
         &CliOptions::with_default_exts(),
         ["seq=10", "fe:", "end", "sum"],
@@ -33,5 +33,16 @@ fn foreach_block_no_colon() -> Result<(), ContextualizedScrError> {
     )?
     .run_collect_stringified()?;
     assert_eq!(res, ["45"]);
+    Ok(())
+}
+
+#[test]
+fn simple_foreach_block() -> Result<(), ContextualizedScrError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        &CliOptions::with_default_exts(),
+        ["str@foo=foo", "fc:", "nop", "next", "nop", "end"],
+    )?
+    .run_collect_stringified()?;
+    assert_eq!(res, ["foo", "foo"]);
     Ok(())
 }

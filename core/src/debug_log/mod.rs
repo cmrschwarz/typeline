@@ -349,18 +349,20 @@ fn setup_forkcat_match_chain(
         setup_transform_chain_dead_slots(&mut subchain, jd);
         subchains.push(subchain);
     }
-    let TransformData::ForkCatSubchainTrailer(trailer) =
-        &tf_data[fc_cont.subchains[FcSubchainIdx::zero()].trailer_tf_id]
-    else {
-        unreachable!()
+    if let Some(TransformData::ForkCatSubchainTrailer(trailer)) = fc_cont
+        .subchains
+        .get(FcSubchainIdx::zero())
+        .map(|sc| &tf_data[sc.trailer_tf_id])
+    {
+        for cont_mapping in trailer.continuation_field_mappings.iter().rev() {
+            push_field_component_with_refs(
+                jd,
+                cont_mapping.cont_field_id,
+                &mut fields,
+            );
+        }
     };
-    for cont_mapping in trailer.continuation_field_mappings.iter().rev() {
-        push_field_component_with_refs(
-            jd,
-            cont_mapping.cont_field_id,
-            &mut fields,
-        );
-    }
+
     group_tracks.push(
         jd.tf_mgr.transforms[fc_cont.continuation_tf_id].input_group_track_id,
     );
