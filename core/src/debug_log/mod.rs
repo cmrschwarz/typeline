@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use crate::{
     job::JobData,
     operators::{
+        aggregator::TfAggregatorHeader,
         fork::TfFork,
         forkcat::{FcSubchainIdx, TfForkCat},
         transform::{TransformData, TransformId},
@@ -179,38 +180,15 @@ fn setup_transform_chain_tf_envs(
     let mut match_chain = start_match_chain;
     let mut tf_id = match_chain.start_tf_id;
     loop {
-        let tf = &jd.tf_mgr.transforms[tf_id];
-        // TODO: handle multiple output fields
+        let succ = setup_transform_tf_envs(
+            jd,
+            tf_data,
+            tf_id,
+            &mut match_chains,
+            &mut match_chain,
+        );
 
-        match &tf_data[tf_id] {
-            TransformData::ForkCat(fc) => {
-                match_chains.push(match_chain);
-                match_chain =
-                    setup_forkcat_match_chain(jd, tf_data, fc, tf_id);
-            }
-            TransformData::Fork(fc) => {
-                match_chain
-                    .tf_envs
-                    .push(setup_fork_tf_env(jd, tf_data, fc, tf_id));
-            }
-            _ => {
-                let mut fields = Vec::new();
-                let mut group_tracks = Vec::new();
-                let tf = &jd.tf_mgr.transforms[tf_id];
-                if tf.output_group_track_id != tf.input_group_track_id {
-                    group_tracks.push(tf.output_group_track_id);
-                }
-                tf_data[tf_id].get_out_fields(tf, &mut fields);
-                match_chain.tf_envs.push(TransformEnv {
-                    tf_id: Some(tf_id),
-                    group_tracks,
-                    subchains: Vec::new(),
-                    fields,
-                });
-            }
-        }
-
-        if let Some(succ) = tf.successor {
+        if let Some(succ) = succ {
             tf_id = succ;
         } else {
             break;
@@ -221,6 +199,84 @@ fn setup_transform_chain_tf_envs(
         add_hidden_fields(jd, mc);
     }
     TransformChain { match_chains }
+}
+
+fn setup_transform_tf_envs(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    tf_id: TransformId,
+    match_chains: &mut Vec<MatchChain>,
+    match_chain: &mut MatchChain,
+) -> Option<TransformId> {
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let mut succ = tf.successor;
+    match &tf_data[tf_id] {
+        TransformData::ForkCat(fc) => {
+            let mut fc_mc = setup_forkcat_match_chain(jd, tf_data, fc, tf_id);
+            std::mem::swap(match_chain, &mut fc_mc);
+            match_chains.push(fc_mc);
+        }
+        TransformData::Fork(fc) => {
+            match_chain
+                .tf_envs
+                .push(setup_fork_tf_env(jd, tf_data, fc, tf_id));
+        }
+        TransformData::AggregatorHeader(agg) => {
+            succ = Some(setup_aggregator_tf_envs(
+                jd,
+                tf_data,
+                agg,
+                tf_id,
+                match_chains,
+                match_chain,
+            ));
+        }
+
+        _ => {
+            let mut fields = Vec::new();
+            let mut group_tracks = Vec::new();
+            let tf = &jd.tf_mgr.transforms[tf_id];
+            if tf.output_group_track_id != tf.input_group_track_id {
+                group_tracks.push(tf.output_group_track_id);
+            }
+            tf_data[tf_id].get_out_fields(tf, &mut fields);
+            match_chain.tf_envs.push(TransformEnv {
+                tf_id: Some(tf_id),
+                group_tracks,
+                subchains: Vec::new(),
+                fields,
+            });
+        }
+    }
+    succ
+}
+
+fn setup_aggregator_tf_envs(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    agg: &TfAggregatorHeader,
+    tf_id: TransformId,
+    match_chains: &mut Vec<MatchChain>,
+    match_chain: &mut MatchChain,
+) -> TransformId {
+    match_chain.tf_envs.push(TransformEnv {
+        tf_id: Some(tf_id),
+        group_tracks: Vec::new(),
+        subchains: Vec::new(),
+        fields: Vec::new(),
+    });
+
+    for &sub_tf_id in &agg.sub_tfs {
+        setup_transform_tf_envs(
+            jd,
+            tf_data,
+            sub_tf_id,
+            match_chains,
+            match_chain,
+        );
+    }
+
+    agg.trailer_tf_id
 }
 
 fn setup_fork_tf_env(

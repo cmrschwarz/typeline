@@ -243,7 +243,10 @@ fn stream_error_in_join() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        ["ERROR: in op id 1: ErroringStream: Error"]
+        // TODO: the aggregator transform taking an op id makes
+        // this error message even worse than it previously was
+        // figure out a better way to do this!
+        ["ERROR: in op id 2: ErroringStream: Error"]
     );
     Ok(())
 }

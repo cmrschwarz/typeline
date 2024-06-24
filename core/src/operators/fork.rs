@@ -104,7 +104,7 @@ pub fn setup_op_fork(
     op.subchains_start = sess.chains[chain_id].subchains.next_idx();
 
     for sc in std::mem::take(&mut op.subchains) {
-        sess.setup_subchain(chain_id, sc)?;
+        sess.create_subchain(chain_id, sc)?;
     }
 
     op.subchains_end = sess.chains[chain_id].subchains.next_idx();

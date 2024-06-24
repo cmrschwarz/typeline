@@ -15,7 +15,7 @@ use crate::{
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
     },
-    utils::index_vec::IndexVec,
+    utils::{index_vec::IndexVec, indexing_type::IndexingType},
 };
 
 use super::{
@@ -53,12 +53,13 @@ pub const AGGREGATOR_DEFAULT_NAME: &str = "aggregator";
 //   beforehand for any following subchains in case it is consumed.
 
 pub struct TfAggregatorHeader {
-    curr_sub_tf_idx: usize,
-    sub_tfs: Vec<TransformId>,
-    elem_buffered: bool,
-    last_elem_multiplied: bool,
-    actor_id: ActorId,
-    iter_id: IterId,
+    pub curr_sub_tf_idx: usize,
+    pub sub_tfs: Vec<TransformId>,
+    pub elem_buffered: bool,
+    pub last_elem_multiplied: bool,
+    pub actor_id: ActorId,
+    pub iter_id: IterId,
+    pub trailer_tf_id: TransformId,
 }
 
 pub struct TfAggregatorTrailer {
@@ -211,6 +212,7 @@ pub fn insert_tf_aggregator(
             last_elem_multiplied: false,
             actor_id,
             iter_id,
+            trailer_tf_id: TransformId::max_value(),
         }),
     );
     let mut sub_tfs = Vec::with_capacity(op_count);
@@ -257,6 +259,8 @@ pub fn insert_tf_aggregator(
     else {
         unreachable!()
     };
+    header.trailer_tf_id = trailer_tf_id;
+
     header.sub_tfs = sub_tfs;
     job.job_data.tf_mgr.transforms[header_tf_id].successor =
         Some(header.sub_tfs.first().copied().unwrap_or(trailer_tf_id));

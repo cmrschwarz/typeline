@@ -669,34 +669,22 @@ impl SessionSetupData {
         self.add_op_from_opts_direct(chain_id, op_base_opts, op_data_id)
     }
 
-    pub fn setup_subchain(
+    pub fn setup_chain(
         &mut self,
         chain_id: ChainId,
-        mut subchain_data: Vec<(OperatorBaseOptions, OperatorData)>,
+        chain_data: impl IntoIterator<
+            Item = (OperatorBaseOptionsInterned, OperatorDataId),
+        >,
     ) -> Result<ChainId, OperatorSetupError> {
-        let sc_id = self.chains.push_get_id(Chain {
-            label: None,
-            settings: self.chains[chain_id].settings.clone(),
-            operators: IndexVec::new(),
-            subchains: IndexVec::new(),
-        });
-
-        self.chains[chain_id].subchains.push(sc_id);
-
         let mut curr_aggregation_op_id = None;
         let mut curr_aggregation = IndexVec::new();
 
-        let mut i = 0;
-        while i < subchain_data.len() {
-            let successor_append = subchain_data
-                .get(i + 1)
+        let mut iter = chain_data.into_iter().peekable();
+        while let Some((op_base_opts, op_data_id)) = iter.next() {
+            let successor_append = iter
+                .peek()
                 .map(|(base_opts, _)| base_opts.append_mode)
                 .unwrap_or(false);
-
-            let (op_base_opts, op_data) = &mut subchain_data[i];
-            let op_base_opts = std::mem::take(op_base_opts);
-            let op_base_opts = op_base_opts.intern(&mut self.string_store);
-            let op_data = std::mem::take(op_data);
 
             let add_to_aggregation =
                 op_base_opts.append_mode || successor_append;
@@ -712,7 +700,6 @@ impl SessionSetupData {
                             OperatorDataId::max_value(),
                         )
                     });
-                let op_data_id = self.operator_data.push_get_id(op_data);
 
                 let op_id = self.setup_for_op_data_id(
                     chain_id,
@@ -732,16 +719,15 @@ impl SessionSetupData {
                         ));
                     self.operator_bases[curr_agg_id].op_data_id = op_data_id;
                 }
-                self.setup_for_op_data(
-                    sc_id,
+                self.setup_for_op_data_id(
+                    chain_id,
                     OperatorOffsetInChain::Direct(
-                        self.chains[sc_id].operators.next_idx(),
+                        self.chains[chain_id].operators.next_idx(),
                     ),
                     op_base_opts,
-                    op_data,
+                    op_data_id,
                 )?;
             }
-            i += 1;
         }
 
         if let Some(curr_ag) = curr_aggregation_op_id {
@@ -750,7 +736,32 @@ impl SessionSetupData {
             );
         }
 
-        Ok(sc_id)
+        Ok(chain_id)
+    }
+
+    pub fn create_subchain(
+        &mut self,
+        chain_id: ChainId,
+        subchain_data: Vec<(OperatorBaseOptions, OperatorData)>,
+    ) -> Result<ChainId, OperatorSetupError> {
+        let chain_id = self.chains.push_get_id(Chain {
+            label: None,
+            settings: self.chains[chain_id].settings.clone(),
+            operators: IndexVec::new(),
+            subchains: IndexVec::new(),
+        });
+        self.chains[chain_id].subchains.push(chain_id);
+        // PERF: :/
+        let subchain_processed = subchain_data
+            .into_iter()
+            .map(|(opts, data)| {
+                (
+                    opts.intern(&mut self.string_store),
+                    self.add_op_data_raw(data),
+                )
+            })
+            .collect::<Vec<_>>();
+        self.setup_chain(chain_id, subchain_processed)
     }
 }
 

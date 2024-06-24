@@ -16,9 +16,7 @@ use crate::{
         foreach::OpForeach,
         fork::OpFork,
         forkcat::OpForkCat,
-        operator::{
-            Operator, OperatorData, OperatorDataId, OperatorOffsetInChain,
-        },
+        operator::{Operator, OperatorData, OperatorDataId},
     },
     scr_error::ContextualizedScrError,
     utils::{
@@ -267,24 +265,18 @@ impl SessionOptions {
 
         let mut res = None;
 
-        'chains: for (chain_id, chain_opts) in self.chains.iter_enumerated() {
-            for &op_data_id in &chain_opts.operators {
-                res = sess_setup_data
-                    .setup_for_op_data_id(
-                        chain_id,
-                        OperatorOffsetInChain::Direct(
-                            sess_setup_data.chains[chain_id]
-                                .operators
-                                .next_idx(),
-                        ),
-                        self.operator_base_opts[op_data_id],
-                        op_data_id,
-                    )
-                    .err();
-
-                if res.is_some() {
-                    break 'chains;
-                }
+        for (chain_id, chain_opts) in self.chains.iter_enumerated() {
+            res = sess_setup_data
+                .setup_chain(
+                    chain_id,
+                    chain_opts
+                        .operators
+                        .iter()
+                        .map(|&op_id| (self.operator_base_opts[op_id], op_id)),
+                )
+                .err();
+            if res.is_some() {
+                break;
             }
         }
 
