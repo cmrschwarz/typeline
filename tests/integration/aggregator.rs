@@ -1,7 +1,9 @@
-use scr::operators::aggregator::create_op_aggregate;
+use scr::{
+    operators::fork::create_op_fork_with_opts,
+    options::operator_base_options::OperatorBaseOptions,
+};
 use scr_core::{
     operators::{
-        fork::create_op_fork,
         literal::{create_op_int, create_op_str},
         sequence::create_op_seqn,
         string_sink::{create_op_string_sink, StringSinkHandle},
@@ -47,10 +49,16 @@ fn append_after_fork() -> Result<(), ScrError> {
         //.set_batch_size(2)
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(
-            create_op_fork([[create_op_aggregate([
-                create_op_int(4),
-                create_op_string_sink(&ss),
-            ])]])
+            create_op_fork_with_opts(vec![vec![
+                (
+                    OperatorBaseOptions {
+                        append_mode: true,
+                        ..Default::default()
+                    },
+                    create_op_int(4),
+                ),
+                (OperatorBaseOptions::default(), create_op_string_sink(&ss)),
+            ]])
             .unwrap(),
         )
         .run()?;

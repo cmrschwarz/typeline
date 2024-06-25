@@ -27,6 +27,7 @@ use crate::{
     operators::{
         aggregator::create_op_aggregate_raw,
         errors::OperatorSetupError,
+        nop_copy::create_op_nop_copy,
         operator::{
             OffsetInChain, OperatorBase, OperatorData, OperatorDataId,
             OperatorId, OperatorOffsetInChain,
@@ -700,6 +701,21 @@ impl SessionSetupData {
                             OperatorDataId::max_value(),
                         )
                     });
+
+                if curr_aggregation.is_empty() && op_base_opts.append_mode {
+                    let op_nop_opts =
+                        OperatorBaseOptions::from_name("nop".into())
+                            .intern(&mut self.string_store);
+                    curr_aggregation.push(self.setup_for_op_data(
+                        chain_id,
+                        OperatorOffsetInChain::AggregationMember(
+                            curr_agg,
+                            curr_aggregation.next_idx(),
+                        ),
+                        op_nop_opts,
+                        create_op_nop_copy(),
+                    )?);
+                }
 
                 let op_id = self.setup_for_op_data_id(
                     chain_id,

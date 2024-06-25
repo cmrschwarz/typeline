@@ -38,7 +38,7 @@ fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), ScrError> {
                     append_mode: true,
                     ..Default::default()
                 },
-                create_op_int(2),
+                create_op_int(3),
             ),
             (OperatorBaseOptions::default(), create_op_string_sink(&ss)),
         ]])?)

@@ -431,16 +431,16 @@ fn basic_cow() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .push_str("123", 1)
-        .add_op(create_op_fork([
-            [create_op_regex_with_opts(
+        .add_op(create_op_fork([[
+            create_op_regex_with_opts(
                 ".",
                 RegexOptions {
                     multimatch: true,
                     ..Default::default()
                 },
-            )?],
-            [create_op_string_sink(&ss)],
-        ])?)
+            )?,
+            create_op_string_sink(&ss),
+        ]])?)
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
     Ok(())
