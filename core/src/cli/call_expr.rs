@@ -12,7 +12,7 @@ use crate::{
         setting::CliArgIdx,
     },
     utils::{
-        indexing_type::IndexingType,
+        debuggable_nonmax::DebuggableNonMaxU32, indexing_type::IndexingType,
         int_string_conversions::parse_int_with_units,
         string_store::StringStore,
     },
@@ -107,6 +107,19 @@ pub struct ParsedArg<'a> {
 }
 
 impl Span {
+    pub fn from_cli_arg(
+        start: usize,
+        end: usize,
+        offset_start: usize,
+        offset_end: usize,
+    ) -> Self {
+        Span::CliArg {
+            start: DebuggableNonMaxU32::from_usize(start),
+            end: DebuggableNonMaxU32::from_usize(end),
+            offset_start: offset_start as u16,
+            offset_end: offset_end as u16,
+        }
+    }
     pub fn from_single_arg_with_offset(
         cli_arg_idx: usize,
         offset_start: usize,
