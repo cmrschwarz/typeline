@@ -17,6 +17,7 @@ body {
 }
 
 .match-set {
+    white-space: nowrap;
     width: fit-content;
     display: flex;
     flex-direction: column;
@@ -59,11 +60,32 @@ body {
     background-color: aqua;
 }
 
-.transform {
+.transform-container {
     display: flex;
     flex-direction: column;
     background-color: linen;
     flex-grow: 1;
+}
+
+.transform-name {
+    background-color: lightsteelblue;
+    margin-bottom: 0.4em;
+    white-space: nowrap;
+    min-width: 5em;
+    min-height: 1.5em;
+    padding-inline: 0.2em;
+}
+
+.transform-container .highlighted .transform-name {
+    background-color: red !important;
+}
+
+.transform-container .highlighted .field {
+    background-color: red !important;
+}
+
+.transform-container .highlighted .group-track {
+    background-color: red !important;
 }
 
 .transform-body {
@@ -72,7 +94,11 @@ body {
     gap: 0.4em;
 }
 
-.collapsed-transform-body {
+.collapsed-transform-container {
+    position: relative;
+    width: 1em;
+    flex-grow: 1;
+    padding-inline: 0.2em;
     background: repeating-linear-gradient(
         45deg,
         rgb(148, 175, 210),
@@ -80,8 +106,17 @@ body {
         rgb(176, 196, 222) 0.5em,
         rgb(176, 196, 222) 1em
     );
-    height: 100%;
-    min-height: 2em;
+}
+
+.collapsed-transform-container .transform-name {
+    transform-origin: 0 0;
+    transform: rotate(90deg);
+    position: absolute;
+    padding-inline: 0.2em;
+    background: none;
+    top: 0;
+    left: 100%;
+    flex-grow: 1;
 }
 
 .collapsed-match-set-body {
@@ -94,6 +129,7 @@ body {
     );
     height: 100%;
     min-height: 2em;
+    min-width: 2em;
 }
 
 .collapsed-transform-update-body {
@@ -159,14 +195,6 @@ body {
 .collapsed-field-container .field-id {
     padding-inline: 1em;
     font-weight: bold;
-}
-
-.transform > .transform_name {
-    background-color: lightsteelblue;
-    margin-bottom: 0.4em;
-    white-space: nowrap;
-    min-width: 5em;
-    min-height: 1.5em;
 }
 
 .field-list {

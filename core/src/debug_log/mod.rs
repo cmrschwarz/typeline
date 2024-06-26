@@ -103,6 +103,9 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
     )
     .unwrap();
 
+    hb.register_partial("transform", include_str!("transform.hbs"))
+        .unwrap();
+
     hb.register_helper("unique_id", Box::new(helpers::UniqueId));
     hb.register_helper("repeat", Box::new(helpers::helper_repeat));
     hb.register_helper("let", Box::new(helpers::helper_let));
