@@ -148,6 +148,16 @@ impl<'a> Clone for CowFieldDataRef<'a> {
 }
 
 impl FieldManager {
+    pub fn claim_iter_ref(
+        &self,
+        field_id: FieldId,
+        kind: IterKind,
+    ) -> FieldIterRef {
+        FieldIterRef {
+            field_id,
+            iter_id: self.claim_iter(field_id, kind),
+        }
+    }
     pub fn claim_iter(&self, field_id: FieldId, kind: IterKind) -> IterId {
         self.borrow_field_dealiased_mut(field_id)
             .iter_hall
@@ -694,6 +704,13 @@ impl FieldManager {
                 state,
             )
         }
+    }
+    pub fn lookup_iter_from_ref<'a>(
+        &self,
+        iter_ref: FieldIterRef,
+        cfdr: &'a CowFieldDataRef<'a>,
+    ) -> FieldIter<'a, DestructuredFieldDataRef<'a>> {
+        self.lookup_iter(iter_ref.field_id, cfdr, iter_ref.iter_id)
     }
     pub fn store_iter<'a, R: FieldDataRef<'a>>(
         &self,

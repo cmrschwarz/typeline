@@ -513,19 +513,23 @@ impl LivenessData {
             }
         }
     }
-    fn split_bb_at_call(&mut self, bb_id: BasicBlockId, op_n: OffsetInChain) {
+    fn split_bb_at_call(
+        &mut self,
+        sess: &SessionData,
+        bb_id: BasicBlockId,
+        op_n: OffsetInChain,
+    ) {
         let curr_bb_count = self.basic_blocks.len();
         let bb = &mut self.basic_blocks[bb_id];
-        let end = bb.operators_end;
         let chain_id = bb.chain_id;
-        let op_offset_one = OffsetInChain::from_usize(1);
-        bb.operators_end = op_n + op_offset_one;
-        if op_n + op_offset_one != end {
+        let end = sess.chains[chain_id].operators.next_idx();
+        bb.operators_end = op_n + OffsetInChain::one();
+        if op_n + OffsetInChain::one() != end {
             bb.operators_end = op_n;
             bb.successors.push(BasicBlockId::from(curr_bb_count));
             self.basic_blocks.push(BasicBlock {
                 chain_id,
-                operators_start: op_n + op_offset_one,
+                operators_start: op_n + OffsetInChain::one(),
                 operators_end: end,
                 calls: SmallVec::new(),
                 successors: SmallVec::new(),
@@ -558,7 +562,7 @@ impl LivenessData {
                 target_resolved, ..
             }) => {
                 bb.calls.push(target_resolved.unwrap().into_bb_id());
-                self.split_bb_at_call(bb_id, op_n);
+                self.split_bb_at_call(sess, bb_id, op_n);
                 return true;
             }
             OperatorData::Fork(OpFork {
@@ -579,12 +583,12 @@ impl LivenessData {
                 for sc in &cn.subchains[*subchains_start..*subchains_end] {
                     bb.calls.push(sc.into_bb_id());
                 }
-                self.split_bb_at_call(bb_id, op_n);
+                self.split_bb_at_call(sess, bb_id, op_n);
                 return true;
             }
             OperatorData::Foreach(OpForeach { subchain_idx, .. }) => {
                 bb.calls.push(cn.subchains[*subchain_idx].into_bb_id());
-                self.split_bb_at_call(bb_id, op_n);
+                self.split_bb_at_call(sess, bb_id, op_n);
             }
             OperatorData::Next(_) => unreachable!(),
             OperatorData::ToStr(_)
@@ -1370,7 +1374,7 @@ impl LivenessData {
                     if i > 0 {
                         eprint!(", ");
                     }
-                    eprint!("{s:02},");
+                    eprint!("{s:02}");
                 }
                 eprint!("}}");
             }

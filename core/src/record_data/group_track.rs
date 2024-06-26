@@ -1707,7 +1707,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
     }
 
     pub fn drop_with_field_pos(&mut self, field_pos: usize, count: usize) {
-        match self.base.field_pos.cmp(&field_pos) {
+        match field_pos.cmp(&self.base.field_pos) {
             Ordering::Less => self.drop_before(field_pos, count),
             Ordering::Equal => self.drop(count),
             Ordering::Greater => self.drop_after(field_pos, count),
