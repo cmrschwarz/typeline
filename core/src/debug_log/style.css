@@ -164,7 +164,6 @@ body {
 .transform > .transform_name {
     background-color: lightsteelblue;
     margin-bottom: 0.4em;
-    padding: 0.1em 0.2em;
     white-space: nowrap;
     min-width: 5em;
     min-height: 1.5em;
@@ -199,6 +198,14 @@ body {
     background-color: lightgray;
     display: inline-block;
     white-space: nowrap;
+}
+
+.field th {
+    padding: 0.1em;
+}
+
+.group-track th {
+    padding: 0.1em;
 }
 
 .field .header {
@@ -241,7 +248,6 @@ body {
 
 .field .header .field-id {
     font-weight: bold;
-    padding: 0.1em 0.2em;
     font-family: monospace;
     font-size: larger;
     justify-self: start;
@@ -249,7 +255,6 @@ body {
 
 .group-track .header .group-track-id {
     font-weight: bold;
-    padding: 0.1em 0.2em;
     font-family: monospace;
     font-size: larger;
     justify-self: start;
@@ -258,27 +263,25 @@ body {
 .field .header .field-name {
     flex-grow: 1;
     text-align: center;
-    padding: 0.1em 0.2em;
     font-style: italic;
     justify-self: center;
 }
 
 .field .header .field-producing-arg {
-    padding: 0.1em 0.2em;
     white-space: nowrap;
     justify-self: center;
 }
 
-.group-track .header .group-track-producing-arg {
-    padding: 0.1em 0.2em;
+.group-track .ref-list .group-track-parent {
+    display: inline-block;
     white-space: nowrap;
-    justify-self: center;
+    background-color: lightgreen;
 }
 
 .field .header .field-owned-info {
-    padding: 0.1em 0.2em;
     white-space: nowrap;
     justify-self: end;
+    padding-inline: 0.1em;
 }
 
 .field-owned-info.field-is-cow.full-cow {
@@ -294,9 +297,9 @@ body {
 
 .group-track-tag {
     background-color: rgb(129, 192, 129);
-    padding: 0.1em 0.2em;
     white-space: nowrap;
     justify-self: end;
+    padding-inline: 0.1em;
 }
 
 .ref-list {

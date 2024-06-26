@@ -12,25 +12,37 @@
         {{/if}}
 
         <script>
-            function toggle_collapsable(collapsable_id, collapsed_id, display_style="flex") {
-                let collapsable = document.getElementById(collapsable_id);
-                let collapsed = document.getElementById(collapsed_id);
-                if (collapsable.style.display == "none") {
-                    collapsed.style.display = "none";
-                    collapsable.style.display = display_style;
+            function toggle_collapsable(elements_tag, collapsed_elements_tag, display_style="flex") {
+                let elements = document.querySelectorAll(`[collapse_tag=${elements_tag}]`);
+                let collapsed_elements = document.querySelectorAll(`[collapse_tag=${collapsed_elements_tag}]`);
+                if (elements[0].style.display == "none") {
+                    for (const elem of elements) {
+                        elem.style.display = display_style;
+                    }
+                    for (const collapsed_elem of collapsed_elements) {
+                        collapsed_elem.style.display = "none";
+                    }
                 }
                 else {
-                    collapsable.style.display = "none";
-                    collapsed.style.display = "flex";
+                    for (const elem of elements) {
+                        elem.style.display = "none";
+                    }
+                    for (const collapsed_elem of collapsed_elements) {
+                        collapsed_elem.style.display = "flex";
+                    }
                 }
             }
-            function highlight(id) {
-                let highlightable = document.getElementById(id);
-                highlightable.classList.add('highlighted')
+            function highlight(tag) {
+                let highlightables = document.querySelectorAll(`[collapse_tag=${tag}]`);
+                for (const elem of highlightables) {
+                    elem.classList.add('highlighted')
+                }
             }
-            function unhighlight(id) {
-                let highlightable = document.getElementById(id);
-                highlightable.classList.remove('highlighted')
+            function unhighlight(tag) {
+                let highlightables = document.querySelectorAll(`[collapse_tag=${tag}]`);
+                for (const elem of highlightables) {
+                    elem.classList.remove('highlighted')
+                }
             }
         </script>
     </head>

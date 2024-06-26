@@ -1,8 +1,8 @@
-{{~let "collapsed_field_container_id" (unique_id "collapsed_field_container_id_")}}
-{{~let "field_container_id" (unique_id "collapsed_field_id_")}}
+{{~let "collapsed_field_container_id" "field_" id }}  {{! (unique_id "collapsed_field_container_id_") }}
+{{~let "field_container_id" "collapsed_field_" id }}  {{! (unique_id "collapsed_field_id_") }}
 <div
     class="collapsed-field-container"
-    id="{{collapsed_field_container_id}}"
+    collapse_tag="{{collapsed_field_container_id}}"
     style="display: none;"
     onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
 >
@@ -12,9 +12,9 @@
         {{id}}
     </div>
 </div>
-<div class="field-container" id="{{field_container_id}}">
+<div class="field-container" collapse_tag="{{field_container_id}}">
     <table
-        class="field" id="{{transform_update_id}}_field{{id}}"
+        class="field" collapse_tag="{{transform_update_id}}_field{{id}}"
         onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
     >
         <thead>

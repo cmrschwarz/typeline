@@ -573,7 +573,7 @@ pub fn handle_tf_join<'a>(
 
     let mut record_group_iter =
         jd.group_track_manager.lookup_group_track_iter_mut(
-            join.group_track_iter_ref.list_id,
+            join.group_track_iter_ref.track_id,
             join.group_track_iter_ref.iter_id,
             &jd.match_set_mgr,
             join.actor_id,

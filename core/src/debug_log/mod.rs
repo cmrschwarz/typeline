@@ -36,7 +36,7 @@ use crate::{
 
 struct MatchChain {
     ms_id: MatchSetId,
-    start_tf_id: TransformId,
+    start_tf_id: Option<TransformId>,
     tf_envs: Vec<TransformEnv>,
     dead_slots: Vec<usize>,
 }
@@ -67,15 +67,16 @@ pub struct CowInfo {
 }
 
 impl MatchChain {
-    pub fn new(jd: &JobData, start_tf: TransformId) -> Self {
-        #[allow(unused_mut)]
-        let mut match_chain = Self {
-            ms_id: jd.tf_mgr.transforms[start_tf].match_set_id,
+    pub fn new(ms_id: MatchSetId, start_tf: Option<TransformId>) -> Self {
+        Self {
+            ms_id,
             start_tf_id: start_tf,
             tf_envs: Vec::new(),
             dead_slots: Vec::new(),
-        };
-        match_chain
+        }
+    }
+    pub fn from_start_tf(jd: &JobData, start_tf: TransformId) -> Self {
+        Self::new(jd.tf_mgr.transforms[start_tf].match_set_id, Some(start_tf))
     }
 }
 
@@ -178,20 +179,21 @@ fn setup_transform_chain_tf_envs(
 ) -> TransformChain {
     let mut match_chains = Vec::new();
     let mut match_chain = start_match_chain;
-    let mut tf_id = match_chain.start_tf_id;
-    loop {
-        let succ = setup_transform_tf_envs(
-            jd,
-            tf_data,
-            tf_id,
-            &mut match_chains,
-            &mut match_chain,
-        );
+    if let Some(mut tf_id) = match_chain.start_tf_id {
+        loop {
+            let succ = setup_transform_tf_envs(
+                jd,
+                tf_data,
+                tf_id,
+                &mut match_chains,
+                &mut match_chain,
+            );
 
-        if let Some(succ) = succ {
-            tf_id = succ;
-        } else {
-            break;
+            if let Some(succ) = succ {
+                tf_id = succ;
+            } else {
+                break;
+            }
         }
     }
     match_chains.push(match_chain);
@@ -288,7 +290,7 @@ fn setup_fork_tf_env(
     let mut subchains = Vec::new();
 
     for tgt in &fork.targets {
-        let mut sc_match_chain = MatchChain::new(jd, tgt.tf_id);
+        let mut sc_match_chain = MatchChain::from_start_tf(jd, tgt.tf_id);
         let mut input_tf_env = TransformEnv {
             tf_id: None,
             group_tracks: vec![tgt.gt_id],
@@ -323,13 +325,17 @@ fn setup_forkcat_match_chain(
 ) -> MatchChain {
     let fc_cont = fc.continuation_state.lock().unwrap();
 
-    let mut match_chain = MatchChain::new(jd, fc_cont.continuation_tf_id);
+    let mut match_chain = MatchChain::new(
+        fc_cont.continuation_ms_id,
+        fc_cont.continuation_tf_id,
+    );
     let mut subchains = Vec::new();
     let mut fields = Vec::new();
     let mut group_tracks = Vec::new();
 
     for sce in &fc_cont.subchains {
-        let mut sc_match_chain = MatchChain::new(jd, sce.start_tf_id);
+        let mut sc_match_chain =
+            MatchChain::from_start_tf(jd, sce.start_tf_id);
         let mut input_tf_env = TransformEnv {
             tf_id: None,
             group_tracks: vec![
@@ -363,9 +369,7 @@ fn setup_forkcat_match_chain(
         }
     };
 
-    group_tracks.push(
-        jd.tf_mgr.transforms[fc_cont.continuation_tf_id].input_group_track_id,
-    );
+    group_tracks.push(fc_cont.continuation_input_group_track);
 
     match_chain.tf_envs.push(TransformEnv {
         tf_id: Some(tf_id),
@@ -468,7 +472,7 @@ fn setup_transform_chain(
     tf_data: &IndexSlice<TransformId, TransformData>,
     start_tf: TransformId,
 ) -> TransformChain {
-    let mut start_match_chain = MatchChain::new(jd, start_tf);
+    let mut start_match_chain = MatchChain::from_start_tf(jd, start_tf);
     let start_tf = &jd.tf_mgr.transforms[start_tf];
     start_match_chain.tf_envs.push(TransformEnv {
         tf_id: None,
@@ -783,19 +787,25 @@ fn group_track_to_json(
 
         let is_curr_group_start = is_next_group_start;
         let group_idx;
+        let parent_group_idx;
         let group_len_rem;
         if passed {
             group_idx = -1;
             zero_size_groups = 0;
             group_len_rem = passed_count;
             passed_count -= 1;
+            parent_group_idx = None;
             is_next_group_start = passed_count == 0;
         } else {
             if iter.is_end(true) {
                 break;
             }
             zero_size_groups = iter.skip_empty_groups();
-            group_idx = iter.group_idx() as isize;
+            group_idx = iter.group_idx_stable() as isize;
+            parent_group_idx = iter
+                .group_track()
+                .parent_group_indices_stable
+                .try_get(iter.group_idx());
 
             group_len_rem = iter.group_len_rem();
             iter.next_n_fields(1);
@@ -822,6 +832,7 @@ fn group_track_to_json(
         }
 
         rows.push(json!({
+            "parent_group_idx": parent_group_idx,
             "group_idx": group_idx,
             "passed": passed_count,
             "zero_sized_groups": zero_size_groups,
@@ -838,7 +849,10 @@ fn group_track_to_json(
         "id":  group_track_id.into_usize(),
         "rows": rows,
         "iters": group_track_iters_to_json(&gt.iter_states),
-        "iters_before_start": group_track_iters_to_json(&gt.iter_states[..iters_before_start])
+        "iters_before_start": group_track_iters_to_json(&gt.iter_states[..iters_before_start]),
+        "parent": gt.parent_group_track_id().map(IndexingType::into_usize),
+        "alias_source": gt.alias_source.map(IndexingType::into_usize),
+        "corresponding_header": gt.corresponding_header.map(IndexingType::into_usize),
     })
 }
 

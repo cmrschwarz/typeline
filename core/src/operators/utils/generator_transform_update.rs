@@ -261,7 +261,7 @@ fn handle_enum_mode<G: GeneratorSequence>(
     let mut drop_count = 0;
     let mut set_done = false;
     let mut group_iter = gbs.rgt.lookup_group_track_iter_mut(
-        group_iter_ref.list_id,
+        group_iter_ref.track_id,
         group_iter_ref.iter_id,
         gbs.msm,
         gbs.actor_id,
@@ -332,7 +332,7 @@ fn handle_enum_unbounded_mode<G: GeneratorSequence>(
     let mut seq_len_rem = bgs.generator.seq_len_rem();
 
     let mut group_iter = bgs.rgt.lookup_group_track_iter_mut(
-        group_iter_ref.list_id,
+        group_iter_ref.track_id,
         group_iter_ref.iter_id,
         bgs.msm,
         bgs.actor_id,

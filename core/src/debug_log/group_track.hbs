@@ -1,8 +1,8 @@
-{{~let "collapsed_field_container_id" (unique_id "collapsed_field_container_id_")}}
-{{~let "field_container_id" (unique_id "collapsed_field_id_")}}
+{{~let "collapsed_field_container_id" "collapsed_group_id_" id }} {{! (unique_id "collapsed_field_container_id_")}}
+{{~let "field_container_id" "group_id_" id }} {{! (unique_id "collapsed_field_id_") }}
 <div
     class="collapsed-field-container"
-    id="{{collapsed_field_container_id}}"
+    collapse_tag="{{collapsed_field_container_id}}"
     style="display: none;"
     onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
 >
@@ -12,9 +12,9 @@
         G-{{id}}
     </div>
 </div>
-<div class="group-track-container" id="{{field_container_id}}">
+<div class="group-track-container" collapse_tag="{{field_container_id}}">
     <table
-        class="group-track" id="{{transform_update_id}}_group_track{{id}}"
+        class="group-track" collapse_tag="{{transform_update_id}}_group_track{{id}}"
         onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
     >
         <thead>
@@ -23,11 +23,9 @@
                     <div class="group-track-id">
                         G-{{id}}
                     </div>
-                    <div class="group-track-producing-arg">
-                        {{#if producing_arg}}
-                        `{{producing_arg}}`
-                        {{/if}}
-                    </div>
+
+                    <div class="group-track-producing-arg"></div>
+
                     <div class="group-track-tag">Group Track</div>
                 </div>
             </th>
@@ -45,10 +43,35 @@
                 <div class="ref-list">
                     <div class="desc">References:</div>
                     <div class="ref size-placeholder">9</div>
+                    {{#if alias_source includeZero=true}}
+                    <div class="ref group-track-alias-source"
+                        onmouseenter="highlight('{{transform_update_id}}_group_track{{alias_source}}')"
+                        onmouseleave="unhighlight('{{transform_update_id}}_group_track{{alias_source}}')"
+                    >
+                        Alias: G-{{alias_source}}
+                    </div>
+                    {{/if}}
+                    {{#if corresponding_header includeZero=true}}
+                    <div class="ref group-track-corresponding-header"
+                        onmouseenter="highlight('{{transform_update_id}}_group_track{{corresponding_header}}')"
+                        onmouseleave="unhighlight('{{transform_update_id}}_group_track{{corresponding_header}}')"
+                    >
+                        Header: G-{{corresponding_header}}
+                    </div>
+                    {{/if}}
+                    {{#if parent includeZero=true}}
+                    <div class="ref group-track-parent"
+                        onmouseenter="highlight('{{transform_update_id}}_group_track{{parent}}')"
+                        onmouseleave="unhighlight('{{transform_update_id}}_group_track{{parent}}')"
+                    >
+                        Parent: G-{{parent}}
+                    </div>
+                    {{/if}}
                 </div>
             </th>
         </thead>
         <thead>
+            <th class="group-track-table-header">PGID</th>
             <th class="group-track-table-header">GID</th>
             <th class="group-track-table-header">Len</th>
             <th class="group-track-table-header">Iters</th>
@@ -58,7 +81,7 @@
             {{~let "transform_update_id" ../transform_update_id}}
             {{#each (range row.dead_slots)}}
             <tr class="group-track-row dead-row">
-                <td colspan="3">
+                <td colspan="4">
                     <div class="dead-row-placeholder">
                         <div class="group-idx">0</div>
                         <div class="group-len-rem">0</div>
@@ -75,6 +98,7 @@
             {{~/if}}
 
             <tr class="group-track-row">
+                <td class="parent-group-idx{{flag_shadow}}">{{row.parent_group_idx}}</td>
                 <td class="group-idx{{flag_shadow}}">{{row.group_idx}}</td>
                 <td class="group-len-rem{{flag_shadow}}">
                     {{#if row.is_group_start}}

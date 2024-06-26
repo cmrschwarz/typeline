@@ -44,7 +44,6 @@ use super::{
     operator::{
         OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain,
-        TransformContinuationKind, DUMMY_OP_NOP,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -104,8 +103,10 @@ pub struct ContinuationFieldMapping {
 }
 
 pub struct FcContinuationState {
+    pub continuation_tf_id: Option<TransformId>,
+    pub continuation_input_group_track: GroupTrackId,
+    pub continuation_ms_id: MatchSetId,
     pub subchains: IndexVec<FcSubchainIdx, SubchainEntry>,
-    pub continuation_tf_id: TransformId,
     pub current_turn: FcSubchainIdx,
     pub produced_on_last_turn: IndexVec<FcSubchainIdx, usize>,
     pub rolling_sum: usize,
@@ -234,19 +235,29 @@ pub fn insert_tf_forkcat<'a>(
     op: &'a OpForkCat,
     tf_state: TransformState,
 ) -> OperatorInstantiation {
-    let tf_op = tf_state.op_id.unwrap();
-    let chain_id = job.job_data.session_data.operator_bases[tf_op].chain_id;
     let input_field = tf_state.input_field;
     let cont_ms_id = job
         .job_data
         .match_set_mgr
         .add_match_set(&mut job.job_data.field_mgr);
 
+    let gt_parent = job.job_data.group_track_manager.group_tracks
+        [tf_state.input_group_track_id]
+        .borrow()
+        .parent_group_track_id();
+
     let cont_group_track = job.job_data.group_track_manager.add_group_track(
-        None,
+        gt_parent,
         cont_ms_id,
         ActorRef::Unconfirmed(0),
     );
+
+    #[cfg(feature = "debug")]
+    {
+        job.job_data.group_track_manager.group_tracks[cont_group_track]
+            .borrow_mut()
+            .alias_source = Some(tf_state.input_group_track_id);
+    }
 
     let mut cont_input_field =
         job.job_data.match_set_mgr.get_dummy_field(cont_ms_id);
@@ -269,7 +280,9 @@ pub fn insert_tf_forkcat<'a>(
     let sc_count = (op.subchains_end - op.subchains_start).into_usize();
 
     let continuation_state = Arc::new(Mutex::new(FcContinuationState {
-        continuation_tf_id: TransformId::zero(), // fill in later
+        continuation_tf_id: None, // filled in by the header transform
+        continuation_input_group_track: cont_group_track,
+        continuation_ms_id: cont_ms_id,
         current_turn: FcSubchainIdx::zero(),
         subchains: IndexVec::default(),
         produced_on_last_turn: IndexVec::from(vec![0; sc_count]),
@@ -308,50 +321,23 @@ pub fn insert_tf_forkcat<'a>(
         subchains.push(sc_entry);
     }
 
-    let cont_inst = if let Some(cont_op_id) = job.job_data.session_data.chains
-        [chain_id]
-        .operators
-        .get(op.direct_offset_in_chain + OffsetInChain::one())
-        .copied()
-    {
-        job.setup_transforms_from_op(
-            cont_ms_id,
-            cont_op_id,
-            cont_input_field,
-            cont_group_track,
-            None,
-            &HashMap::default(),
-        )
-    } else {
-        job.setup_transforms_for_op_iter(
-            std::iter::once((tf_op, op_base, &DUMMY_OP_NOP)),
-            cont_ms_id,
-            cont_input_field,
-            cont_group_track,
-            None,
-            &HashMap::default(),
-        )
-    };
-
     let TransformData::ForkCat(fc) = &mut job.transform_data[fc_tf_id] else {
         unreachable!()
     };
 
     let mut cont = fc.continuation_state.lock().unwrap();
     cont.subchains = subchains;
-    cont.continuation_tf_id = cont_inst.tfs_begin;
 
     let tf = &mut job.job_data.tf_mgr.transforms[fc_tf_id];
-    tf.successor = Some(cont_inst.tfs_begin);
     tf.output_field = cont_input_field;
     job.job_data.field_mgr.bump_field_refcount(cont_input_field);
 
     OperatorInstantiation {
         tfs_begin: fc_tf_id,
-        tfs_end: cont_inst.tfs_end,
-        next_input_field: cont_inst.next_input_field,
-        next_group_track: cont_inst.next_group_track,
-        continuation: TransformContinuationKind::SelfExpanded,
+        tfs_end: fc_tf_id,
+        next_input_field: cont_input_field,
+        next_group_track: cont_group_track,
+        next_match_set: cont_ms_id,
     }
 }
 
@@ -367,7 +353,8 @@ fn setup_subchain<'a>(
     fc_tf_id: TransformId,
     continuation_vars: &IndexSlice<ContinuationVarIdx, FieldId>,
 ) -> SubchainEntry {
-    let fc_ms_id = job.job_data.tf_mgr.transforms[fc_tf_id].match_set_id;
+    let fc_tf = &job.job_data.tf_mgr.transforms[fc_tf_id];
+    let fc_ms_id = fc_tf.match_set_id;
 
     let sc_ms_id = job
         .job_data
@@ -388,6 +375,13 @@ fn setup_subchain<'a>(
         sc_ms_id,
         ActorRef::Unconfirmed(0),
     );
+
+    #[cfg(feature = "debug")]
+    {
+        job.job_data.group_track_manager.group_tracks[group_track]
+            .borrow_mut()
+            .alias_source = Some(fc_tf.output_group_track_id);
+    }
 
     let sc_chain_id =
         job.job_data.session_data.chains[op_base.chain_id].subchains[sc_idx];
@@ -555,7 +549,9 @@ pub fn handle_tf_forkcat(
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 
-    let cont_state = fc.continuation_state.lock().unwrap();
+    let mut cont_state = fc.continuation_state.lock().unwrap();
+
+    cont_state.continuation_tf_id = jd.tf_mgr.transforms[tf_id].successor;
 
     // rev so the first subchain ends up at the top of the stack
     for sc in cont_state.subchains.iter().rev() {
@@ -569,11 +565,12 @@ pub fn handle_tf_forkcat(
             ps.input_done,
         );
     }
-    jd.group_track_manager.pass_leading_groups_to_children(
+    jd.group_track_manager.propagate_leading_groups_to_alias(
         &jd.match_set_mgr,
         jd.tf_mgr.transforms[tf_id].input_group_track_id,
         batch_size,
         ps.input_done,
+        true,
         cont_state.subchains.iter().map(|sc| sc.group_track_id),
     );
 }
@@ -598,7 +595,7 @@ pub fn handle_tf_forcat_subchain_trailer(
 
     let mut group_track_iter =
         jd.group_track_manager.lookup_group_track_iter_mut(
-            fcst.group_track_iter_ref.list_id,
+            fcst.group_track_iter_ref.track_id,
             fcst.group_track_iter_ref.iter_id,
             &jd.match_set_mgr,
             fcst.actor_id,
@@ -638,21 +635,33 @@ pub fn handle_tf_forcat_subchain_trailer(
     let end_reached = group_track_iter.is_end(ps.input_done);
     group_track_iter.store_iter(fcst.group_track_iter_ref.iter_id);
 
-    let cont_ms_id =
-        jd.tf_mgr.transforms[cont_state.continuation_tf_id].match_set_id;
     let sc_ms_id = jd.tf_mgr.transforms[tf_id].match_set_id;
-    jd.match_set_mgr.match_sets[cont_ms_id].active_source_ms = Some(sc_ms_id);
+    jd.match_set_mgr.match_sets[cont_state.continuation_ms_id]
+        .active_source_ms = Some(sc_ms_id);
 
     let done = ps.input_done && fcst.subchain_idx == cont_state.last_sc();
 
-    jd.tf_mgr.inform_cross_ms_transform_batch_available(
-        &jd.field_mgr,
-        &jd.match_set_mgr,
-        cont_state.continuation_tf_id,
-        fields_to_consume,
-        padding_inserted + fields_to_consume,
-        done,
-    );
+    // PERF: this is dumb?
+    let cont_dummy_field_id = jd
+        .match_set_mgr
+        .get_dummy_field(cont_state.continuation_ms_id);
+    jd.field_mgr
+        .apply_field_actions(&jd.match_set_mgr, cont_dummy_field_id);
+    jd.field_mgr.fields[cont_dummy_field_id]
+        .borrow_mut()
+        .iter_hall
+        .push_undefined(fields_to_consume, true);
+
+    if let Some(cont_tf_id) = cont_state.continuation_tf_id {
+        jd.tf_mgr.inform_cross_ms_transform_batch_available(
+            &jd.field_mgr,
+            &jd.match_set_mgr,
+            cont_tf_id,
+            fields_to_consume,
+            padding_inserted + fields_to_consume,
+            done,
+        );
+    }
 
     if done {
         jd.tf_mgr.transforms[tf_id].done = true;
@@ -660,20 +669,19 @@ pub fn handle_tf_forcat_subchain_trailer(
 
     // the 'pass to children' below will deal with the `fields_to_consume`
     // so just the padding is dropped here
-    jd.group_track_manager.group_tracks[fcst.group_track_iter_ref.list_id]
+    jd.group_track_manager.group_tracks[fcst.group_track_iter_ref.track_id]
         .borrow_mut()
         .drop_leading_fields(true, padding_inserted, end_reached);
 
-    jd.group_track_manager.pass_leading_groups_to_children(
+    jd.group_track_manager.propagate_leading_groups_to_alias(
         &jd.match_set_mgr,
-        fcst.group_track_iter_ref.list_id,
+        fcst.group_track_iter_ref.track_id,
         fields_to_consume,
         end_reached,
-        std::iter::once(
-            jd.tf_mgr.transforms[cont_state.continuation_tf_id]
-                .input_group_track_id,
-        ),
+        true,
+        std::iter::once(cont_state.continuation_input_group_track),
     );
+
     for cim in &fcst.continuation_field_mappings {
         let sc_field = jd
             .field_mgr
@@ -703,15 +711,6 @@ pub fn handle_tf_forcat_subchain_trailer(
         jd.field_mgr
             .store_iter(cim.sc_field_id, cim.sc_field_iter_id, iter);
     }
-
-    // PERF: this is dumb?
-    let cont_dummy_field_id = jd.match_set_mgr.get_dummy_field(cont_ms_id);
-    jd.field_mgr
-        .apply_field_actions(&jd.match_set_mgr, cont_dummy_field_id);
-    jd.field_mgr.fields[cont_dummy_field_id]
-        .borrow_mut()
-        .iter_hall
-        .push_undefined(fields_to_consume, true);
 }
 
 pub fn create_op_forkcat_with_opts(

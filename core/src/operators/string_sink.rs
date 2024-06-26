@@ -255,8 +255,8 @@ pub fn push_errors(
     for _ in 0..run_length {
         out.append_error(e.clone());
     }
-    field_pos += run_length;
     let successes_so_far = field_pos - *last_interruption_end;
+    field_pos += run_length;
     if successes_so_far > 0 {
         output_field
             .iter_hall

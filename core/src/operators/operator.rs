@@ -14,7 +14,9 @@ use crate::{
         operator_base_options::OperatorBaseOptionsInterned,
         session_options::SessionOptions,
     },
-    record_data::{field::FieldId, group_track::GroupTrackId},
+    record_data::{
+        field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
+    },
     utils::{
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
         small_box::SmallBox, string_store::StringStoreEntry,
@@ -147,18 +149,12 @@ pub struct OperatorBase {
     pub outputs_end: OpOutputIdx,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum TransformContinuationKind {
-    Regular,
-    SelfExpanded,
-}
-
 pub struct OperatorInstantiation {
     pub tfs_begin: TransformId,
     pub tfs_end: TransformId,
+    pub next_match_set: MatchSetId,
     pub next_input_field: FieldId,
     pub next_group_track: GroupTrackId,
-    pub continuation: TransformContinuationKind,
 }
 
 #[derive(Default, PartialEq, Eq, Clone, Copy)]
@@ -927,6 +923,7 @@ impl OperatorData {
             tf_state.output_field
         };
         let next_group_track = tf_state.output_group_track_id;
+        let next_match_set = tf_state.match_set_id;
         let tf_id = add_transform_to_job(
             &mut job.job_data,
             &mut job.transform_data,
@@ -936,9 +933,9 @@ impl OperatorData {
         OperatorInstantiation {
             tfs_begin: tf_id,
             tfs_end: tf_id,
+            next_match_set,
             next_input_field,
             next_group_track,
-            continuation: TransformContinuationKind::Regular,
         }
     }
 

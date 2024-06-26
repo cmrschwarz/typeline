@@ -133,7 +133,7 @@ impl TfCollect {
         let mut inserter = output_field.iter_hall.varying_type_inserter();
 
         let mut group_iter = bud.group_tracker.lookup_group_track_iter_mut(
-            self.group_track_iter.list_id,
+            self.group_track_iter.track_id,
             self.group_track_iter.iter_id,
             bud.match_set_mgr,
             self.actor_id,

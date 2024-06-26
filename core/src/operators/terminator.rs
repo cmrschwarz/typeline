@@ -3,10 +3,7 @@ use crate::{
     record_data::{action_buffer::ActorId, field_action::FieldActionKind},
 };
 
-use super::{
-    operator::TransformContinuationKind,
-    transform::{TransformData, TransformId, TransformState},
-};
+use super::transform::{TransformData, TransformId, TransformState};
 
 pub struct TfTerminator {
     actor_id: ActorId,
@@ -53,19 +50,6 @@ pub fn handle_tf_terminator(
     }
     if !done {
         jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
-    }
-}
-
-pub fn add_terminator_tf_cont_dependant(
-    sess: &mut Job,
-    last_tf_id: TransformId,
-    cont: TransformContinuationKind,
-) -> Option<TransformId> {
-    match cont {
-        TransformContinuationKind::Regular => {
-            Some(add_terminator(sess, last_tf_id))
-        }
-        TransformContinuationKind::SelfExpanded => None,
     }
 }
 

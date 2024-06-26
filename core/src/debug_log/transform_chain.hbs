@@ -1,17 +1,17 @@
 <div class="transform-chain">
     {{#each this.match_chains as |mc|}}
     {{~let "transform_update_id" ../transform_update_id}}
-    {{~let "match_set_body_id" (unique_id "match_set_body_")}}
-    {{~let "collapsed_match_set_body_id" (unique_id "collapsed_match_set_body_")}}
+    {{~let "match_set_body_id" "match_set_" mc.ms_id }} {{! (unique_id "match_set_body_")}}
+    {{~let "collapsed_match_set_body_id" "collapsed_match_set_" mc.ms_id  }} {{! (unique_id "collapsed_match_set_body_") }}
     <div class="match-set">
         <div
-            id="{{transform_update_id}}_ms{{mc.ms_id}}"
+            collapse_tag="{{transform_update_id}}_ms{{mc.ms_id}}"
             class="match-set-name"
             onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
         >
         Match Set {{mc.ms_id}}
         </div>
-        <div class="match-set-body" id="{{match_set_body_id}}">
+        <div class="match-set-body" collapse_tag="{{match_set_body_id}}">
             {{~#each mc.tf_envs as |tf_env|}}
             {{~let "transform_update_id" ../transform_update_id}}
             <div class="transform">
@@ -20,14 +20,14 @@
                 {{~let "collapsed_transform_body_id" (unique_id "collapsed_transform_body_")}}
                 <div
                     class="transform_name filled_transform"
-                    id="{{transform_update_id}}_tf{{tf_env.transform_id}}"
+                    collapse_tag="{{transform_update_id}}_tf{{tf_env.transform_id}}"
                     onclick="toggle_collapsable('{{transform_body_id}}', '{{collapsed_transform_body_id}}')"
                 >
                     {{#if tf_env.transform_id includeZero=true}}
                     tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
                     {{/if}}
                 </div>
-                <div class="transform-body" id="{{transform_body_id}}">
+                <div class="transform-body" collapse_tag="{{transform_body_id}}">
                     {{~#if tf_env.subchains}}
                     <div class="chain-list">
                     {{#each tf_env.subchains as |subchain|}}
@@ -52,14 +52,14 @@
                 </div>
                 <div
                     class="collapsed-transform-body"
-                    id="{{collapsed_transform_body_id}}"
+                    collapse_tag="{{collapsed_transform_body_id}}"
                     style="display: none;"
                     onclick="toggle_collapsable('{{transform_body_id}}', '{{collapsed_transform_body_id}}')"
                 ></div>
                 {{else}}
                 <div
                     class="transform_name empty_transform"
-                    id="{{transform_update_id}}_tf{{tf_env.transform_id}}"
+                    collapse_tag="{{transform_update_id}}_tf{{tf_env.transform_id}}"
                 >
                     {{#if tf_env.transform_id includeZero=true}}
                     tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
@@ -71,7 +71,7 @@
         </div>
         <div
             class="collapsed-match-set-body"
-            id="{{collapsed_match_set_body_id}}"
+            collapse_tag="{{collapsed_match_set_body_id}}"
             style="display: none;"
             onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
         ></div>

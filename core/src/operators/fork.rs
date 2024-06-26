@@ -39,7 +39,7 @@ use super::{
         OperatorBase, OperatorData, OperatorDataId, OperatorId,
         OperatorOffsetInChain,
     },
-    terminator::add_terminator_tf_cont_dependant,
+    terminator::add_terminator,
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -153,11 +153,12 @@ pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
 
     let tf = &jd.tf_mgr.transforms[tf_id];
 
-    jd.group_track_manager.pass_leading_groups_to_children(
+    jd.group_track_manager.propagate_leading_groups_to_alias(
         &jd.match_set_mgr,
         tf.input_group_track_id,
         batch_size,
         ps.input_done,
+        true,
         sp.targets.iter().map(|tgt| tgt.gt_id),
     );
 
@@ -303,11 +304,7 @@ fn setup_fork_subchain(
         None,
         &HashMap::default(),
     );
-    add_terminator_tf_cont_dependant(
-        job,
-        instantiation.tfs_end,
-        instantiation.continuation,
-    );
+    add_terminator(job, instantiation.tfs_end);
     ForkTarget {
         tf_id: instantiation.tfs_begin,
         gt_id: target_group_track,

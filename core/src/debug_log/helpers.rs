@@ -122,11 +122,23 @@ pub fn helper_let<'reg, 'rc>(
         .into());
     };
 
-    let value = h
-        .param(1)
-        .as_ref()
-        .map(|v| v.value().to_owned())
-        .ok_or_else(|| RenderErrorReason::ParamNotFoundForIndex("let", 2))?;
+    let value = if h.params().len() == 2 {
+        h.param(1)
+            .as_ref()
+            .map(|v| v.value().to_owned())
+            .ok_or_else(|| {
+                RenderErrorReason::ParamNotFoundForIndex("let", 2)
+            })?
+    } else {
+        let mut res = String::new();
+        for p in h.params().iter().skip(1) {
+            match p.value() {
+                Value::String(s) => res.push_str(s),
+                other => res.push_str(&other.to_string()),
+            }
+        }
+        Value::String(res)
+    };
 
     let block = rc.block_mut().unwrap();
 

@@ -12,9 +12,8 @@ use crate::{
         operator::{
             OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
             OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
-            TransformContinuationKind,
         },
-        terminator::add_terminator_tf_cont_dependant,
+        terminator::add_terminator,
         transform::{
             stream_producer_update, transform_pre_update,
             transform_stream_value_update, transform_update, TransformData,
@@ -455,11 +454,8 @@ impl<'a> Job<'a> {
 
         self.job_data.start_tf = Some(instantiation.tfs_begin);
 
-        add_terminator_tf_cont_dependant(
-            self,
-            instantiation.tfs_end,
-            instantiation.continuation,
-        );
+        add_terminator(self, instantiation.tfs_end);
+
         self.job_data
             .tf_mgr
             .push_tf_in_ready_stack(instantiation.tfs_begin);
@@ -586,7 +582,7 @@ impl<'a> Job<'a> {
         ops: impl IntoIterator<
             Item = (OperatorId, &'a OperatorBase, &'a OperatorData),
         >,
-        ms_id: MatchSetId,
+        mut ms_id: MatchSetId,
         mut input_field: FieldId,
         mut input_group_track: GroupTrackId,
         mut predecessor_tf: Option<TransformId>,
@@ -757,6 +753,7 @@ impl<'a> Job<'a> {
 
             input_field = instantiation.next_input_field;
             input_group_track = instantiation.next_group_track;
+            ms_id = instantiation.next_match_set;
 
             if let Some(pred) = predecessor_tf {
                 self.job_data.tf_mgr.transforms[pred].successor =
@@ -769,12 +766,6 @@ impl<'a> Job<'a> {
                 start_tf_id = Some(instantiation.tfs_begin);
             }
 
-            if instantiation.continuation
-                == TransformContinuationKind::SelfExpanded
-            {
-                return instantiation;
-            }
-
             predecessor_tf = Some(instantiation.tfs_end);
         }
         let start = start_tf_id.unwrap();
@@ -782,9 +773,9 @@ impl<'a> Job<'a> {
         OperatorInstantiation {
             tfs_begin: start,
             tfs_end: end,
+            next_match_set: ms_id,
             next_input_field: input_field,
             next_group_track: input_group_track,
-            continuation: TransformContinuationKind::Regular,
         }
     }
     fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {

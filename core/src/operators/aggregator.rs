@@ -24,7 +24,6 @@ use super::{
     operator::{
         OffsetInAggregation, OperatorData, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
-        TransformContinuationKind,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -234,6 +233,10 @@ pub fn insert_tf_aggregator(
             sub_op_id,
             prebound_outputs,
         );
+        assert!(
+            instantiation.next_match_set == ms_id,
+            "aggregator does not support changing match sets"
+        );
         sub_tfs.push(instantiation.tfs_begin);
     }
     let trailer_tf_state = TransformState::new(
@@ -268,9 +271,9 @@ pub fn insert_tf_aggregator(
     OperatorInstantiation {
         tfs_begin: header_tf_id,
         tfs_end: trailer_tf_id,
+        next_match_set: ms_id,
         next_input_field: out_fid,
         next_group_track: active_group_track,
-        continuation: TransformContinuationKind::Regular,
     }
 }
 pub fn handle_tf_aggregator_header(
