@@ -1,13 +1,13 @@
+{{~let "transform_update_id" (unique_id "tfu_")}}
 {{~let "transform_update_body_id" (unique_id "transform_update_body_id_")}}
 {{~let "collapsed_transform_update_body_id" (unique_id "collapsed_transform_update_body_id_")}}
-{{~let "transform_update_id" (unique_id "tfu_")}}
 <div class="transform-update">
     <div
         collapse_tag="{{transform_update_id}}"
         class="transform-update-text"
         onclick="toggle_collapsable('{{transform_update_body_id}}', '{{collapsed_transform_update_body_id}}')"
-        onmouseenter="highlight('{{transform_update_id}}_tf{{transform_id}}')"
-        onmouseleave="unhighlight('{{transform_update_id}}_tf{{transform_id}}')"
+        onmouseenter="highlight('{{transform_update_id}}_tf_{{transform_id}}')"
+        onmouseleave="unhighlight('{{transform_update_id}}_tf_{{transform_id}}')"
     >
         {{transform_update_text}}
     </div>

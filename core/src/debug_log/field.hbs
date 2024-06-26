@@ -1,7 +1,8 @@
-{{~let "collapsed_field_container_id" "field_" id }}  {{! (unique_id "collapsed_field_container_id_") }}
-{{~let "field_container_id" "collapsed_field_" id }}  {{! (unique_id "collapsed_field_id_") }}
+{{~let "collapsed_field_container_id" "collapsed_field_container_" id }}  {{! (unique_id "collapsed_field_container_id_") }}
+{{~let "field_container_id" "field_container_" id }}  {{! (unique_id "collapsed_field_id_") }}
 <div
     class="collapsed-field-container"
+    highlight_tag="{{transform_update_id}}_field_{{id}}"
     collapse_tag="{{collapsed_field_container_id}}"
     style="display: none;"
     onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
@@ -14,7 +15,9 @@
 </div>
 <div class="field-container" collapse_tag="{{field_container_id}}">
     <table
-        class="field" collapse_tag="{{transform_update_id}}_field{{id}}"
+        class="field"
+        collapse_tag="field_{{id}}"
+        highlight_tag="{{transform_update_id}}_field_{{id}}"
         onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
     >
         <thead>
@@ -36,8 +39,8 @@
                     {{#if cow}}
                     <div
                         class="field-owned-info field-is-cow {{cow.variant}}"
-                        onmouseenter="highlight('{{transform_update_id}}_field{{cow.source}}')"
-                        onmouseleave="unhighlight('{{transform_update_id}}_field{{cow.source}}')"
+                        onmouseenter="highlight('{{transform_update_id}}_field_{{cow.source}}')"
+                        onmouseleave="unhighlight('{{transform_update_id}}_field_{{cow.source}}')"
                     >
                         {{cow.variant}}: {{cow.source}}
                     </div>
@@ -62,8 +65,8 @@
                     <div class="ref size-placeholder">9</div>
                     {{#each field_refs as |ref|}}
                     <div class="ref"
-                        onmouseenter="highlight('{{../transform_update_id}}_field{{ref}}')"
-                        onmouseleave="unhighlight('{{../transform_update_id}}_field{{ref}}')"
+                        onmouseenter="highlight('{{../transform_update_id}}_field_{{ref}}')"
+                        onmouseleave="unhighlight('{{../transform_update_id}}_field_{{ref}}')"
                     >{{ref}}
                     </div>
                     {{/each}}

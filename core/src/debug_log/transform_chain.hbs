@@ -20,14 +20,18 @@
                 {{~let "collapsed_transform_body_id" (unique_id "collapsed_transform_body_")}}
                 <div
                     class="transform_name filled_transform"
-                    collapse_tag="{{transform_update_id}}_tf{{tf_env.transform_id}}"
+                    highlight_tag="{{transform_update_id}}_tf_{{tf_env.transform_id}}"
+                    collapse_tag="{{transform_update_id}}_tf_{{tf_env.transform_id}}"
                     onclick="toggle_collapsable('{{transform_body_id}}', '{{collapsed_transform_body_id}}')"
                 >
                     {{#if tf_env.transform_id includeZero=true}}
                     tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`
                     {{/if}}
                 </div>
-                <div class="transform-body" collapse_tag="{{transform_body_id}}">
+                <div
+                    class="transform-body"
+                    collapse_tag="{{transform_body_id}}"
+                >
                     {{~#if tf_env.subchains}}
                     <div class="chain-list">
                     {{#each tf_env.subchains as |subchain|}}
@@ -52,6 +56,7 @@
                 </div>
                 <div
                     class="collapsed-transform-body"
+                    highlight_tag="{{transform_update_id}}_tf_{{tf_env.transform_id}}"
                     collapse_tag="{{collapsed_transform_body_id}}"
                     style="display: none;"
                     onclick="toggle_collapsable('{{transform_body_id}}', '{{collapsed_transform_body_id}}')"
@@ -59,7 +64,8 @@
                 {{else}}
                 <div
                     class="transform_name empty_transform"
-                    collapse_tag="{{transform_update_id}}_tf{{tf_env.transform_id}}"
+                    highlight_tag="{{transform_update_id}}_tf_{{tf_env.transform_id}}"
+                    collapse_tag="{{transform_update_id}}_tf_{{tf_env.transform_id}}"
                 >
                     {{#if tf_env.transform_id includeZero=true}}
                     tf {{tf_env.transform_id}} `{{tf_env.transform_display_name}}`

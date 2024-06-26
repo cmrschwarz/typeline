@@ -1,0 +1,39 @@
+function toggle_collapsable(
+    elements_tag, collapsed_elements_tag, display_style = "flex")
+{
+    let elements = document.querySelectorAll(`[collapse_tag=${elements_tag}]`);
+    let collapsed_elements =
+        document.querySelectorAll(`[collapse_tag=${collapsed_elements_tag}]`);
+    if (elements[0].style.display == "none") {
+        for (const elem of elements) {
+            elem.style.display = display_style;
+        }
+        for (const collapsed_elem of collapsed_elements) {
+            collapsed_elem.style.display = "none";
+        }
+    }
+    else {
+        for (const elem of elements) {
+            elem.style.display = "none";
+        }
+        for (const collapsed_elem of collapsed_elements) {
+            collapsed_elem.style.display = "flex";
+        }
+    }
+}
+
+function highlight(tag)
+{
+    let highlightables = document.querySelectorAll(`[highlight_tag=${tag}]`);
+    for (const elem of highlightables) {
+        elem.classList.add('highlighted')
+    }
+}
+
+function unhighlight(tag)
+{
+    let highlightables = document.querySelectorAll(`[highlight_tag=${tag}]`);
+    for (const elem of highlightables) {
+        elem.classList.remove('highlighted')
+    }
+}

@@ -198,13 +198,13 @@ pub fn setup_op_forkcat_liveness_data(
     let sc_count = (op.subchains_end - op.subchains_start).into_usize();
     let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
     let bb = &ld.basic_blocks[bb_id];
-    let successors = ld.get_var_liveness_ored(
-        VarLivenessSlotGroup::Global,
-        bb.successors.iter(),
-    );
     // TODO: introduce direct reads (not affected by field refs)
     // to reduce this set here
-    let successors_reads = successors.get_slot(VarLivenessSlotKind::Reads);
+    let successors_reads = ld.get_var_liveness_slot(
+        bb_id,
+        VarLivenessSlotGroup::Succession,
+        VarLivenessSlotKind::Reads,
+    );
     for var_id in successors_reads.iter_ones().map(VarId::from_usize) {
         op.continuation_vars.push(ld.vars[var_id]);
     }

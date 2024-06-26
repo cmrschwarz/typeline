@@ -181,22 +181,17 @@ body {
 }
 
 .highlighted {
-    background-color: red !important;
-}
-
-.highlighted .field {
+    background: none !important;
     background-color: red !important;
 }
 
 .field {
     background-color: lightgray;
-    display: inline-block;
     white-space: nowrap;
 }
 
 .group-track {
     background-color: lightgray;
-    display: inline-block;
     white-space: nowrap;
 }
 

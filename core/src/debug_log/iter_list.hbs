@@ -4,15 +4,15 @@
     {{#if transform_id includeZero=true}}
     <div
         class="iter iter-transform"
-        onmouseenter="highlight('{{../transform_update_id}}_tf{{transform_id}}')"
-        onmouseleave="unhighlight('{{../transform_update_id}}_tf{{transform_id}}')"
+        onmouseenter="highlight('{{../transform_update_id}}_tf_{{transform_id}}')"
+        onmouseleave="unhighlight('{{../transform_update_id}}_tf_{{transform_id}}')"
     >
     {{else}}
     {{#if cow_field_id}}
     <div
         class="iter iter-cow-field"
-        onmouseenter="highlight('{{../transform_update_id}}_field{{cow_field_id}}')"
-        onmouseleave="unhighlight('{{../transform_update_id}}_field{{cow_field_id}}')"
+        onmouseenter="highlight('{{../transform_update_id}}_field_{{cow_field_id}}')"
+        onmouseleave="unhighlight('{{../transform_update_id}}_field_{{cow_field_id}}')"
     >
     {{else}}
     <div class="iter">

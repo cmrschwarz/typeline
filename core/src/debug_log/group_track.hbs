@@ -1,10 +1,11 @@
-{{~let "collapsed_field_container_id" "collapsed_group_id_" id }} {{! (unique_id "collapsed_field_container_id_")}}
-{{~let "field_container_id" "group_id_" id }} {{! (unique_id "collapsed_field_id_") }}
+{{~let "collapsed_group_track_container_id" "collapsed_group_id_" id }} {{! (unique_id "collapsed_field_container_id_")}}
+{{~let "group_track_container_id" "group_id_" id }} {{! (unique_id "collapsed_field_id_") }}
 <div
     class="collapsed-field-container"
-    collapse_tag="{{collapsed_field_container_id}}"
+    highlight_tag="{{transform_update_id}}_group_track_{{id}}"
+    collapse_tag="{{collapsed_group_track_container_id}}"
     style="display: none;"
-    onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
+    onclick="toggle_collapsable('{{group_track_container_id}}', '{{collapsed_group_track_container_id}}', 'inline-block')"
 >
     <div
         class="field-id"
@@ -12,10 +13,12 @@
         G-{{id}}
     </div>
 </div>
-<div class="group-track-container" collapse_tag="{{field_container_id}}">
+<div class="group-track-container" collapse_tag="{{group_track_container_id}}">
     <table
-        class="group-track" collapse_tag="{{transform_update_id}}_group_track{{id}}"
-        onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
+        class="group-track"
+        highlight_tag="{{transform_update_id}}_group_track_{{id}}"
+        collapse_tag="group_track_{{id}}"
+        onclick="toggle_collapsable('{{group_track_container_id}}', '{{collapsed_group_track_container_id}}', 'inline-block')"
     >
         <thead>
             <th colspan="5">
@@ -45,24 +48,24 @@
                     <div class="ref size-placeholder">9</div>
                     {{#if alias_source includeZero=true}}
                     <div class="ref group-track-alias-source"
-                        onmouseenter="highlight('{{transform_update_id}}_group_track{{alias_source}}')"
-                        onmouseleave="unhighlight('{{transform_update_id}}_group_track{{alias_source}}')"
+                        onmouseenter="highlight('{{transform_update_id}}_group_track_{{alias_source}}')"
+                        onmouseleave="unhighlight('{{transform_update_id}}_group_track_{{alias_source}}')"
                     >
                         Alias: G-{{alias_source}}
                     </div>
                     {{/if}}
                     {{#if corresponding_header includeZero=true}}
                     <div class="ref group-track-corresponding-header"
-                        onmouseenter="highlight('{{transform_update_id}}_group_track{{corresponding_header}}')"
-                        onmouseleave="unhighlight('{{transform_update_id}}_group_track{{corresponding_header}}')"
+                        onmouseenter="highlight('{{transform_update_id}}_group_track_{{corresponding_header}}')"
+                        onmouseleave="unhighlight('{{transform_update_id}}_group_track_{{corresponding_header}}')"
                     >
                         Header: G-{{corresponding_header}}
                     </div>
                     {{/if}}
                     {{#if parent includeZero=true}}
                     <div class="ref group-track-parent"
-                        onmouseenter="highlight('{{transform_update_id}}_group_track{{parent}}')"
-                        onmouseleave="unhighlight('{{transform_update_id}}_group_track{{parent}}')"
+                        onmouseenter="highlight('{{transform_update_id}}_group_track_{{parent}}')"
+                        onmouseleave="unhighlight('{{transform_update_id}}_group_track_{{parent}}')"
                     >
                         Parent: G-{{parent}}
                     </div>
