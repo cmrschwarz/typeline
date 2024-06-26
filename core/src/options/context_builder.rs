@@ -76,7 +76,7 @@ impl ContextBuilder {
     ) -> OperatorDataId {
         self.opts.add_op(
             OperatorBaseOptions {
-                argname: argname.unwrap_or_else(|| op_data.debug_op_name()),
+                argname: argname.unwrap_or_else(|| op_data.default_op_name()),
                 label,
                 span: Span::Generated,
                 transparent_mode,

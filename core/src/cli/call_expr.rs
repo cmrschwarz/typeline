@@ -57,7 +57,7 @@ pub struct Label<'a> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum CallExprEnd {
+pub enum CallExprEndKind {
     Inline,
     ClosingBracket(Span),
     End(Span),
@@ -70,7 +70,7 @@ pub struct CallExpr<'a> {
     pub op_name: &'a str,
     pub label: Option<Label<'a>>,
     pub args: Vec<Argument<'a>>,
-    pub end: CallExprEnd,
+    pub end_kind: CallExprEndKind,
     pub span: Span,
 }
 

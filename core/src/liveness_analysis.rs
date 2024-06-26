@@ -1356,29 +1356,41 @@ impl LivenessData {
             }
             if !bb.calls.is_empty() {
                 eprint!("[calls: ");
-                for c in &bb.calls {
-                    eprint!("{c:02},");
+                for (i, c) in bb.calls.iter().enumerate() {
+                    if i > 0 {
+                        eprint!(", ");
+                    }
+                    eprint!("{c:02}");
                 }
                 eprint!("] ");
             }
             if !bb.predecessors.is_empty() {
                 eprint!("{{predecessors: ");
-                for s in &bb.predecessors {
+                for (i, s) in bb.predecessors.iter().enumerate() {
+                    if i > 0 {
+                        eprint!(", ");
+                    }
                     eprint!("{s:02},");
                 }
                 eprint!("}}");
             }
             if !bb.successors.is_empty() {
                 eprint!("{{successors: ");
-                for s in &bb.successors {
-                    eprint!("{s:02},");
+                for (i, s) in bb.successors.iter().enumerate() {
+                    if i > 0 {
+                        eprint!(", ");
+                    }
+                    eprint!("{s:02}");
                 }
                 eprint!("}}");
             }
             if !bb.caller_successors.is_empty() {
                 eprint!("{{caller successors: ");
-                for s in &bb.caller_successors {
-                    eprint!("{s:02},");
+                for (i, s) in bb.caller_successors.iter().enumerate() {
+                    if i > 0 {
+                        eprint!(", ");
+                    }
+                    eprint!("{s:02}");
                 }
                 eprint!("}}");
             }

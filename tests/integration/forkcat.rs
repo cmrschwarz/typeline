@@ -275,7 +275,7 @@ fn forkcat_on_unapplied_commands(
 fn parse_forkcat() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
         &CliOptions::default(),
-        ["scr", "seqn=10", "forkcat", "r=.*", "next", "drop", "end"],
+        ["scr", "seqn=10", "forkcat:", "r=.*", "next", "drop", "end"],
     )?
     .run_collect_stringified()?;
     assert_eq!(res, int_sequence_strings(1..11));
@@ -286,7 +286,9 @@ fn parse_forkcat() -> Result<(), ScrError> {
 fn parse_forkcat_2() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
         &CliOptions::default(),
-        ["seqn=3", "fe", "forkcat", "seq=2", "next", "nop", "end"],
+        [
+            "seqn=3", "fe:", "forkcat:", "seq=2", "next", "nop", "end", "end",
+        ],
     )?
     .run_collect_stringified()?;
 

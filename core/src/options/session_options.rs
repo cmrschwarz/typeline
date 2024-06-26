@@ -108,8 +108,7 @@ impl SessionOptions {
         op_base_opts_interned: OperatorBaseOptionsInterned,
         op_data: OperatorData,
     ) -> OperatorDataId {
-        let op_id = self.operator_data.next_idx();
-        self.operator_base_opts.push(op_base_opts_interned);
+        let op_id = self.operator_base_opts.push_get_id(op_base_opts_interned);
         self.operator_data.push(op_data);
         self.chains[self.curr_chain].operators.push(op_id);
         op_id

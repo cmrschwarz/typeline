@@ -45,7 +45,10 @@ impl<'a, I: Iterator<Item = Argument<'a>>> Iterator
     type Item = Result<CallExpr<'a>, CliArgumentError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.input.peek()?;
-        Some(parse_call_expr(&mut self.input))
+        match parse_call_expr(&mut self.input) {
+            Ok(None) => None,
+            Ok(Some(expr)) => Some(Ok(expr)),
+            Err(e) => Some(Err(e)),
+        }
     }
 }
