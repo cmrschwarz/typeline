@@ -21,7 +21,7 @@ use super::{
     group_track::GroupTrackId,
     iter_hall::{CowVariant, FieldDataSource, IterHall, IterState},
     iters::FieldIterator,
-    match_set::{MatchSetId, MatchSetManager},
+    match_set::MatchSetId,
 };
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
@@ -1677,7 +1677,6 @@ impl ActionBuffer {
     pub fn update_field(
         &mut self,
         fm: &FieldManager,
-        msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
     ) {
@@ -1691,20 +1690,6 @@ impl ActionBuffer {
         ) else {
             return;
         };
-
-        // HACK
-        // this is a dirty hack to prevent cow fields from another cow source
-        // to be updated while they are not needed and potentially
-        // undersized
-        if let (Some(cow_src), _) = field.iter_hall.cow_source_field(fm) {
-            if let Some(active_src_ms) =
-                msm.match_sets[field.match_set].active_source_ms
-            {
-                if active_src_ms != fm.fields[cow_src].borrow().match_set {
-                    return;
-                }
-            }
-        }
 
         drop(field);
 

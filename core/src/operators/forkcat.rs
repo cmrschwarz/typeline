@@ -659,8 +659,6 @@ pub fn handle_tf_forcat_subchain_trailer(
     group_track_iter.store_iter(fcst.group_track_iter_ref.iter_id);
 
     let sc_ms_id = jd.tf_mgr.transforms[tf_id].match_set_id;
-    jd.match_set_mgr.match_sets[cont_state.continuation_ms_id]
-        .active_source_ms = Some(sc_ms_id);
 
     let done = ps.input_done && fcst.subchain_idx == cont_state.last_sc();
 

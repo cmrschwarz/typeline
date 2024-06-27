@@ -416,7 +416,7 @@ impl FieldManager {
         let match_set = field.match_set;
         let ab = &mut msm.match_sets[match_set].action_buffer.borrow_mut();
         drop(field);
-        ab.update_field(self, msm, field_id, None);
+        ab.update_field(self, field_id, None);
     }
     // bumps the refcount of the field by one
     pub fn get_cross_ms_cow_field(
