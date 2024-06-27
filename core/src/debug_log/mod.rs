@@ -132,6 +132,7 @@ pub fn write_debug_log_html_head(
             "head",
             &json!({
                 "style": include_str!("style.css"),
+                "script": include_str!("script.js"),
                 "debug_style_sheet": cfg!(feature="debug_log_extern_style_sheet")
             }),
             w,

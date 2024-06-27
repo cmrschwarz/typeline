@@ -142,13 +142,13 @@ body {
     );
     display: flex;
     flex-grow: 1;
-    min-width: 2em;
     align-items: center;
     justify-content: center;
+    min-width: 1em;
 }
 
 .collapsed-field-container .field-id {
-    padding-inline: 1em;
+    padding-inline: 0.5em;
     font-weight: bold;
 }
 
