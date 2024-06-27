@@ -2,8 +2,8 @@
 {{~let "field_container_id" "field_container_" id }}  {{! (unique_id "collapsed_field_id_") }}
 <div
     class="collapsed-field-container"
-    highlight_tag="{{transform_update_id}}_field_{{id}}"
-    collapse_tag="{{collapsed_field_container_id}}"
+    highlight_tag="[{{transform_update_id}}_field_{{id}}]"
+    collapse_tag="[{{collapsed_field_container_id}}]"
     style="display: none;"
     onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
 >
@@ -13,11 +13,11 @@
         {{id}}
     </div>
 </div>
-<div class="field-container" collapse_tag="{{field_container_id}}">
+<div class="field-container" collapse_tag="[{{field_container_id}}]">
     <table
         class="field"
-        collapse_tag="field_{{id}}"
-        highlight_tag="{{transform_update_id}}_field_{{id}}"
+        collapse_tag="[field_{{id}}]"
+        highlight_tag="[{{transform_update_id}}_field_{{id}}]"
     >
         <thead>
             <th

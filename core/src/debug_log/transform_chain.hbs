@@ -6,20 +6,20 @@
     <div class="match-set-container">
         <div class="match-set">
             <div
-                collapse_tag="{{transform_update_id}}_ms{{mc.ms_id}}"
+                collapse_tag="[{{transform_update_id}}_ms{{mc.ms_id}}]"
                 class="match-set-name"
                 onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
             >
             Match Set {{mc.ms_id}}
             </div>
-            <div class="match-set-body" collapse_tag="{{match_set_body_id}}">
+            <div class="match-set-body" collapse_tag="[{{match_set_body_id}}]">
                 {{~#each mc.tf_envs as |tf_env|}}
                 {{> transform_env tf_env transform_update_id=../transform_update_id}}
                 {{/each}}
             </div>
             <div
                 class="collapsed-match-set-body"
-                collapse_tag="{{collapsed_match_set_body_id}}"
+                collapse_tag="[{{collapsed_match_set_body_id}}]"
                 style="display: none;"
                 onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
             ></div>
