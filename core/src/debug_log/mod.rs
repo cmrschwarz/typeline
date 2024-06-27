@@ -103,7 +103,7 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
     )
     .unwrap();
 
-    hb.register_partial("transform", include_str!("transform.hbs"))
+    hb.register_partial("transform_env", include_str!("transform_env.hbs"))
         .unwrap();
 
     hb.register_helper("unique_id", Box::new(helpers::UniqueId));
@@ -400,7 +400,7 @@ fn match_chain_to_json(
 ) -> serde_json::Value {
     let mut envs = Vec::new();
     let string_store = jd.session_data.string_store.read().unwrap();
-    for tf_env in &match_chain.tf_envs {
+    for (tf_env_n, tf_env) in match_chain.tf_envs.iter().enumerate() {
         let mut subchains = Vec::new();
         for tf_chain in &tf_env.subchains {
             subchains.push(transform_chain_to_json(jd, tf_data, tf_chain));
@@ -423,8 +423,18 @@ fn match_chain_to_json(
                 &match_chain.dead_slots,
             ));
         }
+
+        let unique_id = tf_env
+            .tf_id
+            .map(|i| Value::Number(i.into_usize().into()))
+            .unwrap_or(Value::String(format!(
+                "{}-{}",
+                match_chain.ms_id, tf_env_n
+            )));
+
         envs.push(json!({
             "transform_id": tf_env.tf_id.map(IndexingType::into_usize),
+            "transform_id_unique": unique_id,
             "transform_display_name": tf_env.tf_id.map(|id|tf_data[id].display_name().to_string()),
             "subchains": subchains,
             "fields": fields,

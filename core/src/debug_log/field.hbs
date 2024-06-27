@@ -18,10 +18,13 @@
         class="field"
         collapse_tag="field_{{id}}"
         highlight_tag="{{transform_update_id}}_field_{{id}}"
-        onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
     >
         <thead>
-            <th colspan="5">
+            <th
+                class="header-row"
+                colspan="5"
+                onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
+            >
                 <div class="header">
                     <div class="field-id">
                         {{id}}
