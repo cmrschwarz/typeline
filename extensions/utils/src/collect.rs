@@ -88,7 +88,8 @@ impl Operator for OpCollect {
         let actor_id = ab.add_actor();
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
-            .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
+            .first_actor
+            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
         let floating_point_math = jd.session_data.chains[op_base.chain_id]
             .settings
             .floating_point_math;

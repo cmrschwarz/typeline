@@ -47,7 +47,7 @@ use scr_core::{
     utils::{
         phantom_slot::PhantomSlot,
         string_store::StringStoreEntry,
-        temp_vec::{transmute_vec, transmute_vec_take},
+        temp_vec::{transmute_vec, TransmutableContainer},
     },
 };
 
@@ -384,10 +384,8 @@ impl<'a> Transform<'a> for TfPy<'a> {
         let mut output_field = jd.field_mgr.fields[output_field].borrow_mut();
         let mut inserter = output_field.iter_hall.varying_type_inserter();
 
-        let mut input_field_refs =
-            transmute_vec_take(&mut self.input_field_refs);
-        let mut input_field_iters =
-            transmute_vec_take(&mut self.input_field_iters);
+        let mut input_field_refs = self.input_field_refs.take_transmute();
+        let mut input_field_iters = self.input_field_iters.take_transmute();
 
         for iter_ref in &self.input_fields {
             input_field_refs.push(

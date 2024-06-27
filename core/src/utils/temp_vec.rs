@@ -1,85 +1,49 @@
-use std::{
-    alloc::Layout,
-    mem::{align_of, size_of, ManuallyDrop},
-    ptr::NonNull,
-};
+use std::mem::{align_of, size_of, ManuallyDrop};
 
-pub struct TempVec {
-    ptr: NonNull<u8>,
-    layout: Layout,
-}
-unsafe impl Send for TempVec {}
-unsafe impl Sync for TempVec {}
+use super::index_vec::IndexVec;
 
-impl<T> From<Vec<T>> for TempVec {
-    fn from(v: Vec<T>) -> Self {
-        let mut v = ManuallyDrop::new(v);
-        v.clear();
-        unsafe {
-            TempVec {
-                ptr: NonNull::new_unchecked(v.as_mut_ptr().cast()),
-                layout: Layout::array::<T>(v.capacity()).unwrap_unchecked(),
-            }
-        }
-    }
-}
-
-impl<T> From<TempVec> for Vec<T> {
-    fn from(v: TempVec) -> Self {
-        let size = size_of::<T>();
-        let capacity = if size == 0 { 0 } else { v.layout.size() / size };
-        if Layout::array::<T>(capacity) != Ok(v.layout) {
-            return Vec::default();
-        }
-        let v = ManuallyDrop::new(v);
-        unsafe { Vec::from_raw_parts(v.ptr.as_ptr().cast(), 0, capacity) }
-    }
-}
-
-impl Default for TempVec {
-    fn default() -> Self {
-        Self {
-            ptr: NonNull::dangling(),
-            layout: Layout::array::<()>(0).unwrap(),
-        }
-    }
-}
-
-impl Drop for TempVec {
-    fn drop(&mut self) {
-        if self.layout.size() == 0 {
-            // we don't want to deallocate ZSTs or NonNull::dangling()
-            return;
-        }
-        unsafe { std::alloc::dealloc(self.ptr.as_ptr(), self.layout) };
-    }
-}
-
-// convenience wrappers
-impl TempVec {
-    pub fn with<T, R>(&mut self, op: impl FnOnce(&mut Vec<T>) -> R) -> R {
-        let mut v = Vec::from(std::mem::take(self));
-        let res = op(&mut v);
-        *self = TempVec::from(v);
-        res
-    }
-    pub fn take<T>(&mut self) -> Vec<T> {
-        Vec::from(std::mem::take(self))
-    }
-    pub fn give<T>(&mut self, v: Vec<T>) {
-        *self = TempVec::from(v);
-    }
-}
-
-struct LayoutCompatible<T, U>(std::marker::PhantomData<(T, U)>);
-
+pub struct LayoutCompatible<T, U>(std::marker::PhantomData<(T, U)>);
 impl<T, U> LayoutCompatible<T, U> {
-    const SIZE_EQ: bool = size_of::<T>() == size_of::<U>();
-    const ALIGN_EQ: bool = align_of::<T>() == align_of::<U>();
-    const COMPATIBLE: bool = Self::SIZE_EQ && Self::ALIGN_EQ;
-    const ASSERT_COMPATIBLE: () = assert!(Self::COMPATIBLE);
+    pub const SIZE_EQ: bool = size_of::<T>() == size_of::<U>();
+    pub const ALIGN_EQ: bool = align_of::<T>() == align_of::<U>();
+    pub const COMPATIBLE: bool = Self::SIZE_EQ && Self::ALIGN_EQ;
+    pub const ASSERT_COMPATIBLE: () = assert!(Self::COMPATIBLE);
 }
 
+pub trait TransmutableContainer: Default {
+    type ElementType;
+    type ContainerType<Q>: TransmutableContainer<
+        ElementType = Q,
+        ContainerType<Q> = <Self as TransmutableContainer>::ContainerType<Q>,
+    >;
+
+    fn transmute<Q>(self)
+        -> <Self as TransmutableContainer>::ContainerType<Q>;
+    fn transmute_from<Q>(
+        src: <Self as TransmutableContainer>::ContainerType<Q>,
+    ) -> Self;
+
+    fn reclaim_temp<Q>(
+        &mut self,
+        temp: <Self as TransmutableContainer>::ContainerType<Q>,
+    ) {
+        *self = Self::transmute_from(temp);
+    }
+    fn reclaim_temp_take<Q>(
+        &mut self,
+        temp: &mut <Self as TransmutableContainer>::ContainerType<Q>,
+    ) {
+        *self = Self::transmute_from(std::mem::take(temp));
+    }
+
+    fn take_transmute<Q>(
+        &mut self,
+    ) -> <Self as TransmutableContainer>::ContainerType<Q> {
+        std::mem::take(self).transmute()
+    }
+}
+
+#[inline]
 pub fn convert_vec_cleared<T, U>(mut v: Vec<T>) -> Vec<U> {
     let same_align = align_of::<T>() == align_of::<U>();
     let space = v.capacity() * size_of::<T>();
@@ -94,6 +58,7 @@ pub fn convert_vec_cleared<T, U>(mut v: Vec<T>) -> Vec<U> {
     unsafe { Vec::from_raw_parts(v.as_mut_ptr().cast(), 0, capacity_new) }
 }
 
+#[inline]
 pub fn transmute_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
     #[allow(clippy::let_unit_value)]
     let () = LayoutCompatible::<T, U>::ASSERT_COMPATIBLE;
@@ -106,41 +71,63 @@ pub fn transmute_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
     unsafe { Vec::from_raw_parts(ptr.cast(), len, cap) }
 }
 
-pub fn transmute_vec_take<T, U>(v: &mut Vec<T>) -> Vec<U> {
-    transmute_vec(std::mem::take(v))
-}
-
-pub fn temp_vec<T, U, R>(
-    v: &mut Vec<T>,
-    f: impl FnOnce(&mut Vec<U>) -> R,
-) -> R {
-    let mut tv = transmute_vec(std::mem::take(v));
-    let res = f(&mut tv);
-    *v = transmute_vec(tv);
-    res
-}
 #[derive(derive_more::Deref, derive_more::DerefMut)]
-pub struct BorrowedVec<'a, S, T> {
-    source: &'a mut Vec<S>,
+pub struct BorrowedVec<'a, T, V: TransmutableContainer> {
+    source: &'a mut V,
     #[deref]
     #[deref_mut]
-    vec: Vec<T>,
+    vec: <V as TransmutableContainer>::ContainerType<T>,
 }
 
-impl<'a, S, T> BorrowedVec<'a, S, T> {
-    pub fn new(origin: &'a mut Vec<S>) -> Self {
+impl<'a, T, V: TransmutableContainer> BorrowedVec<'a, T, V> {
+    #[inline]
+    pub fn new(origin: &'a mut V) -> Self {
         Self {
-            vec: transmute_vec(std::mem::take(origin)),
+            vec: origin.take_transmute(),
             source: origin,
         }
     }
 }
 
-impl<'a, S, T> Drop for BorrowedVec<'a, S, T> {
+impl<'a, T, V: TransmutableContainer> Drop for BorrowedVec<'a, T, V> {
+    #[inline]
     fn drop(&mut self) {
-        let _ = std::mem::replace(
-            self.source,
-            transmute_vec::<T, S>(std::mem::take(&mut self.vec)),
-        );
+        self.source.reclaim_temp::<T>(std::mem::take(&mut self.vec));
+    }
+}
+
+impl<T> TransmutableContainer for Vec<T> {
+    type ElementType = T;
+
+    type ContainerType<Q> = Vec<Q>;
+
+    fn transmute<Q>(
+        self,
+    ) -> <Self as TransmutableContainer>::ContainerType<Q> {
+        transmute_vec(self)
+    }
+
+    fn transmute_from<Q>(
+        src: <Self as TransmutableContainer>::ContainerType<Q>,
+    ) -> Self {
+        transmute_vec(src)
+    }
+}
+
+impl<I, T> TransmutableContainer for IndexVec<I, T> {
+    type ElementType = T;
+
+    type ContainerType<Q> = IndexVec<I, Q>;
+
+    fn transmute<Q>(
+        self,
+    ) -> <Self as TransmutableContainer>::ContainerType<Q> {
+        IndexVec::from(transmute_vec(Vec::from(self)))
+    }
+
+    fn transmute_from<Q>(
+        src: <Self as TransmutableContainer>::ContainerType<Q>,
+    ) -> Self {
+        IndexVec::from(transmute_vec(Vec::from(src)))
     }
 }

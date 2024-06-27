@@ -52,7 +52,7 @@ impl MatchSetManager {
     ) -> FieldId {
         let field = fm.fields[field_id].borrow();
         let (ms_id, first_actor, shadowed_by) =
-            (field.match_set, field.first_actor, field.shadowed_by);
+            (field.match_set, field.first_actor.get(), field.shadowed_by);
         drop(field);
         debug_assert!(shadowed_by.is_none());
         fm.bump_field_refcount(field_id);
@@ -69,7 +69,7 @@ impl MatchSetManager {
 
         let mut alias = fm.fields[alias_id].borrow_mut();
         alias.iter_hall.data_source = FieldDataSource::Alias(field_id);
-        alias.first_actor = field.first_actor;
+        alias.first_actor = field.first_actor.clone();
         alias_id
     }
 

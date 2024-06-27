@@ -9,8 +9,8 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            OperatorName, Operator, OperatorData, OperatorId,
-            OffsetInChain, PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
+            PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
@@ -122,8 +122,9 @@ impl Operator for OpFlatten {
             input_field_ref_offset,
         };
         jd.field_mgr.fields[tf_state.output_field]
-            .borrow_mut()
-            .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
+            .borrow()
+            .first_actor
+            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(tfe)))
     }
 }

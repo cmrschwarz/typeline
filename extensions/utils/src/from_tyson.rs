@@ -94,8 +94,9 @@ impl Operator for OpFromTyson {
             .borrow();
 
         jd.field_mgr.fields[tf_state.output_field]
-            .borrow_mut()
-            .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
+            .borrow()
+            .first_actor
+            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfFromTyson {
                 input_iter_id: jd.field_mgr.claim_iter(

@@ -217,8 +217,9 @@ impl Operator for OpExec {
 
         let actor_ref = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         jd.field_mgr.fields[tf_state.output_field]
-            .borrow_mut()
-            .first_actor = actor_ref;
+            .borrow()
+            .first_actor
+            .set(actor_ref);
         let mut iters = Vec::new();
 
         let iter_kind =

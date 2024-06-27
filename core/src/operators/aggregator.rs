@@ -190,8 +190,9 @@ pub fn insert_tf_aggregator(
     let actor_id = ab.add_actor();
     let active_group_track = tf_state.input_group_track_id;
     job.job_data.field_mgr.fields[out_fid]
-        .borrow_mut()
-        .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
+        .borrow()
+        .first_actor
+        .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
     drop(ab);
     let iter_id = job.job_data.field_mgr.fields[in_fid]
         .borrow_mut()

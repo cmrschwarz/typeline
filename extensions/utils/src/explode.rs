@@ -13,8 +13,8 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            OperatorName, Operator, OperatorData, OperatorId,
-            OffsetInChain, PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
+            PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
@@ -313,8 +313,10 @@ impl Transform<'_> for TfExplode {
         jd.field_mgr
             .store_iter(input_field_id, self.input_iter_id, iter);
         drop(input_field);
-        let first_actor =
-            jd.field_mgr.fields[input_field_id].borrow().first_actor;
+        let first_actor = jd.field_mgr.fields[input_field_id]
+            .borrow()
+            .first_actor
+            .get();
         let mut iter = std::mem::take(&mut self.pending_fields).into_iter();
         for (field, index) in &mut iter {
             jd.field_mgr.add_field_with_data(

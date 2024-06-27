@@ -1,5 +1,5 @@
 use std::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{Cell, Ref, RefCell, RefMut},
     collections::VecDeque,
     marker::PhantomData,
 };
@@ -38,8 +38,8 @@ pub struct Field {
     pub shadowed_since: ActorId,
     pub shadowed_by: Option<FieldId>,
 
-    pub first_actor: ActorRef,
-    pub snapshot: SnapshotRef,
+    pub first_actor: Cell<ActorRef>,
+    pub snapshot: Cell<SnapshotRef>,
 
     // fields potentially referenced by this field.
     // keeps them alive until this field is dropped
@@ -295,7 +295,7 @@ impl FieldManager {
     }
     pub fn get_first_actor(&self, field_id: FieldId) -> ActorRef {
         let field = self.fields[field_id].borrow();
-        field.first_actor
+        field.first_actor.get()
     }
     pub fn add_field(
         &mut self,
@@ -326,8 +326,8 @@ impl FieldManager {
             shadowed_since: ActionBuffer::MAX_ACTOR_ID,
             shadowed_by: None,
             match_set: ms_id,
-            first_actor,
-            snapshot: SnapshotRef::default(),
+            first_actor: Cell::new(first_actor),
+            snapshot: Cell::new(SnapshotRef::default()),
             iter_hall: IterHall::new_with_data(data),
             field_refs: SmallVec::new(),
             #[cfg(feature = "debug_logging")]
@@ -417,6 +417,17 @@ impl FieldManager {
         let ab = &mut msm.match_sets[match_set].action_buffer.borrow_mut();
         drop(field);
         ab.update_field(self, field_id, None);
+    }
+
+    pub fn drop_field_actions(
+        &self,
+        msm: &MatchSetManager,
+        mut field_id: FieldId,
+    ) {
+        let field = self.borrow_field_dealiased(&mut field_id);
+        let match_set = field.match_set;
+        let ab = &mut msm.match_sets[match_set].action_buffer.borrow_mut();
+        ab.drop_field_actions(field_id, &field);
     }
     // bumps the refcount of the field by one
     pub fn get_cross_ms_cow_field(
@@ -730,6 +741,34 @@ impl FieldManager {
                 .iter_hall
                 .store_iter_unchecked(field_id, iter_id, iter_base)
         };
+    }
+    pub fn store_iter_from_ref<'a, R: FieldDataRef<'a>>(
+        &self,
+        iter_ref: FieldIterRef,
+        iter: impl Into<FieldIter<'a, R>>,
+    ) {
+        self.store_iter(iter_ref.field_id, iter_ref.iter_id, iter)
+    }
+    pub fn store_iter_drop_action_lists<'a, R: FieldDataRef<'a>>(
+        &self,
+        msm: &MatchSetManager,
+        mut field_id: FieldId,
+        iter_id: IterId,
+        iter: impl Into<FieldIter<'a, R>>,
+    ) {
+        let iter_base = iter.into();
+        let field = self.borrow_field_dealiased(&mut field_id);
+        assert!(iter_base.field_data_ref().equals(
+            &self
+                .get_cow_field_ref_raw(field_id)
+                .destructured_field_ref()
+        ));
+        unsafe {
+            field
+                .iter_hall
+                .store_iter_unchecked(field_id, iter_id, iter_base)
+        };
+        self.apply_field_actions(msm, field_id)
     }
 
     pub fn bump_field_refcount(&self, field_id: FieldId) {

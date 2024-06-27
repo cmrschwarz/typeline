@@ -1685,8 +1685,8 @@ impl ActionBuffer {
         let fr = &mut *field;
         let Some((actor_id, ss_prev)) = self.update_snapshot(
             ActorSubscriber::Field(field_id),
-            &mut fr.first_actor,
-            &mut fr.snapshot,
+            fr.first_actor.get_mut(),
+            fr.snapshot.get_mut(),
         ) else {
             return;
         };
@@ -1861,23 +1861,24 @@ impl ActionBuffer {
             }
         }
     }
-    pub fn drop_field_commands(
-        &mut self,
-        field_id: FieldId,
-        first_actor: &mut ActorRef,
-        snapshot: &mut SnapshotRef,
-    ) {
+    pub fn drop_field_actions(&mut self, field_id: FieldId, field: &Field) {
         if self.actors.data.is_empty() {
             return;
         }
+
+        let mut first_actor = field.first_actor.get();
+        let snapshot = field.snapshot.get();
+
         let Some(actor_id) = self.initialize_first_actor(
             ActorSubscriber::Field(field_id),
-            first_actor,
+            &mut first_actor,
         ) else {
             return;
         };
+        field.first_actor.set(first_actor);
+
         let ss = self.update_actor_snapshot(actor_id);
-        if ss == *snapshot {
+        if ss == snapshot {
             return;
         }
         #[cfg(feature = "debug_logging")]
@@ -1890,13 +1891,13 @@ impl ActionBuffer {
         #[cfg(feature = "field_action_group_accel_logging")]
         eprintln!(
             "@ updated snapshot for field {field_id}: \n - prev: {}\n - next: {}",
-            self.stringify_snapshot(actor_id, *snapshot),
+            self.stringify_snapshot(actor_id, snapshot),
             self.stringify_snapshot(actor_id, ss),
         );
-        self.drop_snapshot_refcount(*snapshot, 1);
+        self.drop_snapshot_refcount(snapshot, 1);
         self.bump_snapshot_refcount(ss, 1);
 
-        *snapshot = ss;
+        field.snapshot.set(ss);
     }
 }
 

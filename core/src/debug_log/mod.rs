@@ -364,7 +364,11 @@ fn setup_forkcat_match_chain(
         .get(FcSubchainIdx::zero())
         .map(|sc| &tf_data[sc.trailer_tf_id])
     {
-        for cont_mapping in trailer.continuation_field_mappings.iter().rev() {
+        for cont_mapping in fc_cont.subchains[trailer.subchain_idx]
+            .continuation_field_mappings
+            .iter()
+            .rev()
+        {
             push_field_component_with_refs(
                 jd,
                 cont_mapping.cont_field_id,

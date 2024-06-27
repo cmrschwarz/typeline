@@ -989,15 +989,28 @@ impl GroupTrackManager {
     }
     pub fn lookup_group_track_iter_mut<'a>(
         &'a self,
-        list_id: GroupTrackId,
+        track_id: GroupTrackId,
         iter_id: GroupTrackIterId,
         msm: &'a MatchSetManager,
         actor_id: ActorId,
     ) -> GroupTrackIterMut<RefMut<'a, GroupTrack>> {
-        let mut list = self.borrow_group_track_mut(list_id);
+        let mut list = self.borrow_group_track_mut(track_id);
         list.apply_field_actions(msm);
         GroupTrack::lookup_iter_for_deref_mut(
             self, list, iter_id, msm, actor_id,
+        )
+    }
+    pub fn lookup_group_track_iter_mut_from_ref<'a>(
+        &'a self,
+        iter_ref: GroupTrackIterRef,
+        msm: &'a MatchSetManager,
+        actor_id: ActorId,
+    ) -> GroupTrackIterMut<RefMut<'a, GroupTrack>> {
+        self.lookup_group_track_iter_mut(
+            iter_ref.track_id,
+            iter_ref.iter_id,
+            msm,
+            actor_id,
         )
     }
 

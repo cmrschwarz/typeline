@@ -494,7 +494,7 @@ impl IterHall {
     ) -> VaryingTypeInserter<&mut FieldData> {
         VaryingTypeInserter::new(self.get_owned_data_mut())
     }
-    fn get_owned_data_mut(&mut self) -> &mut FieldData {
+    pub fn get_owned_data_mut(&mut self) -> &mut FieldData {
         match &mut self.data_source {
             FieldDataSource::Owned => &mut self.field_data,
             _ => panic!("IterHall uses COW!"),

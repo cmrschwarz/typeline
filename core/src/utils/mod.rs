@@ -6,6 +6,9 @@ use std::{
 use bstr::ByteSlice;
 use indexing_type::IndexingType;
 
+#[macro_use]
+pub mod index_vec;
+
 pub mod aligned_buf;
 pub mod counting_writer;
 pub mod debuggable_nonmax;
@@ -13,7 +16,6 @@ pub mod dynamic_freelist;
 pub mod encoding;
 pub mod escaped_writer;
 pub mod identity_hasher;
-pub mod index_vec;
 pub mod indexing_type;
 pub mod int_string_conversions;
 pub mod integer_sum;

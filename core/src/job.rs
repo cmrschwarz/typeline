@@ -685,8 +685,8 @@ impl<'a> Job<'a> {
                             .borrow_mut();
                         debug_assert!(f.name == op_base.label);
                         label_added = true;
-                        f.first_actor = first_actor;
-                        f.snapshot = SnapshotRef::default();
+                        f.first_actor.set(first_actor);
+                        f.snapshot.set(SnapshotRef::default());
                         f.match_set = ms_id;
                         *field_idx
                     } else {
@@ -1009,8 +1009,9 @@ impl JobData<'_> {
             .borrow_mut();
         let actor_id = ab.add_actor();
         self.field_mgr.fields[tf_state.output_field]
-            .borrow_mut()
-            .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
+            .borrow()
+            .first_actor
+            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
         actor_id
     }
     pub fn add_iter_for_tf_state(&self, tf_state: &TransformState) -> IterId {

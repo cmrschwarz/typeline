@@ -8,7 +8,7 @@ use scr_core::{
     },
     operators::{
         operator::{
-            Operator, OperatorData, OperatorId, OffsetInChain,
+            OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
@@ -42,9 +42,7 @@ pub struct TfPrimes {
 }
 
 impl Operator for OpPrimes {
-    fn default_name(
-        &self,
-    ) -> scr_core::operators::operator::OperatorName {
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "primes".into()
     }
 
@@ -97,8 +95,9 @@ impl Operator for OpPrimes {
             .iter_hall
             .claim_iter(iter_kind);
         jd.field_mgr.fields[tf_state.output_field]
-            .borrow_mut()
-            .first_actor = ActorRef::Unconfirmed(ab.peek_next_actor_id());
+            .borrow()
+            .first_actor
+            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfPrimes {
                 sieve: primes::Sieve::new(),

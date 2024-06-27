@@ -6,6 +6,8 @@ use std::{
     ptr::NonNull,
 };
 
+use super::temp_vec::{LayoutCompatible, TransmutableContainer};
+
 type Chunk<T, const CHUNK_SIZE: usize> = [MaybeUninit<T>; CHUNK_SIZE];
 
 /// Like `Vec<T>`, but with chunked allocation and interior mutability.
@@ -33,7 +35,7 @@ impl<T, const CHUNK_SIZE: usize> Default for StableVec<T, CHUNK_SIZE> {
 }
 
 impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         assert!(CHUNK_SIZE != 0);
         Self {
             data: Cell::new(NonNull::dangling()),
@@ -67,6 +69,28 @@ impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+    pub fn clear(&mut self) {
+        let prev_len = self.len.get();
+        self.len.set(0);
+        if !std::mem::needs_drop::<T>() {
+            return;
+        }
+        let full_chunks = prev_len / CHUNK_SIZE;
+        let remainder = prev_len % CHUNK_SIZE;
+        unsafe {
+            for i in 0..full_chunks {
+                std::ptr::drop_in_place(
+                    self.get_chunk_ptr_unchecked(i).cast::<[T; CHUNK_SIZE]>(),
+                );
+            }
+            if remainder > 0 {
+                std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(
+                    self.get_chunk_ptr_unchecked(full_chunks),
+                    remainder,
+                ));
+            }
+        }
     }
     pub fn reserve(&self, cap: usize) {
         let total_cap = cap + self.len.get();
@@ -172,26 +196,7 @@ impl<T, const CHUNK_SIZE: usize> Drop for StableVec<T, CHUNK_SIZE> {
         if Self::holds_zsts() || self.chunk_capacity.get() == 0 {
             return;
         }
-        if std::mem::needs_drop::<T>() {
-            let full_chunks = self.len.get() / CHUNK_SIZE;
-            let remainder = self.len.get() % CHUNK_SIZE;
-            unsafe {
-                for i in 0..full_chunks {
-                    std::ptr::drop_in_place(
-                        self.get_chunk_ptr_unchecked(i)
-                            .cast::<[T; CHUNK_SIZE]>(),
-                    );
-                }
-                if remainder > 0 {
-                    std::ptr::drop_in_place(
-                        std::ptr::slice_from_raw_parts_mut(
-                            self.get_chunk_ptr_unchecked(full_chunks),
-                            remainder,
-                        ),
-                    );
-                }
-            }
-        }
+        self.clear();
         unsafe {
             std::alloc::dealloc(
                 self.data.get().as_ptr().cast(),
@@ -379,5 +384,43 @@ impl<T, const CHUNK_SIZE: usize> Drop for StableVecIntoIter<T, CHUNK_SIZE> {
                 StableVec::<T>::layout(self.vec.chunk_capacity.get()),
             );
         }
+    }
+}
+
+pub fn transmute_stable_vec<T, U, const CHUNK_SIZE: usize>(
+    mut src: StableVec<T, CHUNK_SIZE>,
+) -> StableVec<U, CHUNK_SIZE> {
+    #[allow(clippy::let_unit_value)]
+    let () = LayoutCompatible::<T, U>::ASSERT_COMPATIBLE;
+
+    src.clear();
+
+    StableVec {
+        data: unsafe {
+            std::mem::transmute::<
+                Cell<NonNull<*mut Chunk<T, CHUNK_SIZE>>>,
+                Cell<NonNull<*mut Chunk<U, CHUNK_SIZE>>>,
+            >(src.data.clone())
+        },
+        chunk_capacity: src.chunk_capacity.clone(),
+        len: src.len.clone(),
+    }
+}
+
+impl<T> TransmutableContainer for StableVec<T> {
+    type ElementType = T;
+
+    type ContainerType<Q> = StableVec<Q>;
+
+    fn transmute<Q>(
+        self,
+    ) -> <Self as TransmutableContainer>::ContainerType<Q> {
+        transmute_stable_vec(self)
+    }
+
+    fn transmute_from<Q>(
+        src: <Self as TransmutableContainer>::ContainerType<Q>,
+    ) -> Self {
+        transmute_stable_vec(src)
     }
 }

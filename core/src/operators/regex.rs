@@ -496,10 +496,9 @@ pub fn build_tf_regex<'a>(
     let actor_id = ab.add_actor();
     let next_actor_id = ActorRef::Unconfirmed(ab.peek_next_actor_id());
     drop(ab);
-    let mut output_field =
-        jd.field_mgr.fields[tf_state.output_field].borrow_mut();
+    let output_field = jd.field_mgr.fields[tf_state.output_field].borrow();
 
-    output_field.first_actor = next_actor_id;
+    output_field.first_actor.set(next_actor_id);
     drop(output_field);
     let mut input_field_ref_offset = FieldRefOffset::MAX;
     let cgfs: Vec<Option<FieldId>> = op

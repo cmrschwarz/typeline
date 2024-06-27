@@ -14,6 +14,13 @@ use super::{
     range_bounds_to_range,
 };
 
+#[macro_export]
+macro_rules! index_vec {
+    ($($anything: tt)+) => {
+        IndexVec::from(vec![$($anything)+])
+    };
+}
+
 #[derive(ref_cast::RefCast)]
 #[repr(transparent)]
 pub struct IndexSlice<I, T> {
@@ -80,7 +87,7 @@ impl<'a, I: IndexingType, T> Iterator for IndexSliceIterEnumerated<'a, I, T> {
     }
 }
 
-impl<I: IndexingType, T> IndexVec<I, T> {
+impl<I, T> IndexVec<I, T> {
     pub const fn new() -> Self {
         Self {
             data: Vec::new(),
@@ -93,13 +100,6 @@ impl<I: IndexingType, T> IndexVec<I, T> {
             _phantom: PhantomData,
         }
     }
-
-    pub fn push_get_id(&mut self, v: T) -> I {
-        let id = self.next_idx();
-        self.data.push(v);
-        id
-    }
-
     pub fn extend(&mut self, iter: impl IntoIterator<Item = T>) {
         self.data.extend(iter)
     }
@@ -112,11 +112,30 @@ impl<I: IndexingType, T> IndexVec<I, T> {
     pub fn resize_with(&mut self, new_len: usize, f: impl FnMut() -> T) {
         self.data.resize_with(new_len, f)
     }
-    pub fn truncate(&mut self, new_end_index: I) {
-        self.data.truncate(new_end_index.into_usize());
-    }
+
     pub fn truncate_len(&mut self, len: usize) {
         self.data.truncate(len);
+    }
+
+    pub fn as_vec(&self) -> &Vec<T> {
+        &self.data
+    }
+    pub fn as_vec_mut(&mut self) -> &mut Vec<T> {
+        &mut self.data
+    }
+    pub fn into_boxed_slice(self) -> Box<IndexSlice<I, T>> {
+        IndexSlice::ref_cast_box(self.data.into_boxed_slice())
+    }
+}
+
+impl<I: IndexingType, T> IndexVec<I, T> {
+    pub fn push_get_id(&mut self, v: T) -> I {
+        let id = self.next_idx();
+        self.data.push(v);
+        id
+    }
+    pub fn truncate(&mut self, new_end_index: I) {
+        self.data.truncate(new_end_index.into_usize());
     }
     pub fn iter_enumerated(&self) -> IndexSliceIterEnumerated<I, T> {
         IndexSliceIterEnumerated {
@@ -129,7 +148,7 @@ impl<I: IndexingType, T> IndexVec<I, T> {
     }
 }
 
-impl<I: IndexingType, T> IndexSlice<I, T> {
+impl<I, T> IndexSlice<I, T> {
     pub fn iter_enumerated(
         &self,
         initial_offset: I,
@@ -138,12 +157,6 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
             base_iter: self.data.iter(),
             pos: initial_offset,
         }
-    }
-    pub fn next_idx(&self) -> I {
-        I::from_usize(self.data.len())
-    }
-    pub fn last_idx(&self) -> Option<I> {
-        self.len().checked_sub(1).map(I::from_usize)
     }
     pub fn len(&self) -> usize {
         self.data.len()
@@ -157,23 +170,41 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
     pub fn last(&self) -> Option<&T> {
         self.data.last()
     }
-    pub fn iter(&self) -> std::slice::Iter<T> {
-        self.data.iter()
-    }
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<T> {
-        self.data.iter_mut()
-    }
     pub fn slice(&self) -> &[T] {
         &self.data
     }
     pub fn slice_mut(&mut self) -> &mut [T] {
         &mut self.data
     }
+    pub fn ref_cast_box(slice_box: Box<[T]>) -> Box<Self> {
+        unsafe {
+            let base_box_raw = Box::into_raw(slice_box);
+            let index_box_raw = IndexSlice::ref_cast_mut(&mut *base_box_raw)
+                as *mut IndexSlice<I, T>;
+            Box::from_raw(index_box_raw)
+        }
+    }
+}
+
+impl<I: IndexingType, T> IndexSlice<I, T> {
+    pub fn next_idx(&self) -> I {
+        I::from_usize(self.data.len())
+    }
+    pub fn last_idx(&self) -> Option<I> {
+        self.len().checked_sub(1).map(I::from_usize)
+    }
+
     pub fn get(&self, idx: I) -> Option<&T> {
         self.data.get(idx.into_usize())
     }
     pub fn get_mut(&mut self, idx: I) -> Option<&mut T> {
         self.data.get_mut(idx.into_usize())
+    }
+    pub fn iter(&self) -> std::slice::Iter<T> {
+        self.data.iter()
+    }
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<T> {
+        self.data.iter_mut()
     }
 }
 

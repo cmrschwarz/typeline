@@ -1,4 +1,5 @@
 use std::{
+    cell::RefMut,
     collections::HashMap,
     sync::{Arc, Mutex},
 };
@@ -24,18 +25,23 @@ use crate::{
     },
     record_data::{
         action_buffer::{ActorId, ActorRef},
-        field::{FieldId, FieldRefOffset},
-        field_action::FieldActionKind,
-        field_data::{field_value_flags, FieldValueRepr},
-        group_track::{GroupTrackId, GroupTrackIterRef},
+        field::{CowFieldDataRef, FieldId, FieldIterRef, FieldRefOffset},
+        field_data::{field_value_flags, FieldData, FieldValueRepr},
+        group_track::{
+            GroupTrack, GroupTrackId, GroupTrackIterMut, GroupTrackIterRef,
+        },
         iter_hall::{IterId, IterKind},
-        iters::FieldIterator,
+        iters::{DestructuredFieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
         push_interface::PushInterface,
+        varying_type_inserter::VaryingTypeInserter,
     },
     utils::{
         index_vec::{IndexSlice, IndexVec},
         indexing_type::{IndexingType, IndexingTypeRange},
+        phantom_slot::PhantomSlot,
+        stable_vec::StableVec,
+        temp_vec::TransmutableContainer,
     },
 };
 
@@ -59,13 +65,14 @@ use super::{
 // - prebind outputs used in continuation for each subchain
 // - create trailer tf for each subchain that does the following:
 //      - check if current the current group of this sc is ready to be emitted
-//        (have an Arc<RefCell> to figure that out), if no do nothing
+//        (have an Arc<Mutex> to figure that out), if no do nothing
 //      - if yes:
 //              - create / append group length
 //              - append to pseudo data column, inform comsumers
 
 index_newtype! {
     pub struct FcSubchainIdx(u32);
+    pub struct FcSubchainRoundRobinIdx(u32);
     pub struct ContinuationVarIdx(u32);
 }
 
@@ -84,9 +91,20 @@ pub struct OpForkCat {
 }
 
 pub struct SubchainEntry {
+    pub ms_id: MatchSetId,
     pub start_tf_id: TransformId,
     pub trailer_tf_id: TransformId,
-    pub group_track_id: GroupTrackId,
+    pub group_track_iter_ref: GroupTrackIterRef,
+    pub actor_id: ActorId,
+    pub input_done: bool,
+    pub batch_size_available: usize,
+    pub continuation_field_mappings:
+        IndexVec<ContinuationVarIdx, ContinuationFieldMapping>,
+
+    field_iters_temp_slot: IndexVec<
+        ContinuationVarIdx,
+        PhantomSlot<FieldIter<'static, DestructuredFieldDataRef<'static>>>,
+    >,
 }
 
 pub struct TfForkCat {
@@ -94,9 +112,9 @@ pub struct TfForkCat {
 }
 
 pub struct ContinuationFieldMapping {
+    pub cont_field_id: FieldId,
     pub sc_field_id: FieldId,
     pub sc_field_iter_id: IterId,
-    pub cont_field_id: FieldId,
     pub sc_field_ref_offset_in_cont: FieldRefOffset,
     // start of the field_refs list from the field in the subchain in the
     // continuation field's field_refs list
@@ -107,23 +125,37 @@ pub struct FcContinuationState {
     pub continuation_tf_id: Option<TransformId>,
     pub continuation_input_group_track: GroupTrackId,
     pub continuation_ms_id: MatchSetId,
+    pub continuation_dummy_iter: FieldIterRef,
     pub subchains: IndexVec<FcSubchainIdx, SubchainEntry>,
-    pub current_turn: FcSubchainIdx,
     pub advance_to_next: bool,
-    pub sc_count: usize,
+    pub current_sc: FcSubchainIdx,
+
+    group_iters_temp: IndexVec<
+        FcSubchainRoundRobinIdx,
+        PhantomSlot<GroupTrackIterMut<'static, RefMut<'static, GroupTrack>>>,
+    >,
+    fields_temp: StableVec<PhantomSlot<CowFieldDataRef<'static>>>,
+    field_iters_temp: IndexVec<
+        FcSubchainRoundRobinIdx,
+        IndexVec<
+            ContinuationVarIdx,
+            PhantomSlot<FieldIter<'static, DestructuredFieldDataRef<'static>>>,
+        >,
+    >,
+
+    cont_field_inserters: IndexVec<
+        ContinuationVarIdx,
+        PhantomSlot<VaryingTypeInserter<RefMut<'static, FieldData>>>,
+    >,
 }
 
 pub struct TfForkCatSubchainTrailer<'a> {
     pub op: &'a OpForkCat,
-    pub actor_id: ActorId,
-    pub group_track_iter_ref: GroupTrackIterRef,
-    pub continuation_dummy_iter: IterId,
     pub subchain_idx: FcSubchainIdx,
     // TODO: figure out a better mechanism for this, this is stupid
+    // we can't use Arc<RefCell> because transforms need to be Send
     pub continuation_state: Arc<Mutex<FcContinuationState>>,
-
     // field ref offset of subchain field in continuation field (with id)
-    pub continuation_field_mappings: Vec<ContinuationFieldMapping>,
 }
 
 fn sc_index_offset(
@@ -138,18 +170,11 @@ fn sc_index_offset(
 }
 
 impl FcContinuationState {
+    fn sc_count(&self) -> usize {
+        self.subchains.len()
+    }
     fn next_sc(&self) -> FcSubchainIdx {
-        sc_index_offset(self.sc_count, self.current_turn, 1)
-    }
-    fn last_sc(&self) -> FcSubchainIdx {
-        FcSubchainIdx::from_usize(self.sc_count.saturating_sub(1))
-    }
-    fn should_act(&self, subchain_idx: FcSubchainIdx) -> bool {
-        if self.advance_to_next {
-            self.next_sc() == subchain_idx
-        } else {
-            self.current_turn == subchain_idx
-        }
+        sc_index_offset(self.sc_count(), self.current_sc, 1)
     }
 }
 
@@ -275,16 +300,26 @@ pub fn insert_tf_forkcat<'a>(
         continuation_var_mapping.push(field_id);
     }
 
-    let sc_count = (op.subchains_end - op.subchains_start).into_usize();
+    let cont_dummy_field =
+        job.job_data.match_set_mgr.get_dummy_field(cont_ms_id);
+
+    let continuation_dummy_iter = job.job_data.field_mgr.claim_iter_ref(
+        cont_dummy_field,
+        IterKind::Transform(job.job_data.tf_mgr.transforms.peek_claim_id()),
+    );
 
     let continuation_state = Arc::new(Mutex::new(FcContinuationState {
         continuation_tf_id: None, // filled in by the header transform
         continuation_input_group_track: cont_group_track,
         continuation_ms_id: cont_ms_id,
-        current_turn: FcSubchainIdx::zero(),
+        current_sc: FcSubchainIdx::zero(),
         subchains: IndexVec::default(),
-        sc_count,
         advance_to_next: false,
+        continuation_dummy_iter,
+        group_iters_temp: IndexVec::new(),
+        field_iters_temp: IndexVec::new(),
+        fields_temp: StableVec::new(),
+        cont_field_inserters: IndexVec::new(),
     }));
 
     let tf_data = TransformData::ForkCat(TfForkCat {
@@ -360,8 +395,6 @@ fn setup_subchain<'a>(
 
     let fc_dummy_field = job.job_data.match_set_mgr.get_dummy_field(fc_ms_id);
     let sc_dummy_field = job.job_data.match_set_mgr.get_dummy_field(sc_ms_id);
-    let cont_dummy_field =
-        job.job_data.match_set_mgr.get_dummy_field(cont_ms_id);
 
     job.job_data.field_mgr.setup_cow_between_fields(
         &mut job.job_data.match_set_mgr,
@@ -421,7 +454,7 @@ fn setup_subchain<'a>(
         &HashMap::default(),
     );
 
-    let mut continuation_field_mappings = Vec::new();
+    let mut continuation_field_mappings = IndexVec::new();
 
     let fc_sc_terminator_tf_id =
         job.job_data.tf_mgr.transforms.peek_claim_id();
@@ -508,19 +541,11 @@ fn setup_subchain<'a>(
             IterKind::Transform(trailer_tf_id_peek),
         );
 
-    let continuation_dummy_iter = job
-        .job_data
-        .field_mgr
-        .claim_iter(cont_dummy_field, IterKind::Transform(trailer_tf_id_peek));
-
     let trailer_tf = TfForkCatSubchainTrailer::<'a> {
         op,
-        actor_id,
-        group_track_iter_ref,
-        continuation_dummy_iter,
+
         subchain_idx: fc_sc_idx,
         continuation_state,
-        continuation_field_mappings,
     };
 
     let trailer_tf_id = add_transform_to_job(
@@ -542,9 +567,15 @@ fn setup_subchain<'a>(
         Some(trailer_tf_id);
 
     SubchainEntry {
+        ms_id: sc_ms_id,
         start_tf_id: instantiation.tfs_begin,
         trailer_tf_id,
-        group_track_id: group_track,
+        actor_id,
+        group_track_iter_ref,
+        continuation_field_mappings,
+        field_iters_temp_slot: IndexVec::new(),
+        input_done: false,
+        batch_size_available: 0,
     }
 }
 
@@ -577,8 +608,213 @@ pub fn handle_tf_forkcat(
         batch_size,
         ps.input_done,
         true,
-        cont_state.subchains.iter().map(|sc| sc.group_track_id),
+        cont_state
+            .subchains
+            .iter()
+            .map(|sc| sc.group_track_iter_ref.track_id),
     );
+}
+
+pub fn propagate_forkcat(
+    jd: &mut JobData,
+    tf_id: TransformId,
+    cont_state: &mut FcContinuationState,
+    batch_size: usize,
+) -> bool {
+    let sc_count = cont_state.sc_count();
+    let mut curr_sc = cont_state.current_sc;
+
+    let fields = cont_state.fields_temp.take_transmute();
+    let mut field_iters = cont_state.field_iters_temp.take_transmute();
+    let mut group_iters = cont_state.group_iters_temp.take_transmute();
+    let mut cont_field_inserters =
+        cont_state.cont_field_inserters.take_transmute();
+
+    let field_pos_cont_start = {
+        let cont_field = jd.field_mgr.get_cow_field_ref(
+            &jd.match_set_mgr,
+            cont_state.continuation_dummy_iter.field_id,
+        );
+        let cont_iter = jd.field_mgr.lookup_iter_from_ref(
+            cont_state.continuation_dummy_iter,
+            &cont_field,
+        );
+        cont_iter.get_next_field_pos()
+    };
+    let mut field_pos_cont = field_pos_cont_start;
+
+    for cvm in &cont_state.subchains[FcSubchainIdx::zero()]
+        .continuation_field_mappings
+    {
+        let field = jd.field_mgr.fields[cvm.cont_field_id].borrow_mut();
+        let inserter = VaryingTypeInserter::new(RefMut::map(field, |f| {
+            f.iter_hall.get_owned_data_mut()
+        }));
+        cont_field_inserters.push(inserter);
+    }
+
+    let mut scs_in_flight = 0;
+
+    let mut sc_round_robin_index = FcSubchainRoundRobinIdx::zero();
+
+    let mut batch_size_rem = batch_size;
+
+    loop {
+        sc_round_robin_index = FcSubchainRoundRobinIdx::from_usize(
+            (sc_round_robin_index.into_usize() + 1) % sc_count,
+        );
+        let sc_entry = &mut cont_state.subchains[curr_sc];
+
+        if scs_in_flight < sc_count {
+            scs_in_flight += 1;
+            let mut group_iter =
+                jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
+                    sc_entry.group_track_iter_ref,
+                    &jd.match_set_mgr,
+                    sc_entry.actor_id,
+                );
+            let field_pos_sc = group_iter.field_pos();
+
+            let padding_needed = field_pos_sc.saturating_sub(field_pos_cont);
+            if padding_needed > 0 {
+                group_iter.drop_with_field_pos(0, padding_needed);
+            }
+            group_iters.push(group_iter);
+
+            let mut sc_field_iters =
+                sc_entry.field_iters_temp_slot.take_transmute();
+
+            for cfm in &sc_entry.continuation_field_mappings {
+                let sc_field = jd
+                    .field_mgr
+                    .get_cow_field_ref(&jd.match_set_mgr, cfm.sc_field_id);
+                fields.push(sc_field);
+                let mut iter = jd.field_mgr.lookup_iter(
+                    cfm.sc_field_id,
+                    fields.last().unwrap(),
+                    cfm.sc_field_iter_id,
+                );
+                iter.next_n_fields(padding_needed, true);
+                sc_field_iters.push(iter);
+            }
+            field_iters.push(sc_field_iters);
+        }
+
+        let group_track_iter = &mut group_iters[sc_round_robin_index];
+
+        let field_pos_sc = group_track_iter.field_pos();
+
+        let padding_needed = field_pos_cont - field_pos_sc;
+
+        if field_pos_cont > field_pos_sc {
+            group_track_iter
+                .insert_fields(FieldValueRepr::Undefined, padding_needed);
+        }
+
+        let fields_to_consume =
+            group_track_iter.group_len_rem().min(batch_size_rem);
+
+        group_track_iter.next_n_fields(fields_to_consume);
+
+        for (mapping_idx, cim) in
+            sc_entry.continuation_field_mappings.iter_enumerated()
+        {
+            let iter = &mut field_iters[sc_round_robin_index][mapping_idx];
+            let inserter = &mut cont_field_inserters[mapping_idx];
+
+            let mut range_rem = fields_to_consume;
+            while let Some(range) =
+                iter.typed_range_fwd(range_rem, field_value_flags::DEFAULT)
+            {
+                range_rem -= range.field_count;
+                inserter.extend_from_valid_range_re_ref(
+                    range,
+                    true,
+                    false,
+                    false,
+                    cim.sc_field_ref_offset_in_cont,
+                    cim.sc_field_refs_offsets_start_in_cont_field,
+                );
+            }
+        }
+
+        field_pos_cont += fields_to_consume;
+        batch_size_rem -= fields_to_consume;
+
+        if batch_size_rem == 0 {
+            break;
+        }
+
+        curr_sc = cont_state.next_sc();
+    }
+
+    for rr_idx in IndexingTypeRange::from_zero(sc_round_robin_index).rev() {
+        let sc_idx = FcSubchainIdx::from_usize(
+            (rr_idx.into_usize() + curr_sc.into_usize())
+                % cont_state.sc_count(),
+        );
+        let mut group_iter = group_iters.pop().unwrap();
+        let sc_entry = &mut cont_state.subchains[sc_idx];
+        let padding_needed = field_pos_cont - group_iter.field_pos();
+        group_iter.insert_fields(FieldValueRepr::Undefined, padding_needed);
+        group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);
+        let mut iters = field_iters.pop().unwrap();
+        for cim in sc_entry.continuation_field_mappings.iter().rev() {
+            let iter = iters.pop().unwrap();
+            jd.field_mgr.store_iter_drop_action_lists(
+                &jd.match_set_mgr,
+                cim.sc_field_id,
+                cim.sc_field_iter_id,
+                iter,
+            );
+        }
+    }
+
+    cont_state.field_iters_temp.reclaim_temp(field_iters);
+    cont_state.fields_temp.reclaim_temp(fields);
+    cont_state.group_iters_temp.reclaim_temp(group_iters);
+    cont_state
+        .cont_field_inserters
+        .reclaim_temp(cont_field_inserters);
+
+    let fields_produced = field_pos_cont - field_pos_cont_start;
+
+    {
+        jd.field_mgr.apply_field_actions(
+            &jd.match_set_mgr,
+            cont_state.continuation_dummy_iter.field_id,
+        );
+        jd.field_mgr.fields[cont_state.continuation_dummy_iter.field_id]
+            .borrow_mut()
+            .iter_hall
+            .push_undefined(fields_produced, true);
+        let cont_field = jd.field_mgr.get_cow_field_ref(
+            &jd.match_set_mgr,
+            cont_state.continuation_dummy_iter.field_id,
+        );
+        let mut cont_iter = jd.field_mgr.lookup_iter_from_ref(
+            cont_state.continuation_dummy_iter,
+            &cont_field,
+        );
+        cont_iter.next_n_fields(fields_produced, true);
+        jd.field_mgr.store_iter_from_ref(
+            cont_state.continuation_dummy_iter,
+            cont_iter,
+        );
+    };
+
+    let done = cont_state.subchains.iter().all(|sc| sc.input_done);
+
+    jd.tf_mgr.inform_cross_ms_transform_batch_available(
+        &jd.field_mgr,
+        &jd.match_set_mgr,
+        tf_id,
+        fields_produced,
+        fields_produced,
+        done,
+    );
+
+    done
 }
 
 pub fn handle_tf_forcat_subchain_trailer(
@@ -590,169 +826,14 @@ pub fn handle_tf_forcat_subchain_trailer(
 
     let mut cont_state = (*fcst.continuation_state).lock().unwrap();
 
-    if !cont_state.should_act(fcst.subchain_idx) {
-        jd.tf_mgr.unclaim_batch_size(tf_id, batch_size);
-        return;
-    }
+    let sc_entry = &mut cont_state.subchains[fcst.subchain_idx];
+    sc_entry.input_done = ps.input_done;
+    sc_entry.batch_size_available += batch_size;
 
-    if cont_state.advance_to_next {
-        cont_state.current_turn = fcst.subchain_idx;
-    }
-
-    let mut group_track_iter =
-        jd.group_track_manager.lookup_group_track_iter_mut(
-            fcst.group_track_iter_ref.track_id,
-            fcst.group_track_iter_ref.iter_id,
-            &jd.match_set_mgr,
-            fcst.actor_id,
-        );
-
-    let cont_dummy_field_id = jd
-        .match_set_mgr
-        .get_dummy_field(cont_state.continuation_ms_id);
-
-    let field_pos_cont = {
-        let cont_field = jd
-            .field_mgr
-            .get_cow_field_ref(&jd.match_set_mgr, cont_dummy_field_id);
-        let cont_iter = jd.field_mgr.lookup_iter(
-            cont_dummy_field_id,
-            &cont_field,
-            fcst.continuation_dummy_iter,
-        );
-        cont_iter.get_next_field_pos()
-    };
-
-    let field_pos_sc = group_track_iter.field_pos();
-
-    let mut padding_needed = 0;
-    let mut drops_needed = 0;
-
-    if field_pos_sc > field_pos_cont {
-        drops_needed = field_pos_sc - field_pos_cont;
-    } else {
-        padding_needed = field_pos_cont - field_pos_sc;
-    }
-
-    group_track_iter.insert_fields(FieldValueRepr::Undefined, padding_needed);
-
-    if cont_state.advance_to_next {
-        cont_state.advance_to_next = false;
-    }
-
-    let fields_to_consume = group_track_iter.group_len_rem().min(batch_size);
-    jd.tf_mgr
-        .unclaim_batch_size(tf_id, batch_size - fields_to_consume);
-
-    group_track_iter.next_n_fields(fields_to_consume);
-    if group_track_iter.is_end_of_group(ps.input_done) {
-        cont_state.advance_to_next = true;
-
-        jd.tf_mgr.inform_transform_batch_available(
-            cont_state.subchains[cont_state.next_sc()].trailer_tf_id,
-            0,
-            false,
-        )
-    }
-
-    let end_reached = group_track_iter.is_end(ps.input_done);
-    group_track_iter.store_iter(fcst.group_track_iter_ref.iter_id);
-
-    let sc_ms_id = jd.tf_mgr.transforms[tf_id].match_set_id;
-
-    let done = ps.input_done && fcst.subchain_idx == cont_state.last_sc();
-
-    // PERF: this is dumb?
-    {
-        jd.field_mgr
-            .apply_field_actions(&jd.match_set_mgr, cont_dummy_field_id);
-        jd.field_mgr.fields[cont_dummy_field_id]
-            .borrow_mut()
-            .iter_hall
-            .push_undefined(fields_to_consume, true);
-        let cont_field = jd
-            .field_mgr
-            .get_cow_field_ref(&jd.match_set_mgr, cont_dummy_field_id);
-        let mut cont_iter = jd.field_mgr.lookup_iter(
-            cont_dummy_field_id,
-            &cont_field,
-            fcst.continuation_dummy_iter,
-        );
-        cont_iter.next_n_fields(fields_to_consume + padding_needed, true);
-        jd.field_mgr.store_iter(
-            cont_dummy_field_id,
-            fcst.continuation_dummy_iter,
-            cont_iter,
-        );
-    };
-
-    if let Some(cont_tf_id) = cont_state.continuation_tf_id {
-        jd.tf_mgr.inform_cross_ms_transform_batch_available(
-            &jd.field_mgr,
-            &jd.match_set_mgr,
-            cont_tf_id,
-            fields_to_consume,
-            padding_needed + fields_to_consume,
-            done,
-        );
-    }
+    let done = propagate_forkcat(jd, tf_id, &mut cont_state, batch_size);
 
     if done {
         jd.tf_mgr.transforms[tf_id].done = true;
-    }
-
-    // the 'pass to children' below will deal with the `fields_to_consume`
-    // so just the padding is dropped here
-    jd.group_track_manager.group_tracks[fcst.group_track_iter_ref.track_id]
-        .borrow_mut()
-        .drop_leading_fields(true, padding_needed, end_reached);
-
-    jd.group_track_manager.propagate_leading_groups_to_alias(
-        &jd.match_set_mgr,
-        fcst.group_track_iter_ref.track_id,
-        fields_to_consume,
-        end_reached,
-        true,
-        std::iter::once(cont_state.continuation_input_group_track),
-    );
-
-    for cim in &fcst.continuation_field_mappings {
-        let sc_field = jd
-            .field_mgr
-            .get_cow_field_ref(&jd.match_set_mgr, cim.sc_field_id);
-        let mut iter = jd
-            .field_mgr
-            .lookup_iter(cim.sc_field_id, &sc_field, cim.sc_field_iter_id)
-            .bounded(0, fields_to_consume + padding_needed);
-
-        iter.next_n_fields(padding_needed, true);
-
-        let mut cont_field =
-            jd.field_mgr.fields[cim.cont_field_id].borrow_mut();
-
-        while let Some(range) =
-            iter.typed_range_fwd(usize::MAX, field_value_flags::DEFAULT)
-        {
-            cont_field.iter_hall.extend_from_valid_range_re_ref(
-                range,
-                true,
-                false,
-                false,
-                cim.sc_field_ref_offset_in_cont,
-                cim.sc_field_refs_offsets_start_in_cont_field,
-            );
-        }
-        jd.field_mgr
-            .store_iter(cim.sc_field_id, cim.sc_field_iter_id, iter);
-    }
-
-    if drops_needed > 0 {
-        let mut ab = jd.match_set_mgr.match_sets[sc_ms_id]
-            .action_buffer
-            .borrow_mut();
-        ab.begin_action_group(fcst.actor_id);
-        ab.push_action(FieldActionKind::Drop, 0, drops_needed);
-        ab.end_action_group();
     }
 }
 
