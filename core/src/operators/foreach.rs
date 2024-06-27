@@ -134,7 +134,7 @@ pub fn insert_tf_foreach(
     let mut trailer_tf_state = TransformState::new(
         trailer_output_field,
         trailer_output_field,
-        ms_id,
+        out_ms_id,
         desired_batch_size,
         Some(op_id),
         out_group_track,
