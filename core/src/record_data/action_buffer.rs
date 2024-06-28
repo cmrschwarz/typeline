@@ -1486,6 +1486,8 @@ impl ActionBuffer {
                 tgt_field.iter_hall.data_source =
                     FieldDataSource::FullCow(cds);
                 tgt_field.iter_hall.reset_iterators();
+                tgt_field.iter_hall.field_data.headers.clear();
+                debug_assert!(tgt_field.iter_hall.field_data.data.is_empty());
                 continue;
             }
             let (headers, count) = fm.get_field_headers(Ref::clone(&field));

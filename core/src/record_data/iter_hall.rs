@@ -703,6 +703,7 @@ impl IterHall {
             FieldDataSource::FullCow(cds) => {
                 debug_assert!(
                     self.field_data.data.is_empty()
+                        && self.field_data.headers.is_empty()
                         && self.field_data.field_count == 0
                 );
                 let cow_end =
