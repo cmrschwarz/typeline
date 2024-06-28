@@ -19,7 +19,7 @@ use super::{
     field_action_applicator::FieldActionApplicator,
     field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
     group_track::GroupTrackId,
-    iter_hall::{CowVariant, FieldDataSource, IterHall, IterState},
+    iter_hall::{CowVariant, FieldDataSource, IterState},
     iters::FieldIterator,
     match_set::MatchSetId,
 };
@@ -1465,18 +1465,16 @@ impl ActionBuffer {
 
             let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
             let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
-            unsafe {
-                let mut iter = IterHall::get_iter_from_state_unchecked(
-                    &field.iter_hall.field_data,
-                    tgt_cow_end,
-                );
-                iter.next_n_fields(batch_size, true);
-                field.iter_hall.store_iter_unchecked(
-                    field_id,
-                    cds.header_iter_id,
-                    iter,
-                );
-            };
+            // we can assume the snapshot to be up to date because we
+            // just finished running field updates
+            // we can't just use the field directly here because
+            // it could be cow of cow
+            let field_ref = fm.get_cow_field_ref_raw(field_id);
+            let mut iter =
+                fm.lookup_iter(field_id, &field_ref, cds.header_iter_id);
+            iter.next_n_fields(batch_size, true);
+            fm.store_iter(field_id, cds.header_iter_id, iter);
+
             if cow_variant != Some(CowVariant::DataCow) {
                 // TODO: support RecordBufferDataCow
                 debug_assert!(cow_variant == Some(CowVariant::FullCow));

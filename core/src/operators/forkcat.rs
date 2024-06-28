@@ -820,7 +820,8 @@ pub fn propagate_forkcat(
         let fields_dropped_by_cont = field_pos_sc - field_pos_cont_start;
         group_iter.drop_with_field_pos(0, fields_dropped_by_cont);
 
-        let padding_needed = field_pos_cont - field_pos_sc;
+        let padding_needed =
+            field_pos_cont - (field_pos_sc - fields_dropped_by_cont);
 
         group_iter.insert_fields(FieldValueRepr::Undefined, padding_needed);
         group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);

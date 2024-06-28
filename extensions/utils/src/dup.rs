@@ -9,7 +9,7 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            Operator, OperatorData, OperatorId, OffsetInChain,
+            OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
@@ -38,9 +38,7 @@ pub struct TfDup {
 }
 
 impl Operator for OpDup {
-    fn default_name(
-        &self,
-    ) -> scr_core::operators::operator::OperatorName {
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "dup".into()
     }
 
@@ -155,6 +153,13 @@ impl Transform<'_> for TfDup {
         }
         ab.end_action_group();
         jd.tf_mgr.submit_batch(tf_id, field_pos, ps.input_done);
+    }
+    fn get_out_fields(
+        &self,
+        _tf_state: &TransformState,
+        _fields: &mut Vec<scr_core::record_data::field::FieldId>,
+    ) {
+        // no output fields
     }
 }
 
