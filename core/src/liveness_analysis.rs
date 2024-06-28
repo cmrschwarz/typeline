@@ -1638,7 +1638,7 @@ pub fn compute_liveness_data(sess: &mut SessionData) -> LivenessData {
     ld.compute_bb_succession_data();
     ld.compute_op_output_liveness(sess);
     ld.compute_operator_kills(sess);
-    #[cfg(feature = "liveness_analysis_logging")]
+    #[cfg(feature = "debug_logging_liveness_analysis")]
     ld.log_liveness_data(sess);
     ld
 }

@@ -42,7 +42,7 @@ pub struct GroupTrackIterState {
     pub group_idx: GroupIdx,
     pub group_offset: GroupLen,
     pub iter_id: GroupTrackIterId,
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     pub kind: IterKind,
 }
 
@@ -76,10 +76,10 @@ pub struct GroupTrack {
     // nested foreach into the `passed_fields_count` mechanism
     pub parent_group_indices_stable: SizeClassedVecDeque,
 
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     // for forkcat suchains this points to the source
     pub alias_source: Option<GroupTrackId>,
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     // for foreach trailer group tracks this points to the header
     pub corresponding_header: Option<GroupTrackId>,
 }
@@ -519,7 +519,7 @@ impl GroupTrack {
 
             let actions = s1.iter().chain(s2.iter());
 
-            #[cfg(feature = "field_action_logging")]
+            #[cfg(feature = "debug_logging_field_actions")]
             {
                 eprintln!(
                     "applying actions to group list {:02} (actor {:02}):",
@@ -529,15 +529,15 @@ impl GroupTrack {
                     actions.clone(),
                 );
                 eprint!("   before: {self}",);
-                #[cfg(feature = "iter_state_logging")]
+                #[cfg(feature = "debug_logging_iter_states")]
                 self.eprint_iter_states(4);
                 eprintln!();
             }
             self.apply_field_actions_list(actions);
-            #[cfg(feature = "field_action_logging")]
+            #[cfg(feature = "debug_logging_field_actions")]
             {
                 eprint!("   after:  {self}",);
-                #[cfg(feature = "iter_state_logging")]
+                #[cfg(feature = "debug_logging_iter_states")]
                 self.eprint_iter_states(4);
                 eprintln!();
             }
@@ -597,7 +597,7 @@ impl GroupTrack {
                 if end_of_input { "(eof)" } else { "" }
             );
             eprint!("   before:  {self}",);
-            #[cfg(feature = "iter_state_logging")]
+            #[cfg(feature = "debug_logging_iter_states")]
             self.eprint_iter_states(8);
             eprintln!();
         }
@@ -632,7 +632,7 @@ impl GroupTrack {
         #[cfg(feature = "debug_logging")]
         {
             eprint!("   after:   {self}",);
-            #[cfg(feature = "iter_state_logging")]
+            #[cfg(feature = "debug_logging_iter_states")]
             self.eprint_iter_states(8);
             eprintln!();
         }
@@ -670,7 +670,7 @@ impl GroupTrack {
                 lgts.partial_group_len.unwrap_or(0),
             );
             eprint!("   before:  {child}",);
-            #[cfg(feature = "iter_state_logging")]
+            #[cfg(feature = "debug_logging_iter_states")]
             self.eprint_iter_states(8);
             eprintln!();
         }
@@ -736,7 +736,7 @@ impl GroupTrack {
         #[cfg(feature = "debug_logging")]
         {
             eprint!("   after:   {child}",);
-            #[cfg(feature = "iter_state_logging")]
+            #[cfg(feature = "debug_logging_iter_states")]
             self.eprint_iter_states(8);
             eprintln!();
         }
@@ -796,7 +796,7 @@ impl GroupTrack {
         iter: &GroupTrackIter<T>,
     ) {
         let iter_sorting_idx = self.iter_lookup_table[iter_id] as usize;
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debug_state")]
         let kind = self.iter_states[iter_sorting_idx].get().kind;
         let iter_state = GroupTrackIterState {
             field_pos: iter.field_pos,
@@ -808,11 +808,11 @@ impl GroupTrack {
                 .unwrap_or(0)
                 - iter.group_len_rem,
             iter_id,
-            #[cfg(feature = "debug")]
+            #[cfg(feature = "debug_state")]
             kind,
         };
 
-        // #[cfg(feature = "iter_state_logging")]
+        // #[cfg(feature = "debug_logging_iter_states")]
         // eprintln!("storing group {} iter {iter_id}: {iter_state:?}",
         // self.id);
 
@@ -878,7 +878,8 @@ impl GroupTrack {
 
     pub fn claim_iter(
         &mut self,
-        #[cfg_attr(not(feature = "debug"), allow(unused))] kind: IterKind,
+        #[cfg_attr(not(feature = "debug_state"), allow(unused))]
+        kind: IterKind,
     ) -> GroupTrackIterId {
         let iter_id = self.iter_lookup_table.claim_with_value(
             self.iter_states.len() as GroupTrackIterSortedIndex,
@@ -888,7 +889,7 @@ impl GroupTrack {
             field_pos: self.passed_fields_count,
             group_idx: 0,
             group_offset: 0,
-            #[cfg(feature = "debug")]
+            #[cfg(feature = "debug_state")]
             kind,
         };
         self.iter_states.push(Cell::new(iter_state));
@@ -966,9 +967,9 @@ impl GroupTrackManager {
             iter_lookup_table: Universe::default(),
             snapshot: SnapshotRef::default(),
             iter_states_sorted: Cell::new(true),
-            #[cfg(feature = "debug")]
+            #[cfg(feature = "debug_state")]
             alias_source: None,
-            #[cfg(feature = "debug")]
+            #[cfg(feature = "debug_state")]
             corresponding_header: None,
         }));
         id
@@ -1956,7 +1957,7 @@ mod test {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debug_state")]
                 kind: IterKind::Undefined,
             })],
             iter_lookup_table: Universe::from([0].into_iter()),
@@ -1976,7 +1977,7 @@ mod test {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debug_state")]
                 kind: IterKind::Undefined
             }
         );
@@ -1993,7 +1994,7 @@ mod test {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
-                    #[cfg(feature = "debug")]
+                    #[cfg(feature = "debug_state")]
                     kind: IterKind::Undefined,
                 }),
                 Cell::new(GroupTrackIterState {
@@ -2001,7 +2002,7 @@ mod test {
                     group_idx: 0,
                     group_offset: 2,
                     iter_id: 0,
-                    #[cfg(feature = "debug")]
+                    #[cfg(feature = "debug_state")]
                     kind: IterKind::Undefined,
                 }),
             ],
@@ -2023,7 +2024,7 @@ mod test {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
-                    #[cfg(feature = "debug")]
+                    #[cfg(feature = "debug_state")]
                     kind: IterKind::Undefined
                 },
                 GroupTrackIterState {
@@ -2031,7 +2032,7 @@ mod test {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
-                    #[cfg(feature = "debug")]
+                    #[cfg(feature = "debug_state")]
                     kind: IterKind::Undefined
                 }
             ]
@@ -2048,7 +2049,7 @@ mod test {
                 group_idx: 0,
                 group_offset: 2,
                 iter_id: 0,
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debug_state")]
                 kind: IterKind::Undefined,
             })],
             iter_lookup_table: Universe::from([0].into_iter()),
@@ -2067,7 +2068,7 @@ mod test {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debug_state")]
                 kind: IterKind::Undefined
             }
         );

@@ -275,7 +275,7 @@ pub fn insert_tf_forkcat<'a>(
         ActorRef::Unconfirmed(0),
     );
 
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     {
         job.job_data.group_track_manager.group_tracks[cont_group_track]
             .borrow_mut()
@@ -408,7 +408,7 @@ fn setup_subchain<'a>(
         ActorRef::Unconfirmed(0),
     );
 
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     {
         job.job_data.group_track_manager.group_tracks[group_track]
             .borrow_mut()

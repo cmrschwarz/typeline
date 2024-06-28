@@ -46,7 +46,7 @@ extern crate reedline;
 #[cfg(feature = "repl")]
 extern crate shlex;
 
-#[cfg(feature = "debug")]
+#[cfg(feature = "debug_state")]
 pub mod debug_log;
 
 #[macro_use]

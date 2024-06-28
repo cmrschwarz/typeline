@@ -154,7 +154,7 @@ pub fn insert_tf_foreach(
                 .next_actor_ref(),
         );
 
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     {
         job.job_data.group_track_manager.group_tracks
             [trailer_tf_state.output_group_track_id]
@@ -230,7 +230,7 @@ pub fn handle_tf_foreach_header(
 
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 
-    #[cfg(feature = "output_field_logging")]
+    #[cfg(feature = "debug_logging_output_fields")]
     {
         eprintln!(
             "foreach header (tf {tf_id}) set up group list {}: {}",

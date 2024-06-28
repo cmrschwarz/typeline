@@ -175,7 +175,7 @@ struct HeaderDropInfo {
 
 struct DataCowFieldRef<'a> {
     #[allow(unused)]
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     field_id: FieldId,
     field: Option<std::cell::RefMut<'a, Field>>,
     // For fields that have only partially copied over the data.
@@ -189,7 +189,7 @@ struct DataCowFieldRef<'a> {
 
 struct FullCowFieldRef<'a> {
     #[allow(unused)]
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     field_id: FieldId,
     field: Option<std::cell::RefMut<'a, Field>>,
     data_cow_idx: Option<usize>,
@@ -213,7 +213,7 @@ pub struct ActionBuffer {
     actions_applicator: FieldActionApplicator,
     full_cow_field_refs_temp: Vec<PhantomSlot<FullCowFieldRef<'static>>>,
     data_cow_field_refs_temp: Vec<PhantomSlot<DataCowFieldRef<'static>>>,
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     pub match_set_id: MatchSetId,
 }
 
@@ -377,7 +377,7 @@ impl ActionBuffer {
         let mut agq = &mut self.actors[ai].action_group_queues[0];
         let actions_start =
             agq.actions.next_free_index().wrapping_sub(action_count);
-        #[cfg(feature = "field_action_group_logging")]
+        #[cfg(feature = "debug_logging_field_action_groups")]
         {
             eprintln!(
                 "added action group {}, ms {}, actor {ai}:",
@@ -611,7 +611,7 @@ impl ActionBuffer {
         next_succ: ActionGroupId,
         ag: &ActionGroupIdentifier,
     ) -> ActionGroupIdentifier {
-        #[cfg(feature = "field_action_group_accel_logging")]
+        #[cfg(feature = "debug_logging_field_action_group_accel")]
         eprintln!(
             "@ appending action group to actor {actor_id} pow2 {pow2} (group count -> {}): \n    > {ag:?}",
             self.actors[actor_id].action_group_queues[pow2 as usize].action_groups.len() + 1
@@ -656,7 +656,7 @@ impl ActionBuffer {
     ) -> Option<ActionGroupIdentifier> {
         if let Some(lhs) = lhs {
             if let Some(rhs) = rhs {
-                #[cfg(feature = "field_action_group_accel_logging")]
+                #[cfg(feature = "debug_logging_field_action_group_accel")]
                 {
                     eprintln!("@ merging actor {actor_id} pow2 {pow2}:");
                     eprintln!("  + {lhs:?}");
@@ -710,7 +710,7 @@ impl ActionBuffer {
                     group: ag,
                     location: ActionGroupLocation::Regular { actor_id, pow2 },
                 };
-                #[cfg(feature = "field_action_group_accel_logging")]
+                #[cfg(feature = "debug_logging_field_action_group_accel")]
                 {
                     eprintln!(" -> {res:?}");
                     eprint_action_list(self.get_action_group_iter(&res));
@@ -738,7 +738,7 @@ impl ActionBuffer {
                 let (l1, l2) = self.get_action_group_slices(lhs);
                 let (r1, r2) = self.get_action_group_slices(rhs);
 
-                #[cfg(feature = "field_action_group_accel_logging")]
+                #[cfg(feature = "debug_logging_field_action_group_accel")]
                 {
                     eprintln!("@ merging into temp:");
                     eprintln!("  + {lhs:?}");
@@ -775,7 +775,7 @@ impl ActionBuffer {
                     },
                     location: ActionGroupLocation::TempBuffer { idx },
                 };
-                #[cfg(feature = "field_action_group_accel_logging")]
+                #[cfg(feature = "debug_logging_field_action_group_accel")]
                 {
                     eprintln!(" -> {res:?}");
                     eprint_action_list(self.get_action_group_iter(&res));
@@ -1152,7 +1152,7 @@ impl ActionBuffer {
             return None;
         }
         self.bump_snapshot_refcount(actor_ss, 1);
-        #[cfg(feature = "field_action_group_accel_logging")]
+        #[cfg(feature = "debug_logging_field_action_group_accel")]
         eprintln!(
             "@ updated snapshot for {}: \n - prev: {}\n - next: {}",
             match subscriber {
@@ -1194,7 +1194,7 @@ impl ActionBuffer {
             agi,
         );
         let actions = s1.iter().chain(s2);
-        #[cfg(feature = "field_action_logging")]
+        #[cfg(feature = "debug_logging_field_actions")]
         {
             let field = fm.fields[field_id].borrow();
             eprintln!(
@@ -1206,7 +1206,7 @@ impl ActionBuffer {
 
             eprint!("   + before: ");
             fm.print_field_header_data(field_id, 3);
-            #[cfg(feature = "iter_state_logging")]
+            #[cfg(feature = "debug_logging_iter_states")]
             {
                 eprint!("\n   ");
                 fm.print_field_iter_data(field_id, 3);
@@ -1251,12 +1251,12 @@ impl ActionBuffer {
             field_count,
             iterators,
         );
-        #[cfg(feature = "field_action_logging")]
+        #[cfg(feature = "debug_logging_field_actions")]
         {
             drop(field_ref_mut);
             eprint!("   + after: ");
             fm.print_field_header_data(field_id, 3);
-            #[cfg(feature = "iter_state_logging")]
+            #[cfg(feature = "debug_logging_iter_states")]
             {
                 eprint!("\n   ");
                 fm.print_field_iter_data(field_id, 3);
@@ -1338,7 +1338,7 @@ impl ActionBuffer {
 
         if !is_data_cow && through_data_cow {
             full_cow_field_refs.push(FullCowFieldRef {
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debug_state")]
                 field_id: tgt_field_id,
                 field: None,
                 data_cow_idx,
@@ -1351,7 +1351,7 @@ impl ActionBuffer {
 
         if is_data_cow {
             data_cow_field_refs.push(DataCowFieldRef {
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debug_state")]
                 field_id: tgt_field_id,
                 field: None,
                 data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
@@ -1362,7 +1362,7 @@ impl ActionBuffer {
         debug_assert!(cow_variant == Some(CowVariant::FullCow));
         if Some(ms_id) == update_cow_ms {
             full_cow_field_refs.push(FullCowFieldRef {
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debug_state")]
                 field_id: tgt_field_id,
                 field: None,
                 data_cow_idx,
@@ -1381,7 +1381,7 @@ impl ActionBuffer {
             // end up calculating the dead data multiple times because of
             // this, but we don't care for now
             data_cow_field_refs.push(DataCowFieldRef {
-                #[cfg(feature = "debug")]
+                #[cfg(feature = "debug_state")]
                 field_id: tgt_field_id,
                 field: None,
                 data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
@@ -1390,7 +1390,7 @@ impl ActionBuffer {
             return (data_cow_field_refs.len() - 1, true);
         }
         full_cow_field_refs.push(FullCowFieldRef {
-            #[cfg(feature = "debug")]
+            #[cfg(feature = "debug_state")]
             field_id: tgt_field_id,
             field: None,
             data_cow_idx,
@@ -1532,7 +1532,10 @@ impl ActionBuffer {
         lead % MAX_FIELD_ALIGN
     }
     fn drop_dead_field_data(
-        #[cfg_attr(not(feature = "field_action_logging"), allow(unused))]
+        #[cfg_attr(
+            not(feature = "debug_logging_field_actions"),
+            allow(unused)
+        )]
         fm: &FieldManager,
         field: &mut Field,
         dead_data_leading: usize,
@@ -1558,7 +1561,7 @@ impl ActionBuffer {
         fd.data
             .drop_front(dead_data_leading.prev_multiple_of(&MAX_FIELD_ALIGN));
         fd.data.drop_back(dead_data_trailing);
-        #[cfg(feature = "field_action_logging")]
+        #[cfg(feature = "debug_logging_field_actions")]
         {
             eprintln!(
             "   + dropping dead data (leading: {}, pad: {}, rem: {}, trailing: {})",
@@ -1569,7 +1572,7 @@ impl ActionBuffer {
         );
             eprint!("    ");
             fm.print_field_header_data_for_ref(field, 4);
-            #[cfg(feature = "iter_state_logging")]
+            #[cfg(feature = "debug_logging_iter_states")]
             {
                 eprint!("\n    ");
                 fm.print_field_iter_data_for_ref(field, 4);
@@ -1809,7 +1812,7 @@ impl ActionBuffer {
             && !all_data_dead;
 
         if all_data_dead {
-            if cfg!(feature = "field_action_logging") {
+            if cfg!(feature = "debug_logging_field_actions") {
                 eprintln!(
                 "clearing field {} (ms {}, first actor: {}, field_count: {}) ({}):",
                 field_id, field_ms_id, actor_id, field_count,
@@ -1835,7 +1838,7 @@ impl ActionBuffer {
             );
             for dcf in &mut *data_cow_fields {
                 let cow_field = dcf.field.as_mut().unwrap();
-                #[cfg(feature = "field_action_logging")]
+                #[cfg(feature = "debug_logging_field_actions")]
                 {
                     eprintln!(
                         "   + dropping dead data for cow field {}: before",
@@ -1843,7 +1846,7 @@ impl ActionBuffer {
                     );
                     eprint!("    ");
                     fm.print_field_header_data_for_ref(cow_field, 4);
-                    #[cfg(feature = "iter_state_logging")]
+                    #[cfg(feature = "debug_logging_iter_states")]
                     {
                         eprint!("\n    ");
                         fm.print_field_iter_data_for_ref(cow_field, 4);
@@ -1858,7 +1861,7 @@ impl ActionBuffer {
                     field_data_size,
                     dcf.data_end,
                 );
-                #[cfg(feature = "field_action_logging")]
+                #[cfg(feature = "debug_logging_field_actions")]
                 {
                     eprintln!(
                         "   + dropping dead data for cow field {}: after",
@@ -1866,7 +1869,7 @@ impl ActionBuffer {
                     );
                     eprint!("    ");
                     fm.print_field_header_data_for_ref(cow_field, 4);
-                    #[cfg(feature = "iter_state_logging")]
+                    #[cfg(feature = "debug_logging_iter_states")]
                     {
                         eprint!("\n    ");
                         fm.print_field_iter_data_for_ref(cow_field, 4);
@@ -1932,7 +1935,7 @@ impl ActionBuffer {
                 field_id, self.match_set_id, actor_id,
             );
         }
-        #[cfg(feature = "field_action_group_accel_logging")]
+        #[cfg(feature = "debug_logging_field_action_group_accel")]
         eprintln!(
             "@ updated snapshot for field {field_id}: \n - prev: {}\n - next: {}",
             self.stringify_snapshot(actor_id, snapshot),

@@ -96,7 +96,7 @@ impl MatchSetManager {
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {
         todo!()
     }
-    #[cfg(feature = "cow_field_logging")]
+    #[cfg(feature = "debug_logging_cow_fields")]
     fn print_updating_cow_bindings(&self, ms_id: MatchSetId) {
         let cm = &self.match_sets[ms_id].fields_cow_map;
         let mut iter = cm.iter().peekable();
@@ -117,7 +117,7 @@ impl MatchSetManager {
         cow_advancement: usize,
     ) {
         let cm = &self.match_sets[ms_id].fields_cow_map;
-        #[cfg(feature = "cow_field_logging")]
+        #[cfg(feature = "debug_logging_cow_fields")]
         {
             eprintln!("{:-^80}", " <updating cow bindings> ");
             eprint!("updating: ");
@@ -146,7 +146,7 @@ impl MatchSetManager {
             );
         }
 
-        #[cfg(feature = "cow_field_logging")]
+        #[cfg(feature = "debug_logging_cow_fields")]
         {
             eprintln!("{:-^80}", " <updated cow bindings> ");
             eprint!("updated: ");

@@ -57,14 +57,12 @@ debug = true
 
 [features]
 repl = ["scr_core/repl"]
+debug_log = ["scr_core/debug_log"]
+
 sqlite = ["dep:scr_ext_sqlite"]
 python = ["dep:scr_ext_python"]
 http = ["dep:scr_ext_http"]
 utils = ["dep:scr_ext_utils"]
 
 default = ["utils"]
-full = ["scr_core/full", "repl", "sqlite", "http", "utils", "python"]
-
-unstable = ["scr_core/unstable"]
-debug = ["scr_core/debug"]
-debug_logging = ["scr_core/debug_logging"]
+full = ["scr_core/full", "sqlite", "http", "utils", "python"]

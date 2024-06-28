@@ -128,7 +128,7 @@ pub struct StreamValueDataCursor<'s, 'd> {
 }
 
 pub struct StreamValueDataInserter<'s, 'd> {
-    #[cfg(feature = "stream_logging")]
+    #[cfg(feature = "debug_logging_streams")]
     sv_id: StreamValueId,
     stream_value: &'d mut StreamValue<'s>,
     dead_elems_leading: usize,
@@ -399,7 +399,7 @@ const STREAM_VALUE_DATA_OVERHEAD: usize =
 
 impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
     pub fn new(
-        #[cfg_attr(not(feature = "stream_logging"), allow(unused))]
+        #[cfg_attr(not(feature = "debug_logging_streams"), allow(unused))]
         sv_id: StreamValueId,
         stream_value: &'b mut StreamValue<'a>,
         memory_budget: usize,
@@ -432,7 +432,7 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
             }
         };
         Self {
-            #[cfg(feature = "stream_logging")]
+            #[cfg(feature = "debug_logging_streams")]
             sv_id,
             stream_value,
             dead_elems_leading,
@@ -656,7 +656,7 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
 impl<'a, 'b> Drop for StreamValueDataInserter<'a, 'b> {
     fn drop(&mut self) {
         self.stream_value.data.drain(0..self.dead_elems_leading);
-        #[cfg(feature = "stream_logging")]
+        #[cfg(feature = "debug_logging_streams")]
         eprintln!(
             ":: inserted into stream value {:02} {:?}",
             self.sv_id, self.stream_value.data
@@ -667,7 +667,7 @@ impl<'a, 'b> Drop for StreamValueDataInserter<'a, 'b> {
 impl<'a> StreamValue<'a> {
     pub fn subscribe(
         &mut self,
-        #[cfg_attr(not(feature = "stream_logging"), allow(unused))]
+        #[cfg_attr(not(feature = "debug_logging_streams"), allow(unused))]
         sv_id: StreamValueId,
         tf_id: TransformId,
         custom_data: usize,
@@ -687,7 +687,7 @@ impl<'a> StreamValue<'a> {
             notify_only_once_done,
         });
         self.ref_count += 1;
-        #[cfg(feature = "stream_logging")]
+        #[cfg(feature = "debug_logging_streams")]
         eprintln!(
             ":: tf {tf_id:02} subscribed to stream value {sv_id:02} (subs: {:?}, rc {}), [{:?}]",
             self.subscribers.iter().map(|svs|svs.tf_id).collect::<Vec<_>>(),
@@ -1517,7 +1517,7 @@ impl<'a> StreamValueManager<'a> {
                 sub.data_offset = new_data_offset;
             }
         }
-        #[cfg(feature = "stream_logging")]
+        #[cfg(feature = "debug_logging_streams")]
         {
             eprintln!(
                 ":: queued updates to the {} subscriber(s) of stream value {sv_id:02} (data: {:?}, done: {})",
@@ -1542,7 +1542,7 @@ impl<'a> StreamValueManager<'a> {
         eprint!("{:padding$}]", "", padding = indent_level.saturating_sub(1));
     }
     pub fn release_stream_value(&mut self, sv_id: StreamValueId) {
-        #[cfg(feature = "stream_logging")]
+        #[cfg(feature = "debug_logging_streams")]
         eprintln!(
             ":: releasing stream value {sv_id:02} [{:?}]",
             self.stream_values[sv_id].data
@@ -1556,7 +1556,7 @@ impl<'a> StreamValueManager<'a> {
     ) {
         let sv = &mut self.stream_values[sv_id];
 
-        #[cfg(feature = "stream_logging")]
+        #[cfg(feature = "debug_logging_streams")]
         {
             use crate::utils::indexing_type::IndexingType;
             eprintln!(
@@ -1592,7 +1592,7 @@ impl<'a> StreamValueManager<'a> {
     ) -> StreamValueId {
         #[allow(clippy::let_and_return)]
         let sv_id = self.stream_values.claim_with_value(sv);
-        #[cfg(feature = "stream_logging")]
+        #[cfg(feature = "debug_logging_streams")]
         eprintln!(
             ":: claimed stream value {sv_id:02} [{:?}]",
             self.stream_values[sv_id].data

@@ -67,18 +67,24 @@ rstest = "0.21.0"
 default = []
 
 repl = ["dep:shlex", "dep:reedline"]
-full = ["repl", "debug"]
+full = ["repl", "debug_log"]
 
 unstable = []
-debug = []
-debug_logging = ["debug"]
-liveness_analysis_logging = ["debug_logging"]
-stream_logging = ["debug_logging"]
-cow_field_logging = ["debug_logging"]
-output_field_logging = ["debug_logging"]
-field_action_logging = ["debug_logging"]
-field_action_group_logging = ["debug_logging"]
-iter_state_logging = ["output_field_logging", "field_action_logging"]
-field_action_group_accel_logging = ["debug_logging"]
-debug_log_extern_style_sheet = []
-debug_log_lenient = []
+debug_state = []
+
+debug_log = ["debug_state"]
+debug_log_extern_style_sheet = ["debug_log"]
+debug_log_lenient = ["debug_log"]
+
+debug_logging = ["debug_state"]
+debug_logging_liveness_analysis = ["debug_logging"]
+debug_logging_streams = ["debug_logging"]
+debug_logging_cow_fields = ["debug_logging"]
+debug_logging_output_fields = ["debug_logging"]
+debug_logging_field_actions = ["debug_logging"]
+debug_logging_field_action_groups = ["debug_logging"]
+debug_logging_iter_states = [
+    "debug_logging_output_fields",
+    "debug_logging_field_actions",
+]
+debug_logging_field_action_group_accel = ["debug_logging"]

@@ -248,6 +248,13 @@ fn try_parse_as_setting(
                 .set(expr.require_single_number_param()?, expr.span)?;
         }
         "debug_log" => {
+            if !cfg!(feature = "debug_state") {
+                return Err(CliArgumentError::new(
+                    "debug log not enabled. please compile with --feature=debug_log",
+                    expr.span,
+                )
+                .into());
+            }
             let val = expr.require_single_arg()?;
             match val.to_str().ok().and_then(|v| PathBuf::from_str(v).ok()) {
                 Some(path) => {

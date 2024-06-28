@@ -54,7 +54,7 @@ pub struct Job<'a> {
     pub job_data: JobData<'a>,
     pub transform_data: IndexVec<TransformId, TransformData<'a>>,
     pub temp_vec: Vec<FieldId>,
-    #[cfg(feature = "debug")]
+    #[cfg(feature = "debug_state")]
     debug_log: Option<std::fs::File>,
 }
 
@@ -261,7 +261,7 @@ impl TransformManager {
     pub fn make_stream_producer(&mut self, tf_id: TransformId) {
         let tf = &mut self.transforms[tf_id];
         if !tf.is_stream_producer {
-            #[cfg(feature = "stream_logging")]
+            #[cfg(feature = "debug_logging_streams")]
             {
                 eprintln!(
                     ":: tf {tf_id:02} became a stream producer: {:?}, stack: {:?}, cutoff: {}",
@@ -791,7 +791,7 @@ impl<'a> Job<'a> {
                 jd.tf_mgr.ready_stack,
                 jd.tf_mgr.pre_stream_transform_stack_cutoff
             );
-            #[cfg(feature = "stream_logging")]
+            #[cfg(feature = "debug_logging_streams")]
             if !jd.sv_mgr.updates.is_empty() {
                 eprint!("     :: pending sv updates: ");
                 jd.sv_mgr.log_pending_updates(4);
@@ -805,7 +805,7 @@ impl<'a> Job<'a> {
         tf_id: TransformId,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
-        #[cfg(any(feature = "debug_logging", feature = "debug"))]
+        #[cfg(any(feature = "debug_logging", feature = "debug_state"))]
         let batch_size_available =
             self.job_data.tf_mgr.transforms[tf_id].available_batch_size;
 
@@ -827,7 +827,7 @@ impl<'a> Job<'a> {
             }
         }
 
-        #[cfg(feature = "output_field_logging")]
+        #[cfg(feature = "debug_logging_output_fields")]
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             let output_field_id = tf.output_field;
@@ -844,20 +844,20 @@ impl<'a> Job<'a> {
                 [group_track_id]
                 .borrow();
             eprint!("   - group {group_track_id} data: {group_track} (may have pending actions)");
-            #[cfg(feature = "iter_state_logging")]
+            #[cfg(feature = "debug_logging_iter_states")]
             group_track.eprint_iter_states(4);
             eprint!("\n   - out ");
             self.job_data.field_mgr.print_field_stats(output_field_id);
             self.job_data
                 .field_mgr
                 .print_field_header_data(output_field_id, 4);
-            #[cfg(feature = "iter_state_logging")]
+            #[cfg(feature = "debug_logging_iter_states")]
             self.job_data
                 .field_mgr
                 .print_field_iter_data(output_field_id, 4);
             eprintln!();
         }
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debug_state")]
         if let (Some(f), Some(start_tf)) =
             (&mut self.debug_log, self.job_data.start_tf)
         {
@@ -895,7 +895,7 @@ impl<'a> Job<'a> {
         &mut self,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
-        #[cfg(feature = "debug")]
+        #[cfg(feature = "debug_state")]
         if let Some(dl) = &mut self.debug_log {
             crate::debug_log::write_debug_log_html_head(dl)
                 .expect("debug log write succeeds");
@@ -958,7 +958,7 @@ impl<'a> Job<'a> {
             }
             self.job_data.tf_mgr.pre_stream_transform_stack_cutoff = 0;
         }
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug_state")]
         if let Some(dl) = &mut self.debug_log {
             crate::debug_log::write_debug_log_html_tail(dl)
                 .expect("debug log write succeeds");
@@ -974,7 +974,7 @@ impl<'a> Job<'a> {
         Job {
             transform_data: IndexVec::new(),
             temp_vec: Vec::new(),
-            #[cfg(feature="debug")]
+            #[cfg(feature = "debug_state")]
             // TODO: nicer error handling for this
             debug_log: job_data
                 .session_data
