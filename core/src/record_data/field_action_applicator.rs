@@ -103,27 +103,27 @@ impl FieldActionApplicator {
             it.header_rl_offset -= drops_before as RunLength;
         }
     }
-    fn iters_after_offset_to_next_header_bumping_field_pos(
+    fn iters_from_offset_to_next_header_bumping_field_pos(
         faas: &mut FieldActionApplicationState,
         offset: RunLength,
         extra_field_pos_bump: usize,
         header_pos_bump: usize,
         iterators: &mut [&mut IterState],
-        current_header: FieldValueHeader,
+        data_offset: usize,
+        run_length_offset: RunLength,
     ) {
-        let data_offset = current_header.total_size_unique();
         for it in &mut iterators
             [faas.curr_header_iters_start..faas.curr_header_iters_end]
             .iter_mut()
             .rev()
         {
-            if it.header_rl_offset <= offset {
+            if it.header_rl_offset < offset {
                 break;
             }
             it.field_pos += extra_field_pos_bump;
             it.header_idx += header_pos_bump;
             it.data += data_offset;
-            it.header_rl_offset -= current_header.run_length;
+            it.header_rl_offset -= run_length_offset;
         }
     }
     fn iters_to_next_header(
@@ -203,16 +203,14 @@ impl FieldActionApplicator {
         pre_fmt.set_shared_value(pre_fmt.shared_value() || pre == 1);
         self.push_insert_command_if_rl_gt_0(faas, header.fmt, pre);
         faas.field_pos += pre as usize;
-        Self::iters_after_offset_to_next_header_bumping_field_pos(
+        Self::iters_from_offset_to_next_header_bumping_field_pos(
             faas,
             pre,
             insert_count,
-            usize::from(pre > 0) + mid_full_count,
+            usize::from(pre > 0) + mid_full_count + usize::from(mid_rem > 0),
             iterators,
-            FieldValueHeader {
-                fmt: header.fmt,
-                run_length: pre,
-            },
+            0,
+            pre,
         );
         let mut fmt_mid = header.fmt;
         if pre > 0 {
@@ -311,7 +309,7 @@ impl FieldActionApplicator {
         self.push_copy_command(faas);
         self.push_insert_command_if_rl_gt_0(faas, header.fmt, pre);
         faas.field_pos += pre as usize;
-        Self::iters_after_offset_to_next_header_bumping_field_pos(
+        Self::iters_from_offset_to_next_header_bumping_field_pos(
             faas,
             // only move iterators that refer to the element *after* the one
             // we are duping, so not pre and mid
@@ -322,7 +320,9 @@ impl FieldActionApplicator {
             FieldValueHeader {
                 fmt: header.fmt,
                 run_length: pre + 1,
-            },
+            }
+            .total_size_unique(),
+            pre + 1,
         );
         if post == 0 && mid_full_count == 0 {
             header.run_length = mid_rem;
@@ -827,14 +827,14 @@ mod test {
     }
 
     #[track_caller]
-    fn test_actions_on_range_raw(
-        input: impl Iterator<Item = (FieldValue, RunLength)>,
+    fn test_actions_on_range(
+        input: impl IntoIterator<Item = (FieldValue, RunLength)>,
         header_rle: bool,
         value_rle: bool,
-        actions: &[FieldAction],
-        output: &[(FieldValue, RunLength)],
-        iter_states_in: &[IterState],
-        iter_states_out: &[IterState],
+        actions: impl IntoIterator<Item = FieldAction>,
+        output: impl IntoIterator<Item = (FieldValue, RunLength)>,
+        iter_states_in: impl IntoIterator<Item = IterState>,
+        iter_states_out: impl IntoIterator<Item = IterState>,
     ) {
         let mut fd = FieldData::default();
         let mut len_before = 0;
@@ -848,12 +848,15 @@ mod test {
             len_before += rl as isize;
         }
         let mut faa = FieldActionApplicator::default();
-        let mut iter_states = iter_states_in.to_vec();
+        let mut iter_states_in =
+            iter_states_in.into_iter().collect::<Vec<_>>();
+        let iter_states_out = iter_states_out.into_iter().collect::<Vec<_>>();
+        let actions = actions.into_iter().collect::<Vec<_>>();
         let fc_delta = faa.run(
             actions.iter(),
             &mut fd.headers,
             &mut fd.field_count,
-            iter_states.iter_mut(),
+            iter_states_in.iter_mut(),
         );
         let mut iter = fd.iter();
         let mut results = Vec::new();
@@ -861,10 +864,11 @@ mod test {
             results
                 .push((field.value.to_field_value(), field.header.run_length));
         }
-        assert_eq!(results, output);
-        assert_eq!(iter_states, iter_states_out);
+        let outputs = output.into_iter().collect::<Vec<_>>();
+        assert_eq!(results, outputs);
+        assert_eq!(iter_states_in, iter_states_out);
         let expected_field_count_delta =
-            output.iter().map(|(_v, rl)| *rl as isize).sum::<isize>()
+            outputs.iter().map(|(_v, rl)| *rl as isize).sum::<isize>()
                 - len_before;
         assert_eq!(fc_delta, expected_field_count_delta);
     }
@@ -873,23 +877,23 @@ mod test {
         input: impl IntoIterator<Item = (T, RunLength)>,
         header_rle: bool,
         value_rle: bool,
-        actions: &[FieldAction],
+        actions: impl IntoIterator<Item = FieldAction>,
         output: impl IntoIterator<Item = (T, RunLength)>,
-        iter_states_in: &[IterState],
-        iter_states_out: &[IterState],
+        iter_states_in: impl IntoIterator<Item = IterState>,
+        iter_states_out: impl IntoIterator<Item = IterState>,
     ) {
         let output_fv = output
             .into_iter()
             .map(|(v, rl)| (FieldValue::from_fixed_sized_type(v.clone()), rl))
             .collect::<Vec<_>>();
-        test_actions_on_range_raw(
+        test_actions_on_range(
             input
                 .into_iter()
                 .map(|(v, rl)| (FieldValue::from_fixed_sized_type(v), rl)),
             header_rle,
             value_rle,
             actions,
-            &output_fv,
+            output_fv,
             iter_states_in,
             iter_states_out,
         );
@@ -897,35 +901,35 @@ mod test {
 
     #[track_caller]
     fn test_actions_on_range_full_rle<T: FixedSizeFieldValueType>(
-        input: impl Iterator<Item = T>,
-        actions: &[FieldAction],
-        output: &[(T, RunLength)],
+        input: impl IntoIterator<Item = T>,
+        actions: impl IntoIterator<Item = FieldAction>,
+        output: impl IntoIterator<Item = (T, RunLength)>,
     ) {
         test_actions_on_range_single_type(
-            input.map(|v| (v, 1)),
+            input.into_iter().map(|v| (v, 1)),
             true,
             true,
             actions,
-            output.iter().cloned(),
-            &[],
-            &[],
+            output,
+            [],
+            [],
         );
     }
 
     #[track_caller]
     fn test_actions_on_range_no_rle<T: FixedSizeFieldValueType>(
-        input: impl Iterator<Item = T>,
-        actions: &[FieldAction],
-        output: &[(T, RunLength)],
+        input: impl IntoIterator<Item = T>,
+        actions: impl IntoIterator<Item = FieldAction>,
+        output: impl IntoIterator<Item = (T, RunLength)>,
     ) {
         test_actions_on_range_single_type(
-            input.map(|v| (v, 1)),
+            input.into_iter().map(|v| (v, 1)),
             false,
             false,
             actions,
-            output.iter().cloned(),
-            &[],
-            &[],
+            output,
+            [],
+            [],
         );
     }
 
@@ -939,8 +943,8 @@ mod test {
         //              2
         test_actions_on_range_no_rle(
             0i64..3,
-            &[FieldAction::new(FAK::Dup, 0, 2)],
-            &[(0, 3), (1, 1), (2, 1)],
+            [FieldAction::new(FAK::Dup, 0, 2)],
+            [(0, 3), (1, 1), (2, 1)],
         );
     }
 
@@ -953,24 +957,24 @@ mod test {
         //    1         1
         //    2         1
         //              2
-        test_actions_on_range_raw(
+        test_actions_on_range(
             [0, 1, 1, 1, 2].iter().map(|v| (FieldValue::Int(*v), 1)),
             true,
             true,
-            &[FieldAction::new(
+            [FieldAction::new(
                 FAK::InsertZst(FieldValueRepr::Undefined),
                 2,
                 1,
             )],
-            &[
+            [
                 (FieldValue::Int(0), 1),
                 (FieldValue::Int(1), 1),
                 (FieldValue::Undefined, 1),
                 (FieldValue::Int(1), 2),
                 (FieldValue::Int(2), 1),
             ],
-            &[],
-            &[],
+            [],
+            [],
         );
     }
 
@@ -985,11 +989,11 @@ mod test {
         //              2
         test_actions_on_range_full_rle(
             0i64..3,
-            &[
+            [
                 FieldAction::new(FAK::Dup, 0, 2),
                 FieldAction::new(FAK::Drop, 1, 1),
             ],
-            &[(0, 2), (1, 1), (2, 1)],
+            [(0, 2), (1, 1), (2, 1)],
         );
     }
 
@@ -1001,8 +1005,8 @@ mod test {
         //    2
         test_actions_on_range_no_rle(
             0i64..3,
-            &[FieldAction::new(FAK::Drop, 1, 1)],
-            &[(0, 1), (2, 1)],
+            [FieldAction::new(FAK::Drop, 1, 1)],
+            [(0, 1), (2, 1)],
         );
     }
 
@@ -1014,13 +1018,13 @@ mod test {
         //    0
         test_actions_on_range_full_rle(
             std::iter::repeat(0i64).take(3),
-            &[FieldAction::new(FAK::Drop, 1, 1)],
-            &[(0, 2)],
+            [FieldAction::new(FAK::Drop, 1, 1)],
+            [(0, 2)],
         );
         test_actions_on_range_no_rle(
             std::iter::repeat(0i64).take(3),
-            &[FieldAction::new(FAK::Drop, 1, 1)],
-            &[(0, 1), (0, 1)],
+            [FieldAction::new(FAK::Drop, 1, 1)],
+            [(0, 1), (0, 1)],
         );
     }
 
@@ -1038,11 +1042,11 @@ mod test {
             [(0i64, 3), (1, 2), (2, 1), (3, 1)],
             false,
             false,
-            &[FieldAction::new(FAK::Drop, 1, 5)],
+            [FieldAction::new(FAK::Drop, 1, 5)],
             [(0, 1), (3, 1)],
             // TODO: test iters
-            &[],
-            &[],
+            [],
+            [],
         );
     }
 
@@ -1083,9 +1087,9 @@ mod test {
             [(42i64, 4)],
             false,
             false,
-            &[FieldAction::new(FAK::Drop, 2, 2)],
+            [FieldAction::new(FAK::Drop, 2, 2)],
             [(42, 2)],
-            &[IterState {
+            [IterState {
                 field_pos: 2,
                 data: 0,
                 header_idx: 0,
@@ -1093,11 +1097,41 @@ mod test {
                 #[cfg(feature = "debug_state")]
                 kind: IterKind::Undefined,
             }],
-            &[IterState {
+            [IterState {
                 field_pos: 2,
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 2,
+                #[cfg(feature = "debug_state")]
+                kind: IterKind::Undefined,
+            }],
+        );
+    }
+    #[test]
+    fn insert_on_start_should_move_iters() {
+        test_actions_on_range(
+            [(FieldValue::Int(42), 2)],
+            false,
+            false,
+            [FieldAction::new(
+                FAK::InsertZst(FieldValueRepr::Undefined),
+                0,
+                2,
+            )],
+            [(FieldValue::Undefined, 2), (FieldValue::Int(42), 2)],
+            [IterState {
+                field_pos: 0,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 0,
+                #[cfg(feature = "debug_state")]
+                kind: IterKind::Undefined,
+            }],
+            [IterState {
+                field_pos: 2,
+                data: 0,
+                header_idx: 1,
+                header_rl_offset: 0,
                 #[cfg(feature = "debug_state")]
                 kind: IterKind::Undefined,
             }],
