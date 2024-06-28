@@ -59,6 +59,8 @@ debug = true
 repl = ["scr_core/repl"]
 debug_log = ["scr_core/debug_log"]
 
+unstable = []
+
 sqlite = ["dep:scr_ext_sqlite"]
 python = ["dep:scr_ext_python"]
 http = ["dep:scr_ext_http"]

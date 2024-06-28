@@ -7,8 +7,7 @@ use std::{
 
 use crate::utils::{
     debuggable_nonmax::DebuggableNonMaxU32, range_bounds_to_range,
-    size_classed_vec_deque::SizeClassedVecDeque, subslice_slice_pair,
-    universe::Universe,
+    size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
 };
 
 use super::{
@@ -97,11 +96,8 @@ pub struct GroupTrackIter<L> {
 }
 pub struct GroupTrackIterMut<'a, T: DerefMut<Target = GroupTrack>> {
     base: GroupTrackIter<T>,
-    tracker: &'a GroupTrackManager,
     group_len: usize,
     update_group_len: bool,
-    actions_applied_in_parents: bool,
-    action_count_applied_to_parents: usize,
     action_buffer: &'a RefCell<ActionBuffer>,
 }
 
@@ -768,13 +764,12 @@ impl GroupTrack {
         let iter_state = list.iter_states[iter_index as usize].get();
         Self::build_iter_from_iter_state(list, iter_state)
     }
-    pub fn lookup_iter_for_deref_mut<'a, T: DerefMut<Target = Self>>(
-        tracker: &'a GroupTrackManager,
+    pub fn lookup_iter_for_deref_mut<T: DerefMut<Target = Self>>(
         list: T,
         iter_id: GroupTrackIterId,
-        msm: &'a MatchSetManager,
+        msm: &MatchSetManager,
         actor_id: ActorId,
-    ) -> GroupTrackIterMut<'a, T> {
+    ) -> GroupTrackIterMut<T> {
         let action_buffer = &msm.match_sets[list.ms_id].action_buffer;
         let iter_index = list.iter_lookup_table[iter_id];
         let iter_state = list.iter_states[iter_index as usize].get();
@@ -783,9 +778,6 @@ impl GroupTrack {
         GroupTrackIterMut {
             group_len: base.group_len_rem + iter_state.group_offset,
             base,
-            tracker,
-            actions_applied_in_parents: false,
-            action_count_applied_to_parents: 0,
             update_group_len: false,
             action_buffer,
         }
@@ -1013,9 +1005,7 @@ impl GroupTrackManager {
     ) -> GroupTrackIterMut<RefMut<'a, GroupTrack>> {
         let mut list = self.borrow_group_track_mut(track_id);
         list.apply_field_actions(msm);
-        GroupTrack::lookup_iter_for_deref_mut(
-            self, list, iter_id, msm, actor_id,
-        )
+        GroupTrack::lookup_iter_for_deref_mut(list, iter_id, msm, actor_id)
     }
     pub fn lookup_group_track_iter_mut_from_ref<'a>(
         &'a self,
@@ -1040,43 +1030,7 @@ impl GroupTrackManager {
             .borrow()
             .store_iter(iter_ref.iter_id, iter);
     }
-    pub fn apply_actions_to_list_and_parents(
-        &self,
-        ab: &mut ActionBuffer,
-        group_track_id: GroupTrackId,
-    ) {
-        let mut prev_diff = (SnapshotRef::default(), SnapshotRef::default());
-        let mut agi = None;
-        let mut list_id = group_track_id;
-        loop {
-            let mut list_ref = self.group_tracks[list_id].borrow_mut();
-            let list = &mut *list_ref;
-            let Some((actor_id, ss_prev)) = ab.update_snapshot(
-                ActorSubscriber::GroupTrack(list_id),
-                &mut list.actor,
-                &mut list.snapshot,
-            ) else {
-                return;
-            };
-            let diff = (ss_prev, list.snapshot);
-            if prev_diff != diff {
-                prev_diff = diff;
-                ab.release_temp_action_group(agi);
-                agi = ab.build_actions_from_snapshot(actor_id, ss_prev);
-            }
-            if let Some(agi) = &agi {
-                let (s1, s2) = ab.get_action_group_slices(agi);
-                list.apply_field_actions_list(s1.iter().chain(s2.iter()));
-            };
-            ab.drop_snapshot_refcount(ss_prev, 1);
-            if let Some(prev) = list.parent_group_track_id {
-                list_id = prev;
-            } else {
-                break;
-            }
-        }
-        ab.release_temp_action_group(agi);
-    }
+
     pub fn apply_actions_to_list(
         &self,
         msm: &MatchSetManager,
@@ -1474,73 +1428,22 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
             return;
         }
 
+        self.base.group_track.lookup_and_advance_affected_iters_(
+            self.base.group_idx..=self.base.group_idx,
+            self.base.field_pos..,
+            count as isize,
+        );
+
         let field_pos_prev = self.base.field_pos;
         self.update_group_len = true;
         self.group_len += count;
         self.base.field_pos += count;
 
-        self.base.group_track.lookup_and_advance_affected_iters_(
-            self.base.group_idx..=self.base.group_idx,
-            self.base.field_pos + 1..,
-            count as isize,
-        );
-
-        if self.group_len != 0 {
-            self.action_buffer.borrow_mut().push_action(
-                FieldActionKind::InsertZst(repr),
-                field_pos_prev,
-                count,
-            );
-            return;
-        }
-
-        if !self.actions_applied_in_parents {
-            self.actions_applied_in_parents = true;
-            if let Some(parent) = self.base.group_track.parent_group_track_id {
-                self.tracker.apply_actions_to_list_and_parents(
-                    &mut self.action_buffer.borrow_mut(),
-                    parent,
-                )
-            }
-        }
-        self.apply_pending_actions_to_parents();
-        // plus one for the insert action that we are about to add,
-        // that will be applied manually by the code below
-        self.action_count_applied_to_parents += 1;
-
-        // we don't want to add this earlier because
-        // `apply_pending_actions_to_parents` should not consider it
         self.action_buffer.borrow_mut().push_action(
             FieldActionKind::InsertZst(repr),
             field_pos_prev,
             count,
         );
-
-        let Some(mut parent_list_idx) =
-            self.base.group_track.parent_group_track_id
-        else {
-            return;
-        };
-        let mut group_index =
-            self.base.group_track.parent_group_idx(self.base.group_idx);
-        loop {
-            let mut list =
-                self.tracker.group_tracks[parent_list_idx].borrow_mut();
-            list.sort_iters();
-
-            list.lookup_and_advance_affected_iters_(
-                group_index..=group_index,
-                self.base.field_pos + 1..,
-                count as isize,
-            );
-
-            list.group_lengths.add_value(group_index, count);
-            let Some(idx) = list.parent_group_track_id else {
-                break;
-            };
-            parent_list_idx = idx;
-            group_index = list.parent_group_idx(group_index);
-        }
     }
     pub fn field_pos_is_in_group(&self, field_pos: usize) -> bool {
         if field_pos > self.base.field_pos {
@@ -1852,58 +1755,14 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         }
         count
     }
-
-    fn apply_pending_actions_to_parents(&mut self) {
-        let ab = self.action_buffer.borrow_mut();
-        let action_count = ab.get_curr_action_group_action_count();
-        if action_count == self.action_count_applied_to_parents {
-            return;
-        }
-        let (s1, s2) = subslice_slice_pair(
-            ab.get_curr_action_group_slices(),
-            self.action_count_applied_to_parents..action_count,
-        );
-        let actions = s1.iter().chain(s2.iter());
-        let mut parent_id = self.base.group_track.parent_group_track_id;
-        while let Some(parent) = parent_id {
-            let mut list = self.tracker.group_tracks[parent].borrow_mut();
-            list.apply_field_actions_list(actions.clone());
-            parent_id = list.parent_group_track_id;
-        }
-        self.action_count_applied_to_parents = action_count;
-    }
 }
 
 impl<'a, T: DerefMut<Target = GroupTrack>> Drop for GroupTrackIterMut<'a, T> {
     fn drop(&mut self) {
         self.update_group();
 
-        if self.actions_applied_in_parents {
-            // must be called before ending the action group to get
-            // the action count from the action buffer
-            self.apply_pending_actions_to_parents();
-        }
-
         let mut ab = self.action_buffer.borrow_mut();
         ab.end_action_group();
-
-        if self.actions_applied_in_parents {
-            // must be done after ending the action group to have it enlisted
-            let mut parent_id = self.base.group_track.parent_group_track_id;
-            while let Some(list_id) = parent_id {
-                let mut list_ref =
-                    self.tracker.group_tracks[list_id].borrow_mut();
-                let list = &mut *list_ref;
-                if let Some((_actor_id, ss_prev)) = ab.update_snapshot(
-                    ActorSubscriber::GroupTrack(self.base.group_track.id),
-                    &mut list.actor,
-                    &mut list.snapshot,
-                ) {
-                    ab.drop_snapshot_refcount(ss_prev, 1);
-                }
-                parent_id = list.parent_group_track_id;
-            }
-        }
 
         let list = &mut *self.base.group_track;
         if let Some((_actor_id, ss_prev)) = ab.update_snapshot(
@@ -1924,12 +1783,14 @@ mod test {
         record_data::{
             field_action::{FieldAction, FieldActionKind},
             group_track::{GroupTrack, GroupTrackIterState},
-            iter_hall::IterKind,
         },
         utils::{
             size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
         },
     };
+
+    #[cfg(feature = "debug_state")]
+    use crate::record_data::iter_hall::IterKind;
 
     #[test]
     fn drop_on_passed_fields() {

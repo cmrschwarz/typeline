@@ -373,7 +373,7 @@ impl FieldActionApplicator {
                     Self::iters_adjust_drop_before(
                         faas,
                         iterators,
-                        faas.field_pos,
+                        faas.curr_action_pos,
                         rl_to_del,
                     );
                     return;
@@ -795,6 +795,9 @@ mod test {
         push_interface::PushInterface,
     };
 
+    #[cfg(feature = "debug_state")]
+    use crate::record_data::iter_hall::IterKind;
+
     use FieldActionKind as FAK;
 
     #[track_caller]
@@ -1062,7 +1065,7 @@ mod test {
                 header_idx,
                 header_rl_offset,
                 #[cfg(feature = "debug_state")]
-                kind: crate::record_data::iter_hall::IterKind::Undefined,
+                kind: IterKind::Undefined,
             };
 
         test_actions_on_headers(
@@ -1071,6 +1074,33 @@ mod test {
             [header(1, true, 1), header(0, false, 1)],
             &[iterstate(1, 0, 0, 1)],
             &[iterstate(0, 2, 1, 0)],
+        );
+    }
+
+    #[test]
+    fn iter_on_drop_header_before_drop() {
+        test_actions_on_range_single_type(
+            [(42i64, 4)],
+            false,
+            false,
+            &[FieldAction::new(FAK::Drop, 2, 2)],
+            [(42, 2)],
+            &[IterState {
+                field_pos: 2,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 2,
+                #[cfg(feature = "debug_state")]
+                kind: IterKind::Undefined,
+            }],
+            &[IterState {
+                field_pos: 2,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 2,
+                #[cfg(feature = "debug_state")]
+                kind: IterKind::Undefined,
+            }],
         );
     }
 }
