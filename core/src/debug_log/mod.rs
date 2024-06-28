@@ -155,6 +155,10 @@ fn add_field_data_dead_slots<'a>(
     let mut iter = FieldIter::from_start_allow_dead(fd);
     for ds in dead_slots {
         *ds = (*ds).max(iter.skip_dead_fields());
+        #[cfg(feature = "debug_log_lenient")]
+        if !iter.is_next_valid() {
+            break;
+        }
         iter.next_field_allow_dead();
     }
 }
@@ -602,6 +606,14 @@ pub fn field_data_to_json<'a>(
         let mut iters_end = iters_start;
         while iters_end < iters.len() {
             let it = &iters[iters_end];
+            // special case for iters that sit on the next header but the
+            // current field pos
+            if it.field_pos == iter.get_next_field_pos() + 1
+                && !iter.get_next_header().deleted()
+            {
+                iters_end += 1;
+                continue;
+            }
             if it.header_rl_offset > header_offs + 1 {
                 break;
             }
@@ -670,6 +682,7 @@ pub fn field_data_to_json<'a>(
         iters_start = iters_end;
         iter.next_field_allow_dead();
     }
+    #[cfg(not(feature = "debug_log_lenient"))]
     assert_eq!(iters_start, iters.len());
 
     let cow = if let Some(info) = field_info.cow_info {

@@ -240,7 +240,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
         let first_header = fdr.headers().front();
         Self {
             field_pos: 0,
-            data: 0,
+            data: first_header.map(|h| h.leading_padding()).unwrap_or(0),
             header_idx: 0,
             header_rl_offset: 0,
             header_rl_total: first_header.map_or(0, |h| h.run_length),

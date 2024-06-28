@@ -1534,7 +1534,7 @@ impl ActionBuffer {
         dead_data_trailing: usize,
     ) -> HeaderDropInfo {
         let field_data_size = field.iter_hall.field_data.data.len();
-        let drop_info = Self::drop_dead_cow_headers(
+        let drop_info = Self::drop_dead_headers(
             field,
             dead_data_leading,
             dead_data_padding,
@@ -1597,7 +1597,7 @@ impl ActionBuffer {
             }
         }
     }
-    fn drop_dead_cow_headers(
+    fn drop_dead_headers(
         field: &mut Field,
         dead_data_leading: usize,
         dead_data_padding: usize,
@@ -1606,24 +1606,26 @@ impl ActionBuffer {
         field_data_size: usize,
     ) -> HeaderDropInfo {
         let headers = &mut field.iter_hall.field_data.headers;
-        let mut dead_data_rem_leading = dead_data_leading;
+        let mut dead_data_leading_rem = dead_data_leading;
         let mut dead_headers_leading = 0;
         let mut first_header_dropped_elem_count = 0;
 
         while dead_headers_leading < headers.len() {
             let h = &mut headers[dead_headers_leading];
             let h_ds = h.total_size_unique();
-            if dead_data_rem_leading < h_ds {
+            if dead_data_leading_rem < h_ds
+                || dead_data_leading_rem == 0 && !h.deleted()
+            {
                 let header_elem_size = h.fmt.size as usize;
                 let header_padding = h.leading_padding();
                 first_header_dropped_elem_count =
-                    ((dead_data_rem_leading - header_padding)
+                    ((dead_data_leading_rem - header_padding)
                         / header_elem_size) as RunLength;
                 h.run_length -= first_header_dropped_elem_count;
                 h.set_leading_padding(dead_data_padding);
                 break;
             }
-            dead_data_rem_leading -= h_ds;
+            dead_data_leading_rem -= h_ds;
             dead_headers_leading += 1;
         }
 
@@ -1632,8 +1634,12 @@ impl ActionBuffer {
             dead_data_trailing.saturating_sub(field_size_diff);
         let mut last_header_alive = headers.len();
         while last_header_alive > 0 {
-            let h_ds = headers[last_header_alive - 1].total_size_unique();
+            let h = headers[last_header_alive - 1];
+            let h_ds = h.total_size_unique();
             if dead_data_rem_trailing < h_ds {
+                break;
+            }
+            if dead_data_rem_trailing == 0 && !h.deleted() {
                 break;
             }
             last_header_alive -= 1;
@@ -1821,7 +1827,7 @@ impl ActionBuffer {
                 dead_data_trailing,
             );
             for dcf in &mut *data_cow_fields {
-                dcf.drop_info = Self::drop_dead_cow_headers(
+                dcf.drop_info = Self::drop_dead_headers(
                     dcf.field.as_mut().unwrap(),
                     dead_data_leading,
                     dead_data_padding,
