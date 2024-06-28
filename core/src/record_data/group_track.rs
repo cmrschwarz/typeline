@@ -1620,10 +1620,10 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         );
     }
     pub fn dup_with_field_pos(&mut self, field_pos: usize, count: usize) {
-        match self.base.field_pos.cmp(&field_pos) {
+        match field_pos.cmp(&self.base.field_pos) {
             Ordering::Less => self.dup_before(field_pos, count),
-            Ordering::Equal => self.dup_after(field_pos, count),
-            Ordering::Greater => self.dup(count),
+            Ordering::Equal => self.dup(count),
+            Ordering::Greater => self.dup_after(field_pos, count),
         }
     }
     fn drop_no_field_action(&mut self, mut count: usize) {

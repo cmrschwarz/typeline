@@ -287,11 +287,11 @@ fn parse_forkcat_2() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
         &CliOptions::default(),
         [
-            "seqn=3", "fe:", "forkcat:", "seq=2", "next", "nop", "end", "end",
+            "seq=3", "fe:", "forkcat:", "seq=2", "next", "nop", "end", "end",
         ],
     )?
     .run_collect_stringified()?;
 
-    assert_eq!(res, int_sequence_strings(1..11));
+    assert_eq!(res, ["0", "1", "0", "0", "1", "1", "0", "1", "2"]);
     Ok(())
 }

@@ -174,7 +174,8 @@ struct HeaderDropInfo {
 }
 
 struct DataCowFieldRef<'a> {
-    #[cfg(feature = "debug_logging")]
+    #[allow(unused)]
+    #[cfg(feature = "debug")]
     field_id: FieldId,
     field: Option<std::cell::RefMut<'a, Field>>,
     // For fields that have only partially copied over the data.
@@ -187,8 +188,9 @@ struct DataCowFieldRef<'a> {
 }
 
 struct FullCowFieldRef<'a> {
-    #[cfg(feature = "debug_logging")]
-    _field_id: FieldId,
+    #[allow(unused)]
+    #[cfg(feature = "debug")]
+    field_id: FieldId,
     field: Option<std::cell::RefMut<'a, Field>>,
     data_cow_idx: Option<usize>,
     // a full cow of a data cow. still relevant for advancing iterators
@@ -211,7 +213,7 @@ pub struct ActionBuffer {
     actions_applicator: FieldActionApplicator,
     full_cow_field_refs_temp: Vec<PhantomSlot<FullCowFieldRef<'static>>>,
     data_cow_field_refs_temp: Vec<PhantomSlot<DataCowFieldRef<'static>>>,
-    #[cfg(feature = "debug_logging")]
+    #[cfg(feature = "debug")]
     pub match_set_id: MatchSetId,
 }
 
@@ -1336,8 +1338,8 @@ impl ActionBuffer {
 
         if !is_data_cow && through_data_cow {
             full_cow_field_refs.push(FullCowFieldRef {
-                #[cfg(feature = "debug_logging")]
-                _field_id: tgt_field_id,
+                #[cfg(feature = "debug")]
+                field_id: tgt_field_id,
                 field: None,
                 data_cow_idx,
                 through_data_cow,
@@ -1349,7 +1351,7 @@ impl ActionBuffer {
 
         if is_data_cow {
             data_cow_field_refs.push(DataCowFieldRef {
-                #[cfg(feature = "debug_logging")]
+                #[cfg(feature = "debug")]
                 field_id: tgt_field_id,
                 field: None,
                 data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
@@ -1360,8 +1362,8 @@ impl ActionBuffer {
         debug_assert!(cow_variant == Some(CowVariant::FullCow));
         if Some(ms_id) == update_cow_ms {
             full_cow_field_refs.push(FullCowFieldRef {
-                #[cfg(feature = "debug_logging")]
-                _field_id: tgt_field_id,
+                #[cfg(feature = "debug")]
+                field_id: tgt_field_id,
                 field: None,
                 data_cow_idx,
                 through_data_cow,
@@ -1379,7 +1381,7 @@ impl ActionBuffer {
             // end up calculating the dead data multiple times because of
             // this, but we don't care for now
             data_cow_field_refs.push(DataCowFieldRef {
-                #[cfg(feature = "debug_logging")]
+                #[cfg(feature = "debug")]
                 field_id: tgt_field_id,
                 field: None,
                 data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
@@ -1388,8 +1390,8 @@ impl ActionBuffer {
             return (data_cow_field_refs.len() - 1, true);
         }
         full_cow_field_refs.push(FullCowFieldRef {
-            #[cfg(feature = "debug_logging")]
-            _field_id: tgt_field_id,
+            #[cfg(feature = "debug")]
+            field_id: tgt_field_id,
             field: None,
             data_cow_idx,
             through_data_cow,
@@ -1485,6 +1487,7 @@ impl ActionBuffer {
             {
                 tgt_field.iter_hall.data_source =
                     FieldDataSource::FullCow(cds);
+                tgt_field.iter_hall.reset_iterators();
                 continue;
             }
             let (headers, count) = fm.get_field_headers(Ref::clone(&field));
@@ -1616,9 +1619,10 @@ impl ActionBuffer {
         while dead_headers_leading < headers.len() {
             let h = &mut headers[dead_headers_leading];
             let h_ds = h.total_size_unique();
-            if dead_data_leading_rem < h_ds
-                || dead_data_leading_rem == 0 && !h.deleted()
-            {
+            if dead_data_leading_rem == 0 && !h.deleted() {
+                break;
+            }
+            if dead_data_leading_rem < h_ds {
                 let header_elem_size = h.fmt.size as usize;
                 let header_padding = h.leading_padding();
                 first_header_dropped_elem_count =

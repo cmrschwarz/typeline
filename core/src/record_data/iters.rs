@@ -298,6 +298,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
             self.header_rl_total = h.run_length;
             break;
         }
+        self.header_rl_offset = 0;
         skip_count
     }
     pub fn next_field_allow_dead(&mut self) {
@@ -550,7 +551,9 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             {
                 return n - stride_rem;
             }
-            if self.header_rl_total as usize > stride_rem {
+            if self.header_rl_total as usize - self.header_rl_offset as usize
+                > stride_rem
+            {
                 self.field_pos += stride_rem;
                 self.header_rl_offset += stride_rem as RunLength;
                 return n;

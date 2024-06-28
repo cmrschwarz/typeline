@@ -679,10 +679,15 @@ pub fn propagate_forkcat(
                 );
             let field_pos_sc = group_iter.field_pos();
 
-            let drops_needed = field_pos_sc.saturating_sub(field_pos_cont);
-            if drops_needed > 0 {
-                group_iter.drop_with_field_pos(0, drops_needed);
-            }
+            let fields_dropped_by_cont = field_pos_sc - field_pos_cont_start;
+            group_iter.drop_with_field_pos(0, fields_dropped_by_cont);
+
+            //  let drops_needed = field_pos_sc
+            //      .saturating_sub(field_pos_cont)
+            //      .saturating_sub(fields_dropped_by_cont);
+            //  if drops_needed > 0 {
+            //      group_iter.drop_with_field_pos(0, drops_needed);
+            //  }
             group_iters.push(group_iter);
 
             let mut sc_field_iters =
