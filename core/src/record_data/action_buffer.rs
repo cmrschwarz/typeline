@@ -1694,16 +1694,23 @@ impl ActionBuffer {
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
     ) {
-        let mut field = fm.fields[field_id].borrow_mut();
+        // can't borrow mut: if the snapshot is current,
+        // we might already be using this field through cow in
+        // some active iterator
+        let field = fm.fields[field_id].borrow();
 
-        let fr = &mut *field;
+        let mut first_actor = field.first_actor.get();
+        let mut snapshot = field.snapshot.get();
         let Some((actor_id, ss_prev)) = self.update_snapshot(
             ActorSubscriber::Field(field_id),
-            fr.first_actor.get_mut(),
-            fr.snapshot.get_mut(),
+            &mut first_actor,
+            &mut snapshot,
         ) else {
             return;
         };
+
+        field.first_actor.set(first_actor);
+        field.snapshot.set(snapshot);
 
         drop(field);
 
