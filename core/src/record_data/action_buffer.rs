@@ -228,6 +228,10 @@ pub struct ActionBuffer {
     actions_applicator: FieldActionApplicator,
     full_cow_field_refs_temp: Vec<PhantomSlot<FullCowFieldRef<'static>>>,
     data_cow_field_refs_temp: Vec<PhantomSlot<DataCowFieldRef<'static>>>,
+    // used in drop_dead_headers to preserve alive zst headers
+    // that live between dead data
+    preserved_headers: Vec<FieldValueHeader>,
+
     #[cfg(feature = "debug_state")]
     pub match_set_id: MatchSetId,
 }
@@ -1567,6 +1571,7 @@ impl ActionBuffer {
         }
     }
     fn drop_dead_field_data(
+        &mut self,
         #[cfg_attr(
             not(feature = "debug_logging_field_actions"),
             allow(unused)
@@ -1576,7 +1581,7 @@ impl ActionBuffer {
         drop_instructions: HeaderDropInstructions,
     ) -> HeaderDropInfo {
         let field_data_size = field.iter_hall.field_data.data.len();
-        let drop_info = Self::drop_dead_headers(
+        let drop_info = self.drop_dead_headers(
             &mut field.iter_hall.field_data.headers,
             &mut field.iter_hall.iters,
             drop_instructions,
@@ -1642,12 +1647,14 @@ impl ActionBuffer {
         }
     }
     fn drop_dead_headers<'a>(
+        &mut self,
         headers: &mut VecDeque<FieldValueHeader>,
         iters: impl IntoIterator<Item = &'a mut Cell<IterState>>,
         drop_instructions: HeaderDropInstructions,
         origin_field_data_size: usize,
         field_data_size: usize,
     ) -> HeaderDropInfo {
+        debug_assert!(self.preserved_headers.is_empty());
         let mut dead_data_leading_rem = drop_instructions.leading_drop;
         let mut dead_headers_leading = 0;
         let mut first_header_dropped_elem_count = 0;
@@ -1656,9 +1663,8 @@ impl ActionBuffer {
             let h = &mut headers[dead_headers_leading];
             let h_ds = h.total_size_unique();
             if h_ds == 0 && dead_data_leading_rem == 0 && !h.deleted() {
-                break;
-            }
-            if dead_data_leading_rem < h_ds {
+                self.preserved_headers.push(*h);
+            } else if dead_data_leading_rem < h_ds {
                 let header_elem_size = h.fmt.size as usize;
                 let header_padding = h.leading_padding();
                 first_header_dropped_elem_count =
@@ -1869,7 +1875,7 @@ impl ActionBuffer {
                     dead_data,
                     field_data_size,
                 );
-            let root_drop_info = Self::drop_dead_field_data(
+            let root_drop_info = self.drop_dead_field_data(
                 fm,
                 &mut field,
                 header_drop_instructions,
@@ -1891,7 +1897,7 @@ impl ActionBuffer {
                     }
                     eprintln!();
                 }
-                dcf.drop_info = Self::drop_dead_headers(
+                dcf.drop_info = self.drop_dead_headers(
                     &mut cow_field.iter_hall.field_data.headers,
                     &mut cow_field.iter_hall.iters,
                     header_drop_instructions,
@@ -2095,6 +2101,8 @@ mod test_dead_data_drop {
         let mut iters = collect_iters(iters_before);
         let iters_after = collect_iters(iters_after);
 
+        let mut ab = ActionBuffer::default();
+
         let dead_data = ActionBuffer::calc_dead_data(
             &headers,
             DeadDataReport::all_dead(field_data_size_before),
@@ -2107,7 +2115,7 @@ mod test_dead_data_drop {
                 field_data_size_before,
             );
 
-        ActionBuffer::drop_dead_headers(
+        ab.drop_dead_headers(
             &mut headers,
             &mut iters,
             header_drop_instructions,
