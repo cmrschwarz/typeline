@@ -114,7 +114,11 @@
             <tr class="field-row">
                 <td >
                     <div class="meta-list">
-                        <div class="padding{{flag_shadow}}">
+                        {{#if (eq row.padding 0)}}
+                        <div class="padding padding-zero{{flag_shadow}}">
+                        {{else}}
+                        <div class="padding padding-non-zero{{flag_shadow}}">
+                        {{/if}}
                             {{row.padding}}
                         </div>
                         <div class="data_type{{flag_shadow}}">

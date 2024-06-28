@@ -338,10 +338,18 @@ body {
 }
 
 .field .meta-list .padding {
-    background-color: rgb(43, 43, 45);
     color: white;
     margin-inline: 0.1em;
-    padding-inline: 0.15em;
+    padding-inline: 0.2em;
+    text-align: center;
+}
+
+.padding.padding-zero {
+    background-color: rgb(43, 43, 45);
+}
+
+.padding.padding-non-zero {
+    background-color: rgb(184, 76, 76);
 }
 
 .field .meta-list .data_type {

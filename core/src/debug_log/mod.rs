@@ -669,7 +669,7 @@ pub fn field_data_to_json<'a>(
             "shadow_meta": shadow_meta,
             "shadow_data": shadow_data,
             "repr": h.fmt.repr.to_string(),
-            "padding": h.fmt.leading_padding(),
+            "padding": if header_offs == 0 { h.fmt.leading_padding() } else {0},
             "deleted": h.deleted(),
             "shared": h.shared_value(),
             "size": h.size,
