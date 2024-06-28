@@ -679,7 +679,8 @@ pub fn propagate_forkcat(
                 );
             let field_pos_sc = group_iter.field_pos();
 
-            let fields_dropped_by_cont = field_pos_sc - field_pos_cont_start;
+            let fields_dropped_by_cont =
+                field_pos_sc.saturating_sub(field_pos_cont_start);
             group_iter.drop_with_field_pos(0, fields_dropped_by_cont);
 
             //  let drops_needed = field_pos_sc
@@ -817,7 +818,8 @@ pub fn propagate_forkcat(
                 sc_entry.actor_id,
             );
         let field_pos_sc = group_iter.field_pos();
-        let fields_dropped_by_cont = field_pos_sc - field_pos_cont_start;
+        let fields_dropped_by_cont =
+            field_pos_sc.saturating_sub(field_pos_cont_start);
         group_iter.drop_with_field_pos(0, fields_dropped_by_cont);
 
         let padding_needed =
