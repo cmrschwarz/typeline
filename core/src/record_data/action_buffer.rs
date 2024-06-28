@@ -175,7 +175,7 @@ struct HeaderDropInfo {
 
 struct DataCowFieldRef<'a> {
     #[cfg(feature = "debug_logging")]
-    _field_id: FieldId,
+    field_id: FieldId,
     field: Option<std::cell::RefMut<'a, Field>>,
     // For fields that have only partially copied over the data.
     // `dead_data_trailing` needs to take that into account
@@ -1350,7 +1350,7 @@ impl ActionBuffer {
         if is_data_cow {
             data_cow_field_refs.push(DataCowFieldRef {
                 #[cfg(feature = "debug_logging")]
-                _field_id: tgt_field_id,
+                field_id: tgt_field_id,
                 field: None,
                 data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
                 drop_info: HeaderDropInfo::default(),
@@ -1380,7 +1380,7 @@ impl ActionBuffer {
             // this, but we don't care for now
             data_cow_field_refs.push(DataCowFieldRef {
                 #[cfg(feature = "debug_logging")]
-                _field_id: tgt_field_id,
+                field_id: tgt_field_id,
                 field: None,
                 data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
                 drop_info: HeaderDropInfo::default(),
@@ -1494,6 +1494,9 @@ impl ActionBuffer {
                 let mut first_header = headers[start_idx];
                 first_header.run_length -= tgt_cow_end.header_rl_offset;
                 if first_header.run_length != 0 {
+                    if tgt_cow_end.header_rl_offset != 0 {
+                        first_header.set_leading_padding(0);
+                    }
                     if first_header.shared_value()
                         && tgt_cow_end.header_rl_offset != 0
                     {
@@ -1827,14 +1830,45 @@ impl ActionBuffer {
                 dead_data_trailing,
             );
             for dcf in &mut *data_cow_fields {
+                let cow_field = dcf.field.as_mut().unwrap();
+                #[cfg(feature = "field_action_logging")]
+                {
+                    eprintln!(
+                        "   + dropping dead data for cow field {}: before",
+                        dcf.field_id
+                    );
+                    eprint!("    ");
+                    fm.print_field_header_data_for_ref(cow_field, 4);
+                    #[cfg(feature = "iter_state_logging")]
+                    {
+                        eprint!("\n    ");
+                        fm.print_field_iter_data_for_ref(cow_field, 4);
+                    }
+                    eprintln!();
+                }
                 dcf.drop_info = Self::drop_dead_headers(
-                    dcf.field.as_mut().unwrap(),
+                    cow_field,
                     dead_data_leading,
                     dead_data_padding,
                     dead_data_trailing,
                     field_data_size,
                     dcf.data_end,
                 );
+                #[cfg(feature = "field_action_logging")]
+                {
+                    eprintln!(
+                        "   + dropping dead data for cow field {}: after",
+                        dcf.field_id
+                    );
+                    eprint!("    ");
+                    fm.print_field_header_data_for_ref(cow_field, 4);
+                    #[cfg(feature = "iter_state_logging")]
+                    {
+                        eprint!("\n    ");
+                        fm.print_field_iter_data_for_ref(cow_field, 4);
+                    }
+                    eprintln!();
+                }
             }
             for fcf in &mut *full_cow_fields {
                 let drop_info = fcf
