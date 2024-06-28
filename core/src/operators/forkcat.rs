@@ -802,6 +802,29 @@ pub fn propagate_forkcat(
         group_iter.insert_fields(FieldValueRepr::Undefined, padding_needed);
         group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);
     }
+    for rr_idx in scs_visited..sc_count {
+        // we gotta pad all the scs that we didn't visit too
+        // PERF: sadface :/
+        let sc_idx = FcSubchainIdx::from_usize(
+            (rr_idx + cont_state.current_sc.into_usize())
+                % cont_state.sc_count(),
+        );
+        let sc_entry = &mut cont_state.subchains[sc_idx];
+        let mut group_iter =
+            jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
+                sc_entry.group_track_iter_ref,
+                &jd.match_set_mgr,
+                sc_entry.actor_id,
+            );
+        let field_pos_sc = group_iter.field_pos();
+        let fields_dropped_by_cont = field_pos_sc - field_pos_cont_start;
+        group_iter.drop_with_field_pos(0, fields_dropped_by_cont);
+
+        let padding_needed = field_pos_cont - field_pos_sc;
+
+        group_iter.insert_fields(FieldValueRepr::Undefined, padding_needed);
+        group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);
+    }
 
     cont_state.field_iters_temp.reclaim_temp(field_iters);
     cont_state.group_iters_temp.reclaim_temp(group_iters);

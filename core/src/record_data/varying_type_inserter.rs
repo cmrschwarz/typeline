@@ -56,9 +56,22 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         reserved_elements: usize,
         fmt: FieldValueFormat,
     ) {
+        let old_pad = self.fmt.leading_padding();
+        if old_pad != 0 {
+            self.fd.data.drop_back(old_pad);
+        }
         // TODO: we might want to restrict reservation size
         // in case there is one very large string
         self.count = 0;
+
+        let padding = fmt.repr.required_padding(self.fd.data.len());
+
+        if padding != 0 {
+            self.fd
+                .data
+                .extend_from_slice(&[0u8; MAX_FIELD_ALIGN][0..padding]);
+            self.fmt.set_leading_padding(padding);
+        }
         self.fd
             .data
             .reserve(MAX_FIELD_ALIGN + reserved_elements * fmt.size as usize);
@@ -80,19 +93,31 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         &mut self,
         fmt: FieldValueFormat,
     ) {
-        self.fmt = fmt;
+        let old_pad = self.fmt.leading_padding();
+        if old_pad != 0 {
+            self.fd.data.drop_back(old_pad);
+        }
         self.count = 0;
+        self.fmt = fmt;
         let elem_size = fmt.size as usize;
         if elem_size == 0 {
             self.data_ptr = self.fd.data.tail_ptr_mut();
             self.max = usize::MAX;
             return;
         }
-        let curr_field_len = self
-            .fd
-            .data
-            .len()
-            .max(std::mem::size_of::<FieldValue>() * 4);
+        let mut field_len = self.fd.data.len();
+        let padding = fmt.repr.required_padding(field_len);
+
+        if padding != 0 {
+            self.fd
+                .data
+                .extend_from_slice(&[0u8; MAX_FIELD_ALIGN][0..padding]);
+            self.fmt.set_leading_padding(padding);
+            field_len += padding;
+        }
+
+        let curr_field_len =
+            field_len.max(std::mem::size_of::<FieldValue>() * 4);
         let reserved_len = (curr_field_len / elem_size).max(2);
         self.fd
             .data
@@ -140,6 +165,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             self.fd.field_count += self.count;
         }
         self.count = 0;
+        self.fmt.set_leading_padding(0);
     }
 }
 

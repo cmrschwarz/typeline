@@ -346,16 +346,19 @@ impl FieldValueRepr {
         }
         self.with_repr_t(Align)
     }
-    pub fn align_size_up(&self, size_before: usize) -> usize {
+    pub fn required_padding(&self, size_before: usize) -> usize {
         let align = self.required_alignment();
         if align == 0 {
-            return size_before;
+            return 0;
         };
         let rem = size_before % align;
         if rem == 0 {
-            return size_before;
+            return 0;
         }
-        size_before + (align - rem)
+        align - rem
+    }
+    pub fn align_size_up(&self, size_before: usize) -> usize {
+        size_before + self.required_padding(size_before)
     }
     #[inline(always)]
     pub fn needs_alignment(self) -> bool {
