@@ -146,6 +146,7 @@ pub mod field_value_flags {
     // We wouldn't know by how much the type before an element had to be padded
     // to make the successor aligned.
     pub const LEADING_PADDING: FieldValueFlags = 0xF;
+    pub const LEADING_PADDING_OFFSET: FieldValueFlags = 0;
     pub const SAME_VALUE_AS_PREVIOUS_OFFSET: FieldValueFlags = 4;
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
     pub const DELETED_OFFSET: FieldValueFlags = 7;
@@ -161,6 +162,10 @@ pub mod field_value_flags {
 
     pub const DEFAULT: FieldValueFlags = 0;
     pub const NONE: FieldValueFlags = 0;
+
+    pub fn padding(pad: usize) -> FieldValueFlags {
+        (pad as u8) << LEADING_PADDING_OFFSET
+    }
 }
 
 #[derive(Clone, Copy)]

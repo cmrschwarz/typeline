@@ -779,31 +779,18 @@ impl FieldActionApplicator {
 }
 
 #[cfg(test)]
-mod test {
-    use std::collections::VecDeque;
-
-    use crate::record_data::{
-        field_action::{FieldAction, FieldActionKind},
-        field_action_applicator::FieldActionApplicator,
-        field_data::{
-            FieldData, FieldValueFormat, FieldValueHeader, FieldValueRepr,
-            RunLength,
-        },
-        field_value::FieldValue,
-        iter_hall::IterState,
-        iters::FieldIterator,
-        push_interface::PushInterface,
-    };
+pub(crate) mod testing_helpers {
+    use crate::record_data::{field_data::RunLength, iter_hall::IterState};
 
     #[derive(Clone, Copy)]
-    struct IterStateDummy {
+    pub struct IterStateDummy {
         pub field_pos: usize,
         pub data: usize,
         pub header_idx: usize,
         pub header_rl_offset: RunLength,
     }
 
-    fn iter_state_dummy_to_iter_state(is: IterStateDummy) -> IterState {
+    pub fn iter_state_dummy_to_iter_state(is: IterStateDummy) -> IterState {
         IterState {
             field_pos: is.field_pos,
             data: is.data,
@@ -813,6 +800,28 @@ mod test {
             kind: crate::record_data::iter_hall::IterKind::Undefined,
         }
     }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::VecDeque;
+
+    use crate::record_data::{
+        field_action::{FieldAction, FieldActionKind},
+        field_action_applicator::{
+            testing_helpers::iter_state_dummy_to_iter_state,
+            FieldActionApplicator,
+        },
+        field_data::{
+            FieldData, FieldValueFormat, FieldValueHeader, FieldValueRepr,
+            RunLength,
+        },
+        field_value::FieldValue,
+        iters::FieldIterator,
+        push_interface::PushInterface,
+    };
+
+    use super::testing_helpers::IterStateDummy;
 
     #[track_caller]
     fn test_actions_on_headers(
