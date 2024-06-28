@@ -1619,7 +1619,7 @@ impl ActionBuffer {
         while dead_headers_leading < headers.len() {
             let h = &mut headers[dead_headers_leading];
             let h_ds = h.total_size_unique();
-            if dead_data_leading_rem == 0 && !h.deleted() {
+            if h_ds == 0 && dead_data_leading_rem == 0 && !h.deleted() {
                 break;
             }
             if dead_data_leading_rem < h_ds {
