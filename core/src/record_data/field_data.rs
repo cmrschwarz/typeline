@@ -21,7 +21,7 @@ use std::{
     any::Any,
     collections::VecDeque,
     fmt::{Debug, Display},
-    mem::{align_of, size_of, size_of_val, ManuallyDrop},
+    mem::{align_of, size_of_val, ManuallyDrop},
 };
 
 use self::field_value_flags::SHARED_VALUE;
@@ -54,10 +54,8 @@ pub enum FieldValueRepr {
     Rational,
     TextInline,
     TextBuffer,
-    TextFile,
     BytesInline,
     BytesBuffer,
-    BytesFile,
     Object,
     Array,
     Custom,
@@ -68,16 +66,6 @@ pub enum FieldValueRepr {
     // ENHANCE //PERF (maybe): CustomDynamicLength,
     // CustomDynamicLengthAligned (store some subtype index at the start
     // of the actual data)
-}
-
-#[derive(Clone)]
-pub struct TextBufferFile {
-    // TODO
-}
-
-#[derive(Clone)]
-pub struct BytesBufferFile {
-    // TODO
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -134,7 +122,6 @@ union FieldValueAlignmentCheckUnion {
     rational: ManuallyDrop<BigRational>,
     text: ManuallyDrop<String>,
     bytes: ManuallyDrop<Vec<u8>>,
-    bytes_file: ManuallyDrop<BytesBufferFile>,
     field_ref: FieldReference,
     sliced_field_ref: SlicedFieldReference,
     object: ManuallyDrop<Object>,
@@ -187,191 +174,214 @@ pub struct FieldValueFlagsDebugRepr {
 // used to constrain generic functions that accept data for field values
 pub unsafe trait FieldValueType: PartialEq + Any {
     const REPR: FieldValueRepr;
+    const KIND: FieldValueKind;
     const DST: bool = true;
     const ZST: bool = false;
+    const SIZE: usize;
+    const ALIGN: usize;
     const TRIVIALLY_COPYABLE: bool = Self::ZST;
     const SUPPORTS_REFS: bool = !Self::TRIVIALLY_COPYABLE;
 }
 unsafe impl FieldValueType for [u8] {
+    const KIND: FieldValueKind = FieldValueKind::Bytes;
     const REPR: FieldValueRepr = FieldValueRepr::BytesInline;
+    const SIZE: usize = usize::MAX;
+    const ALIGN: usize = 0;
 }
 unsafe impl FieldValueType for str {
+    const KIND: FieldValueKind = FieldValueKind::Text;
     const REPR: FieldValueRepr = FieldValueRepr::TextInline;
+    const SIZE: usize = usize::MAX;
+    const ALIGN: usize = 0;
 }
 
 pub unsafe trait FixedSizeFieldValueType:
     Clone + PartialEq + Any + Sized
 {
     const REPR: FieldValueRepr;
+    const KIND: FieldValueKind;
     const FLAGS: FieldValueFlags = field_value_flags::DEFAULT;
     const ZST: bool = std::mem::size_of::<Self>() == 0;
+
     const TRIVIALLY_COPYABLE: bool = Self::ZST;
     const SUPPORTS_REFS: bool = !Self::TRIVIALLY_COPYABLE;
 }
 unsafe impl<T: FixedSizeFieldValueType> FieldValueType for T {
-    const DST: bool = false;
     const REPR: FieldValueRepr = Self::REPR;
+    const KIND: FieldValueKind = Self::KIND;
+    const DST: bool = false;
     const ZST: bool = Self::ZST;
+    const SIZE: usize = std::mem::size_of::<Self>();
+    const ALIGN: usize = std::mem::align_of::<Self>();
     const TRIVIALLY_COPYABLE: bool = Self::TRIVIALLY_COPYABLE;
     const SUPPORTS_REFS: bool = Self::SUPPORTS_REFS;
 }
 unsafe impl FixedSizeFieldValueType for Undefined {
     const REPR: FieldValueRepr = FieldValueRepr::Null;
+    const KIND: FieldValueKind = FieldValueKind::Null;
 }
 unsafe impl FixedSizeFieldValueType for Null {
     const REPR: FieldValueRepr = FieldValueRepr::Undefined;
+    const KIND: FieldValueKind = FieldValueKind::Undefined;
 }
 unsafe impl FixedSizeFieldValueType for i64 {
     const REPR: FieldValueRepr = FieldValueRepr::Int;
+    const KIND: FieldValueKind = FieldValueKind::Int;
     const TRIVIALLY_COPYABLE: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for f64 {
     const REPR: FieldValueRepr = FieldValueRepr::Float;
+    const KIND: FieldValueKind = FieldValueKind::Float;
     const TRIVIALLY_COPYABLE: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for StreamValueId {
     const REPR: FieldValueRepr = FieldValueRepr::StreamValueId;
+    const KIND: FieldValueKind = FieldValueKind::StreamValueId;
     const TRIVIALLY_COPYABLE: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for FieldReference {
     const REPR: FieldValueRepr = FieldValueRepr::FieldReference;
+    const KIND: FieldValueKind = FieldValueKind::FieldReference;
     const TRIVIALLY_COPYABLE: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for SlicedFieldReference {
     const REPR: FieldValueRepr = FieldValueRepr::SlicedFieldReference;
+    const KIND: FieldValueKind = FieldValueKind::SlicedFieldReference;
     const TRIVIALLY_COPYABLE: bool = true;
 }
 unsafe impl FixedSizeFieldValueType for OperatorApplicationError {
     const REPR: FieldValueRepr = FieldValueRepr::Error;
+    const KIND: FieldValueKind = FieldValueKind::Error;
 }
 unsafe impl FixedSizeFieldValueType for Vec<u8> {
     const REPR: FieldValueRepr = FieldValueRepr::BytesBuffer;
+    const KIND: FieldValueKind = FieldValueKind::Bytes;
 }
 unsafe impl FixedSizeFieldValueType for String {
     const REPR: FieldValueRepr = FieldValueRepr::TextBuffer;
+    const KIND: FieldValueKind = FieldValueKind::Text;
 }
 unsafe impl FixedSizeFieldValueType for Object {
     const REPR: FieldValueRepr = FieldValueRepr::Object;
+    const KIND: FieldValueKind = FieldValueKind::Object;
 }
 unsafe impl FixedSizeFieldValueType for Array {
     const REPR: FieldValueRepr = FieldValueRepr::Array;
+    const KIND: FieldValueKind = FieldValueKind::Array;
 }
 unsafe impl FixedSizeFieldValueType for BigInt {
     const REPR: FieldValueRepr = FieldValueRepr::BigInt;
+    const KIND: FieldValueKind = FieldValueKind::Int;
 }
 unsafe impl FixedSizeFieldValueType for BigRational {
     const REPR: FieldValueRepr = FieldValueRepr::Rational;
+    const KIND: FieldValueKind = FieldValueKind::Float;
 }
 unsafe impl FixedSizeFieldValueType for CustomDataBox {
     const REPR: FieldValueRepr = FieldValueRepr::Custom;
+    const KIND: FieldValueKind = FieldValueKind::Custom;
 }
 pub const INLINE_STR_MAX_LEN: usize = 8192;
 
+pub trait WithFieldValueType<R> {
+    fn call<T: FieldValueType + ?Sized>(&mut self) -> R;
+}
+
 impl FieldValueRepr {
-    pub fn needs_drop(self) -> bool {
-        match self {
-            FieldValueRepr::Undefined
-            | FieldValueRepr::Null
-            | FieldValueRepr::Int
-            | FieldValueRepr::Float
-            | FieldValueRepr::FieldReference
-            | FieldValueRepr::SlicedFieldReference
-            | FieldValueRepr::StreamValueId
-            | FieldValueRepr::TextInline
-            | FieldValueRepr::BytesInline => false,
-            FieldValueRepr::BigInt
-            | FieldValueRepr::Rational
-            | FieldValueRepr::Error
-            | FieldValueRepr::TextBuffer
-            | FieldValueRepr::TextFile
-            | FieldValueRepr::BytesBuffer
-            | FieldValueRepr::BytesFile
-            | FieldValueRepr::Object
-            | FieldValueRepr::Array
-            | FieldValueRepr::Custom => true,
+    pub fn with_repr_t<R>(
+        &self,
+        mut callable: impl WithFieldValueType<R>,
+    ) -> R {
+        metamatch!(match self {
+            #[expand((REPR, T) in [
+                (Null, Null),
+                (Undefined, Undefined),
+                (Int, i64),
+                (BigInt, BigInt),
+                (Float, f64),
+                (Rational, BigRational),
+                (TextInline, str),
+                (TextBuffer, String),
+                (BytesInline, [u8]),
+                (BytesBuffer, Vec<u8>),
+                (Object, Object),
+                (Array, Array),
+                (Custom, CustomDataBox),
+                (Error, OperatorApplicationError),
+                (StreamValueId, StreamValueId),
+                (FieldReference, FieldReference),
+                (SlicedFieldReference, SlicedFieldReference),
+            ])]
+            FieldValueRepr::REPR => callable.call::<T>(),
+        })
+    }
+
+    pub fn needs_copy(self) -> bool {
+        struct NeedsCopy;
+        impl WithFieldValueType<bool> for NeedsCopy {
+            fn call<T: FieldValueType + ?Sized>(&mut self) -> bool {
+                T::TRIVIALLY_COPYABLE
+            }
         }
+        self.with_repr_t(NeedsCopy)
+    }
+    pub fn needs_drop(self) -> bool {
+        self.needs_copy()
+    }
+    pub fn size(self) -> usize {
+        struct Align;
+        impl WithFieldValueType<usize> for Align {
+            fn call<T: FieldValueType + ?Sized>(&mut self) -> usize {
+                T::SIZE
+            }
+        }
+        self.with_repr_t(Align)
+    }
+    pub fn required_alignment(&self) -> usize {
+        struct Align;
+        impl WithFieldValueType<usize> for Align {
+            fn call<T: FieldValueType + ?Sized>(&mut self) -> usize {
+                T::ALIGN
+            }
+        }
+        self.with_repr_t(Align)
+    }
+    pub fn align_size_up(&self, size_before: usize) -> usize {
+        let align = self.required_alignment();
+        if align == 0 {
+            return size_before;
+        };
+        let rem = size_before % align;
+        if rem == 0 {
+            return size_before;
+        }
+        size_before + (align - rem)
     }
     #[inline(always)]
     pub fn needs_alignment(self) -> bool {
-        !self.is_zst() && !self.is_variable_sized_type()
+        self.required_alignment() != 0
     }
-    #[inline]
-    pub fn needs_copy(self) -> bool {
-        self.needs_drop()
-    }
-    #[inline(always)]
-    pub fn align_size_up(self, size: usize) -> usize {
-        if self.needs_alignment() {
-            (size + !FIELD_ALIGN_MASK) & FIELD_ALIGN_MASK
-        } else {
-            size
-        }
-    }
-    #[inline(always)]
-    pub fn align_size_down(self, size: usize) -> usize {
-        if self.needs_alignment() {
-            size & FIELD_ALIGN_MASK
-        } else {
-            size
-        }
-    }
-    #[inline(always)]
-    pub unsafe fn align_ptr_down(self, ptr: *mut u8) -> *mut u8 {
-        if self.needs_alignment() {
-            // doing this instead of the straight conversion to usize
-            // to avoid loosing provenance
-            unsafe { ptr.sub(ptr as usize & MAX_FIELD_ALIGN) }
-        } else {
-            ptr
-        }
-    }
-    #[inline(always)]
-    pub unsafe fn align_ptr_up(self, ptr: *mut u8) -> *mut u8 {
-        if self.needs_alignment() {
-            unsafe {
-                ptr.sub((ptr as usize + MAX_FIELD_ALIGN) & MAX_FIELD_ALIGN)
-            }
-        } else {
-            ptr
-        }
-    }
-    pub fn size(self) -> usize {
-        match self {
-            FieldValueRepr::Undefined => size_of::<Undefined>(),
-            FieldValueRepr::Null => size_of::<Null>(),
-            FieldValueRepr::Int => size_of::<i64>(),
-            FieldValueRepr::BigInt => size_of::<BigInt>(),
-            FieldValueRepr::Float => size_of::<f64>(),
-            FieldValueRepr::Rational => size_of::<BigRational>(),
-            FieldValueRepr::StreamValueId => size_of::<StreamValueId>(),
-            FieldValueRepr::FieldReference => size_of::<FieldReference>(),
-            FieldValueRepr::SlicedFieldReference => {
-                size_of::<SlicedFieldReference>()
-            }
-            FieldValueRepr::Error => size_of::<OperatorApplicationError>(),
-            FieldValueRepr::TextBuffer => size_of::<String>(),
-            FieldValueRepr::TextFile => size_of::<TextBufferFile>(),
-            FieldValueRepr::BytesBuffer => size_of::<Vec<u8>>(),
-            FieldValueRepr::BytesFile => size_of::<BytesBufferFile>(),
-            FieldValueRepr::Object => size_of::<Object>(),
-            FieldValueRepr::Array => size_of::<Array>(),
-            FieldValueRepr::Custom => size_of::<CustomDataBox>(),
-            // should not be used for size calculations
-            // but is used for example in is_zst
-            FieldValueRepr::TextInline | FieldValueRepr::BytesInline => {
-                usize::MAX
+
+    pub fn is_dst(self) -> bool {
+        struct Dst;
+        impl WithFieldValueType<bool> for Dst {
+            fn call<T: FieldValueType + ?Sized>(&mut self) -> bool {
+                T::DST
             }
         }
-    }
-    pub fn is_variable_sized_type(self) -> bool {
-        self == FieldValueRepr::BytesInline
-            || self == FieldValueRepr::TextInline
+        self.with_repr_t(Dst)
     }
     pub fn is_zst(self) -> bool {
-        self.size() == 0
+        struct Zst;
+        impl WithFieldValueType<bool> for Zst {
+            fn call<T: FieldValueType + ?Sized>(&mut self) -> bool {
+                T::ZST
+            }
+        }
+        self.with_repr_t(Zst)
     }
     pub fn is_fixed_size_type(self) -> bool {
-        !self.is_variable_sized_type() && !self.is_zst()
+        !self.is_dst() && !self.is_zst()
     }
     pub unsafe fn from_u8(v: u8) -> FieldValueRepr {
         unsafe { std::mem::transmute(v) }
@@ -390,43 +400,27 @@ impl FieldValueRepr {
             FieldValueRepr::Error => "error",
             FieldValueRepr::TextInline => "text_inline",
             FieldValueRepr::TextBuffer => "text_buffer",
-            FieldValueRepr::TextFile => "text_file",
             FieldValueRepr::BytesInline => "bytes_inline",
             FieldValueRepr::BytesBuffer => "bytes_buffer",
-            FieldValueRepr::BytesFile => "bytes_file",
             FieldValueRepr::Object => "object",
             FieldValueRepr::Array => "array",
             FieldValueRepr::Custom => "custom",
         }
     }
-    pub const fn kind(&self) -> FieldValueKind {
-        metamatch!(match self {
-            FieldValueRepr::TextInline
-            | FieldValueRepr::TextBuffer
-            | FieldValueRepr::TextFile => {
-                FieldValueKind::Text
+    pub fn kind(&self) -> FieldValueKind {
+        struct Kind;
+        impl WithFieldValueType<FieldValueKind> for Kind {
+            fn call<T: FieldValueType + ?Sized>(&mut self) -> FieldValueKind {
+                T::KIND
             }
-            FieldValueRepr::BytesInline
-            | FieldValueRepr::BytesBuffer
-            | FieldValueRepr::BytesFile => {
-                FieldValueKind::Bytes
-            }
-            FieldValueRepr::Int | FieldValueRepr::BigInt => {
-                FieldValueKind::Int
-            }
-            #[expand(KIND in [
-                Undefined, Null, Float, Rational, StreamValueId,
-                FieldReference, SlicedFieldReference,
-                Error, Object, Array, Custom,
-            ])]
-            FieldValueRepr::KIND => FieldValueKind::KIND,
-        })
+        }
+        self.with_repr_t(Kind)
     }
     pub fn to_format(&self) -> FieldValueFormat {
         FieldValueFormat {
             repr: *self,
             flags: field_value_flags::DEFAULT,
-            size: if self.is_variable_sized_type() {
+            size: if self.is_dst() {
                 0
             } else {
                 self.size() as FieldValueSize
@@ -658,16 +652,18 @@ impl FieldData {
         self.data.clear();
     }
 
-    pub unsafe fn pad_to_align(&mut self) -> usize {
-        // TODO: we should really only align to the target align of the field
-        // e.g. field references are 2 bytes, no need to align to 8
-        let mut align = self.data.len() % MAX_FIELD_ALIGN;
-        if align == 0 {
+    pub unsafe fn pad_to_align(&mut self, repr: FieldValueRepr) -> usize {
+        let field_align = repr.required_alignment();
+        if field_align == 0 {
             return 0;
         }
-        align = MAX_FIELD_ALIGN - align;
-        self.data.resize(self.data.len() + align, 0);
-        align
+        let mut curr_align = self.data.len() % field_align;
+        if curr_align == 0 {
+            return 0;
+        }
+        curr_align = field_align - curr_align;
+        self.data.resize(self.data.len() + curr_align, 0);
+        curr_align
     }
 
     // this is technically safe, but will leak unless paired with a
@@ -722,10 +718,8 @@ impl FieldData {
             targets_applicator(&mut |fd| {
                 let first_header_idx = fd.headers.len();
                 fd.headers.extend(tr.headers);
-                if tr.headers[0].repr.needs_alignment() {
-                    let align = unsafe { fd.pad_to_align() };
-                    fd.headers[first_header_idx].set_leading_padding(align);
-                }
+                let align = unsafe { fd.pad_to_align(tr.headers[0].repr) };
+                fd.headers[first_header_idx].set_leading_padding(align);
                 fd.headers[first_header_idx].run_length -=
                     tr.first_header_run_length_oversize;
             });
@@ -759,11 +753,9 @@ impl FieldData {
                 targets_applicator(&mut |fd| {
                     let first_header_idx = fd.headers.len();
                     fd.headers.extend(tr.base.headers);
-                    if tr.base.headers[0].repr.needs_alignment() {
-                        let align = unsafe { fd.pad_to_align() };
-                        fd.headers[first_header_idx]
-                            .set_leading_padding(align);
-                    }
+                    let align =
+                        unsafe { fd.pad_to_align(tr.base.headers[0].repr) };
+                    fd.headers[first_header_idx].set_leading_padding(align);
                     fd.headers[first_header_idx].run_length -=
                         tr.base.first_header_run_length_oversize;
                 });

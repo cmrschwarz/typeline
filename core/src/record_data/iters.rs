@@ -522,7 +522,12 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         let wrap_idx = if allow_ring_wrap {
             usize::MAX
         } else {
-            self.fdr.headers().as_slices().0.len()
+            let slice_0_len = self.fdr.headers().as_slices().0.len();
+            if self.header_idx < slice_0_len {
+                slice_0_len
+            } else {
+                usize::MAX
+            }
         };
         loop {
             if flag_mask & field_value_flags::DELETED != 0

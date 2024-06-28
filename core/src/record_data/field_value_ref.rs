@@ -9,16 +9,13 @@ use super::{
     dyn_ref_iter::FieldValueSliceIter,
     field_data::{
         FieldValueFormat, FieldValueHeader, FieldValueRepr, FieldValueType,
-        RunLength, TextBufferFile,
+        RunLength,
     },
     field_value::{FieldReference, FieldValue, Object, SlicedFieldReference},
     iters::FieldDataRef,
     stream_value::StreamValueId,
 };
-use crate::{
-    operators::errors::OperatorApplicationError,
-    record_data::field_data::BytesBufferFile,
-};
+use crate::operators::errors::OperatorApplicationError;
 
 #[derive(Clone, Copy)]
 pub enum FieldValueRef<'a> {
@@ -115,9 +112,6 @@ impl<'a> FieldValueRef<'a> {
                 FieldValueRepr::TextBuffer => {
                     FieldValueRef::Text(to_ref::<String, R>(fdr, data_begin))
                 }
-                FieldValueRepr::BytesFile => todo!(),
-                FieldValueRepr::TextFile => todo!(),
-
                 #[expand(REPR in [
                     Int, BigInt, Float, Rational, StreamValueId, FieldReference,
                     SlicedFieldReference, Error,
@@ -265,9 +259,6 @@ impl<'a> FieldValueSlice<'a> {
                         to_slice(fdr, data_begin, data_end),
                     ))
                 }
-                FieldValueRepr::BytesFile | FieldValueRepr::TextFile => {
-                    todo!()
-                }
                 #[expand(REPR in [
                     Int, BigInt, Float, Rational, TextBuffer, BytesInline,
                     BytesBuffer, Object, Array, Custom, Error, StreamValueId,
@@ -353,8 +344,6 @@ impl<'a> FieldValueSlice<'a> {
                     (Rational, BigRational),
                     (TextBuffer, String),
                     (BytesBuffer, Vec<u8>),
-                    (TextFile, TextBufferFile),
-                    (BytesFile, BytesBufferFile),
                     (Object, Object),
                     (Array, Array),
                     (Custom, CustomDataBox),

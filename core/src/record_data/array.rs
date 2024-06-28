@@ -122,12 +122,10 @@ impl Array {
             FieldValueRepr::Rational => {
                 Array::Rational(arr.into_cleared_vec())
             }
-            FieldValueRepr::TextBuffer
-            | FieldValueRepr::TextInline
-            | FieldValueRepr::TextFile => Array::Text(arr.into_cleared_vec()),
-            FieldValueRepr::BytesBuffer
-            | FieldValueRepr::BytesInline
-            | FieldValueRepr::BytesFile => {
+            FieldValueRepr::TextBuffer | FieldValueRepr::TextInline => {
+                Array::Text(arr.into_cleared_vec())
+            }
+            FieldValueRepr::BytesBuffer | FieldValueRepr::BytesInline => {
                 Array::Bytes(arr.into_cleared_vec())
             }
             FieldValueRepr::Array => Array::Array(arr.into_cleared_vec()),

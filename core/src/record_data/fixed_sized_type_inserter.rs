@@ -35,10 +35,7 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
         let new_len = self.fd.data.len() + self.count * fmt.size as usize;
         unsafe {
             self.fd.data.set_len(new_len);
-            let mut padding = 0;
-            if fmt.repr.needs_alignment() {
-                padding = self.fd.pad_to_align();
-            }
+            let padding = self.fd.pad_to_align(fmt.repr);
             if padding != 0 {
                 self.fd.add_header_padded_for_multiple_values(
                     fmt, self.count, padding,

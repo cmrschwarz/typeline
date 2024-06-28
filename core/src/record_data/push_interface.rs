@@ -1433,7 +1433,7 @@ unsafe impl PushInterface for FieldData {
         run_length: usize,
         try_header_rle: bool,
     ) -> *mut u8 {
-        debug_assert!(repr.is_variable_sized_type());
+        debug_assert!(repr.is_dst());
         debug_assert!(data_len <= INLINE_STR_MAX_LEN);
         if run_length == 0 {
             return std::ptr::null_mut();
@@ -1481,7 +1481,7 @@ unsafe impl PushInterface for FieldData {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        debug_assert!(kind.is_variable_sized_type());
+        debug_assert!(kind.is_dst());
         debug_assert!(data.len() <= INLINE_STR_MAX_LEN);
         if run_length == 0 {
             return;
@@ -1545,20 +1545,18 @@ unsafe impl PushInterface for FieldData {
             flags: SHARED_VALUE,
             size: std::mem::size_of::<T>() as FieldValueSize,
         };
-        if repr.needs_alignment() {
-            let align = unsafe { self.pad_to_align() };
-            if align != 0 {
-                unsafe {
-                    self.add_header_padded_for_single_value(
-                        fmt, run_length, align,
-                    );
-                }
-                if !data_rle {
-                    let data = ManuallyDrop::new(data);
-                    self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
-                }
-                return;
+        let align = unsafe { self.pad_to_align(repr) };
+        if align != 0 {
+            unsafe {
+                self.add_header_padded_for_single_value(
+                    fmt, run_length, align,
+                );
             }
+            if !data_rle {
+                let data = ManuallyDrop::new(data);
+                self.data.extend_from_slice(unsafe { as_u8_slice(&data) });
+            }
+            return;
         }
         if try_header_rle || try_data_rle {
             if let Some(h) = self.headers.back_mut() {

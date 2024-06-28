@@ -72,7 +72,7 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         self.fmt = fmt;
     }
     fn sanitize_format(fmt: FieldValueFormat) {
-        if fmt.repr.is_variable_sized_type() {
+        if fmt.repr.is_dst() {
             assert!(fmt.size <= INLINE_STR_MAX_LEN as FieldValueSize);
         }
     }

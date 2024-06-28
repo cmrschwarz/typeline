@@ -365,9 +365,6 @@ impl FieldValue {
                 FieldValueRepr::SlicedFieldReference => {
                     FieldValue::SlicedFieldReference(xx(v))
                 }
-                FieldValueRepr::TextFile | FieldValueRepr::BytesFile => {
-                    todo!()
-                }
                 // not fixed size types
                 FieldValueRepr::TextInline | FieldValueRepr::BytesInline => {
                     unreachable!()

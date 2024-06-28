@@ -458,6 +458,15 @@ impl GroupTrack {
             self.parent_group_idx_stable(group_index),
         )
     }
+    pub fn push_group(
+        &mut self,
+        group_len: usize,
+        parent_group_idx_stable: GroupIdxStable,
+    ) {
+        self.group_lengths.push_back(group_len);
+        self.parent_group_indices_stable
+            .push_back(parent_group_idx_stable);
+    }
     pub fn get_group_len(&self, group_index: GroupIdx) -> Option<usize> {
         self.group_lengths.try_get(group_index)
     }
@@ -927,6 +936,13 @@ impl GroupTrack {
             count,
         )
     }
+    pub fn next_group_index_stable(&self) -> GroupIdxStable {
+        if self.group_lengths.is_empty() {
+            return self.group_index_offset;
+        }
+        self.group_index_offset
+            .wrapping_add(self.group_lengths.len())
+    }
 }
 
 impl GroupTrackManager {
@@ -1138,12 +1154,9 @@ impl GroupTrackManager {
         // PERF: is that actually neccessary?
         parent_new_gt.apply_field_actions(msm);
 
-        let mut processed_child_group_field_count = 0;
+        let mut processed_field_count = 0;
+
         let mut processed_child_group_count = 0;
-
-        let mut processed_filed_count = 0;
-
-        let mut child_idx = 0;
 
         let mut curr_parent_group_id = parent_new_gt
             .stable_idx_from_group_idx(
@@ -1154,28 +1167,30 @@ impl GroupTrackManager {
 
         let mut child_groups_sum = 0;
 
+        let mut final_group_len = 0;
+
         let mut end_reached = field_count == 0;
         while !end_reached {
-            let mut group_len = child_gt.group_lengths.get(child_idx);
-            let parent_group_id =
-                child_gt.parent_group_indices_stable.get(child_idx);
+            let mut group_len =
+                child_gt.group_lengths.get(processed_child_group_count);
+            let parent_group_id = child_gt
+                .parent_group_indices_stable
+                .get(processed_child_group_count);
 
-            end_reached = processed_filed_count + group_len >= field_count;
+            end_reached = processed_field_count + group_len >= field_count;
 
             if end_reached {
-                group_len = field_count - processed_filed_count;
+                group_len = field_count - processed_field_count;
+                final_group_len = group_len;
             }
 
-            processed_filed_count += group_len;
-            child_idx += 1;
+            processed_field_count += group_len;
+            processed_child_group_count += 1;
 
             if parent_group_id == curr_parent_group_id {
                 child_groups_sum += group_len;
                 continue;
             }
-
-            processed_child_group_count += 1;
-            processed_child_group_field_count += child_groups_sum;
 
             if !first_group_added && !parent_new_gt.group_lengths.is_empty() {
                 let last_index = parent_new_gt.group_lengths.len() - 1;
@@ -1214,17 +1229,16 @@ impl GroupTrackManager {
 
         let lgts = if end_of_input {
             LeadingGroupTrackSlice {
-                full_group_count: processed_child_group_count + 1,
+                full_group_count: processed_child_group_count,
                 full_group_field_count: field_count,
                 partial_group_len: None,
             }
         } else {
             LeadingGroupTrackSlice {
-                full_group_count: processed_child_group_count,
-                full_group_field_count: processed_child_group_field_count,
-                partial_group_len: Some(
-                    field_count - processed_child_group_field_count,
-                ),
+                full_group_count: processed_child_group_count
+                    .saturating_sub(1),
+                full_group_field_count: field_count - final_group_len,
+                partial_group_len: Some(final_group_len),
             }
         };
         child_gt.drop_leading_groups(true, lgts, end_of_input);
@@ -1234,6 +1248,11 @@ impl GroupTrackManager {
 impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
     pub fn field_pos(&self) -> usize {
         self.field_pos
+    }
+    pub fn parent_group_idx_stable(&self) -> GroupIdxStable {
+        self.group_track
+            .parent_group_indices_stable
+            .get(self.group_idx)
     }
     pub fn group_idx(&self) -> usize {
         self.group_idx
@@ -1353,11 +1372,14 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
     pub fn field_pos(&self) -> usize {
         self.base.field_pos()
     }
-    pub fn group_idx_phys(&self) -> usize {
+    pub fn group_idx(&self) -> GroupIdx {
         self.base.group_idx()
     }
-    pub fn group_idx_logical(&self) -> GroupIdxStable {
+    pub fn group_idx_stable(&self) -> GroupIdxStable {
         self.base.group_idx_stable()
+    }
+    pub fn parent_group_idx_stable(&self) -> GroupIdxStable {
+        self.base.parent_group_idx_stable()
     }
     pub fn group_len_rem(&self) -> usize {
         self.base.group_len_rem()
@@ -1604,7 +1626,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
             Ordering::Greater => self.dup(count),
         }
     }
-    fn drop_raw(&mut self, mut count: usize) {
+    fn drop_no_field_action(&mut self, mut count: usize) {
         if count > self.base.group_len_rem {
             self.group_len -= self.base.group_len_rem;
             count -= self.base.group_len_rem;
@@ -1634,7 +1656,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         if count == 0 {
             return;
         }
-        self.drop_raw(count);
+        self.drop_no_field_action(count);
         self.action_buffer.borrow_mut().push_action(
             FieldActionKind::Drop,
             self.base.field_pos,
@@ -1660,17 +1682,70 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
             -(count as isize),
         );
     }
-    pub fn drop_before(&mut self, field_pos: usize, count: usize) {
+    fn drop_in_earlier_groups_no_field_action(
+        &mut self,
+        field_pos: usize,
+        count: usize,
+    ) {
         if count == 0 {
             return;
         }
-        let pos_delta = self.base.field_pos - field_pos;
-        debug_assert!(pos_delta <= self.group_len_before());
+        // PERF: maybe heuristic to start from the beginning instead
+        // common case is field_pos == 0
+        let field_diff = self.field_pos() - field_pos;
+        let mut fields_to_skip = field_diff - count;
+        let mut group_idx = self.group_idx();
+        let mut group_len = self.group_len_before();
+        while fields_to_skip >= group_len {
+            group_idx -= 1;
+            fields_to_skip -= group_len;
+            group_len = self.base.group_track.group_lengths.get(group_idx);
+        }
+        let group_len_to_drop = count.min(group_len - fields_to_skip);
+        self.base
+            .group_track
+            .group_lengths
+            .sub_value(group_idx, group_len_to_drop);
+        let mut count_rem = count - group_len_to_drop;
+        while count_rem > 0 {
+            group_idx -= 1;
+            group_len = self.base.group_track.group_lengths.get(group_idx);
+            let group_len_to_drop = count.min(group_len);
+            self.base
+                .group_track
+                .group_lengths
+                .sub_value(group_idx, group_len_to_drop);
+            count_rem -= group_len_to_drop;
+        }
+        // HACK: //TODO: iters need to be advanced
+    }
+    pub fn drop_before(&mut self, field_pos: usize, mut count: usize) {
+        if count == 0 {
+            return;
+        }
         self.action_buffer.borrow_mut().push_action(
             FieldActionKind::Drop,
             field_pos,
             count,
         );
+        let mut pos_delta = self.base.field_pos - field_pos;
+        if pos_delta > self.group_len_before() {
+            let group_start = self.field_pos() - self.group_len_before();
+            let drops_in_group = count.saturating_sub(group_start - field_pos);
+            let drops_before_group = count - drops_in_group;
+            debug_assert!(drops_before_group != 0);
+            self.drop_in_earlier_groups_no_field_action(
+                field_pos,
+                drops_before_group,
+            );
+            self.base.field_pos -= drops_before_group;
+            if drops_in_group == 0 {
+                return;
+            }
+            pos_delta = self.group_len_before() - drops_in_group;
+            count = drops_in_group;
+        }
+
         if pos_delta >= count {
             self.base.group_track.lookup_and_advance_affected_iters_(
                 self.base.group_idx..=self.base.group_idx,
@@ -1684,7 +1759,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         }
         self.group_len -= pos_delta;
         self.base.field_pos -= pos_delta;
-        self.drop_raw(count - pos_delta);
+        self.drop_no_field_action(count - pos_delta);
     }
     pub fn drop_after(&mut self, field_pos: usize, count: usize) {
         if count == 0 {
@@ -1712,7 +1787,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         let group_len = field_pos;
         let group_idx_phys = self.base.group_idx;
         self.base.group_len_rem -= pos_delta;
-        self.drop_raw(count);
+        self.drop_no_field_action(count);
         self.write_back_group_len();
         self.base.group_idx = group_idx_phys;
         self.group_len = group_len;

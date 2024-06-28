@@ -388,10 +388,12 @@ impl<T, const CHUNK_SIZE: usize> Drop for StableVecIntoIter<T, CHUNK_SIZE> {
 }
 
 pub fn transmute_stable_vec<T, U, const CHUNK_SIZE: usize>(
-    mut src: StableVec<T, CHUNK_SIZE>,
+    src: StableVec<T, CHUNK_SIZE>,
 ) -> StableVec<U, CHUNK_SIZE> {
     #[allow(clippy::let_unit_value)]
     let () = LayoutCompatible::<T, U>::ASSERT_COMPATIBLE;
+
+    let mut src = ManuallyDrop::new(src);
 
     src.clear();
 

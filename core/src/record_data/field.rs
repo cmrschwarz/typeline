@@ -768,7 +768,7 @@ impl FieldManager {
                 .iter_hall
                 .store_iter_unchecked(field_id, iter_id, iter_base)
         };
-        self.apply_field_actions(msm, field_id)
+        self.drop_field_actions(msm, field_id)
     }
 
     pub fn bump_field_refcount(&self, field_id: FieldId) {
