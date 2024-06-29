@@ -75,6 +75,7 @@ debug_state = []
 debug_log = ["debug_state"]
 debug_log_extern_style_sheet = ["debug_log"]
 debug_log_lenient = ["debug_log"]
+debug_log_no_apply = ["debug_log"]
 
 debug_logging = ["debug_state"]
 debug_logging_liveness_analysis = ["debug_logging"]

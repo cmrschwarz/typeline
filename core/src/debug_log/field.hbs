@@ -15,7 +15,11 @@
 </div>
 <div class="field-container" collapse_tag="[{{field_container_id}}]">
     <table
+        {{#if pending_actions}}
+        class="field dirty"
+        {{else}}
         class="field"
+        {{/if}}
         collapse_tag="[field_{{id}}]"
         highlight_tag="[{{transform_update_id}}_field_{{id}}]"
     >
@@ -49,6 +53,18 @@
                     </div>
                     {{else}}
                     <div class="field-owned-info field-is-owned">owned</div>
+                    {{/if}}
+                    {{#if pending_actions includeZero=true}}
+                    <span class="tooltip-text">
+                        Pending Actions:
+                        {{#if pending_actions}}
+                            {{#each pending_actions as |action|}}
+                                <br> {{action.field_pos}}: ({{action.kind}}, {{action.run_length}})
+                            {{/each}}
+                        {{else}}
+                            None
+                        {{/if}}
+                    </span>
                     {{/if}}
                 </div>
             </th>

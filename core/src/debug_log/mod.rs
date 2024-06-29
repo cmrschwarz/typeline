@@ -17,6 +17,7 @@ use crate::{
     },
     record_data::{
         field::{Field, FieldId},
+        field_action::FieldAction,
         field_value_ref::FieldValueRef,
         formattable::{
             FormatOptions, Formattable, FormattingContext, RealizedFormatKey,
@@ -148,6 +149,7 @@ pub fn write_debug_log_html_tail(
         .map_err(unwrap_render_error)
 }
 
+#[cfg_attr(feature = "debug_log_no_apply", allow(unused))]
 fn add_field_data_dead_slots<'a>(
     fd: impl FieldDataRef<'a>,
     dead_slots: &mut [usize],
@@ -167,13 +169,18 @@ fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
     for mc in &mut tc.match_chains {
         for env in &mc.tf_envs {
             for field_id in &env.fields {
-                // we have to do this here because doing json in a second
-                // phase means that the fields have not been touched yet
-                jd.field_mgr
-                    .apply_field_actions(&jd.match_set_mgr, *field_id);
+                #[cfg(not(feature = "debug_log_no_apply"))]
+                {
+                    // we have to do this here because doing json in a second
+                    // phase means that the fields have not been touched yet
+                    jd.field_mgr
+                        .apply_field_actions(&jd.match_set_mgr, *field_id);
+                }
                 let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
                 let fc = cfr.destructured_field_ref().field_count();
+
                 mc.dead_slots.resize(mc.dead_slots.len().max(fc), 0);
+                #[cfg(not(feature = "debug_log_no_apply"))]
                 add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
             }
         }
@@ -561,6 +568,7 @@ pub fn field_data_to_json<'a>(
     field_info: &FieldInfo,
     field_refs: &[FieldId],
     dead_slots: &[usize],
+    pending_actions: &[FieldAction],
     mut iters: Vec<IterState>,
 ) -> serde_json::Value {
     iters.sort_by(|is1, is2| match is1.header_idx.cmp(&is2.header_idx) {
@@ -698,7 +706,7 @@ pub fn field_data_to_json<'a>(
         Value::Null
     };
 
-    json!({
+    let mut res = json!({
         "id": field_info.id,
         "name": field_info.name,
         "producing_arg": field_info.producing_arg,
@@ -707,7 +715,24 @@ pub fn field_data_to_json<'a>(
         "rows": rows,
         "iters":  iters_to_json(&iters),
         "iters_before_start": iters_to_json(&iters[..iters_before_start]),
-    })
+    });
+
+    if cfg!(feature = "debug_log_no_apply") {
+        let mut pending_actions_json = Vec::new();
+        for action in pending_actions {
+            pending_actions_json.push(json!({
+                "field_pos": action.field_idx,
+                "kind": action.kind.to_str(),
+                "run_length": action.run_len,
+            }));
+        }
+        res.as_object_mut().unwrap().insert(
+            "pending_actions".to_string(),
+            pending_actions_json.into(),
+        );
+    }
+
+    res
 }
 
 pub fn field_to_json(
@@ -755,6 +780,18 @@ pub fn field_to_json(
 
     let iters_states = field.iter_hall.iter_states().collect::<Vec<_>>();
 
+    let mut pending_actions = Vec::new();
+
+    let mut ab = jd.match_set_mgr.match_sets[field.match_set]
+        .action_buffer
+        .borrow_mut();
+
+    ab.gather_pending_actions(
+        &mut pending_actions,
+        field.first_actor.get(),
+        field.snapshot.get(),
+    );
+
     let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);
     field_data_to_json(
         jd,
@@ -763,6 +800,7 @@ pub fn field_to_json(
         &field_info,
         &field.field_refs,
         dead_slots,
+        &pending_actions,
         iters_states,
     )
 }

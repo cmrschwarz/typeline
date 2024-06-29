@@ -219,6 +219,9 @@ body {
     justify-self: start;
     padding-inline: 0.2em;
 }
+.dirty .field-id {
+    background-color: yellow;
+}
 
 .group-track .header .group-track-id {
     font-weight: bold;
@@ -298,6 +301,7 @@ body {
 }
 
 .field {
+    position: relative;
     background-color: lightgray;
     border-collapse: collapse;
     text-align: center;
@@ -410,21 +414,21 @@ body {
     /* border: 1px solid black; */
 }
 
-.iter-tooltip-text {
+.tooltip-text {
     position: absolute;
-    top: -150%;
+    top: 0%;
     left: 50%;
     z-index: 1;
     text-align: center;
     padding: 0.2em;
     border-radius: 0.3em;
-    transform: translateX(-50%);
+    transform: translate(-50%, -100%) translateY(-0.5em);
     background-color: #444;
     color: white;
     visibility: hidden;
 }
 
-.iter-tooltip-text::after {
+.tooltip-text::after {
     content: "";
     position: absolute;
     top: 100%;
@@ -435,6 +439,10 @@ body {
     border-color: #444 transparent transparent transparent;
 }
 
-.iter:hover .iter-tooltip-text {
+.iter:hover .tooltip-text {
+    visibility: visible;
+}
+
+.header:hover .tooltip-text {
     visibility: visible;
 }

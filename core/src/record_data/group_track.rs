@@ -502,7 +502,7 @@ impl GroupTrack {
     pub fn apply_field_actions(&mut self, msm: &MatchSetManager) {
         let mut ab = msm.match_sets[self.ms_id].action_buffer.borrow_mut();
         let Some((actor_id, ss_prev)) = ab.update_snapshot(
-            ActorSubscriber::GroupTrack(self.id),
+            Some(ActorSubscriber::GroupTrack(self.id)),
             &mut self.actor,
             &mut self.snapshot,
         ) else {
@@ -1766,7 +1766,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> Drop for GroupTrackIterMut<'a, T> {
 
         let list = &mut *self.base.group_track;
         if let Some((_actor_id, ss_prev)) = ab.update_snapshot(
-            ActorSubscriber::GroupTrack(list.id),
+            Some(ActorSubscriber::GroupTrack(list.id)),
             &mut list.actor,
             &mut list.snapshot,
         ) {

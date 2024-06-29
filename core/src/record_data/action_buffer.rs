@@ -21,7 +21,7 @@ use super::{
     group_track::GroupTrackId,
     iter_hall::{CowVariant, FieldDataSource, IterState},
     iters::FieldIterator,
-    match_set::MatchSetId,
+    match_set::{MatchSetId, MatchSetManager},
 };
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
@@ -214,8 +214,8 @@ struct FullCowFieldRef<'a> {
     through_data_cow: bool,
 }
 
-#[derive(Default)]
 pub struct ActionBuffer {
+    pub(crate) match_set_id: MatchSetId,
     actors: OffsetVecDeque<ActorId, Actor>,
     // we need 3 temp buffers in order to always have a free one as a target
     // when merging from two others
@@ -231,9 +231,6 @@ pub struct ActionBuffer {
     // used in drop_dead_headers to preserve alive zst headers
     // that live between dead data
     preserved_headers: Vec<FieldValueHeader>,
-
-    #[cfg(feature = "debug_state")]
-    pub match_set_id: MatchSetId,
 }
 
 type Pow2Index = u32;
@@ -360,6 +357,21 @@ pub fn eprint_action_list<'a>(actions: impl Iterator<Item = &'a FieldAction>) {
 
 impl ActionBuffer {
     pub const MAX_ACTOR_ID: ActorId = ActorId::MAX;
+    pub fn new(ms_id: MatchSetId) -> Self {
+        Self {
+            match_set_id: ms_id,
+            actors: OffsetVecDeque::default(),
+            action_temp_buffers: Default::default(),
+            pending_action_group_actor_id: None,
+            pending_action_group_action_count: 0,
+            pending_action_group_field_count_delta: 0,
+            snapshot_freelists: Vec::new(),
+            actions_applicator: FieldActionApplicator::default(),
+            full_cow_field_refs_temp: Vec::new(),
+            data_cow_field_refs_temp: Vec::new(),
+            preserved_headers: Vec::new(),
+        }
+    }
     fn eprint_action_list_from_agi(&self, agi: &ActionGroupIdentifier) {
         let (s1, s2) = Self::get_action_group_slices_raw(
             &self.actors,
@@ -1169,7 +1181,7 @@ impl ActionBuffer {
     }
     pub(super) fn update_snapshot(
         &mut self,
-        subscriber: ActorSubscriber,
+        subscriber: Option<ActorSubscriber>,
         actor_ref: &mut ActorRef,
         snapshot_ref: &mut SnapshotRef,
     ) -> Option<(ActorId, SnapshotRef)> {
@@ -1184,9 +1196,10 @@ impl ActionBuffer {
         eprintln!(
             "@ updated snapshot for {}: \n - prev: {}\n - next: {}",
             match subscriber {
-                ActorSubscriber::Field(field_id) =>
+                None => "anonymous caller".into(),
+                Some(ActorSubscriber::Field(field_id)) =>
                     format!("field {field_id}"),
-                ActorSubscriber::GroupTrack(group_id) =>
+                Some(ActorSubscriber::GroupTrack(group_id)) =>
                     format!("group {group_id}"),
             },
             self.stringify_snapshot(actor_id, *snapshot_ref),
@@ -1434,8 +1447,10 @@ impl ActionBuffer {
         (full_cow_field_refs.len() - 1, false)
     }
 
-    fn preserve_full_cow_fields_pre_exec<'a>(
+    fn gather_cow_field_info_pre_exec<'a>(
+        &mut self,
         fm: &'a FieldManager,
+        msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
         first_action_index: usize,
@@ -1448,8 +1463,13 @@ impl ActionBuffer {
         if !field.has_cow_targets() {
             return;
         }
-
         for &tgt_field_id in &field.iter_hall.cow_targets {
+            fm.apply_field_actions_with_action_buffer(
+                msm,
+                Some(self),
+                tgt_field_id,
+                false,
+            );
             let (curr_field_tgt_idx, data_cow) = Self::push_cow_field(
                 fm,
                 tgt_field_id,
@@ -1461,8 +1481,9 @@ impl ActionBuffer {
                 data_cow_idx,
                 first_action_index,
             );
-            Self::preserve_full_cow_fields_pre_exec(
+            self.gather_cow_field_info_pre_exec(
                 fm,
+                msm,
                 tgt_field_id,
                 None,
                 first_action_index,
@@ -1742,9 +1763,32 @@ impl ActionBuffer {
 
         drop_info
     }
+    pub fn gather_pending_actions(
+        &mut self,
+        actions: &mut Vec<FieldAction>,
+        mut actor_id: ActorRef,
+        mut snapshot: SnapshotRef,
+    ) {
+        let Some((actor_id, ss_prev)) =
+            self.update_snapshot(None, &mut actor_id, &mut snapshot)
+        else {
+            return;
+        };
+
+        let res = self.build_actions_from_snapshot(actor_id, ss_prev);
+        let Some(agi) = res else {
+            self.drop_snapshot_refcount(snapshot, 1);
+            return;
+        };
+        let (s1, s2) = self.get_action_group_slices(&agi);
+        actions.extend(s1);
+        actions.extend(s2);
+        self.drop_snapshot_refcount(snapshot, 1);
+    }
     pub fn update_field(
         &mut self,
         fm: &FieldManager,
+        msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
     ) {
@@ -1756,7 +1800,7 @@ impl ActionBuffer {
         let mut first_actor = field.first_actor.get();
         let mut snapshot = field.snapshot.get();
         let Some((actor_id, ss_prev)) = self.update_snapshot(
-            ActorSubscriber::Field(field_id),
+            Some(ActorSubscriber::Field(field_id)),
             &mut first_actor,
             &mut snapshot,
         ) else {
@@ -1788,6 +1832,7 @@ impl ActionBuffer {
 
         self.apply_actions_to_field(
             fm,
+            msm,
             field_id,
             actor_id,
             update_cow_ms,
@@ -1806,6 +1851,7 @@ impl ActionBuffer {
     fn apply_actions_to_field<'a>(
         &mut self,
         fm: &'a FieldManager,
+        msm: &MatchSetManager,
         field_id: u32,
         actor_id: u32,
         update_cow_ms: Option<MatchSetId>,
@@ -1823,8 +1869,9 @@ impl ActionBuffer {
         let data_owned = field.iter_hall.data_source == FieldDataSource::Owned;
 
         drop(field);
-        Self::preserve_full_cow_fields_pre_exec(
+        self.gather_cow_field_info_pre_exec(
             fm,
+            msm,
             field_id,
             update_cow_ms,
             first_action_index,
@@ -1946,7 +1993,7 @@ impl ActionBuffer {
     }
     fn initialize_first_actor(
         &mut self,
-        subscriber: ActorSubscriber,
+        subscriber: Option<ActorSubscriber>,
         first_actor: &mut ActorRef,
     ) -> Option<ActorId> {
         match *first_actor {
@@ -1954,7 +2001,9 @@ impl ActionBuffer {
             ActorRef::Unconfirmed(actor) => {
                 if self.actors.next_free_index() > actor {
                     *first_actor = ActorRef::Present(actor);
-                    self.actors[actor].subscribers.push(subscriber);
+                    if let Some(subscriber) = subscriber {
+                        self.actors[actor].subscribers.push(subscriber);
+                    }
                     Some(actor)
                 } else {
                     None
@@ -1971,7 +2020,7 @@ impl ActionBuffer {
         let snapshot = field.snapshot.get();
 
         let Some(actor_id) = self.initialize_first_actor(
-            ActorSubscriber::Field(field_id),
+            Some(ActorSubscriber::Field(field_id)),
             &mut first_actor,
         ) else {
             return;
@@ -2068,21 +2117,24 @@ mod test_iter {
 mod test_dead_data_drop {
     use std::{cell::Cell, collections::VecDeque};
 
-    use crate::record_data::{
-        action_buffer::{ActionBuffer, DeadDataReport},
-        field::{FieldManager, FIELD_REF_LOOKUP_ITER_ID},
-        field_action::FieldActionKind,
-        field_action_applicator::testing_helpers::{
-            iter_state_dummy_to_iter_state, IterStateDummy,
+    use crate::{
+        record_data::{
+            action_buffer::{ActionBuffer, DeadDataReport},
+            field::{FieldManager, FIELD_REF_LOOKUP_ITER_ID},
+            field_action::FieldActionKind,
+            field_action_applicator::testing_helpers::{
+                iter_state_dummy_to_iter_state, IterStateDummy,
+            },
+            field_data::{
+                field_value_flags, FieldValueFormat, FieldValueHeader,
+                FieldValueRepr,
+            },
+            field_value::FieldValue,
+            iter_hall::IterState,
+            match_set::{MatchSetId, MatchSetManager},
+            push_interface::PushInterface,
         },
-        field_data::{
-            field_value_flags, FieldValueFormat, FieldValueHeader,
-            FieldValueRepr,
-        },
-        field_value::FieldValue,
-        iter_hall::IterState,
-        match_set::MatchSetManager,
-        push_interface::PushInterface,
+        utils::indexing_type::IndexingType,
     };
 
     use super::ActorRef;
@@ -2112,7 +2164,7 @@ mod test_dead_data_drop {
         let mut iters = collect_iters(iters_before);
         let iters_after = collect_iters(iters_after);
 
-        let mut ab = ActionBuffer::default();
+        let mut ab = ActionBuffer::new(MatchSetId::from_usize(usize::MAX));
 
         let dead_data = ActionBuffer::calc_dead_data(
             &headers,

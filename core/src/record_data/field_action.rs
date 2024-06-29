@@ -75,6 +75,22 @@ impl FieldAction {
     }
 }
 
+impl FieldActionKind {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            FieldActionKind::Dup => "Dup",
+            FieldActionKind::Drop => "Drop",
+            FieldActionKind::InsertZst(FieldValueRepr::Undefined) => {
+                "Insert(Undefined)"
+            }
+            FieldActionKind::InsertZst(FieldValueRepr::Null) => "Insert(Null)",
+            FieldActionKind::InsertZst(_) => {
+                unreachable!("InsertZst only supports null and undefined")
+            }
+        }
+    }
+}
+
 impl From<FieldAction> for FieldActionFullRl {
     fn from(fa: FieldAction) -> Self {
         FieldActionFullRl {

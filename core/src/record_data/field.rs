@@ -401,29 +401,63 @@ impl FieldManager {
         }
     }
 
+    pub(crate) fn apply_field_actions_with_action_buffer(
+        &self,
+        msm: &MatchSetManager,
+        action_buffer: Option<&mut ActionBuffer>,
+        mut field_id: FieldId,
+        update_cow_source: bool,
+    ) {
+        let mut field = self.borrow_field_dealiased(&mut field_id);
+        let field_ms_id = field.match_set;
+
+        let mut different_ms_ab;
+
+        let ab = match action_buffer {
+            Some(ab) if ab.match_set_id == field_ms_id => ab,
+            _ => {
+                different_ms_ab = Some(
+                    msm.match_sets[field_ms_id].action_buffer.borrow_mut(),
+                );
+                different_ms_ab.as_deref_mut().unwrap()
+            }
+        };
+
+        if update_cow_source {
+            if let (Some(cow_src_id), _) =
+                field.iter_hall.cow_source_field(self)
+            {
+                drop(field);
+                self.apply_field_actions_with_action_buffer(
+                    msm,
+                    Some(ab),
+                    cow_src_id,
+                    true,
+                );
+                // TODO: this is stupid?
+                // self.update_data_cow(field_id);
+                field = self.fields[field_id].borrow();
+            }
+        }
+        for &f in &field.field_refs {
+            self.apply_field_actions_with_action_buffer(
+                msm,
+                Some(ab),
+                f,
+                update_cow_source,
+            );
+        }
+        drop(field);
+
+        ab.update_field(self, msm, field_id, None);
+    }
+
     pub fn apply_field_actions(
         &self,
         msm: &MatchSetManager,
-        mut field_id: FieldId,
+        field_id: FieldId,
     ) {
-        // PERF: if we are about to clear our headers, make sure
-        // that `apply_field_actions` on the cow source does not
-        // copy them
-        let mut field = self.borrow_field_dealiased(&mut field_id);
-        if let (Some(cow_src_id), _) = field.iter_hall.cow_source_field(self) {
-            drop(field);
-            self.apply_field_actions(msm, cow_src_id);
-            // TODO: this is stupid?
-            // self.update_data_cow(field_id);
-            field = self.fields[field_id].borrow();
-        }
-        for &f in &field.field_refs {
-            self.apply_field_actions(msm, f);
-        }
-        let match_set = field.match_set;
-        let ab = &mut msm.match_sets[match_set].action_buffer.borrow_mut();
-        drop(field);
-        ab.update_field(self, field_id, None);
+        self.apply_field_actions_with_action_buffer(msm, None, field_id, true);
     }
 
     pub fn drop_field_actions(
