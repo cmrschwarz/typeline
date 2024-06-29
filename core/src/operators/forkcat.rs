@@ -97,6 +97,8 @@ pub struct SubchainEntry {
     pub group_track_iter_ref: GroupTrackIterRef,
     pub actor_id: ActorId,
     pub input_done: bool,
+    pub leading_padding_introduced: usize,
+    pub fields_consumed: bool,
     pub batch_size_available: usize,
     pub continuation_field_mappings:
         IndexVec<ContinuationVarIdx, ContinuationFieldMapping>,
@@ -576,6 +578,8 @@ fn setup_subchain<'a>(
         field_iters_temp_slot: IndexVec::new(),
         input_done: false,
         batch_size_available: 0,
+        fields_consumed: false,
+        leading_padding_introduced: 0,
     }
 }
 
@@ -715,9 +719,11 @@ pub fn propagate_forkcat(
 
         let padding_needed = field_pos_cont - field_pos_sc;
 
-        if padding_needed > 0 {
-            group_track_iter
-                .insert_fields(FieldValueRepr::Undefined, padding_needed);
+        group_track_iter
+            .insert_fields(FieldValueRepr::Undefined, padding_needed);
+
+        if !sc_entry.fields_consumed {
+            sc_entry.leading_padding_introduced += padding_needed;
         }
 
         let fields_to_consume = group_track_iter
@@ -726,6 +732,10 @@ pub fn propagate_forkcat(
             .min(sc_entry.batch_size_available);
 
         group_track_iter.next_n_fields(fields_to_consume);
+
+        if fields_to_consume > 0 {
+            sc_entry.fields_consumed = true;
+        }
 
         if group_track_iter.group_idx_stable()
             == cont_group_track_next_group_id
@@ -797,12 +807,30 @@ pub fn propagate_forkcat(
             (rr_idx + cont_state.current_sc.into_usize())
                 % cont_state.sc_count(),
         );
-        let mut group_iter = group_iters.pop().unwrap();
         let sc_entry = &mut cont_state.subchains[sc_idx];
+
+        sc_entry
+            .field_iters_temp_slot
+            .reclaim_temp(field_iters.pop().unwrap());
+
+        let mut group_iter = group_iters.pop().unwrap();
+
         let padding_needed = field_pos_cont - group_iter.field_pos();
+
+        if !sc_entry.fields_consumed {
+            sc_entry.leading_padding_introduced += padding_needed;
+        }
         group_iter.insert_fields(FieldValueRepr::Undefined, padding_needed);
         group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);
     }
+
+    cont_state.field_iters_temp.reclaim_temp(field_iters);
+    cont_state.group_iters_temp.reclaim_temp(group_iters);
+    cont_state
+        .cont_field_inserters
+        .reclaim_temp(cont_field_inserters);
+    cont_state.fields_temp.reclaim_temp(fields);
+
     for rr_idx in scs_visited..sc_count {
         // we gotta pad all the scs that we didn't visit too
         // PERF: sadface :/
@@ -829,19 +857,19 @@ pub fn propagate_forkcat(
         group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);
     }
 
-    cont_state.field_iters_temp.reclaim_temp(field_iters);
-    cont_state.group_iters_temp.reclaim_temp(group_iters);
-    cont_state
-        .cont_field_inserters
-        .reclaim_temp(cont_field_inserters);
-    cont_state.fields_temp.reclaim_temp(fields);
-
     for rr_idx in (0..scs_visited).rev() {
         let sc_idx = FcSubchainIdx::from_usize(
             (rr_idx + cont_state.current_sc.into_usize())
                 % cont_state.sc_count(),
         );
         let sc_entry = &mut cont_state.subchains[sc_idx];
+        let iter_advancement =
+            fields_produced - sc_entry.leading_padding_introduced;
+        sc_entry.leading_padding_introduced = 0;
+        sc_entry.fields_consumed = false;
+        if iter_advancement == 0 {
+            continue;
+        }
         for cfm in &sc_entry.continuation_field_mappings {
             let field = jd
                 .field_mgr
@@ -851,7 +879,7 @@ pub fn propagate_forkcat(
                 &field,
                 cfm.sc_field_iter_id,
             );
-            iter.next_n_fields(fields_produced, true);
+            iter.next_n_fields(iter_advancement, true);
             jd.field_mgr.store_iter(
                 cfm.sc_field_id,
                 cfm.sc_field_iter_id,
