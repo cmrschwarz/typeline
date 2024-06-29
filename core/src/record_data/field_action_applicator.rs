@@ -1,7 +1,15 @@
+// Many asserts in this module are **not** debug_asserts, because invalid input
+// might cause the action application code to leave the `FieldData` in a state
+// where headers and data are inconsistent. That would cause the iterators
+// which rely on this consistency to run unsafe typecasts on invalid memory.
+
 use std::{cmp::Ordering, collections::VecDeque};
 
 use crate::{
-    record_data::field_action::FieldActionKind, utils::temp_vec::transmute_vec,
+    record_data::{
+        field_action::FieldActionKind, field_data::field_value_flags,
+    },
+    utils::temp_vec::transmute_vec,
 };
 
 use super::{
@@ -640,6 +648,27 @@ impl FieldActionApplicator {
             faas.header_idx += headers_rem;
         }
         self.push_copy_command(&mut faas);
+
+        if curr_action.is_some() || actions.peek().is_some() {
+            while faas.curr_header_iters_start < faas.curr_header_iters_end {
+                if iterators[faas.curr_header_iters_start].field_pos
+                    >= faas.field_pos
+                {
+                    break;
+                }
+                faas.curr_header_iters_start += 1;
+            }
+
+            while faas.curr_header_iters_start > 0 {
+                if iterators[faas.curr_header_iters_start - 1].field_pos
+                    < faas.field_pos
+                {
+                    break;
+                }
+                faas.curr_header_iters_start -= 1;
+            }
+        }
+
         for a in curr_action.iter().copied().chain(actions.copied()) {
             assert!(a.field_idx == faas.field_pos);
             let FieldActionKind::InsertZst(repr) = a.kind else {
@@ -649,23 +678,50 @@ impl FieldActionApplicator {
                 &mut faas,
                 FieldValueFormat {
                     repr,
-                    ..Default::default()
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 0,
                 },
                 a.run_len,
             );
+
+            let last_header = headers.back().copied().unwrap_or_default();
+
+            faas.curr_header_iters_end = iterators.len();
+
+            for it in &mut iterators
+                [faas.curr_header_iters_start..faas.curr_header_iters_end]
+                .iter_mut()
+                .rev()
+            {
+                if it.header_rl_offset < last_header.run_length {
+                    break;
+                }
+                if it.header_rl_offset == last_header.run_length
+                    && it.lean_left_on_inserts
+                {
+                    break;
+                }
+                it.data += last_header.data_size_unique();
+                it.field_pos += a.run_len as usize;
+                if it.header_idx != faas.header_idx {
+                    assert_eq!(it.header_idx, faas.header_idx - 1);
+                    it.header_idx += 1;
+                }
+                it.header_rl_offset = a.run_len;
+            }
+
             faas.field_pos += a.run_len as usize;
         }
         faas.field_pos as isize - faas.field_pos_old as isize
     }
-    #[allow(clippy::mut_mut)]
     fn move_header_idx_to_action_pos(
-        headers: &mut VecDeque<FieldValueHeader>,
+        headers: &VecDeque<FieldValueHeader>,
         iterators: &mut [&mut IterState],
         faas: &mut FieldActionApplicationState,
     ) {
         let mut header;
         loop {
-            header = &mut headers[faas.header_idx];
+            header = &headers[faas.header_idx];
             if !header.deleted() {
                 let field_pos_new =
                     faas.field_pos + header.run_length as usize;
@@ -683,6 +739,7 @@ impl FieldActionApplicator {
             faas.curr_header_iters_start = faas.curr_header_iters_end;
             let len = iterators.len();
             while len > faas.curr_header_iters_end {
+                #[allow(clippy::mut_mut)]
                 let it = &mut iterators[faas.curr_header_iters_end];
                 if it.header_idx != faas.header_idx + 1 {
                     break;
@@ -1199,6 +1256,97 @@ mod test {
                 header_rl_offset: 0,
                 lean_left_on_inserts: false,
             }],
+        );
+    }
+
+    #[test]
+    fn insert_after_end_affects_iters() {
+        test_actions_on_range(
+            [(FieldValue::Int(42), 1)],
+            false,
+            [FieldAction::new(
+                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                1,
+                2,
+            )],
+            [(FieldValue::Int(42), 1), (FieldValue::Undefined, 2)],
+            [
+                IterStateDummy {
+                    field_pos: 1,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 1,
+                    lean_left_on_inserts: false,
+                },
+                IterStateDummy {
+                    field_pos: 1,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 1,
+                    lean_left_on_inserts: true,
+                },
+            ],
+            [
+                IterStateDummy {
+                    field_pos: 3,
+                    data: 8,
+                    header_idx: 1,
+                    header_rl_offset: 2,
+                    lean_left_on_inserts: false,
+                },
+                IterStateDummy {
+                    field_pos: 1,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 1,
+                    lean_left_on_inserts: true,
+                },
+            ],
+        );
+    }
+    #[test]
+    fn insert_after_end_affects_iters_on_empty() {
+        test_actions_on_range(
+            [],
+            false,
+            [FieldAction::new(
+                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                0,
+                2,
+            )],
+            [(FieldValue::Undefined, 2)],
+            [
+                IterStateDummy {
+                    field_pos: 0,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 0,
+                    lean_left_on_inserts: false,
+                },
+                IterStateDummy {
+                    field_pos: 0,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 0,
+                    lean_left_on_inserts: true,
+                },
+            ],
+            [
+                IterStateDummy {
+                    field_pos: 2,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 2,
+                    lean_left_on_inserts: false,
+                },
+                IterStateDummy {
+                    field_pos: 0,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 0,
+                    lean_left_on_inserts: true,
+                },
+            ],
         );
     }
 }
