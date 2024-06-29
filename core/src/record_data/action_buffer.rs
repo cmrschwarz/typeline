@@ -1662,9 +1662,7 @@ impl ActionBuffer {
         while dead_headers_leading < headers.len() {
             let h = &mut headers[dead_headers_leading];
             let h_ds = h.total_size_unique();
-            if h_ds == 0 && dead_data_leading_rem == 0 && !h.deleted() {
-                self.preserved_headers.push(*h);
-            } else if dead_data_leading_rem < h_ds {
+            if dead_data_leading_rem < h_ds {
                 let header_elem_size = h.fmt.size as usize;
                 let header_padding = h.leading_padding();
                 first_header_dropped_elem_count =
@@ -1674,8 +1672,17 @@ impl ActionBuffer {
                 h.set_leading_padding(drop_instructions.first_header_padding);
                 break;
             }
+            if !h.deleted() {
+                debug_assert_eq!(h_ds, 0);
+                self.preserved_headers.push(*h);
+            }
             dead_data_leading_rem -= h_ds;
             dead_headers_leading += 1;
+        }
+        headers.drain(0..dead_headers_leading);
+        dead_headers_leading -= self.preserved_headers.len();
+        while let Some(h) = self.preserved_headers.pop() {
+            headers.push_front(h);
         }
 
         let field_size_diff = origin_field_data_size - field_data_size;
@@ -1689,8 +1696,9 @@ impl ActionBuffer {
             if dead_data_rem_trailing < h_ds {
                 break;
             }
-            if dead_data_rem_trailing == 0 && !h.deleted() {
-                break;
+            if !h.deleted() {
+                debug_assert_eq!(h_ds, 0);
+                self.preserved_headers.push(h);
             }
             last_header_alive -= 1;
             dead_data_rem_trailing -= h_ds;
@@ -1705,6 +1713,8 @@ impl ActionBuffer {
             headers[last_header_alive].run_length -= elem_count as RunLength;
         }
         headers.drain(last_header_alive..);
+        last_header_alive += self.preserved_headers.len();
+        headers.extend(self.preserved_headers.drain(0..));
         let last_header = headers.back().copied().unwrap_or_default();
 
         let field_end_new = field_data_size
@@ -1717,18 +1727,19 @@ impl ActionBuffer {
         let drop_info = HeaderDropInfo {
             dead_headers_leading,
             first_header_dropped_elem_count,
-            header_count_rem: last_header_alive - dead_headers_leading,
+            header_count_rem: last_header_alive,
             last_header_run_len: last_header.run_length,
             last_header_data_pos: field_end_new - last_header_size,
         };
+
         if drop_instructions.leading_drop != 0 || dead_headers_leading != 0 {
             Self::adjust_iters_to_data_drop(
                 iters,
                 drop_instructions.leading_drop,
                 &drop_info,
             );
-            headers.drain(0..dead_headers_leading);
         }
+
         drop_info
     }
     pub fn update_field(
@@ -2194,7 +2205,7 @@ mod test_dead_data_drop {
             fmt: FieldValueFormat {
                 repr: FieldValueRepr::Undefined,
                 size: 0,
-                flags: field_value_flags::padding(6),
+                flags: field_value_flags::DEFAULT,
             },
             run_length: 1,
         }];
