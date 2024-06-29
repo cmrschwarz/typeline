@@ -227,12 +227,10 @@ pub fn setup_op_forkcat_liveness_data(
     let bb = &ld.basic_blocks[bb_id];
     // TODO: introduce direct reads (not affected by field refs)
     // to reduce this set here
-    let successors_reads = ld.get_var_liveness_slot(
-        bb_id,
-        VarLivenessSlotGroup::Succession,
-        VarLivenessSlotKind::Reads,
-    );
-    for var_id in successors_reads.iter_ones().map(VarId::from_usize) {
+    let successors =
+        ld.get_var_liveness_ored(&bb.successors, VarLivenessSlotGroup::Global);
+    let successor_reads = successors.get_slot(VarLivenessSlotKind::Reads);
+    for var_id in successor_reads.iter_ones().map(VarId::from_usize) {
         op.continuation_vars.push(ld.vars[var_id]);
     }
     for (sc_idx, &callee_id) in bb.calls.iter().enumerate() {
@@ -675,25 +673,6 @@ pub fn propagate_forkcat(
 
         if scs_in_flight < sc_count {
             scs_in_flight += 1;
-            let mut group_iter =
-                jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
-                    sc_entry.group_track_iter_ref,
-                    &jd.match_set_mgr,
-                    sc_entry.actor_id,
-                );
-            let field_pos_sc = group_iter.field_pos();
-
-            let fields_dropped_by_cont =
-                field_pos_sc.saturating_sub(field_pos_cont_start);
-            group_iter.drop_with_field_pos(0, fields_dropped_by_cont);
-
-            //  let drops_needed = field_pos_sc
-            //      .saturating_sub(field_pos_cont)
-            //      .saturating_sub(fields_dropped_by_cont);
-            //  if drops_needed > 0 {
-            //      group_iter.drop_with_field_pos(0, drops_needed);
-            //  }
-            group_iters.push(group_iter);
 
             let mut sc_field_iters =
                 sc_entry.field_iters_temp_slot.take_transmute();
@@ -711,6 +690,20 @@ pub fn propagate_forkcat(
                 sc_field_iters.push(iter);
             }
             field_iters.push(sc_field_iters);
+
+            let mut group_iter =
+                jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
+                    sc_entry.group_track_iter_ref,
+                    &jd.match_set_mgr,
+                    sc_entry.actor_id,
+                );
+            let field_pos_sc = group_iter.field_pos();
+
+            let fields_dropped_by_cont =
+                field_pos_sc.saturating_sub(field_pos_cont_start);
+            group_iter.drop_with_field_pos(0, fields_dropped_by_cont);
+
+            group_iters.push(group_iter);
         }
 
         let group_track_iter = &mut group_iters[sc_round_robin_index];

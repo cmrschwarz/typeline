@@ -1010,8 +1010,9 @@ impl LivenessData {
         &self,
         slot_group: VarLivenessSlotGroup,
         tgt: &mut VarLiveness,
-        mut bbs: impl Iterator<Item = &'b BasicBlockId>,
+        bbs: impl IntoIterator<Item = &'b BasicBlockId>,
     ) {
+        let mut bbs = bbs.into_iter();
         if let Some(&bb_id) = bbs.next() {
             tgt.copy_from_bitslice(self.get_var_liveness(bb_id, slot_group));
             for &bb_id in bbs {
@@ -1023,8 +1024,8 @@ impl LivenessData {
     }
     pub fn get_var_liveness_ored<'b>(
         &self,
+        bbs: impl IntoIterator<Item = &'b BasicBlockId>,
         slot_group: VarLivenessSlotGroup,
-        bbs: impl Iterator<Item = &'b BasicBlockId>,
     ) -> VarLivenessOwned {
         let mut tgt = VarLivenessOwned::new(self.vars.len());
         self.set_var_liveness_ored(slot_group, &mut tgt, bbs);
