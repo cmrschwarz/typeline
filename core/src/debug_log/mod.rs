@@ -565,7 +565,7 @@ pub fn field_data_to_json<'a>(
 ) -> serde_json::Value {
     iters.sort_by(|is1, is2| match is1.header_idx.cmp(&is2.header_idx) {
         std::cmp::Ordering::Equal => {
-            is1.header_rl_offset.cmp(&is1.header_rl_offset)
+            is1.header_rl_offset.cmp(&is2.header_rl_offset)
         }
         res @ (std::cmp::Ordering::Less | std::cmp::Ordering::Greater) => res,
     });
@@ -592,10 +592,7 @@ pub fn field_data_to_json<'a>(
 
     let iters_before_start = iters
         .iter()
-        .position(|i| {
-            (i.header_idx != 0 || i.header_rl_offset != 0)
-                && i.field_pos < field_count_cap
-        })
+        .position(|i| i.field_pos > 0)
         .unwrap_or(iters.len());
     let mut iters_start = iters_before_start;
 
