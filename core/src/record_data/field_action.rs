@@ -10,6 +10,10 @@ pub enum FieldActionKind {
     #[default]
     Dup,
     Drop,
+    /// Inserts a header for zero sized data at the specified field
+    /// position, pushing any existing header at that position forwards.
+    /// Iterators are also pushed forwards, unless they have the
+    /// `lean_left_on_insert` property set.
     InsertZst(FieldValueRepr),
 }
 

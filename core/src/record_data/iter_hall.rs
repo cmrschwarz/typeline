@@ -99,6 +99,17 @@ pub struct IterState {
     // that are 'after' them.
     pub header_idx: usize,
     pub header_rl_offset: RunLength,
+
+    /// Usually, insertions on the same field pos as an iter sits will
+    /// push that iter forwards. This is the only correct behavior, for
+    /// example when the `sum` transform introduces a zero for a trailing
+    /// zero sized group earlier transforms should not get new content.
+    /// However, this is the wrong
+    /// behavior for cow position markers, as these won't gain the
+    /// inserted elements in case of data cow, (and shouldnt gain the
+    /// inserted elements in case of full cow either for consistency).
+    pub lean_left_on_inserts: bool,
+
     #[cfg(feature = "debug_state")]
     pub kind: IterKind,
 }
@@ -139,15 +150,13 @@ impl FieldDataSource {
 }
 
 impl IterHall {
-    pub fn get_iter_state_at_begin(
-        &self,
-        #[allow(unused)] kind: IterKind,
-    ) -> IterState {
+    pub fn get_iter_state_at_begin(&self, kind: IterKind) -> IterState {
         IterState {
             field_pos: 0,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
+            lean_left_on_inserts: matches!(kind, IterKind::CowField(_)),
             #[cfg(feature = "debug_state")]
             kind,
         }
@@ -201,6 +210,7 @@ impl IterHall {
                 .back()
                 .unwrap()
                 .run_length,
+            lean_left_on_inserts: matches!(kind, IterKind::CowField(_)),
             #[cfg(feature = "debug_state")]
             kind,
         }
