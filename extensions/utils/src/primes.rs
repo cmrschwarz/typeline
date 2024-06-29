@@ -93,7 +93,7 @@ impl Operator for OpPrimes {
         let iter_id = jd.field_mgr.fields[tf_state.input_field]
             .borrow_mut()
             .iter_hall
-            .claim_iter(iter_kind);
+            .claim_iter_non_cow(iter_kind);
         jd.field_mgr.fields[tf_state.output_field]
             .borrow()
             .first_actor

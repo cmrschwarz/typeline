@@ -108,7 +108,7 @@ impl Operator for OpSum {
                     ),
                 input_iter_id: jd
                     .field_mgr
-                    .claim_iter(tf_state.input_field, iter_kind),
+                    .claim_iter_non_cow(tf_state.input_field, iter_kind),
                 aggregate: AnyNumber::Int(0),
                 actor_id,
                 current_group_error_type: None,

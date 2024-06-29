@@ -197,7 +197,7 @@ pub fn insert_tf_aggregator(
     let iter_id = job.job_data.field_mgr.fields[in_fid]
         .borrow_mut()
         .iter_hall
-        .claim_iter(IterKind::Transform(
+        .claim_iter_non_cow(IterKind::Transform(
             job.job_data.tf_mgr.transforms.peek_claim_id(),
         ));
 

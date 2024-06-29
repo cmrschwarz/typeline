@@ -54,7 +54,7 @@ pub struct Job<'a> {
     pub job_data: JobData<'a>,
     pub transform_data: IndexVec<TransformId, TransformData<'a>>,
     pub temp_vec: Vec<FieldId>,
-    #[cfg(feature = "debug_state")]
+    #[cfg(feature = "debug_log")]
     debug_log: Option<std::fs::File>,
 }
 
@@ -805,7 +805,7 @@ impl<'a> Job<'a> {
         tf_id: TransformId,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
-        #[cfg(any(feature = "debug_logging", feature = "debug_state"))]
+        #[cfg(feature = "debug_log")]
         let batch_size_available =
             self.job_data.tf_mgr.transforms[tf_id].available_batch_size;
 
@@ -857,7 +857,7 @@ impl<'a> Job<'a> {
                 .print_field_iter_data(output_field_id, 4);
             eprintln!();
         }
-        #[cfg(feature = "debug_state")]
+        #[cfg(feature = "debug_log")]
         if let (Some(f), Some(start_tf)) =
             (&mut self.debug_log, self.job_data.start_tf)
         {
@@ -895,7 +895,7 @@ impl<'a> Job<'a> {
         &mut self,
         ctx: Option<&Arc<ContextData>>,
     ) -> Result<(), VentureDescription> {
-        #[cfg(feature = "debug_state")]
+        #[cfg(feature = "debug_log")]
         if let Some(dl) = &mut self.debug_log {
             crate::debug_log::write_debug_log_html_head(dl)
                 .expect("debug log write succeeds");
@@ -958,7 +958,7 @@ impl<'a> Job<'a> {
             }
             self.job_data.tf_mgr.pre_stream_transform_stack_cutoff = 0;
         }
-        #[cfg(feature = "debug_state")]
+        #[cfg(feature = "debug_log")]
         if let Some(dl) = &mut self.debug_log {
             crate::debug_log::write_debug_log_html_tail(dl)
                 .expect("debug log write succeeds");
@@ -974,7 +974,7 @@ impl<'a> Job<'a> {
         Job {
             transform_data: IndexVec::new(),
             temp_vec: Vec::new(),
-            #[cfg(feature = "debug_state")]
+            #[cfg(feature = "debug_log")]
             // TODO: nicer error handling for this
             debug_log: job_data
                 .session_data
@@ -1015,7 +1015,7 @@ impl JobData<'_> {
         actor_id
     }
     pub fn add_iter_for_tf_state(&self, tf_state: &TransformState) -> IterId {
-        self.field_mgr.claim_iter(
+        self.field_mgr.claim_iter_non_cow(
             tf_state.input_field,
             IterKind::Transform(self.tf_mgr.transforms.peek_claim_id()),
         )

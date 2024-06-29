@@ -99,7 +99,7 @@ impl Operator for OpFromTyson {
             .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfFromTyson {
-                input_iter_id: jd.field_mgr.claim_iter(
+                input_iter_id: jd.field_mgr.claim_iter_non_cow(
                     tf_state.input_field,
                     IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
                 ),

@@ -212,7 +212,7 @@ pub fn build_tf_join<'a>(
             ),
         iter_id: jd
             .field_mgr
-            .claim_iter(tf_state.input_field, IterKind::Transform(tf_id_peek)),
+            .claim_iter_non_cow(tf_state.input_field, IterKind::Transform(tf_id_peek)),
         actor_id: jd.add_actor_for_tf_state(tf_state),
         first_record_added: false,
         buffer: MaybeText::default(),

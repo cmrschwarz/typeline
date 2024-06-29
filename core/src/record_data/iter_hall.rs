@@ -150,13 +150,18 @@ impl FieldDataSource {
 }
 
 impl IterHall {
-    pub fn get_iter_state_at_begin(&self, kind: IterKind) -> IterState {
+    pub fn get_iter_state_at_begin(
+        &self,
+        lean_left_on_inserts: bool,
+        #[cfg_attr(not(feature = "debug_state"), allow(unused))]
+        kind: IterKind,
+    ) -> IterState {
         IterState {
             field_pos: 0,
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
-            lean_left_on_inserts: matches!(kind, IterKind::CowField(_)),
+            lean_left_on_inserts,
             #[cfg(feature = "debug_state")]
             kind,
         }
@@ -164,6 +169,8 @@ impl IterHall {
     pub fn get_iter_state_at_end(
         &self,
         fm: &FieldManager,
+        lean_left_on_insert: bool,
+        #[cfg_attr(not(feature = "debug_state"), allow(unused))]
         kind: IterKind,
     ) -> IterState {
         match self.data_source {
@@ -173,7 +180,7 @@ impl IterHall {
                 return fm.fields[src_field_id]
                     .borrow()
                     .iter_hall
-                    .get_iter_state_at_end(fm, kind);
+                    .get_iter_state_at_end(fm, lean_left_on_insert, kind);
             }
             FieldDataSource::FullCow(CowDataSource {
                 src_field_id,
@@ -191,7 +198,7 @@ impl IterHall {
         }
 
         if self.field_data.field_count == 0 {
-            return self.get_iter_state_at_begin(kind);
+            return self.get_iter_state_at_begin(lean_left_on_insert, kind);
         }
         IterState {
             field_pos: self.field_data.field_count,
@@ -210,15 +217,25 @@ impl IterHall {
                 .back()
                 .unwrap()
                 .run_length,
-            lean_left_on_inserts: matches!(kind, IterKind::CowField(_)),
+            lean_left_on_inserts: lean_left_on_insert,
             #[cfg(feature = "debug_state")]
             kind,
         }
     }
 
-    pub fn claim_iter(&mut self, kind: IterKind) -> IterId {
-        self.iters
-            .claim_with_value(Cell::new(self.get_iter_state_at_begin(kind)))
+    pub fn claim_iter_non_cow(&mut self, kind: IterKind) -> IterId {
+        debug_assert!(!matches!(kind, IterKind::CowField(_)));
+        let iter_state = self.get_iter_state_at_begin(false, kind);
+        self.iters.claim_with_value(Cell::new(iter_state))
+    }
+    pub fn claim_iter(
+        &mut self,
+        lean_left_on_insert: bool,
+        kind: IterKind,
+    ) -> IterId {
+        let iter_state =
+            self.get_iter_state_at_begin(lean_left_on_insert, kind);
+        self.iters.claim_with_value(Cell::new(iter_state))
     }
 
     pub fn get_field_data_len(&self, fm: &FieldManager) -> usize {
@@ -244,13 +261,25 @@ impl IterHall {
     pub fn claim_iter_at_end(
         &mut self,
         fm: &FieldManager,
+        lean_left_on_insert: bool,
         kind: IterKind,
     ) -> IterId {
         self.iters
-            .claim_with_value(Cell::new(self.get_iter_state_at_end(fm, kind)))
+            .claim_with_value(Cell::new(self.get_iter_state_at_end(
+                fm,
+                lean_left_on_insert,
+                kind,
+            )))
     }
-    pub fn reserve_iter_id(&mut self, iter_id: IterId, kind: IterKind) {
-        let v = Cell::new(self.get_iter_state_at_begin(kind));
+    pub fn reserve_iter_id(
+        &mut self,
+        iter_id: IterId,
+        lean_left_on_inserts: bool,
+        kind: IterKind,
+    ) {
+        let v = Cell::new(
+            self.get_iter_state_at_begin(lean_left_on_inserts, kind),
+        );
         self.iters.reserve_id_with(iter_id, || v);
     }
     pub fn release_iter(&mut self, iter_id: IterId) {
@@ -443,9 +472,14 @@ impl IterHall {
         #[cfg(feature = "debug_state")]
         return self.iters[iter_id].get().kind;
     }
+    pub fn is_iter_left_leaning(&self, iter_id: IterId) -> bool {
+        self.iters[iter_id].get().lean_left_on_inserts
+    }
     pub fn reset_iter(&self, iter_id: IterId) {
-        self.iters[iter_id]
-            .set(self.get_iter_state_at_begin(self.get_iter_kind(iter_id)));
+        self.iters[iter_id].set(self.get_iter_state_at_begin(
+            self.is_iter_left_leaning(iter_id),
+            self.get_iter_kind(iter_id),
+        ));
     }
     pub fn reset_iterators(&mut self) {
         for (i, _) in &mut self.iters.iter_enumerated() {

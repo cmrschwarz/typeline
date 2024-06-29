@@ -127,7 +127,7 @@ pub struct RegexOptions {
 }
 
 impl RegexOptions {
-    pub fn to_tf_string(&self, prefix: &str) -> String {
+    pub fn to_tf_string(&self, prefix: &str, regex: &str) -> String {
         let mut res = String::from(prefix);
         if *self != RegexOptions::default() {
             res.push('-');
@@ -165,20 +165,26 @@ impl RegexOptions {
         if self.invert_match {
             res.push('v');
         }
-
+        res.push('=');
+        res.push_str(regex);
         res
     }
 }
 
 impl OpRegex {
     pub fn debug_op_name(&self) -> OperatorName {
-        self.opts.to_tf_string("regex").into()
+        self.opts
+            .to_tf_string("regex", &self.regex.to_string())
+            .into()
     }
 }
 
 impl TfRegex<'_> {
     pub fn display_name(&self) -> DefaultTransformName {
-        self.op.opts.to_tf_string("regex").into()
+        self.op
+            .opts
+            .to_tf_string("regex", &self.regex.to_string())
+            .into()
     }
 }
 
@@ -554,7 +560,7 @@ pub fn build_tf_regex<'a>(
             .map(|r| (r.clone(), r.capture_locations())),
         capture_group_fields: cgfs,
         capture_locs: op.regex.capture_locations(),
-        input_field_iter_id: jd.field_mgr.claim_iter(
+        input_field_iter_id: jd.field_mgr.claim_iter_non_cow(
             tf_state.input_field,
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
         ),

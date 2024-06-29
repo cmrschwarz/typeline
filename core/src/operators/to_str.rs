@@ -148,7 +148,7 @@ pub fn build_tf_to_str<'a>(
         .clone_dyn(),
     };
     TransformData::ToStr(TfToStr {
-        batch_iter: jd.field_mgr.claim_iter(
+        batch_iter: jd.field_mgr.claim_iter_non_cow(
             tf_state.input_field,
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
         ),

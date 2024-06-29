@@ -155,13 +155,17 @@ impl FieldManager {
     ) -> FieldIterRef {
         FieldIterRef {
             field_id,
-            iter_id: self.claim_iter(field_id, kind),
+            iter_id: self.claim_iter_non_cow(field_id, kind),
         }
     }
-    pub fn claim_iter(&self, field_id: FieldId, kind: IterKind) -> IterId {
+    pub fn claim_iter_non_cow(
+        &self,
+        field_id: FieldId,
+        kind: IterKind,
+    ) -> IterId {
         self.borrow_field_dealiased_mut(field_id)
             .iter_hall
-            .claim_iter(kind)
+            .claim_iter_non_cow(kind)
     }
     pub fn dealias_field_id(&self, mut field_id: FieldId) -> FieldId {
         loop {
@@ -335,9 +339,11 @@ impl FieldManager {
             #[cfg(feature = "debug_logging")]
             producing_transform_arg: String::default(),
         };
-        field
-            .iter_hall
-            .reserve_iter_id(FIELD_REF_LOOKUP_ITER_ID, IterKind::RefLookup);
+        field.iter_hall.reserve_iter_id(
+            FIELD_REF_LOOKUP_ITER_ID,
+            false,
+            IterKind::RefLookup,
+        );
         let field_id = self.fields.claim_with_value(RefCell::new(field));
         if let Some(name) = name {
             msm.match_sets[ms_id].field_name_map.insert(name, field_id);
@@ -388,6 +394,7 @@ impl FieldManager {
                 cds.header_iter_id,
                 src.iter_hall.get_iter_state_at_end(
                     self,
+                    true,
                     src.iter_hall.get_iter_kind(cds.header_iter_id),
                 ),
             );
@@ -462,7 +469,7 @@ impl FieldManager {
         let src_field_ms = src_field.match_set;
         let header_iter = src_field
             .iter_hall
-            .claim_iter(IterKind::CowField(tgt_field_id));
+            .claim_iter(true, IterKind::CowField(tgt_field_id));
         let mut tgt_field = self.fields[tgt_field_id].borrow_mut();
         debug_assert!(matches!(
             tgt_field.iter_hall.data_source,

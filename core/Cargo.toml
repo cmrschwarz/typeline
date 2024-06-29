@@ -67,7 +67,7 @@ rstest = "0.21.0"
 default = []
 
 repl = ["dep:shlex", "dep:reedline"]
-full = ["repl", "debug_log"]
+full = ["repl"]
 
 unstable = []
 debug_state = []

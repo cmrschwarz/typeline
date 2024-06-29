@@ -83,7 +83,7 @@ impl Operator for OpTypename {
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         let tfe = TfTypename {
-            input_iter_id: job.job_data.field_mgr.claim_iter(
+            input_iter_id: job.job_data.field_mgr.claim_iter_non_cow(
                 tf_state.input_field,
                 IterKind::Transform(
                     job.job_data.tf_mgr.transforms.peek_claim_id(),

@@ -106,7 +106,7 @@ impl Operator for OpCollect {
                     ),
                 input_iter_id: jd
                     .field_mgr
-                    .claim_iter(tf_state.input_field, iter_kind),
+                    .claim_iter_non_cow(tf_state.input_field, iter_kind),
                 aggregate: Array::default(),
                 actor_id,
                 floating_point_math,

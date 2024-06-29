@@ -493,10 +493,10 @@ fn setup_subchain<'a>(
             field_cow_tgt_id,
         );
 
-        let field_iter = job
-            .job_data
-            .field_mgr
-            .claim_iter(field_id, IterKind::Transform(fc_sc_terminator_tf_id));
+        let field_iter = job.job_data.field_mgr.claim_iter_non_cow(
+            field_id,
+            IterKind::Transform(fc_sc_terminator_tf_id),
+        );
 
         let cont_field_id = continuation_vars[i];
         let mut cont_field =

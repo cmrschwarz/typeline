@@ -248,7 +248,7 @@ fn try_parse_as_setting(
                 .set(expr.require_single_number_param()?, expr.span)?;
         }
         "debug_log" => {
-            if !cfg!(feature = "debug_state") {
+            if !cfg!(feature = "debug_log") {
                 return Err(CliArgumentError::new(
                     "debug log not enabled. please compile with --feature=debug_log",
                     expr.span,

@@ -114,7 +114,7 @@ impl Operator for OpFlatten {
         );
         let tfe = TfFlatten {
             may_consume_input: self.may_consume_input,
-            input_iter_id: jd.field_mgr.claim_iter(
+            input_iter_id: jd.field_mgr.claim_iter_non_cow(
                 tf_state.input_field,
                 IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
             ),

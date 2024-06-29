@@ -212,7 +212,7 @@ impl Operator for OpPy {
 
             input_fields.push(FieldIterRef {
                 field_id,
-                iter_id: jd.field_mgr.claim_iter(
+                iter_id: jd.field_mgr.claim_iter_non_cow(
                     field_id,
                     IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
                 ),

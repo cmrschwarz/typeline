@@ -163,7 +163,7 @@ impl Operator for OpHttpRequest {
             poll: Poll::new().unwrap(),
             dns_cache: HashMap::new(),
             events: Events::with_capacity(64),
-            iter_id: job.job_data.field_mgr.claim_iter(
+            iter_id: job.job_data.field_mgr.claim_iter_non_cow(
                 tf_state.input_field,
                 IterKind::Transform(
                     job.job_data.tf_mgr.transforms.peek_claim_id(),

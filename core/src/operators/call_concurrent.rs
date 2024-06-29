@@ -224,7 +224,7 @@ fn insert_mapping(
             field_mappings.push(RecordBufferFieldMapping {
                 source_field_id,
                 source_field_iter: field_mgr
-                    .claim_iter(source_field_id, IterKind::Transform(tf_id)),
+                    .claim_iter_non_cow(source_field_id, IterKind::Transform(tf_id)),
                 buf_field,
             });
             buf_field
