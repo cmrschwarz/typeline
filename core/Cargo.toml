@@ -44,7 +44,7 @@ unicode-ident = "1.0.12"
 # for debug_log
 handlebars = { git = "https://github.com/cmrschwarz/handlebars-rust.git", branch = "master" }
 #handlebars = "5.1.2"
-serde_json = "1.0.117"
+serde_json = "1.0.118"
 serde_derive = "1.0.203"
 
 # deps for repl mode:
