@@ -113,7 +113,8 @@ impl Transform<'_> for TfDup {
             self.record_group_track_iter,
             &jd.match_set_mgr,
         );
-        let mut field_pos = iter.field_pos();
+        let field_pos_start = iter.field_pos();
+        let mut field_pos = field_pos_start;
         iter.next_n_fields(batch_size);
         jd.group_track_manager.store_record_group_track_iter(
             self.record_group_track_iter,
@@ -152,7 +153,11 @@ impl Transform<'_> for TfDup {
             }
         }
         ab.end_action_group();
-        jd.tf_mgr.submit_batch(tf_id, field_pos, ps.input_done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            field_pos - field_pos_start,
+            ps.input_done,
+        );
     }
     fn get_out_fields(
         &self,
