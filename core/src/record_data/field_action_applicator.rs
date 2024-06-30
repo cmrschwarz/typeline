@@ -732,14 +732,17 @@ impl FieldActionApplicator {
             faas.curr_header_iters_start = faas.curr_header_iters_end;
             let len = iterators.len();
             while len > faas.curr_header_iters_end {
+                let iter;
                 #[allow(clippy::mut_mut)]
-                let it = &mut iterators[faas.curr_header_iters_end];
-                if it.header_idx != faas.header_idx + 1 {
+                {
+                    iter = &mut iterators[faas.curr_header_iters_end];
+                };
+                if iter.header_idx != faas.header_idx + 1 {
                     break;
                 }
-                it.field_pos =
-                    (it.field_pos as isize + field_pos_delta) as usize;
-                it.header_idx += faas.header_idx_new - faas.header_idx;
+                iter.field_pos =
+                    (iter.field_pos as isize + field_pos_delta) as usize;
+                iter.header_idx += faas.header_idx_new - faas.header_idx;
                 faas.curr_header_iters_end += 1;
             }
             faas.header_idx += 1;
