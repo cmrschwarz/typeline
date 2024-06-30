@@ -9,7 +9,7 @@ use super::{
     field_data::{
         field_value_flags::{self, FieldValueFlags},
         FieldData, FieldValueFormat, FieldValueRepr, FieldValueSize,
-        FieldValueType, MAX_FIELD_ALIGN,
+        FieldValueType,
     },
     field_value::FieldValue,
     push_interface::PushInterface,
@@ -54,81 +54,45 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
     pub unsafe fn drop_and_reserve_unchecked(
         &mut self,
         reserved_elements: usize,
-        fmt: FieldValueFormat,
+        mut fmt: FieldValueFormat,
     ) {
-        let old_pad = self.fmt.leading_padding();
-        if old_pad != 0 {
-            self.fd.data.drop_back(old_pad);
-        }
-        // TODO: we might want to restrict reservation size
-        // in case there is one very large string
         self.count = 0;
-
         let padding = fmt.repr.required_padding(self.fd.data.len());
-
-        if padding != 0 {
-            self.fd
-                .data
-                .extend_from_slice(&[0u8; MAX_FIELD_ALIGN][0..padding]);
-            self.fmt.set_leading_padding(padding);
-        }
-        self.fd
-            .data
-            .reserve(MAX_FIELD_ALIGN + reserved_elements * fmt.size as usize);
-        self.fd
-            .data
-            .reserve_contiguous(MAX_FIELD_ALIGN + fmt.size as usize, 0);
-        self.max = (self.fd.data.contiguous_tail_space_available()
-            - MAX_FIELD_ALIGN)
-            / fmt.size as usize;
-        self.data_ptr = self.fd.data.tail_ptr_mut();
+        fmt.set_leading_padding(padding);
         self.fmt = fmt;
+
+        self.fd.data.reserve_contiguous(
+            padding + reserved_elements * fmt.size as usize,
+            0,
+        );
+        self.max = reserved_elements;
+        self.data_ptr = unsafe { self.fd.data.tail_ptr_mut().add(padding) };
     }
     fn sanitize_format(fmt: FieldValueFormat) {
         if fmt.repr.is_dst() {
+            // sadly not a debug assert because this would bring
+            // the field into an invalid state
             assert!(fmt.size <= INLINE_STR_MAX_LEN as FieldValueSize);
         }
+        debug_assert!(fmt.leading_padding() == 0);
     }
     pub unsafe fn drop_and_reserve_reasonable_unchecked(
         &mut self,
         fmt: FieldValueFormat,
     ) {
-        let old_pad = self.fmt.leading_padding();
-        if old_pad != 0 {
-            self.fd.data.drop_back(old_pad);
+        // this handles zsts, but also strings of size 0
+        if fmt.size == 0 {
+            return unsafe {
+                self.drop_and_reserve_unchecked(usize::MAX, fmt)
+            };
         }
-        self.count = 0;
-        self.fmt = fmt;
-        let elem_size = fmt.size as usize;
-        if elem_size == 0 {
-            self.data_ptr = self.fd.data.tail_ptr_mut();
-            self.max = usize::MAX;
-            return;
-        }
-        let mut field_len = self.fd.data.len();
-        let padding = fmt.repr.required_padding(field_len);
-
-        if padding != 0 {
-            self.fd
-                .data
-                .extend_from_slice(&[0u8; MAX_FIELD_ALIGN][0..padding]);
-            self.fmt.set_leading_padding(padding);
-            field_len += padding;
-        }
-
-        let curr_field_len =
-            field_len.max(std::mem::size_of::<FieldValue>() * 4);
-        let reserved_len = (curr_field_len / elem_size).max(2);
-        self.fd
+        let curr_data_size = self
+            .fd
             .data
-            .reserve(MAX_FIELD_ALIGN + elem_size * reserved_len);
-        self.fd
-            .data
-            .reserve_contiguous(MAX_FIELD_ALIGN + elem_size, 0);
-        self.max = (self.fd.data.contiguous_tail_space_available()
-            - MAX_FIELD_ALIGN)
-            / elem_size;
-        self.data_ptr = self.fd.data.tail_ptr_mut();
+            .len()
+            .max(std::mem::size_of::<FieldValue>() * 4);
+        let reasonable_elem_count = curr_data_size / fmt.size as usize;
+        unsafe { self.drop_and_reserve_unchecked(reasonable_elem_count, fmt) }
     }
     pub fn drop_and_reserve_reasonable(&mut self, fmt: FieldValueFormat) {
         Self::sanitize_format(fmt);
@@ -154,7 +118,9 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             self.count = 0;
             return;
         }
-        let new_len = self.fd.data.len() + self.fmt.size as usize * self.count;
+        let new_len = self.fd.data.len()
+            + self.fmt.leading_padding()
+            + self.fmt.size as usize * self.count;
         unsafe {
             self.fd.data.set_len(new_len);
             self.fd.add_header_for_multiple_values(
