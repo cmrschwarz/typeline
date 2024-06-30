@@ -20,7 +20,7 @@ use scr_core::{
     operators::{
         errors::OperatorApplicationError,
         operator::{
-            Operator, OperatorData, OperatorId, OffsetInChain,
+            OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
@@ -118,9 +118,7 @@ pub struct TfHttpRequest {
 }
 
 impl Operator for OpHttpRequest {
-    fn default_name(
-        &self,
-    ) -> scr_core::operators::operator::OperatorName {
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "http-get".into()
     }
 

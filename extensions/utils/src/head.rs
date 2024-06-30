@@ -9,7 +9,7 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            Operator, OperatorData, OperatorId, OffsetInChain,
+            OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
@@ -40,9 +40,7 @@ pub struct TfHeadSubtractive {
 }
 
 impl Operator for OpHead {
-    fn default_name(
-        &self,
-    ) -> scr_core::operators::operator::OperatorName {
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "head".into()
     }
 

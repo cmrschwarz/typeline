@@ -9,8 +9,8 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            OperatorName, Operator, OperatorData, OperatorId,
-            OffsetInChain, PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
+            PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,

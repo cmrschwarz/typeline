@@ -9,7 +9,7 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            Operator, OperatorData, OperatorId, OffsetInChain,
+            OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
@@ -45,9 +45,7 @@ pub struct TfTailAdditive {
 }
 
 impl Operator for OpTail {
-    fn default_name(
-        &self,
-    ) -> scr_core::operators::operator::OperatorName {
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "tail".into()
     }
 
