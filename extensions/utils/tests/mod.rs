@@ -1,7 +1,7 @@
 use rstest::rstest;
 use scr::{
     cli::CliOptions, operators::sequence::create_op_enum,
-    record_data::array::Array,
+    record_data::array::Array, CliOptionsWithDefaultExtensions,
 };
 use scr_core::{
     operators::{
@@ -79,7 +79,7 @@ fn primes_head_tail_add() -> Result<(), ScrError> {
 #[test]
 fn head_tail_cli() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::default(),
+        &CliOptions::with_default_extensions(),
         ["scr", "primes", "tail=+3", "head=5"],
     )?
     .run_collect_as::<i64>()?;

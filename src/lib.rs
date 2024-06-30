@@ -50,22 +50,22 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
     Arc::new(extensions)
 }
 
-pub trait ContextBuilderWithDefaultExts {
-    fn with_default_exts() -> Self;
+pub trait ContextBuilderWithDefaultExtensions {
+    fn with_default_extensions() -> Self;
 }
 
-impl ContextBuilderWithDefaultExts for ContextBuilder {
-    fn with_default_exts() -> Self {
+impl ContextBuilderWithDefaultExtensions for ContextBuilder {
+    fn with_default_extensions() -> Self {
         Self::from_extensions(DEFAULT_EXTENSION_REGISTRY.clone())
     }
 }
 
-pub trait CliOptionsWithDefaultExts {
-    fn with_default_exts() -> Self;
+pub trait CliOptionsWithDefaultExtensions {
+    fn with_default_extensions() -> Self;
 }
 
-impl CliOptionsWithDefaultExts for CliOptions {
-    fn with_default_exts() -> Self {
+impl CliOptionsWithDefaultExtensions for CliOptions {
+    fn with_default_extensions() -> Self {
         Self::with_extensions(DEFAULT_EXTENSION_REGISTRY.clone())
     }
 }

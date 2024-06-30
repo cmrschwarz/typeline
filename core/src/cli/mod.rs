@@ -54,7 +54,7 @@ use std::{
 };
 use thiserror::Error;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CliOptions {
     pub allow_repl: bool,
     // useful if this comes from the cli, not the repl,
@@ -117,8 +117,15 @@ impl CliOptions {
     pub fn with_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
         CliOptions {
             extensions,
-            ..CliOptions::default()
+            allow_repl: false,
+            skip_first_arg: false,
+            start_with_stdin: false,
+            print_output: false,
+            add_success_updator: false,
         }
+    }
+    pub fn without_extensions() -> Self {
+        CliOptions::with_extensions(Arc::new(ExtensionRegistry::default()))
     }
 }
 

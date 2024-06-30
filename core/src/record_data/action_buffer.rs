@@ -2187,7 +2187,7 @@ mod test_dead_data_drop {
         let mut iters = collect_iters(iters_before);
         let iters_after = collect_iters(iters_after);
 
-        let mut ab = ActionBuffer::new(MatchSetId::from_usize(usize::MAX));
+        let mut ab = ActionBuffer::new(MatchSetId::max_value());
 
         let dead_data = ActionBuffer::calc_dead_data(
             &headers,

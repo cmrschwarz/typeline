@@ -5,7 +5,7 @@ use scr::{
         forkcat::create_op_forkcat_with_opts, nop_copy::create_op_nop_copy,
     },
     utils::{maybe_text::MaybeText, test_utils::int_sequence_strings},
-    CliOptionsWithDefaultExts,
+    CliOptionsWithDefaultExtensions,
 };
 use scr_core::{
     operators::{
@@ -275,7 +275,7 @@ fn forkcat_on_unapplied_commands(
 #[test]
 fn parse_forkcat() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_exts(),
+        &CliOptions::with_default_extensions(),
         ["scr", "seqn=10", "forkcat:", "r=.*", "next", "drop", "end"],
     )?
     .run_collect_stringified()?;
@@ -286,7 +286,7 @@ fn parse_forkcat() -> Result<(), ScrError> {
 #[test]
 fn parse_forkcat_2() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_exts(),
+        &CliOptions::with_default_extensions(),
         [
             "seq=3", "fe:", "forkcat:", "seq=2", "next", "nop", "end", "end",
         ],
