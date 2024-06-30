@@ -401,63 +401,35 @@ impl FieldManager {
         }
     }
 
-    pub(crate) fn apply_field_actions_with_action_buffer(
-        &self,
-        msm: &MatchSetManager,
-        action_buffer: Option<&mut ActionBuffer>,
-        mut field_id: FieldId,
-        update_cow_source: bool,
-    ) {
-        let mut field = self.borrow_field_dealiased(&mut field_id);
-        let field_ms_id = field.match_set;
-
-        let mut different_ms_ab;
-
-        let ab = match action_buffer {
-            Some(ab) if ab.match_set_id == field_ms_id => ab,
-            _ => {
-                different_ms_ab = Some(
-                    msm.match_sets[field_ms_id].action_buffer.borrow_mut(),
-                );
-                different_ms_ab.as_deref_mut().unwrap()
-            }
-        };
-
-        if update_cow_source {
-            if let (Some(cow_src_id), _) =
-                field.iter_hall.cow_source_field(self)
-            {
-                drop(field);
-                self.apply_field_actions_with_action_buffer(
-                    msm,
-                    Some(ab),
-                    cow_src_id,
-                    true,
-                );
-                // TODO: this is stupid?
-                // self.update_data_cow(field_id);
-                field = self.fields[field_id].borrow();
-            }
-        }
-        for &f in &field.field_refs {
-            self.apply_field_actions_with_action_buffer(
-                msm,
-                Some(ab),
-                f,
-                update_cow_source,
-            );
-        }
-        drop(field);
-
-        ab.update_field(self, msm, field_id, None);
-    }
-
     pub fn apply_field_actions(
         &self,
         msm: &MatchSetManager,
-        field_id: FieldId,
+        mut field_id: FieldId,
+        update_cow_source: bool,
     ) {
-        self.apply_field_actions_with_action_buffer(msm, None, field_id, true);
+        let field = self.borrow_field_dealiased(&mut field_id);
+
+        let field_ms_id = field.match_set;
+        let (cow_src_id, _) = field.iter_hall.cow_source_field(self);
+
+        for &f in &field.field_refs {
+            self.apply_field_actions(msm, f, true);
+        }
+        for &ct in &field.iter_hall.cow_targets {
+            self.apply_field_actions(msm, ct, false);
+        }
+
+        drop(field);
+
+        let mut ab = msm.match_sets[field_ms_id].action_buffer.borrow_mut();
+        ab.update_field(self, field_id, None);
+        drop(ab);
+
+        if update_cow_source {
+            if let Some(cow_src) = cow_src_id {
+                self.apply_field_actions(msm, cow_src, true);
+            }
+        }
     }
 
     pub fn drop_field_actions(
@@ -688,7 +660,7 @@ impl FieldManager {
         field_id: FieldId,
     ) -> CowFieldDataRef {
         let field_id = self.dealias_field_id(field_id);
-        self.apply_field_actions(msm, field_id);
+        self.apply_field_actions(msm, field_id, true);
         self.get_cow_field_ref_raw(field_id)
     }
     pub fn move_iter(

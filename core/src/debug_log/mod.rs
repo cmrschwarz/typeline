@@ -173,8 +173,11 @@ fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
                 {
                     // we have to do this here because doing json in a second
                     // phase means that the fields have not been touched yet
-                    jd.field_mgr
-                        .apply_field_actions(&jd.match_set_mgr, *field_id);
+                    jd.field_mgr.apply_field_actions(
+                        &jd.match_set_mgr,
+                        *field_id,
+                        true,
+                    );
                 }
                 let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
                 let fc = cfr.destructured_field_ref().field_count();

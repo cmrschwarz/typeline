@@ -21,7 +21,7 @@ use super::{
     group_track::GroupTrackId,
     iter_hall::{CowVariant, FieldDataSource, IterState},
     iters::FieldIterator,
-    match_set::{MatchSetId, MatchSetManager},
+    match_set::MatchSetId,
 };
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
@@ -215,6 +215,7 @@ struct FullCowFieldRef<'a> {
 }
 
 pub struct ActionBuffer {
+    #[cfg(feature = "debug_state")]
     pub(crate) match_set_id: MatchSetId,
     actors: OffsetVecDeque<ActorId, Actor>,
     // we need 3 temp buffers in order to always have a free one as a target
@@ -357,8 +358,13 @@ pub fn eprint_action_list<'a>(actions: impl Iterator<Item = &'a FieldAction>) {
 
 impl ActionBuffer {
     pub const MAX_ACTOR_ID: ActorId = ActorId::MAX;
-    pub fn new(ms_id: MatchSetId) -> Self {
+
+    pub fn new(
+        #[cfg_attr(not(feature = "debug_state"), allow(unused))]
+        ms_id: MatchSetId,
+    ) -> Self {
         Self {
+            #[cfg(feature = "debug_state")]
             match_set_id: ms_id,
             actors: OffsetVecDeque::default(),
             action_temp_buffers: Default::default(),
@@ -1448,9 +1454,7 @@ impl ActionBuffer {
     }
 
     fn gather_cow_field_info_pre_exec<'a>(
-        &mut self,
         fm: &'a FieldManager,
-        msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
         first_action_index: usize,
@@ -1464,12 +1468,6 @@ impl ActionBuffer {
             return;
         }
         for &tgt_field_id in &field.iter_hall.cow_targets {
-            fm.apply_field_actions_with_action_buffer(
-                msm,
-                Some(self),
-                tgt_field_id,
-                false,
-            );
             let (curr_field_tgt_idx, data_cow) = Self::push_cow_field(
                 fm,
                 tgt_field_id,
@@ -1481,9 +1479,8 @@ impl ActionBuffer {
                 data_cow_idx,
                 first_action_index,
             );
-            self.gather_cow_field_info_pre_exec(
+            Self::gather_cow_field_info_pre_exec(
                 fm,
-                msm,
                 tgt_field_id,
                 None,
                 first_action_index,
@@ -1788,7 +1785,6 @@ impl ActionBuffer {
     pub fn update_field(
         &mut self,
         fm: &FieldManager,
-        msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
     ) {
@@ -1832,7 +1828,6 @@ impl ActionBuffer {
 
         self.apply_actions_to_field(
             fm,
-            msm,
             field_id,
             actor_id,
             update_cow_ms,
@@ -1851,7 +1846,6 @@ impl ActionBuffer {
     fn apply_actions_to_field<'a>(
         &mut self,
         fm: &'a FieldManager,
-        msm: &MatchSetManager,
         field_id: u32,
         actor_id: u32,
         update_cow_ms: Option<MatchSetId>,
@@ -1869,9 +1863,8 @@ impl ActionBuffer {
         let data_owned = field.iter_hall.data_source == FieldDataSource::Owned;
 
         drop(field);
-        self.gather_cow_field_info_pre_exec(
+        Self::gather_cow_field_info_pre_exec(
             fm,
-            msm,
             field_id,
             update_cow_ms,
             first_action_index,
@@ -2210,7 +2203,7 @@ mod test_dead_data_drop {
             ab.push_action(FieldActionKind::Drop, 0, 1);
             ab.end_action_group();
         }
-        fm.apply_field_actions(&msm, field_id);
+        fm.apply_field_actions(&msm, field_id, true);
         let field_ref = fm.get_cow_field_ref(&msm, field_id);
         let iter = fm.get_auto_deref_iter(
             field_id,

@@ -223,8 +223,10 @@ fn insert_mapping(
             let buf_field = buf_data.fields.claim_with_value(rbf);
             field_mappings.push(RecordBufferFieldMapping {
                 source_field_id,
-                source_field_iter: field_mgr
-                    .claim_iter_non_cow(source_field_id, IterKind::Transform(tf_id)),
+                source_field_iter: field_mgr.claim_iter_non_cow(
+                    source_field_id,
+                    IterKind::Transform(tf_id),
+                ),
                 buf_field,
             });
             buf_field
@@ -338,8 +340,11 @@ pub fn handle_tf_call_concurrent(
     // The `get_cow_field_ref` below would also do this,
     // but we want to do it outside the lock
     for mapping in &tfc.field_mappings {
-        jd.field_mgr
-            .apply_field_actions(&jd.match_set_mgr, mapping.source_field_id);
+        jd.field_mgr.apply_field_actions(
+            &jd.match_set_mgr,
+            mapping.source_field_id,
+            true,
+        );
     }
     let mut buf_data = tfc.buffer.fields.lock().unwrap();
     while buf_data.available_batch_size != 0

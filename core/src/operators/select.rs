@@ -87,7 +87,7 @@ pub fn handle_tf_select(
 ) {
     let tf = &jd.tf_mgr.transforms[tf_id];
     jd.field_mgr
-        .apply_field_actions(&jd.match_set_mgr, tf.input_field);
+        .apply_field_actions(&jd.match_set_mgr, tf.input_field, true);
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }

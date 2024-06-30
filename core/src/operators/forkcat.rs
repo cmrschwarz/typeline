@@ -887,6 +887,7 @@ pub fn propagate_forkcat(
         jd.field_mgr.apply_field_actions(
             &jd.match_set_mgr,
             cont_state.continuation_dummy_iter.field_id,
+            true,
         );
         jd.field_mgr.fields[cont_state.continuation_dummy_iter.field_id]
             .borrow_mut()

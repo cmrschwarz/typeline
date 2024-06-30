@@ -235,14 +235,14 @@ impl SessionOptions {
                         .map(|&op_id| (self.operator_base_opts[op_id], op_id)),
                 )
                 .err()
-                .map(|e| e.into());
+                .map(Into::into);
             if res.is_some() {
                 break;
             }
         }
 
         if res.is_none() {
-            res = sess_setup_data.validate_chains().err().map(|e| e.into());
+            res = sess_setup_data.validate_chains().err().map(Into::into);
         }
 
         if let Some(e) = res {

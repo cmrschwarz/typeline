@@ -292,7 +292,7 @@ impl TransformManager {
             fm.uncow(msm, ofid);
             let f = fm.fields[ofid].borrow();
             drop(f);
-            fm.apply_field_actions(msm, ofid);
+            fm.apply_field_actions(msm, ofid, true);
         }
     }
     pub fn prepare_output_field(

@@ -137,7 +137,7 @@ impl MatchSetManager {
             self.match_sets[src_ms_id]
                 .action_buffer
                 .borrow_mut()
-                .update_field(fm, self, src, Some(ms_id));
+                .update_field(fm, src, Some(ms_id));
             ActionBuffer::update_cow_fields_post_exec(
                 fm,
                 src,
