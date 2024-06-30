@@ -227,8 +227,10 @@ pub fn setup_op_forkcat_liveness_data(
     let bb = &ld.basic_blocks[bb_id];
     // TODO: introduce direct reads (not affected by field refs)
     // to reduce this set here
-    let successors =
-        ld.get_var_liveness_ored(&bb.successors, VarLivenessSlotGroup::Global);
+    let successors = ld.get_var_liveness_ored(
+        bb.successors.iter().chain(bb.caller_successors.iter()),
+        VarLivenessSlotGroup::Global,
+    );
     let successor_reads = successors.get_slot(VarLivenessSlotKind::Reads);
     for var_id in successor_reads.iter_ones().map(VarId::from_usize) {
         op.continuation_vars.push(ld.vars[var_id]);

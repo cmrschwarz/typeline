@@ -1,7 +1,8 @@
 use std::{
     borrow::Borrow,
     cell::Cell,
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
+    hash::Hash,
     iter,
     ops::{Not, Range},
 };
@@ -106,7 +107,7 @@ pub struct BasicBlock {
     // this is used to calculate 'succession' var data, which is in turn
     // used to calculate the liveness of operator outputs created by this
     // block
-    pub caller_successors: SmallVec<[BasicBlockId; 2]>,
+    pub caller_successors: HashSet<BasicBlockId, BuildIdentityHasher>,
     // used to propagate changes during global liveness analysis
     pub predecessors: SmallVec<[BasicBlockId; 2]>,
     // Vars available at the start that may be accessed through
@@ -180,7 +181,7 @@ pub struct LivenessData {
     pub vars_to_op_outputs_map: IndexVec<VarId, OpOutputIdx>,
     pub key_aliases_map: HashMap<VarId, OpOutputIdx, BuildIdentityHasher>,
     pub operator_liveness_data: IndexVec<OperatorId, OperatorLivenessData>,
-    updates_required: Vec<BasicBlockId>,
+    updates_stack: Vec<BasicBlockId>,
 }
 
 #[derive(Deref, DerefMut, RefCast)]
@@ -533,13 +534,13 @@ impl LivenessData {
                 operators_end: end,
                 calls: SmallVec::new(),
                 successors: SmallVec::new(),
-                caller_successors: SmallVec::new(),
+                caller_successors: HashSet::default(),
                 updates_required: true,
                 field_references: HashMap::new(),
                 predecessors: SmallVec::new(),
                 key_aliases: HashMap::default(),
             });
-            self.updates_required.push(bb_id);
+            self.updates_stack.push(bb_id);
         }
     }
     // returns true if the op ends the block
@@ -628,17 +629,17 @@ impl LivenessData {
                 operators_end: c.operators.next_idx(),
                 calls: SmallVec::new(),
                 successors: SmallVec::new(),
-                caller_successors: SmallVec::new(),
+                caller_successors: HashSet::default(),
                 updates_required: true,
                 field_references: HashMap::new(),
                 predecessors: SmallVec::new(),
                 key_aliases: HashMap::default(),
             });
         }
-        self.updates_required.extend(IndexingTypeRange::new(
+        self.updates_stack.extend(IndexingTypeRange::new(
             BasicBlockId::zero()..sess.chains.next_idx().into_bb_id(),
         ));
-        while let Some(bb_id) = self.updates_required.pop() {
+        while let Some(bb_id) = self.updates_stack.pop() {
             let bb = &mut self.basic_blocks[bb_id];
             let cn = &sess.chains[bb.chain_id];
             for (op_n, &op) in cn.operators
@@ -654,6 +655,21 @@ impl LivenessData {
         self.var_data
             .resize(bits_per_bb * self.basic_blocks.len(), false);
     }
+    // returns true if any change occured
+    fn try_update_callee_successors(
+        &mut self,
+        bb_id: BasicBlockId,
+        callee_id: BasicBlockId,
+    ) -> bool {
+        let (bb, callee) = get_two_distinct_mut(
+            self.basic_blocks.slice_mut(),
+            bb_id.into_usize(),
+            callee_id.into_usize(),
+        );
+        let len_before = callee.caller_successors.len();
+        callee.caller_successors.extend(&bb.successors);
+        len_before != callee.caller_successors.len()
+    }
     fn setup_bb_linkage_data(&mut self, sess: &SessionData) {
         for bb_id in IndexingTypeRange::new(
             BasicBlockId::zero()..self.basic_blocks.next_idx(),
@@ -662,23 +678,32 @@ impl LivenessData {
                 let succ_id = self.basic_blocks[bb_id].successors[succ_n];
                 self.basic_blocks[succ_id].predecessors.push(bb_id);
             }
-            for callee_n in 0..self.basic_blocks[bb_id].calls.len() {
-                let callee_id = self.basic_blocks[bb_id].calls[callee_n];
-                let (bb, callee) = get_two_distinct_mut(
-                    self.basic_blocks.slice_mut(),
-                    bb_id.into_usize(),
-                    callee_id.into_usize(),
-                );
-                callee.caller_successors.extend_from_slice(&bb.successors);
-            }
             let bb = &self.basic_blocks[bb_id];
             let chain = &sess.chains[bb.chain_id];
             for op_id in &chain.operators[bb.operators_start..bb.operators_end]
             {
                 self.operator_liveness_data[*op_id].basic_block_id = bb_id;
             }
+            for callee_n in 0..bb.calls.len() {
+                let callee_id = self.basic_blocks[bb_id].calls[callee_n];
+                self.try_update_callee_successors(bb_id, callee_id);
+            }
+        }
+        self.updates_stack.extend(IndexingTypeRange::from_zero(
+            self.basic_blocks.next_idx(),
+        ));
+        while let Some(bb_id) = self.updates_stack.pop() {
+            for callee_n in 0..self.basic_blocks[bb_id].calls.len() {
+                let callee_id = self.basic_blocks[bb_id].calls[callee_n];
+                let progress =
+                    self.try_update_callee_successors(bb_id, callee_id);
+                if progress && !self.basic_blocks[callee_id].updates_required {
+                    self.updates_stack.push(callee_id);
+                }
+            }
         }
     }
+
     pub fn access_var(
         &mut self,
         sess: &SessionData,
@@ -1088,7 +1113,7 @@ impl LivenessData {
             let pred = &mut self.basic_blocks[pred_id];
             if !pred.updates_required {
                 pred.updates_required = true;
-                self.updates_required.push(pred_id);
+                self.updates_stack.push(pred_id);
             }
         }
     }
@@ -1153,10 +1178,10 @@ impl LivenessData {
         let mut calls = VarLivenessOwned::new(var_count);
         let mut global = VarLivenessOwned::new(var_count);
 
-        self.updates_required.extend(IndexingTypeRange::new(
+        self.updates_stack.extend(IndexingTypeRange::new(
             BasicBlockId::zero()..self.basic_blocks.next_idx(),
         ));
-        while let Some(bb_id) = self.updates_required.pop() {
+        while let Some(bb_id) = self.updates_stack.pop() {
             self.basic_blocks[bb_id].updates_required = false;
             let bb = &self.basic_blocks[bb_id];
 
@@ -1187,12 +1212,12 @@ impl LivenessData {
     }
     fn compute_bb_succession_data(&mut self) {
         let var_count = self.vars.len();
-        let mut calls = VarLivenessOwned::new(var_count);
+        let mut caller_successors = VarLivenessOwned::new(var_count);
         let mut successors = VarLivenessOwned::new(var_count);
         for (bb_id, bb) in self.basic_blocks.iter_enumerated() {
             self.merge_calls_with_successors(
                 &mut successors,
-                &mut calls,
+                &mut caller_successors,
                 bb.successors.iter(),
                 bb.successors.is_empty(),
                 bb.caller_successors.iter(),
@@ -1208,19 +1233,21 @@ impl LivenessData {
                     .copy_from_bitslice(&successors);
                 continue;
             }
+            // reuse allocation
+            let calls = &mut caller_successors;
             self.set_var_liveness_ored(
                 VarLivenessSlotGroup::Global,
-                &mut calls,
+                calls,
                 bb.calls.iter(),
             );
 
             for &call_bb_id in &bb.calls {
                 let cbb = &self.basic_blocks[call_bb_id];
-                self.apply_bb_aliases(&calls, &successors, cbb);
+                self.apply_bb_aliases(calls, &successors, cbb);
             }
-            self.kill_non_survivors(&calls, &mut successors);
-            **calls |= &**successors;
-            self.var_data[succession_bounds].copy_from_bitslice(&calls);
+            self.kill_non_survivors(calls, &mut successors);
+            ***calls |= &**successors;
+            self.var_data[succession_bounds].copy_from_bitslice(calls);
         }
     }
     fn compute_op_output_liveness(&mut self, sess: &SessionData) {
