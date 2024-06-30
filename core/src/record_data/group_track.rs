@@ -49,7 +49,7 @@ pub struct GroupTrackIterState {
 pub struct GroupTrack {
     pub id: GroupTrackId,
     pub ms_id: MatchSetId,
-    pub actor: ActorRef,
+    pub actor_ref: ActorRef,
     pub parent_group_track_id: Option<GroupTrackId>,
     pub group_index_offset: GroupIdx,
 
@@ -501,14 +501,25 @@ impl GroupTrack {
     }
     pub fn apply_field_actions(&mut self, msm: &MatchSetManager) {
         let mut ab = msm.match_sets[self.ms_id].action_buffer.borrow_mut();
-        let Some((actor_id, ss_prev)) = ab.update_snapshot(
+
+        let Some(actor_id) = ab.initialize_actor_ref(
             Some(ActorSubscriber::GroupTrack(self.id)),
-            &mut self.actor,
-            &mut self.snapshot,
+            &mut self.actor_ref,
         ) else {
             return;
         };
-        let agi = ab.build_actions_from_snapshot(actor_id, ss_prev);
+
+        let snapshot_prev = self.snapshot;
+        let snapshot_new = ab.update_actor_snapshot(actor_id);
+
+        if snapshot_new == snapshot_prev {
+            return;
+        };
+
+        self.snapshot = snapshot_new;
+        ab.bump_snapshot_refcount(snapshot_new);
+
+        let agi = ab.build_actions_from_snapshot(actor_id, snapshot_prev);
 
         if let Some(agi) = &agi {
             let (s1, s2) = ab.get_action_group_slices(agi);
@@ -538,7 +549,7 @@ impl GroupTrack {
                 eprintln!();
             }
         };
-        ab.drop_snapshot_refcount(ss_prev, 1);
+        ab.drop_snapshot_refcount(snapshot_prev);
         ab.release_temp_action_group(agi);
     }
 
@@ -949,7 +960,7 @@ impl GroupTrackManager {
         self.group_tracks.claim_with_value(RefCell::new(GroupTrack {
             id,
             ms_id,
-            actor,
+            actor_ref: actor,
             parent_group_track_id: parent_list,
             group_index_offset: 0,
             passed_fields_count: 0,
@@ -1765,13 +1776,22 @@ impl<'a, T: DerefMut<Target = GroupTrack>> Drop for GroupTrackIterMut<'a, T> {
         ab.end_action_group();
 
         let list = &mut *self.base.group_track;
-        if let Some((_actor_id, ss_prev)) = ab.update_snapshot(
+
+        let Some(actor_id) = ab.initialize_actor_ref(
             Some(ActorSubscriber::GroupTrack(list.id)),
-            &mut list.actor,
-            &mut list.snapshot,
-        ) {
-            ab.drop_snapshot_refcount(ss_prev, 1);
+            &mut list.actor_ref,
+        ) else {
+            return;
+        };
+
+        let snapshot = ab.update_actor_snapshot(actor_id);
+        if snapshot == list.snapshot {
+            return;
         }
+
+        ab.drop_snapshot_refcount(list.snapshot);
+        ab.bump_snapshot_refcount(snapshot);
+        list.snapshot = snapshot;
     }
 }
 

@@ -927,11 +927,7 @@ impl ActionBuffer {
         agq.action_groups.next_free_index() as ActionGroupId
     }
 
-    fn generate_snapshot(
-        &mut self,
-        actor_id: ActorId,
-        refcount: SnapshotEntry,
-    ) -> SnapshotRef {
+    fn generate_snapshot(&mut self, actor_id: ActorId) -> SnapshotRef {
         let next_actor_index = self.actors.next_free_index();
         // PERF: find a O(1) way to calculate this
         let iter = Pow2LookupStepsIter::new(actor_id, next_actor_index);
@@ -946,7 +942,7 @@ impl ActionBuffer {
         }
         let (freelist_id, ss) =
             self.snapshot_freelists[snapshot_len - SNAPSHOT_LEN_MIN].claim();
-        ss[SNAPSHOT_REFCOUNT_OFFSET] = refcount;
+        ss[SNAPSHOT_REFCOUNT_OFFSET] = 1;
         ss[SNAPSHOT_ACTOR_COUNT_OFFSET] = next_actor_index as SnapshotEntry;
         for (i, (actor_id, pow2)) in iter.enumerate() {
             let actor = &self.actors[actor_id];
@@ -1001,27 +997,23 @@ impl ActionBuffer {
             [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
             [snapshot.snapshot_id][SNAPSHOT_ACTOR_COUNT_OFFSET]
     }
-    fn bump_snapshot_refcount(&mut self, snapshot: SnapshotRef, bump: u32) {
+    pub(crate) fn bump_snapshot_refcount(&mut self, snapshot: SnapshotRef) {
         debug_assert!(
             snapshot.snapshot_len >= SNAPSHOT_LEN_MIN as SnapshotEntry
         );
         let ss_rc = &mut self.snapshot_freelists
             [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
             [snapshot.snapshot_id][SNAPSHOT_REFCOUNT_OFFSET];
-        *ss_rc += bump;
+        *ss_rc += 1;
     }
-    pub(super) fn drop_snapshot_refcount(
-        &mut self,
-        snapshot: SnapshotRef,
-        drop: u32,
-    ) {
+    pub(super) fn drop_snapshot_refcount(&mut self, snapshot: SnapshotRef) {
         if snapshot.snapshot_len < SNAPSHOT_LEN_MIN as SnapshotEntry {
             return;
         }
         let ss_rc = &mut self.snapshot_freelists
             [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
             [snapshot.snapshot_id][SNAPSHOT_REFCOUNT_OFFSET];
-        *ss_rc -= drop;
+        *ss_rc -= 1;
         if *ss_rc == 0 {
             self.snapshot_freelists
                 [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
@@ -1171,49 +1163,24 @@ impl ActionBuffer {
         res.push_str("] }");
         res
     }
-    fn update_actor_snapshot(&mut self, actor_id: ActorId) -> SnapshotRef {
+    pub(crate) fn update_actor_snapshot(
+        &mut self,
+        actor_id: ActorId,
+    ) -> SnapshotRef {
         let actor_ss = self.actors[actor_id].latest_snapshot;
         if self.validate_snapshot_and_refresh_action_groups(actor_id, actor_ss)
         {
             return actor_ss;
         }
-        let new_ss = self.generate_snapshot(actor_id, 1);
+        let new_ss = self.generate_snapshot(actor_id);
         // we generate the new one first before dropping the reference to
         // the old one to make sure that when we later compare refs to the two
         // they are not the same
-        self.drop_snapshot_refcount(actor_ss, 1);
+        self.drop_snapshot_refcount(actor_ss);
         self.actors[actor_id].latest_snapshot = new_ss;
         new_ss
     }
-    pub(super) fn update_snapshot(
-        &mut self,
-        subscriber: Option<ActorSubscriber>,
-        actor_ref: &mut ActorRef,
-        snapshot_ref: &mut SnapshotRef,
-    ) -> Option<(ActorId, SnapshotRef)> {
-        let actor_id = self.initialize_first_actor(subscriber, actor_ref)?;
-        let actor_ss = self.update_actor_snapshot(actor_id);
-        let prev_ss = *snapshot_ref;
-        if actor_ss == prev_ss {
-            return None;
-        }
-        self.bump_snapshot_refcount(actor_ss, 1);
-        #[cfg(feature = "debug_logging_field_action_group_accel")]
-        eprintln!(
-            "@ updated snapshot for {}: \n - prev: {}\n - next: {}",
-            match subscriber {
-                None => "anonymous caller".into(),
-                Some(ActorSubscriber::Field(field_id)) =>
-                    format!("field {field_id}"),
-                Some(ActorSubscriber::GroupTrack(group_id)) =>
-                    format!("group {group_id}"),
-            },
-            self.stringify_snapshot(actor_id, *snapshot_ref),
-            self.stringify_snapshot(actor_id, actor_ss),
-        );
-        *snapshot_ref = actor_ss;
-        Some((actor_id, prev_ss))
-    }
+
     pub(super) fn build_actions_from_snapshot(
         &mut self,
         actor_id: ActorId,
@@ -1763,61 +1730,88 @@ impl ActionBuffer {
     pub fn gather_pending_actions(
         &mut self,
         actions: &mut Vec<FieldAction>,
-        mut actor_id: ActorRef,
-        mut snapshot: SnapshotRef,
+        actor_ref: ActorRef,
+        snapshot: SnapshotRef,
     ) {
-        let Some((actor_id, ss_prev)) =
-            self.update_snapshot(None, &mut actor_id, &mut snapshot)
+        let Some(actor_id) = self.get_actor_id_from_ref(actor_ref) else {
+            return;
+        };
+        let snapshot_new = self.update_actor_snapshot(actor_id);
+        if snapshot_new == snapshot {
+            return;
+        }
+        let Some(agi) = self.build_actions_from_snapshot(actor_id, snapshot)
         else {
             return;
         };
 
-        let res = self.build_actions_from_snapshot(actor_id, ss_prev);
-        let Some(agi) = res else {
-            self.drop_snapshot_refcount(snapshot, 1);
-            return;
-        };
         let (s1, s2) = self.get_action_group_slices(&agi);
         actions.extend(s1);
         actions.extend(s2);
-        self.drop_snapshot_refcount(snapshot, 1);
+
+        self.release_temp_action_group(Some(agi));
     }
+
+    pub fn is_snapshot_current(
+        &mut self,
+        actor_ref: ActorRef,
+        snapshot: SnapshotRef,
+    ) -> bool {
+        let Some(actor_id) = self.get_actor_id_from_ref(actor_ref) else {
+            return true;
+        };
+        let snapshot_new = self.update_actor_snapshot(actor_id);
+        snapshot_new == snapshot
+    }
+
     pub fn update_field(
         &mut self,
         fm: &FieldManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
     ) {
-        // can't borrow mut: if the snapshot is current,
+        // can't `borrow_mut`: if the snapshot is current,
         // we might already be using this field through cow in
         // some active iterator
         let field = fm.fields[field_id].borrow();
 
-        let mut first_actor = field.first_actor.get();
-        let mut snapshot = field.snapshot.get();
-        let Some((actor_id, ss_prev)) = self.update_snapshot(
+        let mut field_actor_ref = field.first_actor.get();
+        let field_snapshot = field.snapshot.get();
+
+        let Some(actor_id) = self.initialize_actor_ref(
             Some(ActorSubscriber::Field(field_id)),
-            &mut first_actor,
-            &mut snapshot,
+            &mut field_actor_ref,
         ) else {
             return;
         };
+        field.first_actor.set(field_actor_ref);
 
-        field.first_actor.set(first_actor);
-        field.snapshot.set(snapshot);
-
+        let snapshot_new = self.update_actor_snapshot(actor_id);
+        if field_snapshot == snapshot_new {
+            return;
+        }
+        field.snapshot.set(snapshot_new);
+        self.bump_snapshot_refcount(snapshot_new);
         drop(field);
 
-        let res = self.build_actions_from_snapshot(actor_id, ss_prev);
+        #[cfg(feature = "debug_logging_field_action_group_accel")]
+        eprintln!(
+            "@ updated snapshot for of actor {actor_id} for field {field_id}: \n - prev: {}\n - next: {}",
+            self.stringify_snapshot(actor_id, field_snapshot),
+            self.stringify_snapshot(actor_id, snapshot_new),
+        );
+
+        let res = self.build_actions_from_snapshot(actor_id, field_snapshot);
+        self.drop_snapshot_refcount(field_snapshot);
+
         let Some(agi) = res else {
-            self.drop_snapshot_refcount(ss_prev, 1);
             return;
         };
+
         let (s1, s2) = self.get_action_group_slices(&agi);
         let Some(first_action_index) =
             s1.first().or_else(|| s2.first()).map(|a| a.field_idx)
         else {
-            self.drop_snapshot_refcount(ss_prev, 1);
             return;
         };
 
@@ -1840,7 +1834,6 @@ impl ActionBuffer {
         self.full_cow_field_refs_temp = transmute_vec(full_cow_fields);
         self.data_cow_field_refs_temp = transmute_vec(data_cow_fields);
         self.release_temp_action_group(Some(agi));
-        self.drop_snapshot_refcount(ss_prev, 1);
     }
 
     fn apply_actions_to_field<'a>(
@@ -1984,23 +1977,35 @@ impl ActionBuffer {
             }
         }
     }
-    fn initialize_first_actor(
-        &mut self,
-        subscriber: Option<ActorSubscriber>,
-        first_actor: &mut ActorRef,
+    pub fn get_actor_id_from_ref(
+        &self,
+        actor_ref: ActorRef,
     ) -> Option<ActorId> {
-        match *first_actor {
+        match actor_ref {
             ActorRef::Present(actor) => Some(actor),
             ActorRef::Unconfirmed(actor) => {
                 if self.actors.next_free_index() > actor {
-                    *first_actor = ActorRef::Present(actor);
-                    if let Some(subscriber) = subscriber {
-                        self.actors[actor].subscribers.push(subscriber);
-                    }
                     Some(actor)
                 } else {
                     None
                 }
+            }
+        }
+    }
+    pub fn initialize_actor_ref(
+        &mut self,
+        subscriber: Option<ActorSubscriber>,
+        actor_ref: &mut ActorRef,
+    ) -> Option<ActorId> {
+        match *actor_ref {
+            ActorRef::Present(actor) => Some(actor),
+            ActorRef::Unconfirmed(actor) => {
+                let actor_id = self.get_actor_id_from_ref(*actor_ref)?;
+                *actor_ref = ActorRef::Present(actor_id);
+                if let Some(subscriber) = subscriber {
+                    self.actors[actor].subscribers.push(subscriber);
+                }
+                Some(actor)
             }
         }
     }
@@ -2012,7 +2017,7 @@ impl ActionBuffer {
         let mut first_actor = field.first_actor.get();
         let snapshot = field.snapshot.get();
 
-        let Some(actor_id) = self.initialize_first_actor(
+        let Some(actor_id) = self.initialize_actor_ref(
             Some(ActorSubscriber::Field(field_id)),
             &mut first_actor,
         ) else {
@@ -2037,8 +2042,8 @@ impl ActionBuffer {
             self.stringify_snapshot(actor_id, snapshot),
             self.stringify_snapshot(actor_id, ss),
         );
-        self.drop_snapshot_refcount(snapshot, 1);
-        self.bump_snapshot_refcount(ss, 1);
+        self.drop_snapshot_refcount(snapshot);
+        self.bump_snapshot_refcount(ss);
 
         field.snapshot.set(ss);
     }
