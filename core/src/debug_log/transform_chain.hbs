@@ -10,10 +10,10 @@
                 class="match-set-name"
                 onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
             >
-            Match Set {{mc.ms_id}}
+                Match Set {{mc.ms_id}}
             </div>
             <div class="match-set-body" collapse_tag="[{{match_set_body_id}}]">
-                {{~#each mc.tf_envs as |tf_env|}}
+                {{#each mc.tf_envs as |tf_env|}}
                 {{> transform_env tf_env transform_update_id=../transform_update_id}}
                 {{/each}}
             </div>
@@ -22,7 +22,8 @@
                 collapse_tag="[{{collapsed_match_set_body_id}}]"
                 style="display: none;"
                 onclick="toggle_collapsable('{{match_set_body_id}}', '{{collapsed_match_set_body_id}}')"
-            ></div>
+            >
+            </div>
         </div>
     </div>
     {{/each}}

@@ -1,5 +1,5 @@
 {{~let "collapsed_group_track_container_id" "collapsed_group_id_" id }} {{! (unique_id "collapsed_field_container_id_")}}
-{{~let "group_track_container_id" "group_id_" id }} {{! (unique_id "collapsed_field_id_") }}
+{{~let "group_track_container_id" "group_id_" id ~}} {{! (unique_id "collapsed_field_id_") }}
 <div
     class="collapsed-field-container"
     highlight_tag="[{{transform_update_id}}_group_track_{{id}}]"
@@ -29,9 +29,7 @@
                     <div class="group-track-id">
                         G-{{id}}
                     </div>
-
                     <div class="group-track-producing-arg"></div>
-
                     <div class="group-track-tag">Group Track</div>
                 </div>
             </th>
@@ -96,13 +94,11 @@
                 </td>
             </tr>
             {{/each}}
-
-            {{~#if row.is_group_start}}
+            {{#if row.is_group_start}}
             {{~let "flag_shadow" ""}}
-            {{~else}}
+            {{else}}
             {{~let "flag_shadow" " flag-shadow"}}
-            {{~/if}}
-
+            {{/if}}
             <tr class="group-track-row">
                 <td class="parent-group-idx{{flag_shadow}}">{{row.parent_group_idx}}</td>
                 <td class="group-idx{{flag_shadow}}">{{row.group_idx}}</td>

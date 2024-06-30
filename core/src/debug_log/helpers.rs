@@ -99,7 +99,7 @@ pub fn helper_repeat<'reg, 'rc>(
     Ok(())
 }
 
-// a custom block helper to repeat a block n times
+// a custom block helper to bind a variable
 pub fn helper_let<'reg, 'rc>(
     h: &Helper<'rc>,
     _r: &'reg Handlebars<'reg>,

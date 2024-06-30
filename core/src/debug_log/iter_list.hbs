@@ -1,7 +1,9 @@
+{{! TODO: investigate why the indenting for this partial is so messed up }}
 <div class="iter-list">
     <div class="iter iter-placeholder">9</div>
     {{#each iters as |iter|}}
     {{#if transform_id includeZero=true}}
+
     <div
         class="iter iter-transform"
         onmouseenter="highlight('{{../transform_update_id}}_tf_{{transform_id}}')"
@@ -9,6 +11,7 @@
     >
     {{else}}
     {{#if cow_field_id}}
+
     <div
         class="iter iter-cow-field"
         onmouseenter="highlight('{{../transform_update_id}}_field_{{cow_field_id}}')"
@@ -18,8 +21,11 @@
     <div class="iter">
     {{/if}}
     {{/if}}
+
         {{display_text}}
-        <span class="tooltip-text">{{tooltip_text}}</span>
+        <span class="tooltip-text">
+            {{tooltip_text}}
+        </span>
     </div>
     {{/each}}
 </div>
