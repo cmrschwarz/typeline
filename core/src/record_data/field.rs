@@ -408,13 +408,30 @@ impl FieldManager {
         update_cow_source: bool,
     ) {
         let field = self.borrow_field_dealiased(&mut field_id);
+        let (cow_src_id, _) = field.iter_hall.cow_source_field(self);
+
+        if update_cow_source {
+            if let Some(cow_src) = cow_src_id {
+                drop(field);
+                // the cow source will update us by itself because we are
+                // it's cow target
+                self.apply_field_actions(msm, cow_src, true);
+                return;
+            }
+        }
 
         let field_ms_id = field.match_set;
-        let (cow_src_id, _) = field.iter_hall.cow_source_field(self);
 
         for &f in &field.field_refs {
             self.apply_field_actions(msm, f, true);
         }
+
+        // For full cow, it is critically important to always apply
+        // any updates to the cow target **before** changing the source.
+        // Otherwise the state of the source that the full cow
+        // sees will become incorrect.
+        // For data cow, it is nice to do this too because it might
+        // increase the amount of dead data that the source can then drop.
         for &ct in &field.iter_hall.cow_targets {
             self.apply_field_actions(msm, ct, false);
         }
@@ -424,12 +441,6 @@ impl FieldManager {
         let mut ab = msm.match_sets[field_ms_id].action_buffer.borrow_mut();
         ab.update_field(self, msm, field_id, None);
         drop(ab);
-
-        if update_cow_source {
-            if let Some(cow_src) = cow_src_id {
-                self.apply_field_actions(msm, cow_src, true);
-            }
-        }
     }
 
     pub fn drop_field_actions(

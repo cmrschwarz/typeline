@@ -130,14 +130,8 @@ impl MatchSetManager {
         }
 
         for &src in cm.keys() {
-            let src_ms_id = fm.fields[src].borrow().match_set;
-            // PERF: we should only apply actions when there is
-            // at least one data cow, otherwise we can delay that
-            // if we give the full cow a snapshot ref
-            self.match_sets[src_ms_id]
-                .action_buffer
-                .borrow_mut()
-                .update_field(fm, self, src, Some(ms_id));
+            fm.apply_field_actions(self, src, true);
+
             ActionBuffer::update_cow_fields_post_exec(
                 fm,
                 src,
