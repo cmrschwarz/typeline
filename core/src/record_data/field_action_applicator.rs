@@ -1373,7 +1373,7 @@ mod test {
             [IterStateDummy {
                 field_pos: 11,
                 data: 24,
-                header_idx: 2,
+                header_idx: 3,
                 header_rl_offset: 10,
                 lean_left_on_inserts: false,
             }],
