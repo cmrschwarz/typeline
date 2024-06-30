@@ -674,6 +674,8 @@ impl FieldActionApplicator {
             let FieldActionKind::InsertZst(repr) = a.kind else {
                 unreachable!()
             };
+
+            let zst_header_idx = faas.header_idx_new;
             self.push_insert_command(
                 &mut faas,
                 FieldValueFormat {
@@ -684,8 +686,6 @@ impl FieldActionApplicator {
                 a.run_len,
             );
 
-            let last_header = headers.back().copied().unwrap_or_default();
-
             faas.curr_header_iters_end = iterators.len();
 
             for it in &mut iterators
@@ -693,24 +693,17 @@ impl FieldActionApplicator {
                 .iter_mut()
                 .rev()
             {
-                if it.header_rl_offset < last_header.run_length {
+                if it.field_pos < faas.field_pos || it.lean_left_on_inserts {
                     break;
                 }
-                if it.header_rl_offset == last_header.run_length
-                    && it.lean_left_on_inserts
-                {
-                    break;
-                }
-                it.data += last_header.data_size_unique();
+                it.data = faas.data_end;
+                it.header_idx = zst_header_idx;
                 it.field_pos += a.run_len as usize;
-                if it.header_idx != faas.header_idx {
-                    assert_eq!(it.header_idx, faas.header_idx - 1);
-                    it.header_idx += 1;
-                }
                 it.header_rl_offset = a.run_len;
             }
 
             faas.field_pos += a.run_len as usize;
+            faas.header_idx += 1;
         }
         faas.field_pos as isize - faas.field_pos_old as isize
     }
@@ -1347,6 +1340,40 @@ mod test {
                     lean_left_on_inserts: true,
                 },
             ],
+        );
+    }
+    #[test]
+    fn insert_after_end_moves_iters_forwards_past_dead_fields() {
+        test_actions_on_range(
+            [
+                (FieldValue::Int(0), 1),
+                (FieldValue::Int(1), 1),
+                (FieldValue::Int(2), 1),
+            ],
+            false,
+            [
+                FieldAction::new(FieldActionKind::Drop, 1, 2),
+                FieldAction::new(
+                    FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                    1,
+                    10,
+                ),
+            ],
+            [(FieldValue::Int(0), 1), (FieldValue::Undefined, 10)],
+            [IterStateDummy {
+                field_pos: 1,
+                data: 8,
+                header_idx: 1,
+                header_rl_offset: 0,
+                lean_left_on_inserts: false,
+            }],
+            [IterStateDummy {
+                field_pos: 11,
+                data: 24,
+                header_idx: 2,
+                header_rl_offset: 10,
+                lean_left_on_inserts: false,
+            }],
         );
     }
 }

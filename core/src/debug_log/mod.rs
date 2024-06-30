@@ -636,7 +636,9 @@ pub fn field_data_to_json<'a>(
             iters_end += 1;
         }
         let h = fd.headers()[iter.get_next_header_index()];
-        let dead_slot_count = if h.deleted() {
+        let dead_slot_count = if cfg!(feature = "debug_log_no_apply") {
+            0
+        } else if h.deleted() {
             del_count += 1;
             0
         } else {
