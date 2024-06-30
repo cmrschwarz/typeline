@@ -234,10 +234,15 @@ impl SessionOptions {
                         .iter()
                         .map(|&op_id| (self.operator_base_opts[op_id], op_id)),
                 )
-                .err();
+                .err()
+                .map(|e| e.into());
             if res.is_some() {
                 break;
             }
+        }
+
+        if res.is_none() {
+            res = sess_setup_data.validate_chains().err().map(|e| e.into());
         }
 
         if let Some(e) = res {
@@ -250,7 +255,7 @@ impl SessionOptions {
             self.extensions = sess_setup_data.extensions;
             self.string_store = sess_setup_data.string_store;
             return Err(ContextualizedScrError::from_scr_error(
-                e.into(),
+                e,
                 None,
                 None,
                 Some(&self),

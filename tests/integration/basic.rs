@@ -572,7 +572,7 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
         .run()?;
     assert_eq!(
         ss.get().data.as_slice(),
-        ["(error)\"A\"", "ERROR: in op id 1: ErroringStream: Error"]
+        ["(error)\"A\"", "ERROR: in op id 2: ErroringStream: Error"]
     );
     Ok(())
 }
