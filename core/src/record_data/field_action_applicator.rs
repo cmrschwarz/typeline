@@ -743,6 +743,7 @@ impl FieldActionApplicator {
                 faas.curr_header_iters_end += 1;
             }
             faas.header_idx += 1;
+            faas.header_idx_new += 1;
             // this can happen if the field is too short (has)
             // implicit nulls at the end
             if faas.header_idx == headers.len() {
@@ -750,7 +751,6 @@ impl FieldActionApplicator {
             }
             faas.curr_header_original_rl =
                 headers[faas.header_idx].effective_run_length();
-            faas.header_idx_new += 1;
         }
         Self::update_current_iters_start(iterators, faas);
     }

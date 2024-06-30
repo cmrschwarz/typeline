@@ -130,6 +130,9 @@ impl MatchSetManager {
         }
 
         for &src in cm.keys() {
+            // PERF: in theory, we could be lazy here and just add
+            // the current snapshot of the source field to the target
+
             fm.apply_field_actions(self, src, true);
 
             ActionBuffer::update_cow_fields_post_exec(
