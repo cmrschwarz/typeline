@@ -22,30 +22,6 @@
 #![allow(clippy::inline_always)]
 #![allow(clippy::uninlined_format_args)]
 
-#[macro_use]
-extern crate static_assertions;
-
-extern crate arrayvec;
-extern crate bitvec;
-extern crate bstr;
-extern crate encoding_rs;
-extern crate memchr;
-extern crate metamatch;
-extern crate once_cell;
-extern crate regex;
-extern crate regex_syntax;
-extern crate serde_derive;
-extern crate smallstr;
-extern crate smallvec;
-extern crate thin_vec;
-extern crate thiserror;
-extern crate unicode_ident;
-
-#[cfg(feature = "repl")]
-extern crate reedline;
-#[cfg(feature = "repl")]
-extern crate shlex;
-
 #[cfg(feature = "debug_log")]
 pub mod debug_log;
 

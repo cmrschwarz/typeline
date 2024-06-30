@@ -5,7 +5,7 @@ use scr_core::{
     },
     utils::text_write::TextWrite,
 };
-
+#[allow(unused)] // TODO
 #[derive(
     Clone, PartialEq, Eq, Debug, derive_more::Deref, derive_more::DerefMut,
 )]

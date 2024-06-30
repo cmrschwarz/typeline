@@ -10,8 +10,6 @@ use scr_core::{
     options::session_options::SessionOptions,
 };
 
-extern crate scr_core;
-
 #[derive(Default)]
 pub struct HttpExtension {}
 

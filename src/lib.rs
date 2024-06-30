@@ -7,8 +7,6 @@
 //!
 //! A high performance pipeline processor.
 
-pub extern crate scr_core;
-
 use std::sync::Arc;
 
 use cli::CliOptions;

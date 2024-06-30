@@ -6,6 +6,7 @@ use std::{
 };
 
 use num::Integer;
+use static_assertions::const_assert;
 
 use crate::utils::{
     dynamic_freelist::DynamicArrayFreelist, launder_slice,

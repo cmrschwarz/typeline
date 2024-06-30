@@ -87,7 +87,7 @@ impl<'a, I: IndexingType, T> Iterator for IndexSliceIterEnumerated<'a, I, T> {
     }
 }
 
-impl<I, T> IndexVec<I, T> {
+impl<I: IndexingType, T> IndexVec<I, T> {
     pub const fn new() -> Self {
         Self {
             data: Vec::new(),
@@ -126,9 +126,6 @@ impl<I, T> IndexVec<I, T> {
     pub fn into_boxed_slice(self) -> Box<IndexSlice<I, T>> {
         IndexSlice::ref_cast_box(self.data.into_boxed_slice())
     }
-}
-
-impl<I: IndexingType, T> IndexVec<I, T> {
     pub fn push_get_id(&mut self, v: T) -> I {
         let id = self.next_idx();
         self.data.push(v);
@@ -148,7 +145,7 @@ impl<I: IndexingType, T> IndexVec<I, T> {
     }
 }
 
-impl<I, T> IndexSlice<I, T> {
+impl<I: IndexingType, T> IndexSlice<I, T> {
     pub fn iter_enumerated(
         &self,
         initial_offset: I,
@@ -184,9 +181,6 @@ impl<I, T> IndexSlice<I, T> {
             Box::from_raw(index_box_raw)
         }
     }
-}
-
-impl<I: IndexingType, T> IndexSlice<I, T> {
     pub fn next_idx(&self) -> I {
         I::from_usize(self.data.len())
     }
@@ -235,7 +229,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a IndexVec<I, T> {
     type IntoIter = std::slice::Iter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.data.iter()
+        self.iter()
     }
 }
 
@@ -245,7 +239,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a mut IndexVec<I, T> {
     type IntoIter = std::slice::IterMut<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.data.iter_mut()
+        self.iter_mut()
     }
 }
 
@@ -255,7 +249,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a IndexSlice<I, T> {
     type IntoIter = std::slice::Iter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.data.iter()
+        self.iter()
     }
 }
 
@@ -265,7 +259,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a mut IndexSlice<I, T> {
     type IntoIter = std::slice::IterMut<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.data.iter_mut()
+        self.iter_mut()
     }
 }
 

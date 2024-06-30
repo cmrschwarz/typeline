@@ -10,6 +10,7 @@ use std::{
 ///   `RefUnwindSafe` regardless of `T`
 /// - preserves the Copy semantics of `T`. (`PhantomSlot<T>` is `Copy` iff `T`
 ///   is `Copy`)
+///
 /// This type is mainly intended for usage with `transmute_vec`
 #[repr(C)]
 pub struct PhantomSlot<T> {

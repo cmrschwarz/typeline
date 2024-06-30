@@ -136,6 +136,8 @@ pub type FieldDataBuffer = RingBuf<MAX_FIELD_ALIGN>;
 pub type FieldValueSize = u16;
 
 pub mod field_value_flags {
+    use static_assertions::const_assert;
+
     use super::MAX_FIELD_ALIGN;
     pub type FieldValueFlags = u8;
     // offset must be zero so we don't have to shift

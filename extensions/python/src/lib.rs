@@ -6,8 +6,6 @@ use scr_core::{
     options::session_options::SessionOptions,
 };
 
-extern crate scr_core;
-
 pub mod py;
 
 #[derive(Default)]
