@@ -21,7 +21,7 @@ use super::{
     group_track::GroupTrackId,
     iter_hall::{CowVariant, FieldDataSource, IterState},
     iters::FieldIterator,
-    match_set::MatchSetId,
+    match_set::{MatchSetId, MatchSetManager},
 };
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
@@ -1421,7 +1421,9 @@ impl ActionBuffer {
     }
 
     fn gather_cow_field_info_pre_exec<'a>(
+        &mut self,
         fm: &'a FieldManager,
+        msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
         first_action_index: usize,
@@ -1446,8 +1448,9 @@ impl ActionBuffer {
                 data_cow_idx,
                 first_action_index,
             );
-            Self::gather_cow_field_info_pre_exec(
+            self.gather_cow_field_info_pre_exec(
                 fm,
+                msm,
                 tgt_field_id,
                 None,
                 first_action_index,
@@ -1460,11 +1463,29 @@ impl ActionBuffer {
                     data_cow_idx
                 },
             );
-            let tgt_field = Some(fm.fields[tgt_field_id].borrow_mut());
+            let tgt_field = fm.fields[tgt_field_id].borrow_mut();
+
+            if cfg!(debug_assertions) {
+                let actor = tgt_field.first_actor.get();
+                let snapshot = tgt_field.snapshot.get();
+                let cow_target_is_up_to_date =
+                    if tgt_field.match_set == field.match_set {
+                        self.is_snapshot_current(actor, snapshot)
+                    } else {
+                        msm.match_sets[tgt_field.match_set]
+                            .action_buffer
+                            .borrow_mut()
+                            .is_snapshot_current(actor, snapshot)
+                    };
+                debug_assert!(cow_target_is_up_to_date);
+            }
+
             if data_cow {
-                data_cow_field_refs[curr_field_tgt_idx].field = tgt_field;
+                data_cow_field_refs[curr_field_tgt_idx].field =
+                    Some(tgt_field);
             } else {
-                full_cow_field_refs[curr_field_tgt_idx].field = tgt_field;
+                full_cow_field_refs[curr_field_tgt_idx].field =
+                    Some(tgt_field);
             }
         }
     }
@@ -1767,6 +1788,7 @@ impl ActionBuffer {
     pub fn update_field(
         &mut self,
         fm: &FieldManager,
+        msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
     ) {
@@ -1822,6 +1844,7 @@ impl ActionBuffer {
 
         self.apply_actions_to_field(
             fm,
+            msm,
             field_id,
             actor_id,
             update_cow_ms,
@@ -1839,6 +1862,7 @@ impl ActionBuffer {
     fn apply_actions_to_field<'a>(
         &mut self,
         fm: &'a FieldManager,
+        msm: &MatchSetManager,
         field_id: u32,
         actor_id: u32,
         update_cow_ms: Option<MatchSetId>,
@@ -1856,8 +1880,9 @@ impl ActionBuffer {
         let data_owned = field.iter_hall.data_source == FieldDataSource::Owned;
 
         drop(field);
-        Self::gather_cow_field_info_pre_exec(
+        self.gather_cow_field_info_pre_exec(
             fm,
+            msm,
             field_id,
             update_cow_ms,
             first_action_index,

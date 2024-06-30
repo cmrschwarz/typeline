@@ -422,7 +422,7 @@ impl FieldManager {
         drop(field);
 
         let mut ab = msm.match_sets[field_ms_id].action_buffer.borrow_mut();
-        ab.update_field(self, field_id, None);
+        ab.update_field(self, msm, field_id, None);
         drop(ab);
 
         if update_cow_source {
