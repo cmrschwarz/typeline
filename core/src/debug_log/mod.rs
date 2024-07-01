@@ -3,7 +3,6 @@ mod helpers;
 use std::{cell::Cell, collections::HashSet};
 
 use handlebars::{Handlebars, RenderError, RenderErrorReason};
-use helpers::reindent;
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
 
@@ -31,7 +30,7 @@ use crate::{
     utils::{
         index_vec::IndexSlice, indexing_type::IndexingType,
         lazy_lock_guard::LazyRwLockGuard, maybe_text::MaybeText,
-        string_store::StringStore, text_write::MaybeTextWriteLossyAdapter,
+        string_store::StringStore,
     },
 };
 

@@ -37,11 +37,8 @@ impl<T: Clone> Default for Setting<T> {
 }
 
 impl<T: Clone> Setting<T> {
-    pub const fn new(value: T, span: Span) -> Self {
-        Self {
-            value: Some(value),
-            span,
-        }
+    pub const fn new(value: Option<T>, span: Span) -> Self {
+        Self { value: value, span }
     }
     pub const fn new_v(value: T) -> Self {
         Self {

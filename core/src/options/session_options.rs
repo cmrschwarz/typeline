@@ -10,10 +10,11 @@ use once_cell::sync::Lazy;
 
 use crate::{
     chain::{Chain, ChainId},
+    cli::{call_expr::Span, CliArgumentError},
     context::{SessionData, SessionSettings, SessionSetupData},
     extension::ExtensionRegistry,
     operators::operator::{OperatorData, OperatorDataId},
-    scr_error::ContextualizedScrError,
+    scr_error::{ContextualizedScrError, ScrError},
     utils::{
         identity_hasher::BuildIdentityHasher,
         index_vec::{IndexSlice, IndexVec},
@@ -48,15 +49,27 @@ pub struct SessionOptions {
     pub skipped_first_cli_arg: bool,
     pub extensions: Arc<ExtensionRegistry>,
 }
+macro_rules! DEBUG_LOG_ENV_VAR_CONST {
+    () => {
+        "SCR_DEBUG_LOG_PATH"
+    };
+}
+static DEBUG_LOG_ENV_VAR: &str = DEBUG_LOG_ENV_VAR_CONST!();
 
 static EMPTY_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
     Lazy::new(|| Arc::new(ExtensionRegistry::default()));
 static DEFAULT_CONTEXT_OPTIONS: Lazy<SessionOptions> =
     Lazy::new(|| SessionOptions {
         max_threads: Setting::new_v(0),
-        debug_log_path: Setting::new_opt(
-            option_env!("SCR_DEBUG_LOG_PATH")
-                .map(|p| PathBuf::from_str(p).expect("valid debug log path")),
+        debug_log_path: Setting::new(
+            option_env!(DEBUG_LOG_ENV_VAR_CONST!()).map(|p| {
+                PathBuf::from_str(p)
+                    .expect("valid compile time specified debug log path")
+            }),
+            Span::EnvVar {
+                compile_time: true,
+                var_name: &DEBUG_LOG_ENV_VAR,
+            },
         ),
         repl: Setting::new_v(false),
         exit_repl: Setting::new_v(false),
@@ -141,7 +154,40 @@ impl SessionOptions {
         self.chains.push(new_chain);
     }
 
-    fn build_session_settings(&self) -> SessionSettings {
+    fn build_session_settings(
+        &self,
+    ) -> Result<SessionSettings, CliArgumentError> {
+        let (mut debug_log_path, span) =
+            if let Some(path) = self.debug_log_path.get() {
+                (Some(path), self.debug_log_path.span)
+            } else if let Some(path) = std::env::var_os(DEBUG_LOG_ENV_VAR) {
+                (
+                    Some(PathBuf::from(path)),
+                    Span::EnvVar {
+                        compile_time: false,
+                        var_name: &DEBUG_LOG_ENV_VAR,
+                    },
+                )
+            } else {
+                (
+                    DEFAULT_CONTEXT_OPTIONS.debug_log_path.get(),
+                    DEFAULT_CONTEXT_OPTIONS.debug_log_path.span,
+                )
+            };
+        if let Some(path) = &debug_log_path {
+            if path.as_os_str().is_empty() {
+                debug_log_path = None;
+            }
+        }
+
+        if debug_log_path.is_some() && !cfg!(feature = "debug_log") {
+            return Err(CliArgumentError::new(
+                "Debug log not supported. Please compile with --features=debug_log",
+                span,
+            )
+            .into());
+        }
+
         let max_threads = if self.any_threaded_operations {
             let mt_setting = self
                 .max_threads
@@ -158,15 +204,12 @@ impl SessionOptions {
             1
         };
 
-        SessionSettings {
+        Ok(SessionSettings {
             max_threads,
             repl: self.repl.unwrap_or(DEFAULT_CONTEXT_OPTIONS.repl.unwrap()),
             skipped_first_cli_arg: self.skipped_first_cli_arg,
-            debug_log_path: self
-                .debug_log_path
-                .get()
-                .or(DEFAULT_CONTEXT_OPTIONS.debug_log_path.get()),
-        }
+            debug_log_path,
+        })
     }
 
     fn build_session_chains(&self) -> IndexVec<ChainId, Chain> {
@@ -206,10 +249,23 @@ impl SessionOptions {
         chain_labels
     }
 
+    fn contextualize_error(&self, e: ScrError) -> ContextualizedScrError {
+        ContextualizedScrError::from_scr_error(
+            e.into(),
+            None,
+            None,
+            Some(&self),
+            None,
+        )
+    }
+
     pub fn build_session(
         mut self,
     ) -> Result<SessionData, ContextualizedScrError> {
-        let settings = self.build_session_settings();
+        let settings = self
+            .build_session_settings()
+            .map_err(|e| self.contextualize_error(e.into()))?;
+
         let chains = self.build_session_chains();
         let chain_labels = Self::build_chain_labels(&chains);
 
@@ -223,29 +279,30 @@ impl SessionOptions {
             extensions: self.extensions,
         };
 
-        let mut res = None;
+        let mut error = None;
 
-        for (chain_id, chain_opts) in self.chains.iter_enumerated() {
-            res = sess_setup_data
-                .setup_chain(
-                    chain_id,
-                    chain_opts
-                        .operators
-                        .iter()
-                        .map(|&op_id| (self.operator_base_opts[op_id], op_id)),
-                )
-                .err()
-                .map(Into::into);
-            if res.is_some() {
-                break;
+        if error.is_none() {
+            for (chain_id, chain_opts) in self.chains.iter_enumerated() {
+                error = sess_setup_data
+                    .setup_chain(
+                        chain_id,
+                        chain_opts.operators.iter().map(|&op_id| {
+                            (self.operator_base_opts[op_id], op_id)
+                        }),
+                    )
+                    .err()
+                    .map(Into::into);
+                if error.is_some() {
+                    break;
+                }
             }
         }
 
-        if res.is_none() {
-            res = sess_setup_data.validate_chains().err().map(Into::into);
+        if error.is_none() {
+            error = sess_setup_data.validate_chains().err().map(Into::into);
         }
 
-        if let Some(e) = res {
+        if let Some(e) = error {
             // moving back into context options
             sess_setup_data
                 .operator_data
@@ -254,13 +311,7 @@ impl SessionOptions {
                 IndexVec::from(Vec::from(sess_setup_data.operator_data));
             self.extensions = sess_setup_data.extensions;
             self.string_store = sess_setup_data.string_store;
-            return Err(ContextualizedScrError::from_scr_error(
-                e,
-                None,
-                None,
-                Some(&self),
-                None,
-            ));
+            return Err(self.contextualize_error(e));
         }
 
         let mut sess = SessionData {

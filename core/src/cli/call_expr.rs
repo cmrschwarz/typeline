@@ -23,8 +23,8 @@ use super::{try_parse_bool, CliArgumentError};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Span {
     #[default]
-    Generated,
     Builtin,
+    Generated,
     CliArg {
         start: CliArgIdx,
         end: CliArgIdx,
@@ -34,6 +34,10 @@ pub enum Span {
     MacroExpansion {
         op_id: OperatorId,
         // TODO: do some interned way to refer to expanded macro location
+    },
+    EnvVar {
+        compile_time: bool,
+        var_name: &'static str,
     },
 }
 
@@ -164,11 +168,10 @@ impl Span {
                 },
                 offset_end: cli_arg_offset_end as u16,
             },
-            Span::MacroExpansion { op_id } => {
-                Span::MacroExpansion { op_id: *op_id }
-            }
             Span::Generated => Span::Generated,
             Span::Builtin => Span::Builtin,
+            macro_exp @ Span::MacroExpansion { .. } => *macro_exp,
+            env_var @ Span::EnvVar { .. } => *env_var,
         }
     }
     pub fn span_until(&self, end: Span) -> Option<Span> {

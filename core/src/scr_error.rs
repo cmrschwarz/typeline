@@ -167,6 +167,15 @@ fn contextualize_span(
             format!("in macro expansion of op {op_id}: {msg}")
         }
         Span::Generated | Span::Builtin => msg.to_string(),
+        Span::EnvVar {
+            compile_time,
+            var_name,
+        } => {
+            format!(
+                "in{}environment variable `{var_name}`: {msg}",
+                if compile_time { " compile-time " } else { " " }
+            )
+        }
     }
 }
 
