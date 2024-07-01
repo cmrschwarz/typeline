@@ -123,33 +123,11 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
 });
 
 #[allow(clippy::needless_pass_by_value)]
-fn unwrap_render_error(te: RenderError) -> std::io::Error {
-    match RenderErrorReason::from(te) {
+fn unwrap_render_error(re: RenderError) -> std::io::Error {
+    match RenderErrorReason::from(re) {
         RenderErrorReason::IOError(e) => e,
-        _ => unreachable!(),
+        reason => panic!("handlebars template error in debug log: {reason}"),
     }
-}
-
-pub fn write_debug_log_html_head(
-    w: &mut impl std::io::Write,
-) -> Result<(), std::io::Error> {
-    TEMPLATES
-        .render_to_write(
-            "head",
-            &json!({
-                "debug_style_sheet": cfg!(feature="debug_log_extern_style_sheet")
-            }),
-            w,
-        )
-        .map_err(unwrap_render_error)
-}
-
-pub fn write_debug_log_html_tail(
-    w: &mut impl std::io::Write,
-) -> Result<(), std::io::Error> {
-    TEMPLATES
-        .render_to_write("tail", &(), w)
-        .map_err(unwrap_render_error)
 }
 
 #[cfg_attr(feature = "debug_log_no_apply", allow(unused))]
@@ -930,6 +908,28 @@ fn group_track_to_json(
     })
 }
 
+pub fn write_debug_log_html_head(
+    w: &mut impl std::io::Write,
+) -> Result<(), std::io::Error> {
+    TEMPLATES
+        .render_to_write(
+            "head",
+            &json!({
+                "debug_style_sheet": cfg!(feature="debug_log_extern_style_sheet")
+            }),
+            w,
+        )
+        .map_err(unwrap_render_error)
+}
+
+pub fn write_debug_log_html_tail(
+    w: &mut impl std::io::Write,
+) -> Result<(), std::io::Error> {
+    TEMPLATES
+        .render_to_write("tail", &(), w)
+        .map_err(unwrap_render_error)
+}
+
 pub fn write_transform_update_to_html(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
@@ -947,14 +947,8 @@ pub fn write_transform_update_to_html(
     });
 
     TEMPLATES
-        .render_template_to_write("transform_update", &update, w)
-        .map_err(|e| {
-            let reason = RenderErrorReason::from(e);
-            let RenderErrorReason::IOError(io_err) = reason else {
-                panic!("handlebars template error in debug log: {reason}");
-            };
-            io_err
-        })
+        .render_to_write("transform_update", &update, w)
+        .map_err(unwrap_render_error)
 }
 
 pub fn write_initial_state_to_html(
@@ -972,7 +966,5 @@ pub fn write_initial_state_to_html(
     });
     TEMPLATES
         .render_to_write("transform_update", &update, w)
-        .unwrap();
-    Ok(())
-    //  w.write_all(reindent(false, 8, res).as_bytes())
+        .map_err(unwrap_render_error)
 }
