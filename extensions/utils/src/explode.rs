@@ -30,6 +30,7 @@ use scr_core::{
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueRangeIter,
+        scope_manager::ScopeManager,
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
@@ -162,6 +163,7 @@ fn insert_into_key<'a>(
     target_fields: &mut IndexMap<Option<StringStoreEntry>, TargetField>,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
     msm: &mut MatchSetManager,
+    sm: &mut ScopeManager,
     match_set_id: MatchSetId,
     key: StringStoreEntry,
     value: &FieldValue,
@@ -171,8 +173,8 @@ fn insert_into_key<'a>(
     let inserter_idx = match target_fields.entry(Some(key)) {
         Entry::Occupied(e) => e.index(),
         Entry::Vacant(e) => {
-            if let Some(&field_id) =
-                msm.match_sets[match_set_id].field_name_map.get(&key)
+            if let Some(field_id) =
+                sm.lookup_field(msm.match_sets[match_set_id].active_scope, key)
             {
                 inserters.push(fm.get_varying_type_inserter(field_id));
                 let idx = e.index();
@@ -279,6 +281,7 @@ impl Transform<'_> for TfExplode {
                                         &mut self.target_fields,
                                         &mut inserters,
                                         &mut jd.match_set_mgr,
+                                        &mut jd.scope_mgr,
                                         match_set_id,
                                         ss.intern_cloned(k),
                                         v,
@@ -294,6 +297,7 @@ impl Transform<'_> for TfExplode {
                                         &mut self.target_fields,
                                         &mut inserters,
                                         &mut jd.match_set_mgr,
+                                        &mut jd.scope_mgr,
                                         match_set_id,
                                         k,
                                         v,
@@ -321,6 +325,7 @@ impl Transform<'_> for TfExplode {
         for (field, index) in &mut iter {
             jd.field_mgr.add_field_with_data(
                 &mut jd.match_set_mgr,
+                &mut jd.scope_mgr,
                 match_set_id,
                 *self.target_fields.get_index(index).unwrap().0,
                 first_actor,

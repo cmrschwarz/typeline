@@ -527,6 +527,7 @@ pub fn build_tf_regex<'a>(
                 } else {
                     jd.field_mgr.add_field(
                         &mut jd.match_set_mgr,
+                        &mut jd.scope_mgr,
                         tf_state.match_set_id,
                         Some(*name),
                         next_actor_id,

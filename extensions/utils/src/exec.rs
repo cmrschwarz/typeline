@@ -227,7 +227,9 @@ impl Operator for OpExec {
         let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
         for &ref_idx in &self.refs_idx {
             let field_id = if let Some(name) = ref_idx {
-                *ms.field_name_map.get(&name).unwrap_or(&ms.dummy_field)
+                jd.scope_mgr
+                    .lookup_field(ms.active_scope, name)
+                    .unwrap_or(ms.dummy_field)
             } else {
                 tf_state.input_field
             };
@@ -240,12 +242,14 @@ impl Operator for OpExec {
         drop(ab);
         let stderr_field = jd.field_mgr.add_field(
             &mut jd.match_set_mgr,
+            &mut jd.scope_mgr,
             tf_state.match_set_id,
             Some(self.stderr_field_name),
             actor_ref,
         );
         let exit_code_field = jd.field_mgr.add_field(
             &mut jd.match_set_mgr,
+            &mut jd.scope_mgr,
             tf_state.match_set_id,
             Some(self.exit_code_field_name),
             actor_ref,

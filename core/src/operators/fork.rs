@@ -233,9 +233,11 @@ fn setup_fork_subchain(
     let fork_ms_scope =
         job.job_data.match_set_mgr.match_sets[fork_ms_id].active_scope;
 
+    let scope_id = job.job_data.scope_mgr.add_scope(Some(fork_ms_scope));
     let target_ms_id = job.job_data.match_set_mgr.add_match_set(
         &mut job.job_data.field_mgr,
-        job.job_data.scope_mgr.add_scope(Some(fork_ms_scope)),
+        &mut job.job_data.scope_mgr,
+        scope_id,
     );
 
     let fork_chain_dummy_field =
@@ -245,6 +247,7 @@ fn setup_fork_subchain(
 
     job.job_data.field_mgr.setup_cow_between_fields(
         &mut job.job_data.match_set_mgr,
+        &mut job.job_data.scope_mgr,
         fork_chain_dummy_field,
         sc_dummy_field,
     );
@@ -262,17 +265,17 @@ fn setup_fork_subchain(
             unreachable!();
         };
     let mut chain_input_field = None;
+    let fork_ms_scope =
+        job.job_data.match_set_mgr.match_sets[fork_ms_id].active_scope;
     for &name in field_access_mapping {
         let src_field_id;
         if let Some(name) = name {
-            if let Some(field) = job.job_data.match_set_mgr.match_sets
-                [fork_ms_id]
-                .field_name_map
-                .get(&name)
+            if let Some(field) =
+                job.job_data.scope_mgr.lookup_field(fork_ms_scope, name)
             {
                 // the input field is always first in this iterator
-                debug_assert!(*field != fork_input_field_id);
-                src_field_id = *field;
+                debug_assert!(field != fork_input_field_id);
+                src_field_id = field;
             } else {
                 continue;
             };
@@ -287,6 +290,7 @@ fn setup_fork_subchain(
         drop(src_field);
         let target_field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
+            &mut job.job_data.scope_mgr,
             target_ms_id,
             src_field_id,
         );

@@ -243,7 +243,8 @@ fn setup_target_field_mappings(
     let mut mappings_present =
         HashMap::<FieldId, usize, BuildIdentityHasher>::default();
     let tf = &jd.tf_mgr.transforms[tf_id];
-    let source_match_set = &jd.match_set_mgr.match_sets[tf.match_set_id];
+
+    let scope = jd.match_set_mgr.match_sets[tf.match_set_id].active_scope;
 
     for (name, _write) in call.target_accessed_fields {
         // PERF: if the field is never written, and we know that the source
@@ -251,7 +252,7 @@ fn setup_target_field_mappings(
         // unsafely share the FieldData (and maybe add a flag for soundness)
         let field_id = if let Some(name) = name {
             if let Some(source_field_id) =
-                source_match_set.field_name_map.get(name).copied()
+                jd.scope_mgr.lookup_field(scope, *name)
             {
                 source_field_id
             } else {
@@ -403,17 +404,17 @@ pub fn handle_tf_call_concurrent(
 }
 
 pub fn setup_callee_concurrent(
-    sess: &mut Job,
+    job: &mut Job,
     ms_id: MatchSetId,
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
 ) -> OperatorInstantiation {
     let chain_id =
-        sess.job_data.session_data.operator_bases[start_op_id].chain_id;
-    let chain = &sess.job_data.session_data.chains[chain_id];
+        job.job_data.session_data.operator_bases[start_op_id].chain_id;
+    let chain = &job.job_data.session_data.chains[chain_id];
     // TODO //HACK: this is busted
     let group_track = VOID_GROUP_TRACK_ID;
-    let dummy_field = sess.job_data.match_set_mgr.get_dummy_field(ms_id);
+    let dummy_field = job.job_data.match_set_mgr.get_dummy_field(ms_id);
     let tf_state = TransformState::new(
         dummy_field,
         dummy_field,
@@ -422,15 +423,16 @@ pub fn setup_callee_concurrent(
         None,
         group_track,
     );
-    sess.job_data.field_mgr.inc_field_refcount(dummy_field, 2);
+    job.job_data.field_mgr.inc_field_refcount(dummy_field, 2);
     let mut callee = TfCalleeConcurrent {
         target_fields: Vec::new(),
         buffer,
     };
     let mut buf_data = callee.buffer.fields.lock().unwrap();
     for field in &buf_data.fields {
-        let field_id = sess.job_data.field_mgr.add_field(
-            &mut sess.job_data.match_set_mgr,
+        let field_id = job.job_data.field_mgr.add_field(
+            &mut job.job_data.match_set_mgr,
+            &mut job.job_data.scope_mgr,
             ms_id,
             field.name,
             ActorRef::default(),
@@ -439,13 +441,12 @@ pub fn setup_callee_concurrent(
     }
     for (i, field) in buf_data.fields.iter_mut().enumerate() {
         let tgt_field_id = callee.target_fields[i].unwrap();
-        let mut tgt =
-            sess.job_data.field_mgr.fields[tgt_field_id].borrow_mut();
+        let mut tgt = job.job_data.field_mgr.fields[tgt_field_id].borrow_mut();
         for fr in &field.field_refs {
             let ref_field_id =
                 callee.target_fields[fr.get() as usize].unwrap();
             tgt.field_refs.push(ref_field_id);
-            sess.job_data.field_mgr.fields[ref_field_id]
+            job.job_data.field_mgr.fields[ref_field_id]
                 .borrow_mut()
                 .ref_count += 1;
         }
@@ -453,12 +454,12 @@ pub fn setup_callee_concurrent(
     drop(buf_data);
     let input_field = callee.target_fields[0];
     let tf_id = add_transform_to_job(
-        &mut sess.job_data,
-        &mut sess.transform_data,
+        &mut job.job_data,
+        &mut job.transform_data,
         tf_state,
         TransformData::CalleeConcurrent(callee),
     );
-    let mut instantiation = sess.setup_transforms_from_op(
+    let mut instantiation = job.setup_transforms_from_op(
         ms_id,
         start_op_id,
         input_field.unwrap(),

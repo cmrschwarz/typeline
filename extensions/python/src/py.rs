@@ -182,19 +182,19 @@ impl Operator for OpPy {
         let jd = &mut job.job_data;
         for fv in &self.free_vars_sse {
             let field_id = if let Some(name) = fv {
-                if let Some(id) = jd.match_set_mgr.match_sets
-                    [tf_state.match_set_id]
-                    .field_name_map
-                    .get(name)
-                    .copied()
-                {
-                    jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
+                if let Some(id) = jd.scope_mgr.lookup_field(
+                    jd.match_set_mgr.match_sets[tf_state.match_set_id]
+                        .active_scope,
+                    *name,
+                ) {
+                    jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, &mut jd.scope_mgr, id);
                     let mut f = jd.field_mgr.fields[id].borrow_mut();
                     f.ref_count += 1;
                     id
                 } else {
                     jd.field_mgr.add_field(
                         &mut jd.match_set_mgr,
+                        &mut jd.scope_mgr,
                         tf_state.match_set_id,
                         Some(*name),
                         jd.field_mgr.get_first_actor(tf_state.input_field),

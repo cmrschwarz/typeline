@@ -52,4 +52,30 @@ impl ScopeManager {
             symbols: HashMap::default(),
         })
     }
+
+    pub fn lookup_symbol(
+        &self,
+        mut scope_id: ScopeId,
+        name: StringStoreEntry,
+    ) -> Option<&Symbol> {
+        loop {
+            let scope = &self.scopes[scope_id];
+            if let Some(sym) = scope.symbols.get(&name) {
+                return Some(sym);
+            }
+            scope_id = scope.parent?;
+        }
+    }
+
+    pub fn lookup_field(
+        &self,
+        scope_id: ScopeId,
+        name: StringStoreEntry,
+    ) -> Option<u32> {
+        let Some(Symbol::Field(field_id)) = self.lookup_symbol(scope_id, name)
+        else {
+            return None;
+        };
+        Some(*field_id)
+    }
 }

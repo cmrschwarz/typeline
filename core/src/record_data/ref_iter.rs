@@ -1060,11 +1060,16 @@ mod ref_iter_tests {
         let mut match_set_mgr = MatchSetManager::default();
         let mut field_mgr = FieldManager::default();
         let mut scope_mgr = ScopeManager::default();
-        let ms_id = match_set_mgr
-            .add_match_set(&mut field_mgr, scope_mgr.add_scope(None));
+        let scope_id = scope_mgr.add_scope(None);
+        let ms_id = match_set_mgr.add_match_set(
+            &mut field_mgr,
+            &mut scope_mgr,
+            scope_id,
+        );
 
         let field_id = field_mgr.add_field_with_data(
             &mut match_set_mgr,
+            &mut scope_mgr,
             ms_id,
             None,
             ActorRef::default(),
@@ -1072,6 +1077,7 @@ mod ref_iter_tests {
         );
         let refs_field_id = field_mgr.add_field_with_data(
             &mut match_set_mgr,
+            &mut scope_mgr,
             ms_id,
             None,
             ActorRef::default(),

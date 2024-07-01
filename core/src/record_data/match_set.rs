@@ -14,7 +14,7 @@ use crate::{
 use super::{
     action_buffer::{ActionBuffer, ActorRef},
     field::{FieldId, FieldManager},
-    scope_manager::ScopeId,
+    scope_manager::{ScopeId, ScopeManager},
 };
 
 index_newtype! {
@@ -28,8 +28,6 @@ pub struct MatchSet {
     pub action_buffer: RefCell<ActionBuffer>,
     pub active_scope: ScopeId,
 
-    pub field_name_map:
-        HashMap<StringStoreEntry, FieldId, BuildIdentityHasher>,
     // stores original field -> cow copy
     // Entries are added when fields from other MatchSets are cow'ed into this
     // one used to avoid duplicates, especially when automatically cowing
@@ -51,6 +49,7 @@ impl MatchSetManager {
     pub fn add_field_alias(
         &mut self,
         fm: &mut FieldManager,
+        sm: &mut ScopeManager,
         field_id: FieldId,
         name: StringStoreEntry,
     ) -> FieldId {
@@ -63,7 +62,7 @@ impl MatchSetManager {
         // PERF: if the field has no name, and no actor was added
         // after between it's first_actor and the last,
         // we can just set it's name instead of adding an alias field
-        let alias_id = fm.add_field(self, ms_id, Some(name), first_actor);
+        let alias_id = fm.add_field(self, sm, ms_id, Some(name), first_actor);
         let mut field = fm.fields[field_id].borrow_mut();
         field.shadowed_by = Some(alias_id);
         field.shadowed_since = self.match_sets[field.match_set]
@@ -80,17 +79,17 @@ impl MatchSetManager {
     pub fn add_match_set(
         &mut self,
         fm: &mut FieldManager,
+        sm: &mut ScopeManager,
         scope: ScopeId,
     ) -> MatchSetId {
         let ms_id = self.match_sets.peek_claim_id();
         let dummy_field =
-            fm.add_field(self, ms_id, None, ActorRef::Unconfirmed(0));
+            fm.add_field(self, sm, ms_id, None, ActorRef::Unconfirmed(0));
         let ms = MatchSet {
             dummy_field,
             active_scope: scope,
             stream_participants: Vec::new(),
             action_buffer: RefCell::new(ActionBuffer::new(ms_id)),
-            field_name_map: HashMap::default(),
             fields_cow_map: HashMap::default(),
         };
         #[cfg(feature = "debug_logging")]

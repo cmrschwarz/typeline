@@ -261,10 +261,14 @@ pub fn insert_tf_forkcat<'a>(
     tf_state: TransformState,
 ) -> OperatorInstantiation {
     let input_field = tf_state.input_field;
+
+    // TODO: scope sharing stuff
+    let cont_scope_id = job.job_data.scope_mgr.add_scope(None);
+
     let cont_ms_id = job.job_data.match_set_mgr.add_match_set(
         &mut job.job_data.field_mgr,
-        job.job_data.match_set_mgr.match_sets[tf_state.match_set_id]
-            .active_scope,
+        &mut job.job_data.scope_mgr,
+        cont_scope_id,
     );
 
     let gt_parent = job.job_data.group_track_manager.group_tracks
@@ -293,6 +297,7 @@ pub fn insert_tf_forkcat<'a>(
     for cv in &op.continuation_vars {
         let field_id = job.job_data.field_mgr.add_field(
             &mut job.job_data.match_set_mgr,
+            &mut job.job_data.scope_mgr,
             cont_ms_id,
             cv.get_name(),
             ActorRef::default(),
@@ -391,11 +396,12 @@ fn setup_subchain<'a>(
     let fc_tf = &job.job_data.tf_mgr.transforms[fc_tf_id];
     let fc_ms_id = fc_tf.match_set_id;
 
+    // TODO: scope setup
+    let sc_scope = job.job_data.scope_mgr.add_scope(None);
     let sc_ms_id = job.job_data.match_set_mgr.add_match_set(
         &mut job.job_data.field_mgr,
-        job.job_data.scope_mgr.add_scope(Some(
-            job.job_data.match_set_mgr.match_sets[fc_ms_id].active_scope,
-        )),
+        &mut job.job_data.scope_mgr,
+        sc_scope,
     );
 
     let fc_dummy_field = job.job_data.match_set_mgr.get_dummy_field(fc_ms_id);
@@ -403,6 +409,7 @@ fn setup_subchain<'a>(
 
     job.job_data.field_mgr.setup_cow_between_fields(
         &mut job.job_data.match_set_mgr,
+        &mut job.job_data.scope_mgr,
         fc_dummy_field,
         sc_dummy_field,
     );
@@ -424,16 +431,19 @@ fn setup_subchain<'a>(
         job.job_data.session_data.chains[op_base.chain_id].subchains[sc_idx];
 
     let mut sc_input_field = sc_dummy_field;
+    let fc_ms_scope =
+        job.job_data.match_set_mgr.match_sets[fc_ms_id].active_scope;
+
     for (&var, needing_subchains) in &op.input_mappings {
         if !needing_subchains[fc_sc_idx.into_usize()] {
             continue;
         }
 
         let src_field = if let Some(name) = var.get_name() {
-            *job.job_data.match_set_mgr.match_sets[fc_ms_id]
-                .field_name_map
-                .get(&name)
-                .unwrap_or(&sc_dummy_field)
+            job.job_data
+                .scope_mgr
+                .lookup_field(fc_ms_scope, name)
+                .unwrap_or(sc_dummy_field)
         } else if matches!(var, Var::BBInput) {
             fc_input_field
         } else {
@@ -442,6 +452,7 @@ fn setup_subchain<'a>(
 
         let field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
+            &mut job.job_data.scope_mgr,
             sc_ms_id,
             src_field,
         );
@@ -466,16 +477,22 @@ fn setup_subchain<'a>(
 
     for (i, var) in op.continuation_vars.iter_enumerated() {
         let sc_ms = &job.job_data.match_set_mgr.match_sets[sc_ms_id];
+        let sc_scope = sc_ms.active_scope;
         let field_id = if let Some(field_name) = var.get_name() {
-            if let Some(&field_id) = sc_ms.field_name_map.get(&field_name) {
+            if let Some(field_id) =
+                job.job_data.scope_mgr.lookup_field(sc_scope, field_name)
+            {
                 field_id
-            } else if let Some(&fc_field_id) =
-                job.job_data.match_set_mgr.match_sets[fc_ms_id]
-                    .field_name_map
-                    .get(&field_name)
+            } else if let Some(fc_field_id) =
+                job.job_data.scope_mgr.lookup_field(
+                    job.job_data.match_set_mgr.match_sets[fc_ms_id]
+                        .active_scope,
+                    field_name,
+                )
             {
                 job.job_data.field_mgr.get_cross_ms_cow_field(
                     &mut job.job_data.match_set_mgr,
+                    &mut job.job_data.scope_mgr,
                     sc_ms_id,
                     fc_field_id,
                 )
@@ -489,12 +506,14 @@ fn setup_subchain<'a>(
 
         let field_cow_tgt_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
+            &mut job.job_data.scope_mgr,
             cont_ms_id,
             field_id,
         );
 
         job.job_data.field_mgr.setup_field_refs(
             &mut job.job_data.match_set_mgr,
+            &mut job.job_data.scope_mgr,
             field_cow_tgt_id,
         );
 

@@ -2221,9 +2221,10 @@ mod test_dead_data_drop {
         let mut sm = ScopeManager::default();
         let mut fm = FieldManager::default();
         let mut msm = MatchSetManager::default();
-        let ms_id = msm.add_match_set(&mut fm, sm.add_scope(None));
+        let scope_id = sm.add_scope(None);
+        let ms_id = msm.add_match_set(&mut fm, &mut sm, scope_id);
         let field_id =
-            fm.add_field(&mut msm, ms_id, None, ActorRef::default());
+            fm.add_field(&mut msm, &mut sm, ms_id, None, ActorRef::default());
 
         {
             let mut field = fm.fields[field_id].borrow_mut();

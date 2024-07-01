@@ -401,9 +401,11 @@ impl<'a> Job<'a> {
         }
     }
     pub fn setup_job(&mut self, mut job_desc: JobDescription) {
+        let scope_id = self.job_data.scope_mgr.add_scope(None);
         let ms_id = self.job_data.match_set_mgr.add_match_set(
             &mut self.job_data.field_mgr,
-            self.job_data.scope_mgr.add_scope(None),
+            &mut self.job_data.scope_mgr,
+            scope_id,
         );
         // TODO: unpack record set properly here
         let input_record_count = job_desc.data.adjust_field_lengths();
@@ -415,6 +417,7 @@ impl<'a> Job<'a> {
             }
             let field_id = self.job_data.field_mgr.add_field_with_data(
                 &mut self.job_data.match_set_mgr,
+                &mut self.job_data.scope_mgr,
                 ms_id,
                 fd.name,
                 ActorRef::default(),
@@ -480,9 +483,11 @@ impl<'a> Job<'a> {
         buffer: Arc<RecordBuffer>,
         start_op_id: OperatorId,
     ) {
+        let scope_id = self.job_data.scope_mgr.add_scope(None);
         let ms_id = self.job_data.match_set_mgr.add_match_set(
             &mut self.job_data.field_mgr,
-            self.job_data.scope_mgr.add_scope(None),
+            &mut self.job_data.scope_mgr,
+            scope_id,
         );
         let instantiation =
             setup_callee_concurrent(self, ms_id, buffer, start_op_id);
@@ -612,10 +617,11 @@ impl<'a> Job<'a> {
                 }
                 OperatorData::Select(op) => {
                     if let Some(field_id) =
-                        self.job_data.match_set_mgr.match_sets[ms_id]
-                            .field_name_map
-                            .get(&op.key_interned.unwrap())
-                            .copied()
+                        self.job_data.scope_mgr.lookup_field(
+                            self.job_data.match_set_mgr.match_sets[ms_id]
+                                .active_scope,
+                            op.key_interned.unwrap(),
+                        )
                     {
                         input_field = field_id;
                     } else {
@@ -627,6 +633,7 @@ impl<'a> Job<'a> {
                         );
                         input_field = self.job_data.field_mgr.add_field(
                             &mut self.job_data.match_set_mgr,
+                            &mut self.job_data.scope_mgr,
                             ms_id,
                             Some(op.key_interned.unwrap()),
                             actor,
@@ -640,6 +647,7 @@ impl<'a> Job<'a> {
                     if let Some(name) = op_base.label {
                         self.job_data.match_set_mgr.add_field_alias(
                             &mut self.job_data.field_mgr,
+                            &mut self.job_data.scope_mgr,
                             input_field,
                             name,
                         );
@@ -647,6 +655,7 @@ impl<'a> Job<'a> {
                     let output_field =
                         self.job_data.match_set_mgr.add_field_alias(
                             &mut self.job_data.field_mgr,
+                            &mut self.job_data.scope_mgr,
                             input_field,
                             k.key_interned.unwrap(),
                         );
@@ -708,6 +717,7 @@ impl<'a> Job<'a> {
                         label_added = true;
                         self.job_data.field_mgr.add_field(
                             &mut self.job_data.match_set_mgr,
+                            &mut self.job_data.scope_mgr,
                             ms_id,
                             op_base.label,
                             first_actor,
@@ -722,6 +732,7 @@ impl<'a> Job<'a> {
                 if let Some(name) = op_base.label {
                     self.job_data.match_set_mgr.add_field_alias(
                         &mut self.job_data.field_mgr,
+                        &mut self.job_data.scope_mgr,
                         output_field,
                         name,
                     );
@@ -729,6 +740,7 @@ impl<'a> Job<'a> {
             }
             self.job_data.field_mgr.setup_field_refs(
                 &mut self.job_data.match_set_mgr,
+                &mut self.job_data.scope_mgr,
                 input_field,
             );
             self.job_data.field_mgr.bump_field_refcount(input_field);

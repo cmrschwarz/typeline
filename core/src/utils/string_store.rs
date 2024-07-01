@@ -173,8 +173,8 @@ impl Clone for StringStore {
 
 impl StringStore {
     fn claim_id_for_str_ptr(&mut self, str_ptr: StrPtr) -> StringStoreEntry {
-        self.table_idx_to_str.push(str_ptr);
         let id = StringStoreEntry::from_usize(self.table_idx_to_str.len());
+        self.table_idx_to_str.push(str_ptr);
         self.table_str_to_idx.insert(str_ptr, id);
         id
     }
