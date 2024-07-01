@@ -1,15 +1,24 @@
 use std::{
     alloc::Layout, borrow::Cow, cmp::min, collections::HashMap, hash::Hash,
-    num::NonZeroU32,
 };
 
-pub type StringStoreEntry = NonZeroU32;
-pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry = StringStoreEntry::MAX;
+use crate::index_newtype;
+
+use super::{
+    debuggable_nonmax::DebuggableNonMaxU32, index_vec::IndexVec,
+    indexing_type::IndexingType,
+};
+
+index_newtype! {
+    pub struct StringStoreEntry(DebuggableNonMaxU32);
+}
+pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry =
+    StringStoreEntry::MAX_VALUE;
 
 pub struct StringStore {
     arena: Vec<Vec<u8>>,
     existing_strings: Vec<OwnedStrPtr>,
-    table_idx_to_str: Vec<StrPtr>,
+    table_idx_to_str: IndexVec<StringStoreEntry, StrPtr>,
     table_str_to_idx: HashMap<StrPtr, StringStoreEntry>,
 }
 
@@ -93,7 +102,7 @@ impl Default for StringStore {
     fn default() -> Self {
         Self {
             table_str_to_idx: HashMap::default(),
-            table_idx_to_str: Vec::new(),
+            table_idx_to_str: IndexVec::new(),
             arena: vec![Vec::with_capacity(1024)],
             existing_strings: Vec::new(),
         }
@@ -105,7 +114,7 @@ impl Clone for StringStore {
         let mut res = Self {
             arena: self.arena.clone(),
             existing_strings: Vec::with_capacity(self.existing_strings.len()),
-            table_idx_to_str: Vec::with_capacity(
+            table_idx_to_str: IndexVec::with_capacity(
                 self.table_idx_to_str.capacity(),
             ),
             table_str_to_idx: HashMap::with_capacity(
@@ -121,8 +130,7 @@ impl Clone for StringStore {
         let mut arena_inner_idx = 0;
 
         let mut existing_strs_idx = 0;
-        for i in 0..self.table_idx_to_str.len() {
-            let idx = StringStoreEntry::try_from(i as u32 + 1).unwrap();
+        for i in self.table_idx_to_str.indices() {
             let str = self.table_idx_to_str[i];
             let arena_str_start_ptr = std::ptr::addr_of!(
                 self.arena[arena_outer_idx][arena_inner_idx]
@@ -136,7 +144,7 @@ impl Clone for StringStore {
                 let str_ptr = StrPtr::from_str(unsafe {
                     std::str::from_utf8_unchecked(str_clone)
                 });
-                res.table_str_to_idx.insert(str_ptr, idx);
+                res.table_str_to_idx.insert(str_ptr, i);
                 res.table_idx_to_str.push(str_ptr);
                 arena_inner_idx += str.len;
                 if arena_inner_idx == self.arena[arena_outer_idx].len() {
@@ -154,7 +162,7 @@ impl Clone for StringStore {
             // SAFETY: same argument as for normal interning, we are just
             // cloning here
             res.table_idx_to_str[i] = str_clone.0;
-            res.table_str_to_idx.insert(str_clone.0, idx);
+            res.table_str_to_idx.insert(str_clone.0, i);
             res.existing_strings.push(str_clone);
             existing_strs_idx += 1;
         }
@@ -166,9 +174,7 @@ impl Clone for StringStore {
 impl StringStore {
     fn claim_id_for_str_ptr(&mut self, str_ptr: StrPtr) -> StringStoreEntry {
         self.table_idx_to_str.push(str_ptr);
-        let id =
-            StringStoreEntry::try_from(self.table_idx_to_str.len() as u32)
-                .unwrap();
+        let id = StringStoreEntry::from_usize(self.table_idx_to_str.len());
         self.table_str_to_idx.insert(str_ptr, id);
         id
     }
@@ -240,7 +246,7 @@ impl StringStore {
         }
     }
     pub fn lookup(&self, entry: StringStoreEntry) -> &str {
-        self.table_idx_to_str[u32::from(entry) as usize - 1].as_str()
+        self.table_idx_to_str[entry].as_str()
     }
     pub fn lookup_str(&self, entry: &str) -> Option<StringStoreEntry> {
         self.table_str_to_idx.get(&StrPtr::from_str(entry)).copied()

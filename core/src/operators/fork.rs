@@ -229,10 +229,14 @@ fn setup_fork_subchain(
     // actual chain id as opposed to the index to the nth subchain
     let subchain_id = job.job_data.session_data.chains[fork_chain_id]
         .subchains[subchain_index];
-    let target_ms_id = job
-        .job_data
-        .match_set_mgr
-        .add_match_set(&mut job.job_data.field_mgr);
+
+    let fork_ms_scope =
+        job.job_data.match_set_mgr.match_sets[fork_ms_id].active_scope;
+
+    let target_ms_id = job.job_data.match_set_mgr.add_match_set(
+        &mut job.job_data.field_mgr,
+        job.job_data.scope_mgr.add_scope(Some(fork_ms_scope)),
+    );
 
     let fork_chain_dummy_field =
         job.job_data.match_set_mgr.get_dummy_field(fork_ms_id);
@@ -315,8 +319,8 @@ pub fn create_op_fork_with_opts(
     subchains: Vec<Vec<(OperatorBaseOptions<'static>, OperatorData)>>,
 ) -> Result<OperatorData, OperatorCreationError> {
     Ok(OperatorData::Fork(OpFork {
-        subchains_start: SubchainIndex::max_value(),
-        subchains_end: SubchainIndex::max_value(),
+        subchains_start: SubchainIndex::MAX_VALUE,
+        subchains_end: SubchainIndex::MAX_VALUE,
         accessed_fields_per_subchain: IndexVec::new(),
         subchains,
     }))

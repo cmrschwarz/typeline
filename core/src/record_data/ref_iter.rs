@@ -1049,6 +1049,7 @@ mod ref_iter_tests {
         field_value_ref::FieldValueSlice,
         iters::FieldIter,
         push_interface::PushInterface,
+        scope_manager::ScopeManager,
     };
 
     fn compare_iter_output(
@@ -1058,7 +1059,9 @@ mod ref_iter_tests {
     ) {
         let mut match_set_mgr = MatchSetManager::default();
         let mut field_mgr = FieldManager::default();
-        let ms_id = match_set_mgr.add_match_set(&mut field_mgr);
+        let mut scope_mgr = ScopeManager::default();
+        let ms_id = match_set_mgr
+            .add_match_set(&mut field_mgr, scope_mgr.add_scope(None));
 
         let field_id = field_mgr.add_field_with_data(
             &mut match_set_mgr,

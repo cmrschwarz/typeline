@@ -286,7 +286,7 @@ pub fn create_op_foreach_with_opts(
     }
     OperatorData::Foreach(OpForeach {
         subchain,
-        subchain_idx: SubchainIndex::max_value(),
+        subchain_idx: SubchainIndex::MAX_VALUE,
     })
 }
 pub fn create_op_foreach(

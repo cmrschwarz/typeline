@@ -29,6 +29,7 @@ use crate::{
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         record_buffer::RecordBuffer,
+        scope_manager::{ScopeManager, Symbol},
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::{
@@ -45,6 +46,7 @@ pub struct JobData<'a> {
     pub match_set_mgr: MatchSetManager,
     pub group_track_manager: GroupTrackManager,
     pub field_mgr: FieldManager,
+    pub scope_mgr: ScopeManager,
     pub sv_mgr: StreamValueManager<'a>,
     pub start_tf: Option<TransformId>,
     pub temp_vec: Vec<u8>,
@@ -337,6 +339,7 @@ impl<'a> JobData<'a> {
             tf_mgr: TransformManager::default(),
             field_mgr: FieldManager::default(),
             match_set_mgr: MatchSetManager::default(),
+            scope_mgr: ScopeManager::default(),
             group_track_manager: GroupTrackManager::default(),
             sv_mgr: StreamValueManager::default(),
             temp_vec: Vec::default(),
@@ -398,10 +401,10 @@ impl<'a> Job<'a> {
         }
     }
     pub fn setup_job(&mut self, mut job_desc: JobDescription) {
-        let ms_id = self
-            .job_data
-            .match_set_mgr
-            .add_match_set(&mut self.job_data.field_mgr);
+        let ms_id = self.job_data.match_set_mgr.add_match_set(
+            &mut self.job_data.field_mgr,
+            self.job_data.scope_mgr.add_scope(None),
+        );
         // TODO: unpack record set properly here
         let input_record_count = job_desc.data.adjust_field_lengths();
         let mut input_field = None;
@@ -477,10 +480,10 @@ impl<'a> Job<'a> {
         buffer: Arc<RecordBuffer>,
         start_op_id: OperatorId,
     ) {
-        let ms_id = self
-            .job_data
-            .match_set_mgr
-            .add_match_set(&mut self.job_data.field_mgr);
+        let ms_id = self.job_data.match_set_mgr.add_match_set(
+            &mut self.job_data.field_mgr,
+            self.job_data.scope_mgr.add_scope(None),
+        );
         let instantiation =
             setup_callee_concurrent(self, ms_id, buffer, start_op_id);
         self.job_data
@@ -653,9 +656,15 @@ impl<'a> Job<'a> {
                     continue;
                 }
                 OperatorData::MacroDef(op) => {
-                    self.job_data
-                        .match_set_mgr
-                        .add_macro_def(ms_id, op.macro_def.clone().unwrap());
+                    let active_scope = self.job_data.match_set_mgr.match_sets
+                        [ms_id]
+                        .active_scope;
+                    let macro_def = op.macro_def.clone().unwrap();
+                    self.job_data.scope_mgr.scopes[active_scope]
+                        .insert_symbol(
+                            macro_def.name,
+                            Symbol::Macro(macro_def),
+                        );
                     continue;
                 }
                 _ => (),

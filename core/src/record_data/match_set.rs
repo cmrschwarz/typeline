@@ -1,13 +1,12 @@
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use std::{cell::RefCell, collections::HashMap};
 
 use crate::{
     index_newtype,
-    operators::{macro_def::Macro, transform::TransformId},
+    operators::transform::TransformId,
     record_data::iter_hall::FieldDataSource,
     utils::{
-        debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
-        identity_hasher::BuildIdentityHasher,
-        string_store::StringStoreEntry,
+        debuggable_nonmax::DebuggableNonMaxUsize,
+        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
         universe::Universe,
     },
 };
@@ -15,17 +14,19 @@ use crate::{
 use super::{
     action_buffer::{ActionBuffer, ActorRef},
     field::{FieldId, FieldManager},
+    scope_manager::ScopeId,
 };
 
 index_newtype! {
     pub struct MatchSetId(DebuggableNonMaxUsize);
-    pub struct ScopeId(DebuggableNonMaxU32);
+
 }
 
 pub struct MatchSet {
     pub dummy_field: FieldId,
     pub stream_participants: Vec<TransformId>,
     pub action_buffer: RefCell<ActionBuffer>,
+    pub active_scope: ScopeId,
 
     pub field_name_map:
         HashMap<StringStoreEntry, FieldId, BuildIdentityHasher>,
@@ -76,12 +77,17 @@ impl MatchSetManager {
         alias_id
     }
 
-    pub fn add_match_set(&mut self, fm: &mut FieldManager) -> MatchSetId {
+    pub fn add_match_set(
+        &mut self,
+        fm: &mut FieldManager,
+        scope: ScopeId,
+    ) -> MatchSetId {
         let ms_id = self.match_sets.peek_claim_id();
         let dummy_field =
             fm.add_field(self, ms_id, None, ActorRef::Unconfirmed(0));
         let ms = MatchSet {
             dummy_field,
+            active_scope: scope,
             stream_participants: Vec::new(),
             action_buffer: RefCell::new(ActionBuffer::new(ms_id)),
             field_name_map: HashMap::default(),
@@ -160,13 +166,5 @@ impl MatchSetManager {
     }
     pub fn get_dummy_field(&self, ms_id: MatchSetId) -> FieldId {
         self.match_sets[ms_id].dummy_field
-    }
-
-    pub(crate) fn add_macro_def(
-        &self,
-        ms_id: MatchSetId,
-        macro_def: Arc<Macro>,
-    ) {
-        todo!()
     }
 }

@@ -2158,6 +2158,7 @@ mod test_dead_data_drop {
             iter_hall::IterState,
             match_set::{MatchSetId, MatchSetManager},
             push_interface::PushInterface,
+            scope_manager::ScopeManager,
         },
         utils::indexing_type::IndexingType,
     };
@@ -2189,7 +2190,7 @@ mod test_dead_data_drop {
         let mut iters = collect_iters(iters_before);
         let iters_after = collect_iters(iters_after);
 
-        let mut ab = ActionBuffer::new(MatchSetId::max_value());
+        let mut ab = ActionBuffer::new(MatchSetId::MAX_VALUE);
 
         let dead_data = ActionBuffer::calc_dead_data(
             &headers,
@@ -2217,9 +2218,10 @@ mod test_dead_data_drop {
 
     #[test]
     fn padding_dropped_correctly() {
+        let mut sm = ScopeManager::default();
         let mut fm = FieldManager::default();
         let mut msm = MatchSetManager::default();
-        let ms_id = msm.add_match_set(&mut fm);
+        let ms_id = msm.add_match_set(&mut fm, sm.add_scope(None));
         let field_id =
             fm.add_field(&mut msm, ms_id, None, ActorRef::default());
 

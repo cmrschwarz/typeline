@@ -698,7 +698,7 @@ impl SessionSetupData {
                         self.add_op_from_opts_direct(
                             chain_id,
                             aggregate_op_opts,
-                            OperatorDataId::max_value(),
+                            OperatorDataId::MAX_VALUE,
                         )
                     });
 

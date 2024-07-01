@@ -143,6 +143,9 @@ impl<I: IndexingType, T> IndexVec<I, T> {
     pub fn indices(&self) -> IndexingTypeRange<I> {
         IndexingTypeRange::new(I::zero()..self.next_idx())
     }
+    pub fn capacity(&self) -> usize {
+        self.data.capacity()
+    }
 }
 
 impl<I: IndexingType, T> IndexSlice<I, T> {

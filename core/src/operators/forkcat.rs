@@ -261,10 +261,11 @@ pub fn insert_tf_forkcat<'a>(
     tf_state: TransformState,
 ) -> OperatorInstantiation {
     let input_field = tf_state.input_field;
-    let cont_ms_id = job
-        .job_data
-        .match_set_mgr
-        .add_match_set(&mut job.job_data.field_mgr);
+    let cont_ms_id = job.job_data.match_set_mgr.add_match_set(
+        &mut job.job_data.field_mgr,
+        job.job_data.match_set_mgr.match_sets[tf_state.match_set_id]
+            .active_scope,
+    );
 
     let gt_parent = job.job_data.group_track_manager.group_tracks
         [tf_state.input_group_track_id]
@@ -390,10 +391,12 @@ fn setup_subchain<'a>(
     let fc_tf = &job.job_data.tf_mgr.transforms[fc_tf_id];
     let fc_ms_id = fc_tf.match_set_id;
 
-    let sc_ms_id = job
-        .job_data
-        .match_set_mgr
-        .add_match_set(&mut job.job_data.field_mgr);
+    let sc_ms_id = job.job_data.match_set_mgr.add_match_set(
+        &mut job.job_data.field_mgr,
+        job.job_data.scope_mgr.add_scope(Some(
+            job.job_data.match_set_mgr.match_sets[fc_ms_id].active_scope,
+        )),
+    );
 
     let fc_dummy_field = job.job_data.match_set_mgr.get_dummy_field(fc_ms_id);
     let sc_dummy_field = job.job_data.match_set_mgr.get_dummy_field(sc_ms_id);
@@ -957,9 +960,9 @@ pub fn create_op_forkcat_with_opts(
     }
     OperatorData::ForkCat(OpForkCat {
         subchains,
-        subchains_start: SubchainIndex::max_value(),
-        subchains_end: SubchainIndex::max_value(),
-        direct_offset_in_chain: OffsetInChain::max_value(),
+        subchains_start: SubchainIndex::MAX_VALUE,
+        subchains_end: SubchainIndex::MAX_VALUE,
+        direct_offset_in_chain: OffsetInChain::MAX_VALUE,
         input_mappings: HashMap::default(),
         continuation_vars: IndexVec::new(),
     })

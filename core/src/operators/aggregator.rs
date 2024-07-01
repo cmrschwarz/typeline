@@ -212,7 +212,7 @@ pub fn insert_tf_aggregator(
             last_elem_multiplied: false,
             actor_id,
             iter_id,
-            trailer_tf_id: TransformId::max_value(),
+            trailer_tf_id: TransformId::MAX_VALUE,
         }),
     );
     let mut sub_tfs = Vec::with_capacity(op_count);

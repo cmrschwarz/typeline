@@ -191,8 +191,8 @@ impl OperatorBase {
             op_data_id,
             offset_in_chain,
             desired_batch_size,
-            outputs_start: OpOutputIdx::max_value(),
-            outputs_end: OpOutputIdx::max_value(),
+            outputs_start: OpOutputIdx::MAX_VALUE,
+            outputs_end: OpOutputIdx::MAX_VALUE,
         }
     }
 }

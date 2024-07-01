@@ -20,6 +20,7 @@ pub mod push_interface;
 pub mod record_buffer;
 pub mod record_set;
 pub mod ref_iter;
+pub mod scope_manager;
 pub mod spot_value;
 pub mod stream_value;
 pub mod variable_sized_type_inserter;

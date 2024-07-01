@@ -308,7 +308,7 @@ pub(crate) fn handle_call_concurrent_expansion(
     let mut venture_desc = VentureDescription {
         participans_needed: 2,
         starting_points: smallvec::smallvec![
-            OperatorId::max_value(),
+            OperatorId::MAX_VALUE,
             starting_op
         ],
         buffer: call.buffer.clone(),
