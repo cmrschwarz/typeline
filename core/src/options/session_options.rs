@@ -68,7 +68,7 @@ static DEFAULT_CONTEXT_OPTIONS: Lazy<SessionOptions> =
             }),
             Span::EnvVar {
                 compile_time: true,
-                var_name: &DEBUG_LOG_ENV_VAR,
+                var_name: DEBUG_LOG_ENV_VAR,
             },
         ),
         repl: Setting::new_v(false),
@@ -165,7 +165,7 @@ impl SessionOptions {
                     Some(PathBuf::from(path)),
                     Span::EnvVar {
                         compile_time: false,
-                        var_name: &DEBUG_LOG_ENV_VAR,
+                        var_name: DEBUG_LOG_ENV_VAR,
                     },
                 )
             } else {
@@ -184,8 +184,7 @@ impl SessionOptions {
             return Err(CliArgumentError::new(
                 "Debug log not supported. Please compile with --features=debug_log",
                 span,
-            )
-            .into());
+            ));
         }
 
         let max_threads = if self.any_threaded_operations {
@@ -250,13 +249,7 @@ impl SessionOptions {
     }
 
     fn contextualize_error(&self, e: ScrError) -> ContextualizedScrError {
-        ContextualizedScrError::from_scr_error(
-            e.into(),
-            None,
-            None,
-            Some(&self),
-            None,
-        )
+        ContextualizedScrError::from_scr_error(e, None, None, Some(self), None)
     }
 
     pub fn build_session(
