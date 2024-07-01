@@ -33,7 +33,11 @@ pub struct TfNopCopy {
 pub fn parse_op_nop_copy(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if expr.require_at_most_one_arg()? == Some(b"-c") {
+    if expr
+        .require_at_most_one_arg()?
+        .map(|v| &**v == b"-c")
+        .unwrap_or(false)
+    {
         Ok(create_op_nop_copy())
     } else {
         Ok(create_op_nop())

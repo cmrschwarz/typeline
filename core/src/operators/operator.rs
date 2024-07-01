@@ -52,8 +52,8 @@ use super::{
     join::{build_tf_join, OpJoin},
     key::{setup_op_key, OpKey},
     literal::{build_tf_literal, OpLiteral},
+    macro_def::{insert_tf_macro_def, setup_op_macro, OpMacroDef},
     multi_op::OpMultiOp,
-    next::OpNext,
     nop::{build_tf_nop, setup_op_nop, OpNop},
     nop_copy::{
         build_tf_nop_copy, on_op_nop_copy_liveness_computed, OpNopCopy,
@@ -104,7 +104,6 @@ pub enum OperatorData {
     Join(OpJoin),
     Fork(OpFork),
     ForkCat(OpForkCat),
-    Next(OpNext),
     Key(OpKey),
     Select(OpSelect),
     Regex(OpRegex),
@@ -116,6 +115,7 @@ pub enum OperatorData {
     Sequence(OpSequence),
     Aggregator(OpAggregator),
     Foreach(OpForeach),
+    MacroDef(OpMacroDef),
     SuccessUpdator(OpSuccessUpdator),
     MultiOp(OpMultiOp),
     Custom(SmallBox<dyn Operator, 96>),
@@ -292,8 +292,6 @@ impl OperatorData {
                 op_base_opts_interned,
                 op_data_id,
             ),
-
-            OperatorData::Next(_) => unreachable!(),
             OperatorData::Call(op) => setup_op_call(
                 op,
                 sess,
@@ -327,6 +325,14 @@ impl OperatorData {
                 op_data_id,
             ),
             OperatorData::Aggregator(op) => setup_op_aggregator(
+                op,
+                sess,
+                chain_id,
+                offset_in_chain,
+                op_base_opts_interned,
+                op_data_id,
+            ),
+            OperatorData::MacroDef(op) => setup_op_macro(
                 op,
                 sess,
                 chain_id,
@@ -368,7 +374,6 @@ impl OperatorData {
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
-            | OperatorData::Next(_)
             | OperatorData::SuccessUpdator(_)
             | OperatorData::Key(_)
             | OperatorData::Select(_)
@@ -380,6 +385,7 @@ impl OperatorData {
             | OperatorData::Literal(_)
             | OperatorData::Sequence(_)
             | OperatorData::Aggregator(_)
+            | OperatorData::MacroDef(_)
             | OperatorData::Foreach(_) => false,
             OperatorData::MultiOp(op) => {
                 Operator::has_dynamic_outputs(op, sess, op_id)
@@ -409,7 +415,6 @@ impl OperatorData {
             // technically this has output, but it always introduces a
             // separate BB so we don't want to allocate slots for that
             OperatorData::ForkCat(_) => 0,
-            OperatorData::Next(_) => 0,
             OperatorData::Key(_) => 1,
             OperatorData::Select(_) => 0,
             OperatorData::Regex(re) => {
@@ -442,6 +447,7 @@ impl OperatorData {
             OperatorData::MultiOp(op) => {
                 Operator::output_count(op, sess, op_id)
             }
+            OperatorData::MacroDef(_) => 0,
         }
     }
 
@@ -458,7 +464,6 @@ impl OperatorData {
             OperatorData::Format(_) => "f".into(),
             OperatorData::Select(_) => "select".into(),
             OperatorData::Literal(op) => op.default_op_name(),
-            OperatorData::Next(_) => "next".into(),
             OperatorData::Count(_) => "count".into(),
             OperatorData::ToStr(_) => "to_str".into(),
             OperatorData::Call(_) => "call".into(),
@@ -471,6 +476,7 @@ impl OperatorData {
             OperatorData::FieldValueSink(_) => "<field_value_sink>".into(),
             OperatorData::MultiOp(_) => "<multi_op>".into(),
             OperatorData::Custom(op) => op.default_name(),
+            OperatorData::MacroDef(_) => "macro".into(),
             OperatorData::Aggregator(_) => AGGREGATOR_DEFAULT_NAME.into(),
         }
     }
@@ -519,11 +525,11 @@ impl OperatorData {
             OperatorData::Foreach(_)
             | OperatorData::Nop(_)
             | OperatorData::SuccessUpdator(_)
-            | OperatorData::Fork(_) => OutputFieldKind::SameAsInput,
+            | OperatorData::Fork(_)
+            | OperatorData::MacroDef(_) => OutputFieldKind::SameAsInput,
             OperatorData::ForkCat(_)
             | OperatorData::Key(_)
-            | OperatorData::Select(_)
-            | OperatorData::Next(_) => OutputFieldKind::Unconfigured,
+            | OperatorData::Select(_) => OutputFieldKind::Unconfigured,
             OperatorData::Custom(op) => {
                 Operator::output_field_kind(&**op, sess, op_id)
             }
@@ -570,7 +576,6 @@ impl OperatorData {
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
-            | OperatorData::Next(_)
             | OperatorData::Nop(_)
             | OperatorData::SuccessUpdator(_)
             | OperatorData::Foreach(_)
@@ -579,7 +584,8 @@ impl OperatorData {
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
-            | OperatorData::Sequence(_) => (),
+            | OperatorData::Sequence(_)
+            | OperatorData::MacroDef(_) => (),
         }
     }
     pub fn update_liveness_for_op(
@@ -602,6 +608,7 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Foreach(_)
             | OperatorData::Call(_)
+            | OperatorData::MacroDef(_)
             | OperatorData::CallConcurrent(_) => {
                 return (output_field, OperatorCallEffect::Diverge);
             }
@@ -704,7 +711,6 @@ impl OperatorData {
             OperatorData::FieldValueSink(_) | OperatorData::ToStr(_) => {
                 flags.may_dup_or_drop = false;
             }
-            OperatorData::Next(_) => unreachable!(),
             OperatorData::Custom(op) => {
                 if let Some(res) = Operator::update_variable_liveness(
                     &**op,
@@ -808,14 +814,14 @@ impl OperatorData {
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Foreach(_)
-            | OperatorData::Next(_)
             | OperatorData::Key(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
-            | OperatorData::Literal(_) => (),
+            | OperatorData::Literal(_)
+            | OperatorData::MacroDef(_) => (),
         }
     }
 
@@ -877,7 +883,7 @@ impl OperatorData {
             OperatorData::CallConcurrent(op) => {
                 build_tf_call_concurrent(jd, op_base, op, tfs)
             }
-            OperatorData::Key(_) | OperatorData::Next(_) => unreachable!(),
+            OperatorData::Key(_) => unreachable!(),
             OperatorData::Custom(op) => {
                 match Operator::build_transforms(
                     &**op,
@@ -914,6 +920,15 @@ impl OperatorData {
                     op_id,
                     prebound_outputs,
                 );
+            }
+            OperatorData::MacroDef(op) => {
+                return insert_tf_macro_def(
+                    job,
+                    op,
+                    op_base.chain_id,
+                    op_id,
+                    prebound_outputs,
+                )
             }
         };
 
@@ -960,7 +975,6 @@ impl OperatorData {
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
-            | OperatorData::Next(_)
             | OperatorData::Key(_)
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
@@ -972,7 +986,8 @@ impl OperatorData {
             | OperatorData::Sequence(_)
             | OperatorData::Foreach(_)
             | OperatorData::SuccessUpdator(_)
-            | OperatorData::Custom(_) => None,
+            | OperatorData::Custom(_)
+            | OperatorData::MacroDef(_) => None,
         }
     }
 }

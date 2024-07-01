@@ -3,7 +3,7 @@ use std::{
     ops::{Range, RangeBounds},
 };
 
-use bstr::ByteSlice;
+use bstr::{ByteSlice, ByteVec, Utf8Error};
 use indexing_type::IndexingType;
 
 #[macro_use]
@@ -248,6 +248,26 @@ pub fn insert_str_cow<'a>(
             o.insert_str(index, string);
             o
         }
+    }
+}
+
+pub fn slice_cow<'a>(
+    cow: &Cow<'a, [u8]>,
+    range: impl RangeBounds<usize>,
+) -> Cow<'a, [u8]> {
+    let range = range_bounds_to_range(range, cow.len());
+    match cow {
+        Cow::Borrowed(v) => Cow::Borrowed(&v[range]),
+        Cow::Owned(v) => Cow::Owned(v[range].to_vec()),
+    }
+}
+
+pub fn cow_to_str(cow: Cow<[u8]>) -> Result<Cow<str>, Utf8Error> {
+    match cow {
+        Cow::Borrowed(v) => Ok(Cow::Borrowed(v.to_str()?)),
+        Cow::Owned(v) => Ok(Cow::Owned(
+            v.into_string().map_err(|e| e.utf8_error().clone())?,
+        )),
     }
 }
 

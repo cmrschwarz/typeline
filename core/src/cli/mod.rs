@@ -18,7 +18,6 @@ use crate::{
             parse_op_literal_zst, parse_op_str, parse_op_tyson,
             parse_op_tyson_value, Literal,
         },
-        next::parse_op_next,
         nop::parse_op_nop,
         operator::OperatorData,
         print::{create_op_print_with_opts, parse_op_print, PrintOptions},
@@ -35,7 +34,7 @@ use crate::{
     },
     record_data::field_value::FieldValueKind,
     scr_error::{ContextualizedScrError, ReplDisabledError, ScrError},
-    utils::index_vec::IndexSlice,
+    utils::{cow_to_str, index_vec::IndexSlice, slice_cow},
 };
 pub mod call_expr;
 pub mod call_expr_iter;
@@ -70,7 +69,7 @@ pub struct CliOptions {
 pub struct CallExprHead<'a> {
     append_mode: bool,
     transparent_mode: bool,
-    op_name: &'a str,
+    op_name: Cow<'a, str>,
     label: Option<Label<'a>>,
     colon_found: bool,
     dashed_arg: Option<Argument<'a>>,
@@ -182,11 +181,11 @@ fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 }
 
 fn try_parse_as_special_op(expr: &CallExpr) -> Result<bool, ScrError> {
-    if ["--version", "-v", "version"].contains(&expr.op_name) {
+    if ["--version", "-v", "version"].contains(&&*expr.op_name) {
         expr.reject_args()?;
         return Err(PrintInfoAndExitError::Version.into());
     }
-    if ["--help", "-h", "help", "h"].contains(&expr.op_name) {
+    if ["--help", "-h", "help", "h"].contains(&&*expr.op_name) {
         const MAIN_HELP_PAGE: &str = include_str!("help_sections/main.txt");
         let text = if let Some(value) = expr.require_at_most_one_arg()? {
             let section = String::from_utf8_lossy(value);
@@ -226,7 +225,7 @@ fn try_parse_as_setting(
 ) -> Result<bool, ScrError> {
     let chain = &mut ctx_opts.chains[ctx_opts.curr_chain];
 
-    match expr.op_name {
+    match &*expr.op_name {
         "exit" => {
             if !ctx_opts.allow_repl {
                 return Err(ReplDisabledError {
@@ -354,7 +353,7 @@ pub fn parse_operator_data<'a>(
     sess_opts: &mut SessionOptions,
     expr: CallExpr,
 ) -> Result<OperatorData, OperatorParsingError<'a>> {
-    Ok(match expr.op_name {
+    Ok(match &*expr.op_name {
         "def" => parse_op_def(sess_opts, &expr)?,
         "int" => parse_op_int(&expr)?,
         "bytes" => parse_op_bytes(&expr, false)?,
@@ -396,7 +395,6 @@ pub fn parse_operator_data<'a>(
         "forkcat" | "fc" => parse_op_forkcat(sess_opts, expr)?,
         "call" | "c" => parse_op_call(&expr)?,
         "callcc" | "cc" => parse_op_call_concurrent(&expr)?,
-        "next" | "n" => parse_op_next(&expr)?,
         _ => {
             let mut expr = expr;
             let ext_registry = sess_opts.extensions.clone();
@@ -451,7 +449,7 @@ pub fn complain_if_dashed_arg<'a>(
     because_block: bool,
 ) -> Result<(), CliArgumentError> {
     if let Some(arg) = src.peek() {
-        if let ArgumentValue::Plain(argv) = arg.value {
+        if let ArgumentValue::Plain(argv) = &arg.value {
             if argv.starts_with(b"-") {
                 return Err(CliArgumentError::new_s(
                     format!(
@@ -472,7 +470,7 @@ pub fn gobble_cli_args_while_dashed<'a>(
 ) -> Option<Span> {
     let mut final_span = None;
     while let Some(arg) = src.peek() {
-        let ArgumentValue::Plain(argv) = arg.value else {
+        let ArgumentValue::Plain(argv) = &arg.value else {
             break;
         };
         if !argv.starts_with(b"-") {
@@ -491,17 +489,17 @@ pub fn gobble_cli_args_until_end<'a>(
     block_start: Span,
 ) -> Result<Span, CliArgumentError> {
     while let Some(arg) = src.peek() {
-        let ArgumentValue::Plain(argv) = arg.value else {
+        let ArgumentValue::Plain(argv) = &arg.value else {
             args.push(src.next().unwrap());
             continue;
         };
-        if argv == "]".as_bytes() {
+        if *argv == "]".as_bytes() {
             return Err(CliArgumentError::new(
                 "found list end `]` while waiting for `end` to terminate block",
                 arg.span
             ));
         }
-        if argv == "end".as_bytes() {
+        if *argv == "end".as_bytes() {
             let arg = src.next().unwrap();
             let arg_span = arg.span;
             if push_end {
@@ -531,15 +529,15 @@ pub fn gobble_cli_args_until_bracket_close<'a>(
     args: &mut Vec<Argument<'a>>,
 ) -> Result<Span, CliArgumentError> {
     while let Some(arg) = src.next() {
-        let ArgumentValue::Plain(argv) = arg.value else {
+        let ArgumentValue::Plain(argv) = &arg.value else {
             args.push(arg);
             continue;
         };
-        if argv == "]".as_bytes() {
+        if *argv == "]".as_bytes() {
             return Ok(arg.span);
         }
-        if argv != "[".as_bytes() {
-            args.push(arg);
+        if *argv != "[".as_bytes() {
+            args.push(arg.clone());
             continue;
         }
         let mut list_args = Vec::new();
@@ -562,7 +560,7 @@ pub fn cli_args_into_arguments_iter(
     args.iter()
         .enumerate()
         .map(|(i, v)| Argument {
-            value: ArgumentValue::Plain(v),
+            value: ArgumentValue::Plain(Cow::Borrowed(v)),
             span: Span::from_single_arg(i, v.len()),
         })
         .peekable()
@@ -572,10 +570,10 @@ pub fn error_arg_start_is_list(span: Span) -> CliArgumentError {
     CliArgumentError::new("expression cannot start with a list", span)
 }
 
-pub fn parse_call_expr_head(
-    argv: &[u8],
+pub fn parse_call_expr_head<'a>(
+    argv: &Cow<'a, [u8]>,
     arg_span: Span,
-) -> Result<CallExprHead, CliArgumentError> {
+) -> Result<CallExprHead<'a>, CliArgumentError> {
     let mut append_mode = false;
     let mut transparent_mode = false;
 
@@ -659,8 +657,7 @@ pub fn parse_call_expr_head(
         }
         op_end = end;
     }
-    let op_name = argv[op_start..op_end]
-        .to_str()
+    let op_name = cow_to_str(slice_cow(argv, op_start..op_end))
         .expect("op_name was checked to be valid utf-8");
 
     let mut label = None;
@@ -713,8 +710,7 @@ pub fn parse_call_expr_head(
             label_end = end;
         }
         label = Some(Label {
-            value: argv[label_start..label_end]
-                .to_str()
+            value: cow_to_str(slice_cow(argv, label_start..label_end))
                 .expect("op_name was checked to be valid utf-8"),
             is_atom: label_is_atom,
             span: arg_span.subslice(0, 1, label_start, label_end),
@@ -749,9 +745,10 @@ pub fn parse_call_expr_head(
         }
 
         dashed_arg = Some(Argument {
-            value: ArgumentValue::Plain(
-                &argv[squished_arg_start..squished_arg_end],
-            ),
+            value: ArgumentValue::Plain(slice_cow(
+                argv,
+                squished_arg_start..squished_arg_end,
+            )),
             span: arg_span.subslice(
                 0,
                 1,
@@ -765,7 +762,7 @@ pub fn parse_call_expr_head(
 
     if equals_found {
         equals_arg = Some(Argument {
-            value: ArgumentValue::Plain(&argv[i..]),
+            value: ArgumentValue::Plain(slice_cow(argv, i..)),
             span: arg_span.subslice(0, 1, i, argv.len()),
         })
     };
@@ -813,12 +810,13 @@ pub fn parse_call_expr_raw<'a>(
     let mut arg_span = start_span;
 
     if argv[0] == b'[' {
-        require_list_start_as_separate_arg(argv, arg_span)?;
+        require_list_start_as_separate_arg(&argv, arg_span)?;
         if let Some(lss) = list_start_span {
             return Err(error_arg_start_is_list(lss));
         }
         list_start_span = Some(start_span);
         is_plain_list = true;
+
         arg = src
             .next()
             .ok_or_else(|| error_unterminated_list(start_span))?;
@@ -830,19 +828,21 @@ pub fn parse_call_expr_raw<'a>(
         arg_span = arg.span;
     }
 
-    let head = parse_call_expr_head(argv, arg_span)?;
+    let head = parse_call_expr_head(&argv, arg_span)?;
 
     if push_args_raw {
-        args.push(arg);
+        args.push(Argument {
+            value: ArgumentValue::Plain(argv.clone()),
+            span: arg_span,
+        });
     } else {
-        // these are never lists, so the clones are cheap
         if let Some(dash_arg) = &head.dashed_arg {
             args.push(dash_arg.clone());
         }
         if let Some(equals_arg) = &head.equals_arg {
             args.push(equals_arg.clone());
         }
-    }
+    };
 
     let mut end_span =
         gobble_cli_args_while_dashed(src, args).unwrap_or(arg_span);
@@ -946,7 +946,7 @@ pub fn parse_cli_retain_args<'a>(
         ctx_opts.add_op(op_base_opts, op_data);
     }
     while let Some(expr) = parse_call_expr(args)? {
-        if let Some(label) = expr.label {
+        if let Some(label) = &expr.label {
             if expr.op_name.is_empty() && label.is_atom {
                 todo!("settings");
             }
@@ -1081,6 +1081,8 @@ pub fn parse_cli_from_env(
 
 #[cfg(test)]
 mod test {
+    use std::borrow::Cow;
+
     use crate::cli::{
         call_expr::{
             Argument, ArgumentValue, CallExpr, CallExprEndKind, Span,
@@ -1099,10 +1101,10 @@ mod test {
             CallExpr {
                 append_mode: false,
                 transparent_mode: false,
-                op_name: "seq",
+                op_name: "seq".into(),
                 label: None,
                 args: vec![Argument {
-                    value: ArgumentValue::Plain(b"10"),
+                    value: ArgumentValue::Plain(Cow::Borrowed(b"10")),
                     span: Span::from_single_arg_with_offset(0, 4, 6),
                 }],
                 end_kind: CallExprEndKind::Inline,

@@ -382,7 +382,7 @@ pub fn parse_op_regex(
             ParsedArgValue::PositionalArg { value, .. } => {
                 regex = Some(
                     value
-                        .expect_plain(expr.op_name, arg.span)?
+                        .expect_plain(&expr.op_name, arg.span)?
                         .to_str()
                         .map_err(|_| {
                             OperatorCreationError::new(

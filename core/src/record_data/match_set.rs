@@ -1,12 +1,13 @@
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 use crate::{
     index_newtype,
-    operators::transform::TransformId,
+    operators::{macro_def::Macro, transform::TransformId},
     record_data::iter_hall::FieldDataSource,
     utils::{
-        debuggable_nonmax::DebuggableNonMaxUsize,
-        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
+        debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
+        identity_hasher::BuildIdentityHasher,
+        string_store::StringStoreEntry,
         universe::Universe,
     },
 };
@@ -17,13 +18,15 @@ use super::{
 };
 
 index_newtype! {
-    pub struct MatchSetId( DebuggableNonMaxUsize);
+    pub struct MatchSetId(DebuggableNonMaxUsize);
+    pub struct ScopeId(DebuggableNonMaxU32);
 }
 
 pub struct MatchSet {
     pub dummy_field: FieldId,
     pub stream_participants: Vec<TransformId>,
     pub action_buffer: RefCell<ActionBuffer>,
+
     pub field_name_map:
         HashMap<StringStoreEntry, FieldId, BuildIdentityHasher>,
     // stores original field -> cow copy
@@ -157,5 +160,13 @@ impl MatchSetManager {
     }
     pub fn get_dummy_field(&self, ms_id: MatchSetId) -> FieldId {
         self.match_sets[ms_id].dummy_field
+    }
+
+    pub(crate) fn add_macro_def(
+        &self,
+        ms_id: MatchSetId,
+        macro_def: Arc<Macro>,
+    ) {
+        todo!()
     }
 }

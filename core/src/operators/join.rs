@@ -168,7 +168,7 @@ pub fn parse_op_join(
                 return Err(expr.error_named_arg_unsupported(key, arg.span));
             }
             ParsedArgValue::PositionalArg { value: v, .. } => {
-                value = Some(v.expect_plain(expr.op_name, arg.span)?);
+                value = Some(v.expect_plain(&expr.op_name, arg.span)?);
             }
         }
     }
@@ -179,7 +179,7 @@ pub fn parse_op_join(
         ));
     }
     Ok(create_op_join(
-        value.map(MaybeText::from_bytes_try_str),
+        value.map(|v| MaybeText::from_bytes_try_str(v)),
         count,
         drop_incomplete,
     ))

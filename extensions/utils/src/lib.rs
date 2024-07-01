@@ -45,7 +45,7 @@ impl Extension for UtilsExtension {
         _ctx_opts: &mut SessionOptions,
         expr: CallExpr<'a>,
     ) -> Result<OperatorData, OperatorParsingError<'a>> {
-        let ctor_with_arg: Option<fn(_) -> _> = match expr.op_name {
+        let ctor_with_arg: Option<fn(_) -> _> = match &*expr.op_name {
             "head" => Some(parse_op_head),
             "tail" => Some(parse_op_tail),
             "dup" => Some(parse_op_dup),
@@ -58,7 +58,7 @@ impl Extension for UtilsExtension {
             return Ok(ctor(&expr)?);
         }
 
-        let ctor_without_arg: Option<fn() -> _> = match expr.op_name {
+        let ctor_without_arg: Option<fn() -> _> = match &*expr.op_name {
             "sum" => Some(create_op_sum),
             "primes" => Some(create_op_primes),
             "lines" | "l" => Some(create_op_lines),

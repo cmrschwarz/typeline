@@ -652,6 +652,12 @@ impl<'a> Job<'a> {
                     }
                     continue;
                 }
+                OperatorData::MacroDef(op) => {
+                    self.job_data
+                        .match_set_mgr
+                        .add_macro_def(ms_id, op.macro_def.clone().unwrap());
+                    continue;
+                }
                 _ => (),
             }
             let mut label_added = false;

@@ -318,7 +318,7 @@ pub fn parse_insert_count_and_value_args<'a: 'b, 'b>(
             }
             ParsedArgValue::PositionalArg { value: v, .. } => {
                 value =
-                    Some((v.expect_plain(expr.op_name, arg.span)?, arg.span));
+                    Some((v.expect_plain(&expr.op_name, arg.span)?, arg.span));
             }
         }
     }

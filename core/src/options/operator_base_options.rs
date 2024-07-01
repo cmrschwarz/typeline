@@ -16,24 +16,24 @@ pub struct OperatorBaseOptionsInterned {
 }
 
 #[derive(Clone, Default)]
-pub struct OperatorBaseOptions {
-    pub argname: Cow<'static, str>,
-    pub label: Option<Cow<'static, str>>,
+pub struct OperatorBaseOptions<'a> {
+    pub argname: Cow<'a, str>,
+    pub label: Option<Cow<'a, str>>,
     pub span: Span,
     pub transparent_mode: bool,
     pub append_mode: bool,
     pub output_is_atom: bool,
 }
 
-impl OperatorBaseOptions {
+impl<'a> OperatorBaseOptions<'a> {
     pub fn new(
-        argname: Cow<'static, str>,
-        label: Option<Cow<'static, str>>,
+        argname: Cow<'a, str>,
+        label: Option<Cow<'a, str>>,
         append_mode: bool,
         transparent_mode: bool,
         output_is_atom: bool,
         span: Span,
-    ) -> OperatorBaseOptions {
+    ) -> OperatorBaseOptions<'a> {
         OperatorBaseOptions {
             argname,
             label,
@@ -58,8 +58,8 @@ impl OperatorBaseOptions {
         string_store: &mut StringStore,
     ) -> OperatorBaseOptionsInterned {
         OperatorBaseOptionsInterned {
-            argname: string_store.intern_cow(self.argname),
-            label: self.label.map(|l| string_store.intern_cow(l)),
+            argname: string_store.intern_cloned(&self.argname),
+            label: self.label.map(|l| string_store.intern_cloned(&l)),
             span: self.span,
             transparent_mode: self.transparent_mode,
             append_mode: self.append_mode,
