@@ -31,7 +31,7 @@ use crate::{
     utils::{
         index_vec::IndexSlice, indexing_type::IndexingType,
         lazy_lock_guard::LazyRwLockGuard, maybe_text::MaybeText,
-        string_store::StringStore,
+        string_store::StringStore, text_write::MaybeTextWriteLossyAdapter,
     },
 };
 
@@ -87,23 +87,28 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
         .unwrap();
     hb.register_template_string("tail", include_str!("tail.hbs"))
         .unwrap();
+    hb.register_template_string(
+        "transform_update",
+        include_str!("transform_update.hbs"),
+    )
+    .unwrap();
+
+    hb.register_partial("stylesheet", include_str!("style.css"))
+        .unwrap();
+    hb.register_partial("script", include_str!("script.js"))
+        .unwrap();
     hb.register_partial("iter_list", include_str!("iter_list.hbs"))
         .unwrap();
     hb.register_partial("field", include_str!("field.hbs"))
         .unwrap();
     hb.register_partial("group_track", include_str!("group_track.hbs"))
         .unwrap();
-    hb.register_partial(
-        "transform_update",
-        include_str!("transform_update.hbs"),
-    )
-    .unwrap();
+
     hb.register_partial(
         "transform_chain",
         include_str!("transform_chain.hbs"),
     )
     .unwrap();
-
     hb.register_partial("transform_env", include_str!("transform_env.hbs"))
         .unwrap();
 
@@ -112,6 +117,7 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
     hb.register_helper("let", Box::new(helpers::helper_let));
     hb.register_helper("range", Box::new(helpers::Range));
     hb.register_helper("reindent", Box::new(helpers::Reindent));
+    hb.register_helper("debug_log", Box::new(helpers::DebugLog));
     hb.register_helper("stringify", Box::new(helpers::Stringify));
     hb.set_strict_mode(true);
     hb
@@ -132,8 +138,6 @@ pub fn write_debug_log_html_head(
         .render_to_write(
             "head",
             &json!({
-                "style": include_str!("style.css"),
-                "script": include_str!("script.js"),
                 "debug_style_sheet": cfg!(feature="debug_log_extern_style_sheet")
             }),
             w,
@@ -942,8 +946,16 @@ pub fn write_transform_update_to_html(
         "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data, Some(batch_size)),
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
     });
-    let tf_update = TEMPLATES.render("transform_update", &update).unwrap();
-    w.write_all(reindent(false, 8, tf_update).as_bytes())
+
+    TEMPLATES
+        .render_template_to_write("transform_update", &update, w)
+        .map_err(|e| {
+            let reason = RenderErrorReason::from(e);
+            let RenderErrorReason::IOError(io_err) = reason else {
+                panic!("handlebars template error in debug log: {reason}");
+            };
+            io_err
+        })
 }
 
 pub fn write_initial_state_to_html(
@@ -959,6 +971,9 @@ pub fn write_initial_state_to_html(
         "transform_update_text": "Initial State",
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
     });
-    let tf_update = TEMPLATES.render("transform_update", &update).unwrap();
-    w.write_all(reindent(false, 8, tf_update).as_bytes())
+    TEMPLATES
+        .render_to_write("transform_update", &update, w)
+        .unwrap();
+    Ok(())
+    //  w.write_all(reindent(false, 8, res).as_bytes())
 }

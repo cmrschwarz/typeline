@@ -3,7 +3,6 @@
     <div class="iter iter-placeholder">9</div>
     {{#each iters as |iter|}}
     {{#if transform_id includeZero=true}}
-
     <div
         class="iter iter-transform"
         onmouseenter="highlight('{{../transform_update_id}}_tf_{{transform_id}}')"
@@ -21,7 +20,6 @@
     <div class="iter">
     {{/if}}
     {{/if}}
-
         {{display_text}}
         <span class="tooltip-text">
             {{tooltip_text}}

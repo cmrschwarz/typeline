@@ -1,6 +1,8 @@
 use core::panic;
 use std::io::ErrorKind;
 
+use bstr::ByteSlice;
+
 pub trait TextWrite {
     // SAFETY: assuming that the write succeeds, the result must be valid utf-8
     // If a previous, partial success has split a utf-8 character,
@@ -361,6 +363,47 @@ impl<W: TextWrite> std::io::Write for MaybeTextWritePanicAdapter<W> {
 }
 
 impl<W: TextWrite> TextWrite for MaybeTextWritePanicAdapter<W> {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        unsafe { self.0.write_text_unchecked(buf) }
+    }
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        self.0.flush_text()
+    }
+    unsafe fn write_all_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<()> {
+        unsafe { self.0.write_all_text_unchecked(buf) }
+    }
+    fn write_all_text(&mut self, buf: &str) -> std::io::Result<()> {
+        self.0.write_all_text(buf)
+    }
+    fn write_text_fmt(
+        &mut self,
+        args: std::fmt::Arguments<'_>,
+    ) -> std::io::Result<()> {
+        self.0.write_text_fmt(args)
+    }
+}
+
+#[derive(Clone)]
+pub struct MaybeTextWriteLossyAdapter<W: TextWrite>(pub W);
+
+impl<W: TextWrite> std::io::Write for MaybeTextWriteLossyAdapter<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write_all_text(&buf.to_str_lossy())?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<W: TextWrite> TextWrite for MaybeTextWriteLossyAdapter<W> {
     unsafe fn write_text_unchecked(
         &mut self,
         buf: &[u8],

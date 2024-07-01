@@ -216,6 +216,7 @@ struct FullCowFieldRef<'a> {
 }
 
 pub struct ActionBuffer {
+    #[allow(unused)]
     #[cfg(feature = "debug_state")]
     pub(crate) match_set_id: MatchSetId,
     actors: OffsetVecDeque<ActorId, Actor>,

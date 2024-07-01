@@ -7,14 +7,14 @@
         <link rel="stylesheet" href="style.css">
         {{else}}
         <style>
-            {{{reindent 12 style}}}
+            {{> stylesheet}}
         </style>
         {{/if}}
         {{#if debug_style_sheet}}
         <script src="script.js"></script>
         {{else}}
         <script>
-            {{{reindent 12 script}}}
+            {{> script}}
         </script>
         {{/if}}
     </head>
