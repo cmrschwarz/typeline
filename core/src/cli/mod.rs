@@ -978,14 +978,7 @@ pub fn parse_cli_retain_args(
     ctx_opts.allow_repl = cli_opts.allow_repl;
 
     if cli_opts.start_with_stdin {
-        let op_base_opts = OperatorBaseOptions::new(
-            "stdin".into(),
-            None,
-            false,
-            false,
-            false,
-            Span::Generated,
-        );
+        let op_base_opts = OperatorBaseOptions::from_name("stdin");
         let op_data = create_op_stdin(1);
         ctx_opts.add_op(op_base_opts, op_data);
     }
@@ -1026,26 +1019,12 @@ pub fn parse_cli_retain_args(
                 propagate_errors: true,
             },
         );
-        let op_base_opts = OperatorBaseOptions::new(
-            op_data.default_op_name().into(),
-            None,
-            false,
-            false,
-            false,
-            Span::Generated,
-        );
+        let op_base_opts = OperatorBaseOptions::default();
         ctx_opts.add_op(op_base_opts, op_data);
     }
     if cli_opts.add_success_updator {
         let op_data = create_op_success_updator();
-        let op_base_opts = OperatorBaseOptions::new(
-            op_data.default_op_name().into(),
-            None,
-            false,
-            false,
-            false,
-            Span::Generated,
-        );
+        let op_base_opts = OperatorBaseOptions::default();
         ctx_opts.add_op(op_base_opts, op_data);
     }
     Ok(ctx_opts)

@@ -23,7 +23,7 @@ use super::{
 };
 
 pub struct OpMultiOp {
-    pub sub_op_data: Vec<OperatorData>,
+    pub operations: Vec<(OperatorBaseOptions, OperatorData)>,
     pub sub_op_ids: IndexVec<OffsetInAggregation, OperatorId>,
 }
 
@@ -33,12 +33,11 @@ impl Operator for OpMultiOp {
     }
     fn debug_op_name(&self) -> super::operator::OperatorName {
         let mut res = String::from("multi-op<");
-        let mut iter = self.sub_op_data.iter().peekable();
-        while let Some(op) = iter.next() {
-            res.push_str(&op.debug_op_name());
-            if iter.peek().is_some() {
+        for (i, (_op_opts, op)) in self.operations.iter().enumerate() {
+            if i > 0 {
                 res.push_str(", ");
             }
+            res.push_str(&op.debug_op_name());
         }
         res.push('>');
         res.into()
@@ -174,17 +173,16 @@ impl Operator for OpMultiOp {
             op_base_opts_interned,
             op_data_id,
         );
-        for op_data in std::mem::take(&mut self.sub_op_data) {
-            let op_base =
-                OperatorBaseOptions::from_name(op_data.default_op_name())
-                    .intern(&mut sess.string_store);
+        for (op_opts, op_data) in std::mem::take(&mut self.operations) {
+            let op_opts =
+                op_opts.intern(Some(&op_data), &mut sess.string_store);
             self.sub_op_ids.push(sess.setup_for_op_data(
                 chain_id,
                 OperatorOffsetInChain::AggregationMember(
                     op_id,
                     self.sub_op_ids.next_idx(),
                 ),
-                op_base,
+                op_opts,
                 op_data,
             )?);
         }
@@ -205,11 +203,20 @@ impl Operator for OpMultiOp {
     }
 }
 
+pub fn create_multi_op_with_opts(
+    ops: impl IntoIterator<Item = (OperatorBaseOptions, OperatorData)>,
+) -> OperatorData {
+    OperatorData::MultiOp(OpMultiOp {
+        operations: ops.into_iter().collect(),
+        sub_op_ids: IndexVec::new(),
+    })
+}
+
 pub fn create_multi_op(
     ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    OperatorData::MultiOp(OpMultiOp {
-        sub_op_data: ops.into_iter().collect(),
-        sub_op_ids: IndexVec::new(),
-    })
+    create_multi_op_with_opts(
+        ops.into_iter()
+            .map(|op| (OperatorBaseOptions::default(), op)),
+    )
 }

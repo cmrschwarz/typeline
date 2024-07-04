@@ -22,7 +22,7 @@ use scr_core::{
 #[case(4)]
 fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_fork_with_opts(vec![vec![
@@ -58,7 +58,7 @@ fn unlink_without_append_after_fork(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_fork_with_opts(vec![vec![
@@ -83,7 +83,7 @@ fn unlink_without_append_after_fork(
 #[test]
 fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seq(1, 11, 1).unwrap())
         .add_op(create_op_regex(".*[24680]$").unwrap())
         .add_op(create_op_fork([[create_op_string_sink(&ss)]])?)
@@ -101,7 +101,7 @@ fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
 #[test]
 fn fork_without_input() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_fork([
             [create_op_str("foo"), create_op_string_sink(&ss)],
             [create_op_str("bar"), create_op_string_sink(&ss)],

@@ -135,7 +135,8 @@ impl SessionOptions {
         op_base_opts: OperatorBaseOptions,
         op_data: OperatorData,
     ) -> OperatorDataId {
-        let opts_interned = op_base_opts.intern(&mut self.string_store);
+        let opts_interned =
+            op_base_opts.intern(Some(&op_data), &mut self.string_store);
         self.add_op_from_interned_opts(opts_interned, op_data)
     }
     pub fn add_chain(&mut self, label: String) {

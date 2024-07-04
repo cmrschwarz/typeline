@@ -125,7 +125,7 @@ pub fn setup_op_aggregator(
     );
 
     for (op_base, op_data) in std::mem::take(&mut agg.sub_ops_from_user) {
-        let op_base = op_base.intern(&mut sess.string_store);
+        let op_base = op_base.intern(Some(&op_data), &mut sess.string_store);
 
         let err_msg = op_base.append_mode.then(|| {
             format!(

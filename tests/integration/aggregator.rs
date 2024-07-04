@@ -16,7 +16,7 @@ use scr_core::{
 #[test]
 fn simple_aggregate() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op_aggregate([create_op_str("foo"), create_op_str("bar")])
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -27,7 +27,7 @@ fn simple_aggregate() -> Result<(), ScrError> {
 #[test]
 fn batched_aggregate() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(2)
         .add_op_aggregate([
             create_op_seqn(1, 10, 1).unwrap(),
@@ -45,7 +45,7 @@ fn batched_aggregate() -> Result<(), ScrError> {
 #[test]
 fn append_after_fork() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         //.set_batch_size(2)
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(

@@ -54,7 +54,7 @@ pub trait ContextBuilderWithDefaultExtensions {
 
 impl ContextBuilderWithDefaultExtensions for ContextBuilder {
     fn with_default_extensions() -> Self {
-        Self::from_extensions(DEFAULT_EXTENSION_REGISTRY.clone())
+        Self::with_exts(DEFAULT_EXTENSION_REGISTRY.clone())
     }
 }
 

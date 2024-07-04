@@ -536,7 +536,7 @@ impl CallExpr {
     }
     pub fn op_base_options(&self) -> OperatorBaseOptions {
         OperatorBaseOptions {
-            argname: self.op_name.clone(),
+            argname: Some(self.op_name.clone()),
             span: self.span,
             transparent_mode: self.transparent_mode,
             append_mode: self.append_mode,
@@ -550,7 +550,7 @@ impl CallExpr {
     }
     pub fn into_op_base_options(self) -> OperatorBaseOptions {
         OperatorBaseOptions {
-            argname: self.op_name,
+            argname: Some(self.op_name),
             span: self.span,
             transparent_mode: self.transparent_mode,
             append_mode: self.append_mode,

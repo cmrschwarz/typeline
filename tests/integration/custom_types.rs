@@ -53,7 +53,7 @@ impl CustomData for DummyCustomTypeNoStringify {
 #[test]
 fn custom_type_stringify() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .push_custom(Box::new(DummyCustomType), 1)
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -64,7 +64,7 @@ fn custom_type_stringify() -> Result<(), ScrError> {
 #[test]
 fn custom_type_that_cannot_stringify() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .push_custom(Box::new(DummyCustomTypeNoStringify), 1)
         .add_op(create_op_string_sink(&ss))
         .run()?;

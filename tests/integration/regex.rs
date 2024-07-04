@@ -21,7 +21,7 @@ use scr_ext_utils::{dup::create_op_dup, string_utils::create_op_lines};
 #[test]
 fn lines_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .push_str("foo\nbar\nbaz", 1)
         .add_op(create_op_regex_lines())
         .add_op(create_op_string_sink(&ss))
@@ -34,7 +34,7 @@ fn lines_regex() -> Result<(), ScrError> {
 fn regex_drop() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::default();
     let ss2 = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .push_str("foo\nbar\nbaz", 1)
         .add_op(create_op_regex_lines())
         .add_op_transparent(create_op_string_sink(&ss1))
@@ -58,7 +58,7 @@ fn chained_multimatch_regex() -> Result<(), ScrError> {
             f
         });
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .push_str(&number_string_joined, 1)
         .set_batch_size(10)
         .add_op(create_op_regex_lines())
@@ -74,7 +74,7 @@ fn chained_multimatch_regex() -> Result<(), ScrError> {
 
 #[test]
 fn chained_regex_over_input() -> Result<(), ScrError> {
-    let mut cb = ContextBuilder::default();
+    let mut cb = ContextBuilder::without_exts();
     for i in 0..3 {
         cb = cb.push_int(i, 1);
     }
@@ -101,7 +101,7 @@ fn large_batch() -> Result<(), ScrError> {
             f
         });
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .push_str(&number_string_joined, 1)
         .add_op(create_op_regex_lines())
         .add_op(create_op_regex("^[0-9]{1,3}$").unwrap())
@@ -124,7 +124,7 @@ fn large_batch_seq(
 ) -> Result<(), ScrError> {
     let re = regex::Regex::new(r"\d{1,3}").unwrap();
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, count, 1).unwrap())
         .add_op(create_op_regex(r"\d{1,3}").unwrap())
@@ -148,7 +148,7 @@ fn large_batch_seq(
 fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     const COUNT: usize = 6;
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(COUNT / 2)
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
         .add_op(create_op_regex("^\\d{1,2}$").unwrap())
@@ -165,7 +165,7 @@ fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
 fn large_seq_with_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     const COUNT: usize = 10000;
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
         .add_op(create_op_regex("^\\d{1,3}$").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -181,7 +181,7 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
 #[test]
 fn stream_into_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
@@ -199,7 +199,7 @@ fn stream_into_regex() -> Result<(), ScrError> {
 #[test]
 fn optional_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seq(9, 12, 1).unwrap())
         .add_op_appending(create_op_seq(20, 22, 1).unwrap())
         .add_op(create_op_key("n".to_string()))
@@ -234,7 +234,7 @@ fn optional_regex() -> Result<(), ScrError> {
 #[test]
 fn zero_length_regex_match() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("babab"))
         .add_op(
             create_op_regex_with_opts(
@@ -261,7 +261,7 @@ fn regex_match_overlapping(
     #[case] outputs: &[&'static str],
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str(input))
         .add_op(
             create_op_regex_with_opts(
@@ -298,7 +298,7 @@ fn seq_into_regex_drop_unless_seven(
         })
         .collect();
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, count as i64, 1).unwrap())
         .add_op(create_op_regex(".*7.*").unwrap())
@@ -313,7 +313,7 @@ fn seq_into_regex_drop_unless_seven(
 #[test]
 fn double_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 20, 1).unwrap())
         .add_op(create_op_regex(".*2.*").unwrap())
         .add_op(create_op_regex(".*").unwrap())
@@ -325,7 +325,7 @@ fn double_regex() -> Result<(), ScrError> {
 
 #[test]
 fn full_match() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .push_str("foo\nbar", 1)
         .add_op(create_op_lines())
         .add_op(
@@ -345,7 +345,7 @@ fn full_match() -> Result<(), ScrError> {
 
 #[test]
 fn multimatch_after_dup() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_dup(2))
         .add_op(

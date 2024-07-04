@@ -26,7 +26,7 @@ use scr_ext_utils::dup::create_op_dup;
 #[test]
 fn empty_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat_with_opts(vec![]))
         .add_op(create_op_string_sink(&ss))
@@ -38,7 +38,7 @@ fn empty_forkcat() -> Result<(), ScrError> {
 #[test]
 fn nop_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat_with_opts(vec![vec![]]))
         .add_op(create_op_string_sink(&ss))
@@ -50,7 +50,7 @@ fn nop_forkcat() -> Result<(), ScrError> {
 #[test]
 fn basic_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_forkcat([
             [create_op_str("foo")],
             [create_op_str("bar")],
@@ -65,7 +65,7 @@ fn basic_forkcat() -> Result<(), ScrError> {
 fn forkcat_with_input() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::default();
     let ss2 = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([
             [create_op_string_sink(&ss1)],
@@ -81,7 +81,7 @@ fn forkcat_with_input() -> Result<(), ScrError> {
 #[test]
 fn forkcat_dup() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]]))
         .add_op(create_op_string_sink(&ss))
@@ -93,7 +93,7 @@ fn forkcat_dup() -> Result<(), ScrError> {
 #[test]
 fn forkcat_sandwiched_write() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([
             [create_op_nop()],
@@ -109,7 +109,7 @@ fn forkcat_sandwiched_write() -> Result<(), ScrError> {
 #[test]
 fn forkcat_double_field_refs() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([
             [create_op_nop_copy()],
@@ -125,7 +125,7 @@ fn forkcat_double_field_refs() -> Result<(), ScrError> {
 #[test]
 fn forkcat_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]]))
         .add_op(create_op_join(
@@ -142,7 +142,7 @@ fn forkcat_into_join() -> Result<(), ScrError> {
 #[test]
 fn forkcat_build_sql_insert() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_ops([
             create_op_forkcat([
                 vec![create_op_str("INSERT INTO T VALUES ")],
@@ -171,7 +171,7 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
 #[test]
 fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op_with_label(create_op_str("a"), "a".into())
         .add_op(create_op_forkcat([
             [create_op_format("{a}").unwrap()],
@@ -186,7 +186,7 @@ fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
 #[test]
 fn forkcat_surviving_vars() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "lbl".into())
         .add_op(create_op_forkcat([
             [create_op_str("a")],
@@ -205,7 +205,7 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
 #[test]
 fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_forkcat([
             [create_op_regex("2").unwrap()],
@@ -221,7 +221,7 @@ fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
 #[test]
 fn forkcat_with_batches() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(3)
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_forkcat([
@@ -237,7 +237,7 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
 #[test]
 fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(2)
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_forkcat([
@@ -260,7 +260,7 @@ fn forkcat_on_unapplied_commands(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_regex("[24]").unwrap())

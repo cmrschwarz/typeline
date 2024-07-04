@@ -654,14 +654,15 @@ impl SessionSetupData {
         &mut self,
         chain_id: ChainId,
         op_base_opts: OperatorBaseOptions,
-        op_data_id: OperatorDataId,
+        op_data_id: Option<OperatorDataId>,
     ) -> OperatorId {
+        let op_data = op_data_id.map(|id| &self.operator_data[id]);
         let op_base_opts_interned =
-            op_base_opts.intern(&mut self.string_store);
+            op_base_opts.intern(op_data, &mut self.string_store);
         self.add_op_from_opts_interned_direct(
             chain_id,
             op_base_opts_interned,
-            op_data_id,
+            op_data_id.unwrap_or(OperatorDataId::MAX_VALUE),
         )
     }
 
@@ -672,7 +673,7 @@ impl SessionSetupData {
         op_data: OperatorData,
     ) -> OperatorId {
         let op_data_id = self.operator_data.push_get_id(op_data);
-        self.add_op_from_opts_direct(chain_id, op_base_opts, op_data_id)
+        self.add_op_from_opts_direct(chain_id, op_base_opts, Some(op_data_id))
     }
 
     pub fn setup_chain(
@@ -703,13 +704,14 @@ impl SessionSetupData {
                         self.add_op_from_opts_direct(
                             chain_id,
                             aggregate_op_opts,
-                            OperatorDataId::MAX_VALUE,
+                            None,
                         )
                     });
 
                 if curr_aggregation.is_empty() && op_base_opts.append_mode {
+                    let op_data = create_op_nop_copy();
                     let op_nop_opts = OperatorBaseOptions::from_name("nop")
-                        .intern(&mut self.string_store);
+                        .intern(Some(&op_data), &mut self.string_store);
                     curr_aggregation.push(self.setup_for_op_data(
                         chain_id,
                         OperatorOffsetInChain::AggregationMember(
@@ -717,7 +719,7 @@ impl SessionSetupData {
                             curr_aggregation.next_idx(),
                         ),
                         op_nop_opts,
-                        create_op_nop_copy(),
+                        op_data,
                     )?);
                 }
 
@@ -779,7 +781,7 @@ impl SessionSetupData {
             .into_iter()
             .map(|(opts, data)| {
                 (
-                    opts.intern(&mut self.string_store),
+                    opts.intern(Some(&data), &mut self.string_store),
                     self.add_op_data_raw(data),
                 )
             })

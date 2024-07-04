@@ -59,7 +59,7 @@ async fn multi_get_https() -> Result<(), ScrError> {
             ))
             .unwrap();
 
-        let res = ContextBuilder::default()
+        let res = ContextBuilder::without_exts()
             .add_op(create_op_seqn(1, 3, 1).unwrap())
             .add_op(
                 create_op_format("https://localhost:8080/echo/{}").unwrap(),

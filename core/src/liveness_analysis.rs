@@ -591,6 +591,7 @@ impl LivenessData {
                 bb.calls.push(cn.subchains[*subchain_idx].into_bb_id());
                 self.split_bb_at_call(sess, bb_id, op_n);
             }
+
             OperatorData::ToStr(_)
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
@@ -608,7 +609,9 @@ impl LivenessData {
             | OperatorData::SuccessUpdator(_)
             | OperatorData::Sequence(_)
             | OperatorData::MacroDef(_) => (),
-            OperatorData::Custom(_) | OperatorData::MultiOp(_) => {
+            OperatorData::Custom(_)
+            | OperatorData::MultiOp(_)
+            | OperatorData::MacroCall(_) => {
                 // TODO: maybe support this
             }
             OperatorData::Aggregator(agg) => {

@@ -21,7 +21,7 @@ use scr_ext_utils::string_utils::create_op_lines;
 #[bench]
 fn empty_context(b: &mut test::Bencher) {
     b.iter(|| {
-        let res = ContextBuilder::default().push_str("foobar", 1).run();
+        let res = ContextBuilder::without_exts().push_str("foobar", 1).run();
         assert!(matches!(
             res,
             Err(ContextualizedScrError {
@@ -39,7 +39,7 @@ fn plain_string_sink(b: &mut test::Bencher) {
     let res = int_sequence_strings(0..LEN);
     b.iter(|| {
         let ss = StringSinkHandle::default();
-        ContextBuilder::default()
+        ContextBuilder::without_exts()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
             .add_op(create_op_string_sink(&ss))
             .run()
@@ -55,7 +55,7 @@ fn regex_lines(b: &mut test::Bencher) {
     let res = int_sequence_strings(0..COUNT);
     b.iter(|| {
         let ss = StringSinkHandle::default();
-        ContextBuilder::default()
+        ContextBuilder::without_exts()
             .push_str(&input, 1)
             .add_op(create_op_lines())
             .add_op(create_op_string_sink(&ss))
@@ -76,7 +76,7 @@ fn regex_lines_plus_drop_uneven(b: &mut test::Bencher) {
         .collect();
     b.iter(|| {
         let ss = StringSinkHandle::default();
-        ContextBuilder::default()
+        ContextBuilder::without_exts()
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
             .add_op(create_op_regex("^.*[02468]$").unwrap())
@@ -92,7 +92,7 @@ fn dummy_format(b: &mut test::Bencher) {
     let res = int_sequence_strings(0..LEN);
     b.iter(|| {
         let ss = StringSinkHandle::default();
-        ContextBuilder::default()
+        ContextBuilder::without_exts()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
             .add_op(create_op_format("{}").unwrap())
             .add_op(create_op_string_sink(&ss))
@@ -110,7 +110,7 @@ fn format_twice(b: &mut test::Bencher) {
     }
     b.iter(|| {
         let ss = StringSinkHandle::default();
-        ContextBuilder::default()
+        ContextBuilder::without_exts()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
             .add_op(create_op_format("{}{}").unwrap())
             .add_op(create_op_string_sink(&ss))
@@ -138,7 +138,7 @@ fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
         .collect();
     b.iter(|| {
         let ss = StringSinkHandle::default();
-        ContextBuilder::default()
+        ContextBuilder::without_exts()
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
             .add_op(create_op_regex("^.*[02468]$").unwrap())
@@ -159,7 +159,7 @@ fn seq_into_regex_drop_unless_seven(b: &mut test::Bencher) {
         .collect();
     b.iter(|| {
         let ss = StringSinkHandle::default();
-        ContextBuilder::default()
+        ContextBuilder::without_exts()
             .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
             .add_op(create_op_regex("7").unwrap())
             .add_op(create_op_string_sink(&ss))

@@ -13,6 +13,7 @@ use crate::{
         },
         session_options::SessionOptions,
     },
+    record_data::scope_manager::Symbol,
     utils::string_store::StringStoreEntry,
 };
 
@@ -36,7 +37,7 @@ pub struct OpMacroDef {
     pub macro_def: Option<Arc<Macro>>,
 }
 
-pub fn setup_op_macro(
+pub fn setup_op_macro_def(
     op: &mut OpMacroDef,
     sess: &mut SessionSetupData,
     chain_id: ChainId,
@@ -50,10 +51,24 @@ pub fn setup_op_macro(
         opts_interned,
         op_data_id,
     );
-    op.macro_def = Some(Arc::new(Macro {
-        name: sess.string_store.intern_moved(std::mem::take(&mut op.name)),
+
+    let macro_name =
+        sess.string_store.intern_moved(std::mem::take(&mut op.name));
+
+    let macro_def = Arc::new(Macro {
+        name: macro_name,
         operations: std::mem::take(&mut op.operations),
-    }));
+    });
+
+    op.macro_def = Some(macro_def.clone());
+
+    let scope_id = sess.chains[chain_id].scope_id;
+
+    sess.scope_mgr.insert_symbol(
+        scope_id,
+        macro_name,
+        Symbol::Macro(macro_def),
+    );
 
     Ok(op_id)
 }

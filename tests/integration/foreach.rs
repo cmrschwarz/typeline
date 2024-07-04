@@ -12,7 +12,7 @@ use scr_ext_utils::{dup::create_op_dup, sum::create_op_sum};
 
 #[test]
 fn empty_foreach() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str_n("foo", 2))
         .add_op(create_op_foreach([]))
         .run_collect_stringified()?;
@@ -22,7 +22,7 @@ fn empty_foreach() -> Result<(), ScrError> {
 
 #[test]
 fn foreach_sum() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([create_op_sum()]))
         .run_collect()?;
@@ -35,7 +35,7 @@ fn foreach_sum() -> Result<(), ScrError> {
 
 #[test]
 fn foreach_sum_nested() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([
             create_op_seqn(1, 3, 1).unwrap(),
@@ -51,7 +51,7 @@ fn foreach_sum_nested() -> Result<(), ScrError> {
 
 #[test]
 fn foreach_dup_sum() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([create_op_dup(2), create_op_sum()]))
         .run_collect()?;
@@ -64,7 +64,7 @@ fn foreach_dup_sum() -> Result<(), ScrError> {
 
 #[test]
 fn foreach_dup_join() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([
             create_op_dup(2),
@@ -77,7 +77,7 @@ fn foreach_dup_join() -> Result<(), ScrError> {
 
 #[test]
 fn foreach_seq_seq() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_foreach([
             create_op_seq(0, 3, 1).unwrap(),

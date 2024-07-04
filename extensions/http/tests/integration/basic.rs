@@ -38,7 +38,7 @@ pub fn setup_mockito_test_server() -> mockito::ServerGuard {
 fn multi_get_http() -> Result<(), ScrError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/echo/{{}}", server.url());
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_format(&fmt).unwrap())
         .add_op(create_op_GET())
@@ -56,7 +56,7 @@ fn multi_get_http_regex() -> Result<(), ScrError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/echo/{{}}", server.url());
 
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_format(&fmt).unwrap())
@@ -72,7 +72,7 @@ fn multi_get_into_print() -> Result<(), ScrError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/echo/{{}}", server.url());
     let target = DummyWritableTarget::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_format(&fmt).unwrap())
         .add_op(create_op_GET())
@@ -89,7 +89,7 @@ fn multi_get_into_print() -> Result<(), ScrError> {
 fn get_delay() -> Result<(), ScrError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/delay/0.0{{}}", server.url());
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op_with_label(create_op_seqn(1, 3, 1).unwrap(), "a".into())
         .add_op(create_op_format(&fmt).unwrap())
         .add_op(create_op_GET())
@@ -107,7 +107,7 @@ fn localhost_not_parsed_as_scheme() -> Result<(), ScrError> {
         "localhost:{}/echo/{{}}",
         server.host_with_port().split(':').nth(1).unwrap()
     );
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .push_str("foo", 1)
         .add_op(create_op_format(&fmt).unwrap())
         .add_op(create_op_GET())

@@ -25,7 +25,7 @@ use scr_core::{
 #[test]
 fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op_appending(create_op_bytes(b"bar"))
         .add_op_appending(create_op_error("baz"))
@@ -42,7 +42,7 @@ fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
 #[test]
 fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op_appending(create_op_bytes(b"bar"))
         .add_op_appending(create_op_error("baz"))
@@ -64,7 +64,7 @@ fn error_formatting(
     #[case] result: &str,
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_error("A"))
         .add_op(create_op_format(fmt_string).unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -81,7 +81,7 @@ fn stream_error_formatting(
     #[case] result: &str,
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_stream_error("A"))
         .add_op(create_op_format(fmt_string).unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -93,7 +93,7 @@ fn stream_error_formatting(
 #[test]
 fn format_width_spec() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(0, 6, 1).unwrap())
@@ -111,7 +111,7 @@ fn format_width_spec() -> Result<(), ScrError> {
 #[test]
 fn format_width_spec_over_stream() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
@@ -135,7 +135,7 @@ fn format_width_spec_over_stream() -> Result<(), ScrError> {
 #[test]
 fn nonexisting_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .push_str("x", 3)
         .add_op(create_op_format("{foo}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -150,7 +150,7 @@ fn nonexisting_key() -> Result<(), ScrError> {
 #[test]
 fn nonexisting_format_width_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .push_str("x", 3)
         .add_op(create_op_format("{:foo$}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -168,7 +168,7 @@ fn nonexisting_format_width_key() -> Result<(), ScrError> {
 #[test]
 fn format_after_surrounding_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 10, 1).unwrap())
         .add_op(create_op_regex("[3-5]").unwrap())
         .add_op(create_op_key("a".to_owned()))
@@ -183,7 +183,7 @@ fn format_after_surrounding_drop() -> Result<(), ScrError> {
 fn batched_format_after_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     const COUNT: i64 = 20;
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(3)
         .add_op(create_op_seq(0, COUNT, 1).unwrap())
         .add_op(create_op_regex(".*[3].*").unwrap())
@@ -209,7 +209,7 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
 
 #[test]
 fn stream_into_format() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
@@ -231,7 +231,7 @@ fn stream_into_multiple_different_formats(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .push_str("foo", 1)
         .push_str("bar", 1)
@@ -252,7 +252,7 @@ fn stream_into_multiple_different_formats(
 #[test]
 fn dup_between_format_and_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(2)
         .push_str("xxx", 1)
         .add_op(create_op_key("foo".to_owned()))
@@ -276,7 +276,7 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
 #[test]
 fn debug_string_escapes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(2)
         .push_str("\n", 1)
         .add_op(create_op_format("{:?}").unwrap())
@@ -289,7 +289,7 @@ fn debug_string_escapes() -> Result<(), ScrError> {
 #[test]
 fn debug_bytes_escapes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(2)
         .push_bytes(b"\n\x00", 1)
         .add_op(create_op_format("{:?}").unwrap())
@@ -302,7 +302,7 @@ fn debug_bytes_escapes() -> Result<(), ScrError> {
 #[test]
 fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(2)
         .set_stream_buffer_size(1)
         .add_op(create_op_file_reader_custom(
@@ -321,7 +321,7 @@ fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
 #[test]
 fn sandwiched_format() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_regex(".*").unwrap())
         .add_op(create_op_format("{:?}").unwrap())
@@ -348,7 +348,7 @@ fn sandwiched_format() -> Result<(), ScrError> {
 #[test]
 fn binary_string_formatting() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_v("b'\\xFF'").unwrap())
         .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -360,7 +360,7 @@ fn binary_string_formatting() -> Result<(), ScrError> {
 #[test]
 fn debug_format_stream_value() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_stream_str("foo"))
         .add_op(create_op_format("{:??}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -371,7 +371,7 @@ fn debug_format_stream_value() -> Result<(), ScrError> {
 
 #[test]
 fn null_format_error() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_null())
         .add_op(create_op_format("{}").unwrap())
         .run_collect_stringified();

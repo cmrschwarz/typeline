@@ -52,6 +52,16 @@ impl Default for ScopeManager {
     }
 }
 
+impl Symbol {
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            Symbol::Atom(_) => "atom",
+            Symbol::Field(_) => "field",
+            Symbol::Macro(_) => "macro",
+        }
+    }
+}
+
 impl ScopeManager {
     pub fn insert_symbol(
         &mut self,

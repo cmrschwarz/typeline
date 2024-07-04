@@ -1,6 +1,7 @@
 use rstest::rstest;
 use scr::{
     cli::CliOptions, operators::sequence::create_op_enum,
+    options::operator_base_options::OperatorBaseOptions,
     record_data::array::Array, CliOptionsWithDefaultExtensions,
 };
 use scr_core::{
@@ -22,14 +23,13 @@ use scr_ext_utils::{
 #[test]
 fn primes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op_with_opts(
+            OperatorBaseOptions {
+                label: Some("p".into()),
+                ..Default::default()
+            },
             create_op_primes(),
-            None,
-            Some("p".into()),
-            false,
-            false,
-            false,
         )
         .add_op(create_op_enum(0, 3, 1).unwrap())
         .add_op(create_op_select("p".into()))
@@ -42,7 +42,7 @@ fn primes() -> Result<(), ScrError> {
 #[test]
 fn primes_head() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_primes())
         .add_op(create_op_head(3))
         .add_op(create_op_string_sink(&ss))
@@ -54,7 +54,7 @@ fn primes_head() -> Result<(), ScrError> {
 #[test]
 fn seq_tail_add() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 10, 1).unwrap())
         .add_op(create_op_tail_add(7))
         .add_op(create_op_string_sink(&ss))
@@ -66,7 +66,7 @@ fn seq_tail_add() -> Result<(), ScrError> {
 #[test]
 fn primes_head_tail_add() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_primes())
         .add_op(create_op_tail_add(3))
         .add_op(create_op_head(3))
@@ -89,7 +89,7 @@ fn head_tail_cli() -> Result<(), ScrError> {
 
 #[test]
 fn subtractive_head_multibatch() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .add_op(create_op_seqn(1, 10, 1).unwrap())
         .add_op(create_op_head(-5))
@@ -107,7 +107,7 @@ fn explode_output_col(
     #[case] output: &str,
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_v(input).unwrap())
         .add_op(create_op_explode())
         .add_op(create_op_string_sink(&ss))
@@ -119,7 +119,7 @@ fn explode_output_col(
 #[test]
 fn explode_into_select() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_v("{'foo': 3}").unwrap())
         .add_op(create_op_explode())
         .add_op(create_op_select("foo".into()))
@@ -132,7 +132,7 @@ fn explode_into_select() -> Result<(), ScrError> {
 #[test]
 fn flatten() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_v("[1,2,3]").unwrap())
         .add_op(create_op_flatten())
         .add_op(create_op_string_sink(&ss))
@@ -144,7 +144,7 @@ fn flatten() -> Result<(), ScrError> {
 #[test]
 fn object_flatten() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_v("{a: 3, b: '5'}").unwrap())
         .add_op(create_op_flatten())
         .add_op(create_op_string_sink(&ss))
@@ -158,7 +158,7 @@ fn object_flatten() -> Result<(), ScrError> {
 
 #[test]
 fn flatten_duped_objects() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_v("{a:3}").unwrap())
         .add_op(create_op_flatten())

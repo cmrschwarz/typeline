@@ -26,7 +26,7 @@ use scr_ext_utils::dup::create_op_dup;
 #[test]
 fn join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seq(1, 4, 1).unwrap())
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b",")),
@@ -41,7 +41,7 @@ fn join() -> Result<(), ScrError> {
 
 #[test]
 fn join_groups() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([
             create_op_seqn(1, 3, 1).unwrap(),
@@ -54,7 +54,7 @@ fn join_groups() -> Result<(), ScrError> {
 
 #[test]
 fn join_size_one_groups() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([create_op_join(None, None, false)]))
         .run_collect_stringified()?;
@@ -64,7 +64,7 @@ fn join_size_one_groups() -> Result<(), ScrError> {
 
 #[test]
 fn join_bounded_groups() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 2, 1).unwrap())
         .add_op(create_op_foreach([
             create_op_seqn(1, 3, 1).unwrap(),
@@ -78,7 +78,7 @@ fn join_bounded_groups() -> Result<(), ScrError> {
 #[test]
 fn join_single() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seq(1, 2, 1).unwrap())
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b",")),
@@ -94,7 +94,7 @@ fn join_single() -> Result<(), ScrError> {
 #[test]
 fn join_drop_incomplete() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_join(None, Some(2), true))
         .add_op(create_op_string_sink(&ss))
@@ -105,7 +105,7 @@ fn join_drop_incomplete() -> Result<(), ScrError> {
 #[test]
 fn join_empty() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_dup(0))
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))
@@ -117,7 +117,7 @@ fn join_empty() -> Result<(), ScrError> {
 #[test]
 fn join_no_sep() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))
@@ -129,7 +129,7 @@ fn join_no_sep() -> Result<(), ScrError> {
 #[test]
 fn join_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_stream_buffer_size(2)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader::new("abc".as_bytes())),
@@ -153,7 +153,7 @@ fn join_streams() -> Result<(), ScrError> {
 #[test]
 fn join_after_append() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op_appending(create_op_str("bar"))
         .add_op(create_op_join_str(", ", 0))
@@ -166,7 +166,7 @@ fn join_after_append() -> Result<(), ScrError> {
 #[test]
 fn join_after_enum() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .add_op(create_op_str_n("foo", 2))
         .add_op(create_op_enum(0, i64::MAX, 1).unwrap())
         .add_op(create_op_join_str(",", 0))
@@ -178,7 +178,7 @@ fn join_after_enum() -> Result<(), ScrError> {
 
 #[test]
 fn join_seq_into_stream() -> Result<(), ScrError> {
-    let res = ContextBuilder::default()
+    let res = ContextBuilder::without_exts()
         .set_stream_size_threshold(2)
         .set_batch_size(2)
         .add_op(create_op_seqn(1, 5, 1).unwrap())
@@ -192,7 +192,7 @@ fn join_seq_into_stream() -> Result<(), ScrError> {
 #[test]
 fn join_dropped_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_stream_buffer_size(2)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader::new("foo".as_bytes())),
@@ -217,7 +217,7 @@ fn join_dropped_streams() -> Result<(), ScrError> {
 #[test]
 fn stream_error_in_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_stream_buffer_size(2)
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader::new("foo".as_bytes())),
@@ -251,7 +251,7 @@ fn stream_error_in_join() -> Result<(), ScrError> {
 #[test]
 fn stream_into_dup_into_join_with_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_stream_buffer_size(2)
         .set_batch_size(2)
         .add_op(create_op_file_reader_custom(
@@ -285,7 +285,7 @@ fn stream_into_dup_into_join_with_regex() -> Result<(), ScrError> {
 #[test]
 fn stream_into_dup_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_stream_buffer_size(2)
         .set_batch_size(2)
         .add_op(create_op_file_reader_custom(
@@ -309,7 +309,7 @@ fn stream_into_dup_into_join() -> Result<(), ScrError> {
 #[case(2)]
 fn join_turns_into_stream(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .set_stream_size_threshold(2)
         .add_op(create_op_str("foo"))
@@ -329,7 +329,7 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
     // TODO: used to stringify as '~(error)..', no longer does because `+` is
     // 'lazy' fix that or add a second test
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .set_stream_size_threshold(2)
         .add_op(create_op_str("foo"))
@@ -346,7 +346,7 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
 #[test]
 fn join_as_stream_producer() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_stream_size_threshold(1)
         .add_op(create_op_str("AAA"))
         .add_op_appending(create_op_int(42))
@@ -361,7 +361,7 @@ fn join_as_stream_producer() -> Result<(), ScrError> {
 #[test]
 fn join_with_value_between_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
-    ContextBuilder::default()
+    ContextBuilder::without_exts()
         .set_stream_size_threshold(2)
         .set_stream_buffer_size(2)
         .add_op(create_op_file_reader_custom(

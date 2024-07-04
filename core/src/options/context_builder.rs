@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use once_cell::sync::Lazy;
+
 use crate::{
     cli::{call_expr::Span, parse_cli, CliOptions},
     context::{Context, SessionData},
@@ -23,13 +25,28 @@ use super::{
     session_options::SessionOptions,
 };
 
-#[derive(Default)]
 pub struct ContextBuilder {
     opts: SessionOptions,
     input_data: RecordSet,
 }
 
+pub static EMPTY_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
+    Lazy::new(|| Arc::new(ExtensionRegistry::default()));
+
 impl ContextBuilder {
+    pub fn without_exts() -> Self {
+        Self::with_exts(EMPTY_EXTENSION_REGISTRY.clone())
+    }
+    pub fn with_exts(extensions: Arc<ExtensionRegistry>) -> Self {
+        Self::from_session_opts(SessionOptions::with_extensions(extensions))
+    }
+    pub fn from_session_opts(opts: SessionOptions) -> Self {
+        Self {
+            opts,
+            input_data: RecordSet::default(),
+        }
+    }
+
     pub fn from_cli_args<'a>(
         opts: &CliOptions,
         args: impl IntoIterator<Item = impl Into<&'a [u8]>>,
@@ -46,15 +63,6 @@ impl ContextBuilder {
             args.into_iter().map(|v| v.into().as_bytes()),
         )
     }
-    pub fn from_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
-        Self::from_session_opts(SessionOptions::with_extensions(extensions))
-    }
-    pub fn from_session_opts(opts: SessionOptions) -> Self {
-        Self {
-            opts,
-            input_data: RecordSet::default(),
-        }
-    }
 
     pub fn error_to_string(&self, err: &ScrError) -> String {
         err.contextualize_message(
@@ -67,61 +75,55 @@ impl ContextBuilder {
 
     pub fn ref_add_op_with_opts(
         &mut self,
+        op_opts: OperatorBaseOptions,
         op_data: OperatorData,
-        argname: Option<String>,
-        label: Option<String>,
-        append_mode: bool,
-        transparent_mode: bool,
-        output_is_atom: bool,
     ) -> OperatorDataId {
-        self.opts.add_op(
-            OperatorBaseOptions {
-                argname: argname
-                    .unwrap_or_else(|| op_data.default_op_name().into()),
-                label,
-                span: Span::Generated,
-                transparent_mode,
-                append_mode,
-                output_is_atom,
-            },
-            op_data,
-        )
+        self.opts.add_op(op_opts, op_data)
     }
     pub fn add_op_with_opts(
         mut self,
+        op_opts: OperatorBaseOptions,
         op_data: OperatorData,
-        argname: Option<String>,
-        label: Option<String>,
-        append_mode: bool,
-        transparent_mode: bool,
-        output_is_atom: bool,
     ) -> Self {
-        self.ref_add_op_with_opts(
-            op_data,
-            argname,
-            label,
-            append_mode,
-            transparent_mode,
-            output_is_atom,
-        );
+        self.ref_add_op_with_opts(op_opts, op_data);
         self
     }
     pub fn add_label(mut self, label: String) -> Self {
         self.opts.add_chain(label);
         self
     }
-    pub fn add_ops(
-        self,
-        op_data: impl IntoIterator<Item = OperatorData>,
-    ) -> Self {
-        let mut this = self;
-        for op in op_data {
-            this = this.add_op(op);
+    pub fn ref_add_ops_with_opts(
+        &mut self,
+        operations: impl IntoIterator<Item = (OperatorBaseOptions, OperatorData)>,
+    ) {
+        for (op_base, op_data) in operations {
+            self.ref_add_op_with_opts(op_base, op_data);
         }
-        this
+    }
+    pub fn ref_add_ops(
+        &mut self,
+        operations: impl IntoIterator<Item = OperatorData>,
+    ) {
+        for op_data in operations {
+            self.ref_add_op(op_data);
+        }
+    }
+    pub fn add_ops(
+        mut self,
+        operations: impl IntoIterator<Item = OperatorData>,
+    ) -> Self {
+        self.ref_add_ops(operations);
+        self
+    }
+    pub fn add_ops_with_opts(
+        mut self,
+        operations: impl IntoIterator<Item = (OperatorBaseOptions, OperatorData)>,
+    ) -> Self {
+        self.ref_add_ops_with_opts(operations);
+        self
     }
     pub fn ref_add_op(&mut self, op_data: OperatorData) -> OperatorDataId {
-        self.ref_add_op_with_opts(op_data, None, None, false, false, false)
+        self.ref_add_op_with_opts(OperatorBaseOptions::default(), op_data)
     }
     pub fn add_op(mut self, op_data: OperatorData) -> Self {
         self.ref_add_op(op_data);
@@ -129,21 +131,10 @@ impl ContextBuilder {
     }
     pub fn add_op_aggregate_with_opts(
         mut self,
-        argname: Option<String>,
-        label: Option<String>,
-        append_mode: bool,
-        transparent_mode: bool,
-        output_is_atom: bool,
+        opts: OperatorBaseOptions,
         sub_ops: impl IntoIterator<Item = OperatorData>,
     ) -> Self {
-        self.ref_add_op_with_opts(
-            create_op_aggregate(sub_ops),
-            argname,
-            label,
-            append_mode,
-            transparent_mode,
-            output_is_atom,
-        );
+        self.ref_add_op_with_opts(opts, create_op_aggregate(sub_ops));
         self
     }
     pub fn add_op_aggregate(
@@ -151,7 +142,8 @@ impl ContextBuilder {
         sub_ops: impl IntoIterator<Item = OperatorData>,
     ) -> Self {
         self.add_op_aggregate_with_opts(
-            None, None, false, false, false, sub_ops,
+            OperatorBaseOptions::default(),
+            sub_ops,
         )
     }
 
@@ -160,16 +152,41 @@ impl ContextBuilder {
         op_data: OperatorData,
         label: String,
     ) -> Self {
-        self.add_op_with_opts(op_data, None, Some(label), false, false, false)
+        self.add_op_with_opts(
+            OperatorBaseOptions {
+                label: Some(label),
+                ..OperatorBaseOptions::default()
+            },
+            op_data,
+        )
     }
     pub fn add_op_appending(self, op_data: OperatorData) -> Self {
-        self.add_op_with_opts(op_data, None, None, true, false, false)
+        self.add_op_with_opts(
+            OperatorBaseOptions {
+                append_mode: true,
+                ..OperatorBaseOptions::default()
+            },
+            op_data,
+        )
     }
     pub fn add_op_transparent(self, op_data: OperatorData) -> Self {
-        self.add_op_with_opts(op_data, None, None, false, true, false)
+        self.add_op_with_opts(
+            OperatorBaseOptions {
+                transparent_mode: true,
+                ..OperatorBaseOptions::default()
+            },
+            op_data,
+        )
     }
     pub fn add_op_transparent_appending(self, op_data: OperatorData) -> Self {
-        self.add_op_with_opts(op_data, None, None, true, true, false)
+        self.add_op_with_opts(
+            OperatorBaseOptions {
+                transparent_mode: true,
+                append_mode: true,
+                ..OperatorBaseOptions::default()
+            },
+            op_data,
+        )
     }
     pub fn set_input(mut self, rs: RecordSet) -> Self {
         self.input_data = rs;
@@ -215,6 +232,8 @@ impl ContextBuilder {
         };
         Ok(std::mem::take(&mut *val))
     }
+
+    // TODO: add a run function that allows consuming an iterator
     pub fn run_collect(
         mut self,
     ) -> Result<Vec<FieldValue>, ContextualizedScrError> {
