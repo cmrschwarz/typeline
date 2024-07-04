@@ -52,7 +52,7 @@ use super::{
     join::{build_tf_join, OpJoin},
     key::{setup_op_key, OpKey},
     literal::{build_tf_literal, OpLiteral},
-    macro_def::{insert_tf_macro_def, setup_op_macro, OpMacroDef},
+    macro_def::{setup_op_macro, OpMacroDef},
     multi_op::OpMultiOp,
     nop::{build_tf_nop, setup_op_nop, OpNop},
     nop_copy::{
@@ -836,6 +836,8 @@ impl OperatorData {
         let jd = &mut job.job_data;
         let op_base = &jd.session_data.operator_bases[op_id];
         let data: TransformData<'a> = match self {
+            OperatorData::Key(_) | OperatorData::MacroDef(_) => unreachable!(),
+
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::SuccessUpdator(op) => {
                 build_tf_success_updator(jd, op, tfs)
@@ -883,7 +885,7 @@ impl OperatorData {
             OperatorData::CallConcurrent(op) => {
                 build_tf_call_concurrent(jd, op_base, op, tfs)
             }
-            OperatorData::Key(_) => unreachable!(),
+
             OperatorData::Custom(op) => {
                 match Operator::build_transforms(
                     &**op,
@@ -920,15 +922,6 @@ impl OperatorData {
                     op_id,
                     prebound_outputs,
                 );
-            }
-            OperatorData::MacroDef(op) => {
-                return insert_tf_macro_def(
-                    job,
-                    op,
-                    op_base.chain_id,
-                    op_id,
-                    prebound_outputs,
-                )
             }
         };
 

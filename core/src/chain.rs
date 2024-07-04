@@ -1,6 +1,7 @@
 use crate::{
     index_newtype,
     operators::operator::{OffsetInChain, OperatorId},
+    record_data::scope_manager::ScopeId,
     utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
 
@@ -48,4 +49,5 @@ pub struct Chain {
     pub settings: ChainSettings,
     pub operators: IndexVec<OffsetInChain, OperatorId>,
     pub subchains: IndexVec<SubchainIndex, ChainId>,
+    pub scope_id: ScopeId,
 }

@@ -61,7 +61,6 @@ pub fn setup_op_macro(
 pub fn insert_tf_macro_def(
     _job: &mut Job,
     _op: &OpMacroDef,
-    _chain_id: ChainId,
     _op_id: OperatorId,
     _prebound_outputs: &PreboundOutputsMap,
 ) -> OperatorInstantiation {

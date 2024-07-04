@@ -339,7 +339,9 @@ impl<'a> JobData<'a> {
             tf_mgr: TransformManager::default(),
             field_mgr: FieldManager::default(),
             match_set_mgr: MatchSetManager::default(),
-            scope_mgr: ScopeManager::default(),
+            // PERF: we should probably try to reuse these scopes somehow,
+            // or use an offset universe or something instead of this clone
+            scope_mgr: sess.scope_mgr.clone(),
             group_track_manager: GroupTrackManager::default(),
             sv_mgr: StreamValueManager::default(),
             temp_vec: Vec::default(),

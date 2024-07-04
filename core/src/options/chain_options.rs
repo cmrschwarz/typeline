@@ -3,6 +3,7 @@ use crate::{
         BufferingMode, ChainId, ChainSettings, SubchainIndex, TextEncoding,
     },
     operators::operator::{OffsetInChainOptions, OperatorDataId},
+    record_data::scope_manager::{ScopeId, DEFAULT_SCOPE_ID},
     utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
 
@@ -21,6 +22,7 @@ pub struct ChainOptions {
     pub stream_size_threshold: Setting<usize>,
     pub buffering_mode: Setting<BufferingMode>,
     pub parent: ChainId,
+    pub scope_id: ScopeId,
     pub subchain_count: SubchainIndex,
     pub operators: IndexVec<OffsetInChainOptions, OperatorDataId>,
 }
@@ -34,6 +36,7 @@ pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {
     print_rationals_raw: Setting::new_v(false),
     default_batch_size: Setting::new_v(1024),
     stream_buffer_size: Setting::new_v(1024),
+    scope_id: DEFAULT_SCOPE_ID,
     stream_size_threshold: Setting::new_v(1024),
     buffering_mode: Setting::new_v(BufferingMode::LineBufferStdinIfTTY),
     parent: ChainId(0),

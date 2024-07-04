@@ -18,12 +18,14 @@ index_newtype! {
 
 pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;
 
+#[derive(Clone)]
 pub enum Symbol {
     Atom(StreamValueId),
     Field(FieldId),
     Macro(Arc<Macro>),
 }
 
+#[derive(Clone)]
 pub struct Scope {
     pub parent: Option<ScopeId>,
     pub symbols: HashMap<StringStoreEntry, Symbol, BuildIdentityHasher>,
@@ -34,9 +36,20 @@ impl Scope {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone)]
 pub struct ScopeManager {
     pub scopes: Universe<ScopeId, Scope>,
+}
+
+impl Default for ScopeManager {
+    fn default() -> Self {
+        let mut scopes = Universe::default();
+        scopes.claim_with_value(Scope {
+            parent: None,
+            symbols: HashMap::default(),
+        });
+        Self { scopes }
+    }
 }
 
 impl ScopeManager {

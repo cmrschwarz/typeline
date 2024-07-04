@@ -39,7 +39,10 @@ use crate::{
         },
         setting::CliArgIdx,
     },
-    record_data::{record_buffer::RecordBuffer, record_set::RecordSet},
+    record_data::{
+        record_buffer::RecordBuffer, record_set::RecordSet,
+        scope_manager::ScopeManager,
+    },
     scr_error::ChainSetupError,
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -76,6 +79,7 @@ pub struct SessionSettings {
 
 pub struct SessionSetupData {
     pub settings: SessionSettings,
+    pub scope_mgr: ScopeManager,
     pub chains: IndexVec<ChainId, Chain>,
     pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub operator_bases: IndexVec<OperatorId, OperatorBase>,
@@ -86,6 +90,7 @@ pub struct SessionSetupData {
 
 pub struct SessionData {
     pub settings: SessionSettings,
+    pub scope_mgr: ScopeManager,
     pub chains: IndexVec<ChainId, Chain>,
     pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub operator_bases: IndexVec<OperatorId, OperatorBase>,
@@ -764,6 +769,9 @@ impl SessionSetupData {
             settings: self.chains[chain_id].settings.clone(),
             operators: IndexVec::new(),
             subchains: IndexVec::new(),
+            scope_id: self
+                .scope_mgr
+                .add_scope(Some(self.chains[chain_id].scope_id)),
         });
         self.chains[chain_id].subchains.push(subchain_id);
         // PERF: :/

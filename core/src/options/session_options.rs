@@ -14,6 +14,7 @@ use crate::{
     context::{SessionData, SessionSettings, SessionSetupData},
     extension::ExtensionRegistry,
     operators::operator::{OperatorData, OperatorDataId},
+    record_data::scope_manager::ScopeManager,
     scr_error::{ContextualizedScrError, ScrError},
     utils::{
         identity_hasher::BuildIdentityHasher,
@@ -37,6 +38,7 @@ pub struct SessionOptions {
     pub any_threaded_operations: bool,
     pub repl: Setting<bool>,
     pub exit_repl: Setting<bool>,
+    pub scope_mgr: ScopeManager,
     pub(crate) string_store: StringStore,
     pub(crate) operator_base_opts:
         IndexVec<OperatorDataId, OperatorBaseOptionsInterned>,
@@ -76,6 +78,7 @@ static DEFAULT_CONTEXT_OPTIONS: Lazy<SessionOptions> =
         chains: IndexVec::new(),
         operator_base_opts: IndexVec::new(),
         operator_data: IndexVec::new(),
+        scope_mgr: ScopeManager::default(),
         string_store: StringStore::default(),
         cli_args: None,
         skipped_first_cli_arg: false,
@@ -103,6 +106,7 @@ impl SessionOptions {
             operator_base_opts: IndexVec::new(),
             operator_data: IndexVec::new(),
             string_store: StringStore::default(),
+            scope_mgr: ScopeManager::default(),
             cli_args: None,
             skipped_first_cli_arg: false,
             any_threaded_operations: false,
@@ -228,6 +232,7 @@ impl SessionOptions {
                     .build_chain_settings(parent.map(|p| &p.settings)),
                 operators: IndexVec::new(),
                 subchains: IndexVec::new(),
+                scope_id: chain_opts.scope_id,
             };
             chains.push(chain);
         }
@@ -264,6 +269,7 @@ impl SessionOptions {
 
         let mut sess_setup_data = SessionSetupData {
             chains,
+            scope_mgr: ScopeManager::default(),
             settings,
             chain_labels,
             operator_bases: IndexVec::new(),
@@ -309,6 +315,7 @@ impl SessionOptions {
 
         let mut sess = SessionData {
             chains: sess_setup_data.chains,
+            scope_mgr: sess_setup_data.scope_mgr,
             settings: sess_setup_data.settings,
             operator_data: sess_setup_data.operator_data,
             operator_bases: sess_setup_data.operator_bases,
