@@ -22,6 +22,10 @@
 #![allow(clippy::inline_always)]
 #![allow(clippy::uninlined_format_args)]
 
+// crates using macros. having this here helps out rust_analyzer
+extern crate metamatch;
+extern crate static_assertions;
+
 #[cfg(feature = "debug_log")]
 pub mod debug_log;
 

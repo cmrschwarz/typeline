@@ -22,11 +22,11 @@ impl ExtensionRegistry {
     pub fn setup(&mut self) {
         struct DummyExt;
         impl Extension for DummyExt {
-            fn parse_call_expr<'a>(
+            fn parse_call_expr(
                 &self,
                 _sess_opts: &mut SessionOptions,
-                expr: CallExpr<'a>,
-            ) -> Result<OperatorData, OperatorParsingError<'a>> {
+                expr: CallExpr,
+            ) -> Result<OperatorData, OperatorParsingError> {
                 Err(OperatorParsingError::UnknownOperator(expr))
             }
 
@@ -47,11 +47,11 @@ impl ExtensionRegistry {
 pub trait Extension: Send + Sync {
     fn name(&self) -> Cow<'static, str>;
     fn setup(&mut self, _registry: &mut ExtensionRegistry) {}
-    fn parse_call_expr<'a>(
+    fn parse_call_expr(
         &self,
         sess_opts: &mut SessionOptions,
-        expr: CallExpr<'a>,
-    ) -> Result<OperatorData, OperatorParsingError<'a>>;
+        expr: CallExpr,
+    ) -> Result<OperatorData, OperatorParsingError>;
 }
 
 pub fn build_empty_extension_registry() -> Arc<ExtensionRegistry> {

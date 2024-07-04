@@ -32,17 +32,19 @@ use crate::{
         operator_base_options::OperatorBaseOptions,
         session_options::SessionOptions,
     },
-    record_data::field_value::FieldValueKind,
+    record_data::{
+        array::Array,
+        field_value::{FieldValue, FieldValueKind},
+        scope_manager::{ScopeId, DEFAULT_SCOPE_ID},
+    },
     scr_error::{ContextualizedScrError, ReplDisabledError, ScrError},
-    utils::{cow_to_str, index_vec::IndexSlice, slice_cow},
+    utils::{index_vec::IndexSlice, maybe_text::MaybeText},
 };
 pub mod call_expr;
 pub mod call_expr_iter;
 use bstr::ByteSlice;
 
-use call_expr::{
-    Argument, ArgumentValue, CallExpr, CallExprEndKind, Label, Span,
-};
+use call_expr::{Argument, CallExpr, CallExprEndKind, Label, Span};
 use once_cell::sync::Lazy;
 use ref_cast::RefCast;
 use unicode_ident::{is_xid_continue, is_xid_start};
@@ -62,22 +64,23 @@ pub struct CliOptions {
     pub start_with_stdin: bool,
     pub print_output: bool,
     pub add_success_updator: bool,
+    pub default_scope_id: ScopeId,
     pub extensions: Arc<ExtensionRegistry>,
 }
 
 #[derive(Default)]
-pub struct CallExprHead<'a> {
+pub struct CallExprHead {
     append_mode: bool,
     transparent_mode: bool,
-    op_name: Cow<'a, str>,
-    label: Option<Label<'a>>,
+    op_name: String,
+    label: Option<Label>,
     colon_found: bool,
-    dashed_arg: Option<Argument<'a>>,
-    equals_arg: Option<Argument<'a>>,
+    dashed_arg: Option<Argument>,
+    equals_arg: Option<Argument>,
 }
 
-pub struct CallExprParseResult<'a> {
-    pub head: CallExprHead<'a>,
+pub struct CallExprParseResult {
+    pub head: CallExprHead,
     pub end_kind: CallExprEndKind,
     pub expr_span: Span,
 }
@@ -121,6 +124,7 @@ impl CliOptions {
             start_with_stdin: false,
             print_output: false,
             add_success_updator: false,
+            default_scope_id: DEFAULT_SCOPE_ID,
         }
     }
     pub fn without_extensions() -> Self {
@@ -187,7 +191,9 @@ fn try_parse_as_special_op(expr: &CallExpr) -> Result<bool, ScrError> {
     }
     if ["--help", "-h", "help", "h"].contains(&&*expr.op_name) {
         const MAIN_HELP_PAGE: &str = include_str!("help_sections/main.txt");
-        let text = if let Some(value) = expr.require_at_most_one_arg()? {
+        let text = if let Some(value) =
+            expr.require_at_most_one_plaintext_arg()?
+        {
             let section = String::from_utf8_lossy(value);
             match section.trim().to_lowercase().as_ref() {
                 "cast" => include_str!("help_sections/cast.txt"),
@@ -254,7 +260,7 @@ fn try_parse_as_setting(
                 .set(expr.require_single_number_param()?, expr.span)?;
         }
         "debug_log" => {
-            let val = expr.require_single_arg()?;
+            let val = expr.require_single_plaintext_arg()?;
             match val.to_str().ok().and_then(|v| PathBuf::from_str(v).ok()) {
                 Some(path) => {
                     ctx_opts.debug_log_path.set(path, expr.span)?;
@@ -349,10 +355,10 @@ fn parse_op_def(
     todo!()
 }
 
-pub fn parse_operator_data<'a>(
+pub fn parse_operator_data(
     sess_opts: &mut SessionOptions,
     expr: CallExpr,
-) -> Result<OperatorData, OperatorParsingError<'a>> {
+) -> Result<OperatorData, OperatorParsingError> {
     Ok(match &*expr.op_name {
         "def" => parse_op_def(sess_opts, &expr)?,
         "int" => parse_op_int(&expr)?,
@@ -363,9 +369,6 @@ pub fn parse_operator_data<'a>(
         "object" => parse_op_tyson(&expr, FieldValueKind::Object, sess_opts)?,
         "array" => parse_op_tyson(&expr, FieldValueKind::Array, sess_opts)?,
         "float" => parse_op_tyson(&expr, FieldValueKind::Float, sess_opts)?,
-        "rational" => {
-            parse_op_tyson(&expr, FieldValueKind::Rational, sess_opts)?
-        }
         "v" | "value" | "tyson" => {
             parse_op_tyson_value(&expr, Some(sess_opts))?
         }
@@ -444,12 +447,12 @@ fn require_list_start_as_separate_arg(
     Ok(())
 }
 
-pub fn complain_if_dashed_arg<'a>(
-    src: &mut Peekable<impl Iterator<Item = Argument<'a>>>,
+pub fn complain_if_dashed_arg(
+    src: &mut Peekable<impl Iterator<Item = Argument>>,
     because_block: bool,
 ) -> Result<(), CliArgumentError> {
     if let Some(arg) = src.peek() {
-        if let ArgumentValue::Plain(argv) = &arg.value {
+        if let Some(argv) = arg.value.text_or_bytes() {
             if argv.starts_with(b"-") {
                 return Err(CliArgumentError::new_s(
                     format!(
@@ -464,13 +467,13 @@ pub fn complain_if_dashed_arg<'a>(
     Ok(())
 }
 
-pub fn gobble_cli_args_while_dashed<'a>(
-    src: &mut Peekable<impl Iterator<Item = Argument<'a>>>,
-    args: &mut Vec<Argument<'a>>,
+pub fn gobble_cli_args_while_dashed(
+    src: &mut Peekable<impl Iterator<Item = Argument>>,
+    args: &mut Vec<Argument>,
 ) -> Option<Span> {
     let mut final_span = None;
     while let Some(arg) = src.peek() {
-        let ArgumentValue::Plain(argv) = &arg.value else {
+        let Some(argv) = arg.value.text_or_bytes() else {
             break;
         };
         if !argv.starts_with(b"-") {
@@ -482,24 +485,24 @@ pub fn gobble_cli_args_while_dashed<'a>(
     final_span
 }
 
-pub fn gobble_cli_args_until_end<'a>(
-    src: &mut Peekable<impl Iterator<Item = Argument<'a>>>,
+pub fn gobble_cli_args_until_end(
+    src: &mut Peekable<impl Iterator<Item = Argument>>,
     push_end: bool,
-    args: &mut Vec<Argument<'a>>,
+    args: &mut Vec<Argument>,
     block_start: Span,
 ) -> Result<Span, CliArgumentError> {
     while let Some(arg) = src.peek() {
-        let ArgumentValue::Plain(argv) = &arg.value else {
+        let Some(argv) = arg.value.text_or_bytes() else {
             args.push(src.next().unwrap());
             continue;
         };
-        if *argv == "]".as_bytes() {
+        if argv == b"]" {
             return Err(CliArgumentError::new(
                 "found list end `]` while waiting for `end` to terminate block",
                 arg.span
             ));
         }
-        if *argv == "end".as_bytes() {
+        if argv == b"end" {
             let arg = src.next().unwrap();
             let arg_span = arg.span;
             if push_end {
@@ -523,20 +526,20 @@ pub fn error_unterminated_list(list_start: Span) -> CliArgumentError {
     )
 }
 
-pub fn gobble_cli_args_until_bracket_close<'a>(
-    src: &mut Peekable<impl Iterator<Item = Argument<'a>>>,
+pub fn gobble_cli_args_until_bracket_close(
+    src: &mut Peekable<impl Iterator<Item = Argument>>,
     list_start: Span,
-    args: &mut Vec<Argument<'a>>,
+    args: &mut Vec<Argument>,
 ) -> Result<Span, CliArgumentError> {
     while let Some(arg) = src.next() {
-        let ArgumentValue::Plain(argv) = &arg.value else {
+        let Some(argv) = arg.value.text_or_bytes() else {
             args.push(arg);
             continue;
         };
-        if *argv == "]".as_bytes() {
+        if argv == b"]" {
             return Ok(arg.span);
         }
-        if *argv != "[".as_bytes() {
+        if argv != b"[" {
             args.push(arg.clone());
             continue;
         }
@@ -547,21 +550,24 @@ pub fn gobble_cli_args_until_bracket_close<'a>(
             &mut list_args,
         )?;
         args.push(Argument {
-            value: ArgumentValue::List(list_args),
+            value: FieldValue::Array(Array::Argument(list_args)),
             span: arg.span.span_until(list_end).unwrap(),
+            source_scope: arg.source_scope,
         })
     }
     Err(error_unterminated_list(list_start))
 }
 
 pub fn cli_args_into_arguments_iter(
-    args: &[Vec<u8>],
-) -> Peekable<impl Iterator<Item = Argument<'_>>> {
-    args.iter()
+    args: impl IntoIterator<Item = Vec<u8>>,
+    scope: ScopeId,
+) -> Peekable<impl Iterator<Item = Argument>> {
+    args.into_iter()
         .enumerate()
-        .map(|(i, v)| Argument {
-            value: ArgumentValue::Plain(Cow::Borrowed(v)),
+        .map(move |(i, v)| Argument {
             span: Span::from_single_arg(i, v.len()),
+            value: FieldValue::Bytes(v),
+            source_scope: scope,
         })
         .peekable()
 }
@@ -570,10 +576,11 @@ pub fn error_arg_start_is_list(span: Span) -> CliArgumentError {
     CliArgumentError::new("expression cannot start with a list", span)
 }
 
-pub fn parse_call_expr_head<'a>(
-    argv: &Cow<'a, [u8]>,
+pub fn parse_call_expr_head(
+    argv: &[u8],
     arg_span: Span,
-) -> Result<CallExprHead<'a>, CliArgumentError> {
+    scope: ScopeId,
+) -> Result<CallExprHead, CliArgumentError> {
     let mut append_mode = false;
     let mut transparent_mode = false;
 
@@ -657,8 +664,10 @@ pub fn parse_call_expr_head<'a>(
         }
         op_end = end;
     }
-    let op_name = cow_to_str(slice_cow(argv, op_start..op_end))
-        .expect("op_name was checked to be valid utf-8");
+    let op_name = argv[op_start..op_end]
+        .to_str()
+        .expect("op_name was checked to be valid utf-8")
+        .to_owned();
 
     let mut label = None;
 
@@ -710,8 +719,10 @@ pub fn parse_call_expr_head<'a>(
             label_end = end;
         }
         label = Some(Label {
-            value: cow_to_str(slice_cow(argv, label_start..label_end))
-                .expect("op_name was checked to be valid utf-8"),
+            value: argv[label_start..label_end]
+                .to_str()
+                .expect("op_name was checked to be valid utf-8")
+                .to_owned(),
             is_atom: label_is_atom,
             span: arg_span.subslice(0, 1, label_start, label_end),
         });
@@ -745,16 +756,16 @@ pub fn parse_call_expr_head<'a>(
         }
 
         dashed_arg = Some(Argument {
-            value: ArgumentValue::Plain(slice_cow(
-                argv,
-                squished_arg_start..squished_arg_end,
-            )),
+            value: FieldValue::Bytes(
+                argv[squished_arg_start..squished_arg_end].to_owned(),
+            ),
             span: arg_span.subslice(
                 0,
                 1,
                 squished_arg_start,
                 squished_arg_end,
             ),
+            source_scope: scope,
         });
     }
 
@@ -762,8 +773,9 @@ pub fn parse_call_expr_head<'a>(
 
     if equals_found {
         equals_arg = Some(Argument {
-            value: ArgumentValue::Plain(slice_cow(argv, i..)),
+            value: FieldValue::Bytes(argv[i..].to_owned()),
             span: arg_span.subslice(0, 1, i, argv.len()),
+            source_scope: scope,
         })
     };
 
@@ -778,12 +790,12 @@ pub fn parse_call_expr_head<'a>(
     })
 }
 
-pub fn parse_call_expr_raw<'a>(
-    src: &mut Peekable<impl Iterator<Item = Argument<'a>>>,
+pub fn parse_call_expr_raw(
+    src: &mut Peekable<impl Iterator<Item = Argument>>,
     mut list_start_span: Option<Span>,
     push_args_raw: bool,
-    args: &mut Vec<Argument<'a>>,
-) -> Result<Option<CallExprParseResult<'a>>, CliArgumentError> {
+    args: &mut Vec<Argument>,
+) -> Result<Option<CallExprParseResult>, CliArgumentError> {
     let Some(mut arg) = src.next() else {
         return Ok(None);
     };
@@ -791,18 +803,48 @@ pub fn parse_call_expr_raw<'a>(
     let start_span = arg.span;
 
     let mut argv = match arg.value {
-        ArgumentValue::List(_) => {
+        FieldValue::Array(mut arr) => {
             if let Some(lss) = list_start_span {
                 return Err(error_arg_start_is_list(lss));
             }
-            return parse_call_expr_raw(
-                src,
-                Some(start_span),
-                push_args_raw,
-                args,
-            );
+            arr.canonicalize();
+            if arr.is_empty() {
+                return Err(CliArgumentError::new(
+                    "failed to parse empty array as an s-expression",
+                    start_span,
+                ));
+            }
+            match arr {
+                Array::Argument(array_args) => {
+                    return parse_call_expr_raw(
+                        &mut array_args.into_iter().peekable(),
+                        Some(start_span),
+                        push_args_raw,
+                        args,
+                    );
+                }
+                _ => {
+                    return Err(CliArgumentError::new_s(
+                        format!(
+                        "failed to parse array of `{}`s as an s-expression",
+                        arr.repr().unwrap()
+                    ),
+                        start_span,
+                    ))
+                }
+            }
         }
-        ArgumentValue::Plain(v) => v,
+        FieldValue::Text(v) => MaybeText::Text(v),
+        FieldValue::Bytes(v) => MaybeText::Bytes(v),
+        _ => {
+            return Err(CliArgumentError::new_s(
+                format!(
+                    "cannot parse type `{}` as an s-expression",
+                    arg.value.repr()
+                ),
+                start_span,
+            ))
+        }
     };
 
     let mut is_plain_list = false;
@@ -821,19 +863,21 @@ pub fn parse_call_expr_raw<'a>(
             .next()
             .ok_or_else(|| error_unterminated_list(start_span))?;
 
-        let ArgumentValue::Plain(next_argv) = arg.value else {
+        let Some(next_argv) = arg.value.into_maybe_text() else {
             return Err(error_arg_start_is_list(arg.span));
         };
         argv = next_argv;
         arg_span = arg.span;
     }
 
-    let head = parse_call_expr_head(&argv, arg_span)?;
+    let head =
+        parse_call_expr_head(argv.as_bytes(), arg_span, arg.source_scope)?;
 
     if push_args_raw {
         args.push(Argument {
-            value: ArgumentValue::Plain(argv.clone()),
+            value: FieldValue::from_maybe_text(argv.clone()),
             span: arg_span,
+            source_scope: arg.source_scope,
         });
     } else {
         if let Some(dash_arg) = &head.dashed_arg {
@@ -894,9 +938,9 @@ pub fn parse_call_expr_raw<'a>(
     }))
 }
 
-pub fn parse_call_expr<'a>(
-    src: &mut Peekable<impl Iterator<Item = Argument<'a>>>,
-) -> Result<Option<CallExpr<'a>>, CliArgumentError> {
+pub fn parse_call_expr(
+    src: &mut Peekable<impl Iterator<Item = Argument>>,
+) -> Result<Option<CallExpr>, CliArgumentError> {
     let mut args = Vec::new();
 
     let parse_res = parse_call_expr_raw(src, None, false, &mut args)?;
@@ -912,9 +956,9 @@ pub fn parse_call_expr<'a>(
     }))
 }
 
-pub fn parse_cli_retain_args<'a>(
+pub fn parse_cli_retain_args(
     cli_opts: &CliOptions,
-    args: &mut Peekable<impl Iterator<Item = Argument<'a>>>,
+    args: &mut Peekable<impl Iterator<Item = Argument>>,
 ) -> Result<SessionOptions, ScrError> {
     assert!(
         !cli_opts.allow_repl || cfg!(feature = "repl"),
@@ -983,7 +1027,7 @@ pub fn parse_cli_retain_args<'a>(
             },
         );
         let op_base_opts = OperatorBaseOptions::new(
-            op_data.default_op_name(),
+            op_data.default_op_name().into(),
             None,
             false,
             false,
@@ -995,7 +1039,7 @@ pub fn parse_cli_retain_args<'a>(
     if cli_opts.add_success_updator {
         let op_data = create_op_success_updator();
         let op_base_opts = OperatorBaseOptions::new(
-            op_data.default_op_name(),
+            op_data.default_op_name().into(),
             None,
             false,
             false,
@@ -1011,7 +1055,10 @@ pub fn parse_cli_raw(
     args: Vec<Vec<u8>>,
     cli_opts: &CliOptions,
 ) -> Result<SessionOptions, (Vec<Vec<u8>>, ScrError)> {
-    let mut args_mapper = cli_args_into_arguments_iter(&args);
+    let mut args_mapper = cli_args_into_arguments_iter(
+        args.iter().cloned(),
+        cli_opts.default_scope_id,
+    );
     match parse_cli_retain_args(cli_opts, &mut args_mapper) {
         Ok(mut ctx) => {
             drop(args_mapper);
@@ -1081,21 +1128,26 @@ pub fn parse_cli_from_env(
 
 #[cfg(test)]
 mod test {
-    use std::borrow::Cow;
 
-    use crate::cli::{
-        call_expr::{
-            Argument, ArgumentValue, CallExpr, CallExprEndKind, Span,
+    use crate::{
+        cli::{
+            call_expr::{Argument, CallExpr, CallExprEndKind, Span},
+            cli_args_into_arguments_iter, parse_call_expr,
         },
-        cli_args_into_arguments_iter, parse_call_expr,
+        record_data::{
+            field_value::FieldValue, scope_manager::DEFAULT_SCOPE_ID,
+        },
     };
 
     #[test]
     fn test_parse_call_expr() {
         let src = vec!["seq=10".as_bytes().to_owned()];
-        let expr = parse_call_expr(&mut cli_args_into_arguments_iter(&src))
-            .unwrap()
-            .unwrap();
+        let expr = parse_call_expr(&mut cli_args_into_arguments_iter(
+            src,
+            DEFAULT_SCOPE_ID,
+        ))
+        .unwrap()
+        .unwrap();
         assert_eq!(
             expr,
             CallExpr {
@@ -1104,8 +1156,9 @@ mod test {
                 op_name: "seq".into(),
                 label: None,
                 args: vec![Argument {
-                    value: ArgumentValue::Plain(Cow::Borrowed(b"10")),
+                    value: FieldValue::Bytes(b"10".into()),
                     span: Span::from_single_arg_with_offset(0, 4, 6),
+                    source_scope: DEFAULT_SCOPE_ID
                 }],
                 end_kind: CallExprEndKind::Inline,
                 span: Span::from_single_arg(0, 6)

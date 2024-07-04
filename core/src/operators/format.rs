@@ -1,5 +1,6 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
+use metamatch::metamatch;
 use std::{borrow::Cow, cell::RefMut, ptr::NonNull};
 use unicode_ident::is_xid_start;
 
@@ -736,7 +737,7 @@ pub fn build_op_format(
 pub fn parse_op_format(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let val = expr.require_single_arg()?;
+    let val = expr.require_single_plaintext_arg()?;
     build_op_format(val, expr.span)
 }
 pub fn create_op_format(
@@ -971,83 +972,68 @@ pub fn setup_key_output_state(
     while let Some(range) =
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
-        match range.base.data {
-            FieldValueSlice::TextInline(text) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineTextIter::from_range(&range, text)
+        metamatch!(match range.base.data {
+            #[expand(T in [Null, Undefined])]
+            FieldValueSlice::T(_) if typed_format => {
+                iter_output_states_advanced(
+                    &mut fmt.output_states,
+                    &mut output_index,
+                    range.base.field_count,
+                    |o| {
+                        o.len += calc_fmt_len_ost(k, &mut (), o, &T);
+                    },
+                );
+            }
+
+            FieldValueSlice::Error(v) if typed_format => {
+                for (v, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, v)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
+                        o.apply_to_rfk(k, &mut fc.rfk);
                         o.len +=
                             calc_fmt_len_ost(k, &mut formatting_opts, o, v);
                     });
                 }
             }
-            FieldValueSlice::BytesInline(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineBytesIter::from_range(&range, bytes)
-                {
+
+            #[expand((REPR, ITER, RAW_BYTES) in [
+                (TextInline, RefAwareInlineTextIter, false),
+                (TextBuffer, RefAwareTextBufferIter, false),
+                (BytesInline, RefAwareInlineBytesIter, false),
+                (BytesBuffer, RefAwareBytesBufferIter, false),
+            ])]
+            FieldValueSlice::REPR(v) => {
+                for (v, rl, _offs) in ITER::from_range(&range, v) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
+                        o.apply_to_rfk(k, &mut fc.rfk);
                         o.len +=
                             calc_fmt_len_ost(k, &mut formatting_opts, o, v);
-                        o.contains_raw_bytes = true;
+                        o.contains_raw_bytes |= RAW_BYTES;
                     });
                 }
             }
-            FieldValueSlice::TextBuffer(text) => {
-                for (v, rl, _offs) in
-                    RefAwareTextBufferIter::from_range(&range, text)
+
+            #[expand((T, CTX) in [
+                (Int, &mut fc.rfk),
+                (Float, &mut fc.rfk),
+                (BigInt, &mut fc.rfk),
+                (BigRational, &mut fc),
+                (Object, &mut fc),
+                (Array, &mut fc),
+                (Argument, &mut fc)
+            ])]
+            FieldValueSlice::T(ints) => {
+                for (v, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, ints)
                 {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len +=
-                            calc_fmt_len_ost(k, &mut formatting_opts, o, v);
-                        o.contains_raw_bytes = true;
+                        o.apply_to_rfk(k, &mut fc.rfk);
+                        o.len += calc_fmt_len_ost(k, CTX, o, v);
                     });
                 }
             }
-            FieldValueSlice::BytesBuffer(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareBytesBufferIter::from_range(&range, bytes)
-                {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len +=
-                            calc_fmt_len_ost(k, &mut formatting_opts, o, v);
-                        o.contains_raw_bytes = true;
-                    });
-                }
-            }
-            FieldValueSlice::Custom(custom_data) => {
-                for (v, rl) in RefAwareFieldValueRangeIter::from_range(
-                    &range,
-                    custom_data,
-                ) {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        if let Ok(len) = v.formatted_len_raw(
-                            &k.realize(o.min_char_count, o.float_precision),
-                        ) {
-                            o.len += len;
-                        } else {
-                            o.contained_error = Some(FormatError {
-                                error_in_width: false,
-                                part_idx,
-                                kind: FieldValueRepr::Custom,
-                            })
-                        }
-                    });
-                }
-            }
-            FieldValueSlice::Int(ints) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_fmt_len_ost(
-                            k,
-                            &mut k
-                                .realize(o.min_char_count, o.float_precision),
-                            o,
-                            v,
-                        );
-                    });
-                }
-            }
+
             FieldValueSlice::StreamValueId(svs) => {
                 let mut formatting_opts = ValueFormattingOpts {
                     is_stream_value: true,
@@ -1148,33 +1134,24 @@ pub fn setup_key_output_state(
                     continue;
                 }
             }
-            FieldValueSlice::Null(_) if typed_format => {
-                iter_output_states_advanced(
-                    &mut fmt.output_states,
-                    &mut output_index,
-                    range.base.field_count,
-                    |o| {
-                        o.len += calc_fmt_len_ost(k, &mut (), o, &Null);
-                    },
-                );
-            }
-            FieldValueSlice::Undefined(_) if typed_format => {
-                iter_output_states_advanced(
-                    &mut fmt.output_states,
-                    &mut output_index,
-                    range.base.field_count,
-                    |o| {
-                        o.len += calc_fmt_len_ost(k, &mut (), o, &Undefined);
-                    },
-                );
-            }
-            FieldValueSlice::Error(errs) if typed_format => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, errs)
-                {
+
+            FieldValueSlice::Custom(custom_data) => {
+                for (v, rl) in RefAwareFieldValueRangeIter::from_range(
+                    &range,
+                    custom_data,
+                ) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len +=
-                            calc_fmt_len_ost(k, &mut formatting_opts, o, v);
+                        if let Ok(len) = v.formatted_len_raw(
+                            &k.realize(o.min_char_count, o.float_precision),
+                        ) {
+                            o.len += len;
+                        } else {
+                            o.contained_error = Some(FormatError {
+                                error_in_width: false,
+                                part_idx,
+                                kind: FieldValueRepr::Custom,
+                            })
+                        }
                     });
                 }
             }
@@ -1195,65 +1172,9 @@ pub fn setup_key_output_state(
                     },
                 );
             }
-            FieldValueSlice::BigInt(vs) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, vs) {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_fmt_len_ost(
-                            k,
-                            &mut k
-                                .realize(o.min_char_count, o.float_precision),
-                            o,
-                            v,
-                        );
-                    });
-                }
-            }
-            FieldValueSlice::Float(vs) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, vs) {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.len += calc_fmt_len_ost(
-                            k,
-                            &mut k
-                                .realize(o.min_char_count, o.float_precision),
-                            o,
-                            v,
-                        );
-                    });
-                }
-            }
-            FieldValueSlice::Rational(vs) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, vs) {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        fc.rfk =
-                            k.realize(o.min_char_count, o.float_precision);
-                        o.len += calc_fmt_len_ost(k, &mut fc, o, v);
-                    });
-                }
-            }
-            FieldValueSlice::Object(objects) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, objects)
-                {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        fc.rfk =
-                            k.realize(o.min_char_count, o.float_precision);
-                        o.len += calc_fmt_len_ost(k, &mut fc, o, v);
-                    });
-                }
-            }
-            FieldValueSlice::Array(arrays) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, arrays)
-                {
-                    iter_output_states(fmt, &mut output_index, rl, |o| {
-                        o.apply_to_rfk(k, &mut fc.rfk);
-                        o.len += calc_fmt_len_ost(k, &mut fc, o, v);
-                    });
-                }
-            }
             FieldValueSlice::FieldReference(_)
             | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-        }
+        });
         handled_fields += range.base.field_count;
     }
     let uninitialized_fields = batch_size - handled_fields;
@@ -1514,7 +1435,7 @@ unsafe fn insert_output_target(
     buf.extend(std::iter::repeat('#').take(os.len));
     output_field
         .iter_hall
-        .push_text_buffer(buf, os.run_len, true, false);
+        .push_string(buf, os.run_len, true, false);
     target
 }
 fn write_formatted<'a, 'b, F: Formattable<'a, 'b> + ?Sized>(
@@ -1582,11 +1503,27 @@ fn write_fmt_key(
     while let Some(range) =
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
-        match range.base.data {
-            FieldValueSlice::TextInline(text) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineTextIter::from_range(&range, text)
-                {
+        metamatch!(match range.base.data {
+            #[expand(T in [Null, Undefined])]
+            FieldValueSlice::T(_) => {
+                iter_output_targets(
+                    fmt,
+                    &mut output_index,
+                    range.base.field_count,
+                    |tgt| {
+                        write_formatted(k, &mut (), tgt, &T);
+                    },
+                );
+            }
+
+            #[expand((REPR, ITER) in [
+                (TextInline, RefAwareInlineTextIter),
+                (BytesInline, RefAwareInlineBytesIter),
+                (TextBuffer, RefAwareTextBufferIter),
+                (BytesBuffer, RefAwareBytesBufferIter),
+            ])]
+            FieldValueSlice::REPR(text) => {
+                for (v, rl, _offs) in ITER::from_range(&range, text) {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
@@ -1597,48 +1534,64 @@ fn write_fmt_key(
                     );
                 }
             }
-            FieldValueSlice::BytesInline(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineBytesIter::from_range(&range, bytes)
+
+            #[expand( T in [Int, Float, BigInt])]
+            FieldValueSlice::T(ints) => {
+                for (v, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, ints)
                 {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
                         rl as usize,
                         |tgt| {
-                            write_formatted(k, &mut formatting_opts, tgt, v);
+                            let mut rfk = k.realize(
+                                tgt.min_char_count,
+                                tgt.float_precision,
+                            );
+                            write_formatted(k, &mut rfk, tgt, v)
                         },
                     );
                 }
             }
-            FieldValueSlice::TextBuffer(text) => {
-                for (v, rl, _offs) in
-                    RefAwareTextBufferIter::from_range(&range, text)
+
+            #[expand(T in [BigRational, Object, Array, Argument])]
+            FieldValueSlice::T(vs) => {
+                let mut fc = FormattingContext {
+                    ss: &mut string_store,
+                    fm,
+                    msm,
+                    print_rationals_raw: fmt.print_rationals_raw,
+                    is_stream_value: false,
+                    rfk: RealizedFormatKey::default(),
+                };
+                for (v, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, vs)
                 {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
                         rl as usize,
                         |tgt| {
-                            write_formatted(k, &mut formatting_opts, tgt, v);
+                            write_formatted(k, &mut fc, tgt, v);
                         },
                     );
                 }
             }
-            FieldValueSlice::BytesBuffer(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareBytesBufferIter::from_range(&range, bytes)
+
+            FieldValueSlice::Error(errs) => {
+                for (v, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, errs)
                 {
                     iter_output_targets(
                         fmt,
                         &mut output_index,
                         rl as usize,
-                        |tgt| {
-                            write_formatted(k, &mut formatting_opts, tgt, v);
-                        },
+                        |tgt| write_formatted(k, &mut formatting_opts, tgt, v),
                     );
                 }
             }
+
             FieldValueSlice::Custom(custom_data) => {
                 let mut rfk = RealizedFormatKey {
                     opts: k.opts.clone(),
@@ -1682,58 +1635,7 @@ fn write_fmt_key(
                     );
                 }
             }
-            FieldValueSlice::Int(ints) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
-                    iter_output_targets(
-                        fmt,
-                        &mut output_index,
-                        rl as usize,
-                        |tgt| {
-                            write_formatted(
-                                k,
-                                &mut k.realize(
-                                    tgt.min_char_count,
-                                    tgt.float_precision,
-                                ),
-                                tgt,
-                                v,
-                            )
-                        },
-                    );
-                }
-            }
-            FieldValueSlice::Null(_) => {
-                iter_output_targets(
-                    fmt,
-                    &mut output_index,
-                    range.base.field_count,
-                    |tgt| {
-                        write_formatted(k, &mut (), tgt, &Null);
-                    },
-                );
-            }
-            FieldValueSlice::Undefined(_) => {
-                iter_output_targets(
-                    fmt,
-                    &mut output_index,
-                    range.base.field_count,
-                    |tgt| {
-                        write_formatted(k, &mut (), tgt, &Undefined);
-                    },
-                );
-            }
-            FieldValueSlice::Error(errs) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, errs)
-                {
-                    iter_output_targets(
-                        fmt,
-                        &mut output_index,
-                        rl as usize,
-                        |tgt| write_formatted(k, &mut formatting_opts, tgt, v),
-                    );
-                }
-            }
+
             FieldValueSlice::StreamValueId(svs) => {
                 let mut formatting_opts = ValueFormattingOpts {
                     is_stream_value: true,
@@ -1785,117 +1687,9 @@ fn write_fmt_key(
                     );
                 }
             }
-            FieldValueSlice::BigInt(vs) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vs)
-                {
-                    iter_output_targets(
-                        fmt,
-                        &mut output_index,
-                        rl as usize,
-                        |tgt| {
-                            write_formatted(
-                                k,
-                                &mut k.realize(
-                                    tgt.min_char_count,
-                                    tgt.float_precision,
-                                ),
-                                tgt,
-                                v,
-                            )
-                        },
-                    );
-                }
-            }
-            FieldValueSlice::Float(vs) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, vs) {
-                    iter_output_targets(
-                        fmt,
-                        &mut output_index,
-                        rl as usize,
-                        |tgt| {
-                            write_formatted(
-                                k,
-                                &mut k.realize(
-                                    tgt.min_char_count,
-                                    tgt.float_precision,
-                                ),
-                                tgt,
-                                v,
-                            );
-                        },
-                    );
-                }
-            }
-            FieldValueSlice::Rational(vs) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
-                    print_rationals_raw: fmt.print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vs)
-                {
-                    iter_output_targets(
-                        fmt,
-                        &mut output_index,
-                        rl as usize,
-                        |tgt| {
-                            write_formatted(k, &mut fc, tgt, v);
-                        },
-                    );
-                }
-            }
-            FieldValueSlice::Object(vs) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
-                    print_rationals_raw: fmt.print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vs)
-                {
-                    iter_output_targets(
-                        fmt,
-                        &mut output_index,
-                        rl as usize,
-                        |tgt| {
-                            write_formatted(k, &mut fc, tgt, v);
-                        },
-                    );
-                }
-            }
-            FieldValueSlice::Array(vs) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
-                    print_rationals_raw: fmt.print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vs)
-                {
-                    iter_output_targets(
-                        fmt,
-                        &mut output_index,
-                        rl as usize,
-                        |tgt| {
-                            write_formatted(k, &mut fc, tgt, v);
-                        },
-                    );
-                }
-            }
             FieldValueSlice::FieldReference(_)
             | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-        }
+        });
     }
     let base_iter = iter.into_base_iter();
     let field_pos_end = base_iter.get_next_field_pos();

@@ -694,7 +694,7 @@ impl SessionSetupData {
                 let curr_agg =
                     *curr_aggregation_op_id.get_or_insert_with(|| {
                         let aggregate_op_opts =
-                            OperatorBaseOptions::from_name("aggregate".into());
+                            OperatorBaseOptions::from_name("aggregate");
                         self.add_op_from_opts_direct(
                             chain_id,
                             aggregate_op_opts,
@@ -703,9 +703,8 @@ impl SessionSetupData {
                     });
 
                 if curr_aggregation.is_empty() && op_base_opts.append_mode {
-                    let op_nop_opts =
-                        OperatorBaseOptions::from_name("nop".into())
-                            .intern(&mut self.string_store);
+                    let op_nop_opts = OperatorBaseOptions::from_name("nop")
+                        .intern(&mut self.string_store);
                     curr_aggregation.push(self.setup_for_op_data(
                         chain_id,
                         OperatorOffsetInChain::AggregationMember(

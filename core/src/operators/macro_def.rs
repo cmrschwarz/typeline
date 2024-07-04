@@ -3,9 +3,7 @@ use std::sync::Arc;
 use crate::{
     chain::ChainId,
     cli::{
-        call_expr::{ArgumentValue, CallExpr},
-        call_expr_iter::CallExprIter,
-        parse_operator_data,
+        call_expr::CallExpr, call_expr_iter::CallExprIter, parse_operator_data,
     },
     context::SessionSetupData,
     job::Job,
@@ -15,7 +13,7 @@ use crate::{
         },
         session_options::SessionOptions,
     },
-    utils::{cow_to_str, string_store::StringStoreEntry},
+    utils::string_store::StringStoreEntry,
 };
 
 use super::{
@@ -29,12 +27,12 @@ use super::{
 
 pub struct Macro {
     pub name: StringStoreEntry,
-    pub operations: Vec<(OperatorBaseOptions<'static>, OperatorData)>,
+    pub operations: Vec<(OperatorBaseOptions, OperatorData)>,
 }
 
 pub struct OpMacroDef {
     pub name: String,
-    pub operations: Vec<(OperatorBaseOptions<'static>, OperatorData)>,
+    pub operations: Vec<(OperatorBaseOptions, OperatorData)>,
     pub macro_def: Option<Arc<Macro>>,
 }
 
@@ -70,15 +68,13 @@ pub fn insert_tf_macro_def(
     todo!()
 }
 
-pub fn create_op_macro_with_opts(
+pub fn create_op_macro_def_with_opts(
     name: String,
-    mut operations: Vec<(OperatorBaseOptions<'static>, OperatorData)>,
+    mut operations: Vec<(OperatorBaseOptions, OperatorData)>,
 ) -> OperatorData {
     if operations.is_empty() {
-        operations.push((
-            OperatorBaseOptions::from_name("nop".into()),
-            create_op_nop(),
-        ));
+        operations
+            .push((OperatorBaseOptions::from_name("nop"), create_op_nop()));
     }
     OperatorData::MacroDef(OpMacroDef {
         name,
@@ -86,7 +82,7 @@ pub fn create_op_macro_with_opts(
         macro_def: None,
     })
 }
-pub fn create_op_macro(
+pub fn create_op_macro_def(
     name: String,
     operators: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
@@ -99,10 +95,10 @@ pub fn create_op_macro(
             )
         })
         .collect();
-    create_op_macro_with_opts(name, subchain_with_opts)
+    create_op_macro_def_with_opts(name, subchain_with_opts)
 }
 
-pub fn parse_op_macro(
+pub fn parse_op_macro_def(
     sess_opts: &mut SessionOptions,
     mut expr: CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
@@ -118,28 +114,14 @@ pub fn parse_op_macro(
             expr_span,
         ));
     };
-    first_arg
-        .value
-        .expect_plain(&expr.op_name, first_arg.span)?;
-    let ArgumentValue::Plain(name_bytes) = first_arg.value else {
-        return Err(OperatorCreationError::new(
-            "macro name argument cannot be a list",
-            first_arg.span,
-        ));
-    };
-    let Ok(name) = cow_to_str(name_bytes) else {
-        return Err(OperatorCreationError::new(
-            "macro name must be valid utf-8",
-            first_arg.span,
-        ));
-    };
+    let name = first_arg.expect_string(&expr.op_name)?;
 
     for expr in CallExprIter::from_args_iter(args_iter) {
         let expr = expr?;
-        let op_base = expr.op_base_options_static();
+        let op_base = expr.op_base_options();
         let op_data = parse_operator_data(sess_opts, expr)?;
         operations.push((op_base, op_data));
     }
 
-    Ok(create_op_macro_with_opts(name.into_owned(), operations))
+    Ok(create_op_macro_def_with_opts(name.into(), operations))
 }

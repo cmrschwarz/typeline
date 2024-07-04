@@ -187,7 +187,11 @@ impl Operator for OpPy {
                         .active_scope,
                     *name,
                 ) {
-                    jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, &mut jd.scope_mgr, id);
+                    jd.field_mgr.setup_field_refs(
+                        &mut jd.match_set_mgr,
+                        &mut jd.scope_mgr,
+                        id,
+                    );
                     let mut f = jd.field_mgr.fields[id].borrow_mut();
                     f.ref_count += 1;
                     id
@@ -252,7 +256,7 @@ impl PythonValue<'_> {
             PythonValue::InlineText(v) => FieldValue::Text(v.to_string()),
             PythonValue::InlineBytes(v) => FieldValue::Bytes(v.to_vec()),
             PythonValue::BigInt(v) => FieldValue::BigInt(Box::new(v)),
-            PythonValue::Rational(v) => FieldValue::Rational(Box::new(v)),
+            PythonValue::Rational(v) => FieldValue::BigRational(Box::new(v)),
             PythonValue::Other(v) => v,
         }
     }
@@ -424,12 +428,13 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         FieldValueRef::Int(i) => i.to_object(py),
                         FieldValueRef::BigInt(i) => i.to_object(py),
                         FieldValueRef::Float(f) => f.to_object(py),
-                        FieldValueRef::Rational(_) => todo!(), /* use fractions.Fraction? */
+                        FieldValueRef::BigRational(_) => todo!(), /* use fractions.Fraction? */
                         FieldValueRef::Text(s) => s.to_object(py),
                         FieldValueRef::Bytes(b) => {
                             PyBytes::new_bound(py, b).into_any().unbind()
                         }
                         FieldValueRef::Array(_) => todo!(),
+                        FieldValueRef::Argument(_) => todo!(),
                         FieldValueRef::Object(_) => todo!(),
                         FieldValueRef::Custom(_) => todo!(),
                         FieldValueRef::StreamValueId(_) => todo!(),
@@ -504,7 +509,7 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         inserter.push_big_int(v, 1, true, false)
                     }
                     PythonValue::Rational(v) => {
-                        inserter.push_rational(v, 1, true, false)
+                        inserter.push_big_rational(v, 1, true, false)
                     }
                     PythonValue::Other(v) => {
                         inserter.push_field_value_unpacked(v, 1, true, false)

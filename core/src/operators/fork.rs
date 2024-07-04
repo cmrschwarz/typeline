@@ -44,7 +44,7 @@ use super::{
 };
 
 pub struct OpFork {
-    pub subchains: Vec<Vec<(OperatorBaseOptions<'static>, OperatorData)>>,
+    pub subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
 
     pub subchains_start: SubchainIndex,
     pub subchains_end: SubchainIndex,
@@ -320,7 +320,7 @@ fn setup_fork_subchain(
 }
 
 pub fn create_op_fork_with_opts(
-    subchains: Vec<Vec<(OperatorBaseOptions<'static>, OperatorData)>>,
+    subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
 ) -> Result<OperatorData, OperatorCreationError> {
     Ok(OperatorData::Fork(OpFork {
         subchains_start: SubchainIndex::MAX_VALUE,
@@ -365,7 +365,7 @@ pub fn parse_op_fork(
             curr_subchain = Vec::new();
             continue;
         };
-        let op_base = expr.op_base_options_static();
+        let op_base = expr.op_base_options();
         let op_data = parse_operator_data(sess_opts, expr)?;
         curr_subchain.push((op_base, op_data));
     }

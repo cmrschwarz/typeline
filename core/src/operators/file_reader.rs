@@ -448,7 +448,12 @@ pub fn parse_op_file_reader(
                     Some(parse_named_arg_count(expr, key, value, arg.span)?);
             }
             ParsedArgValue::PositionalArg { value: v, .. } => {
-                value = Some(v.expect_plain(&expr.op_name, arg.span)?);
+                let Some(argv) = v.text_or_bytes() else {
+                    return Err(
+                        expr.error_positional_arg_not_plaintext(arg.span)
+                    );
+                };
+                value = Some(argv);
             }
         }
     }

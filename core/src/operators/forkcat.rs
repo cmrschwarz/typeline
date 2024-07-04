@@ -77,7 +77,7 @@ index_newtype! {
 }
 
 pub struct OpForkCat {
-    pub subchains: Vec<Vec<(OperatorBaseOptions<'static>, OperatorData)>>,
+    pub subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
 
     pub subchains_start: SubchainIndex,
     pub subchains_end: SubchainIndex,
@@ -967,14 +967,11 @@ pub fn handle_tf_forcat_subchain_trailer(
 }
 
 pub fn create_op_forkcat_with_opts(
-    mut subchains: Vec<Vec<(OperatorBaseOptions<'static>, OperatorData)>>,
+    mut subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
 ) -> OperatorData {
     for sc in &mut subchains {
         if sc.is_empty() {
-            sc.push((
-                OperatorBaseOptions::from_name("nop".into()),
-                create_op_nop(),
-            ));
+            sc.push((OperatorBaseOptions::from_name("nop"), create_op_nop()));
         }
     }
     OperatorData::ForkCat(OpForkCat {
@@ -1022,7 +1019,7 @@ pub fn parse_op_forkcat(
             curr_subchain = Vec::new();
             continue;
         };
-        let op_base = expr.op_base_options_static();
+        let op_base = expr.op_base_options();
         let op_data = parse_operator_data(sess_opts, expr)?;
         curr_subchain.push((op_base, op_data));
     }

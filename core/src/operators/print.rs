@@ -1,5 +1,7 @@
 use std::io::{IsTerminal, Write};
 
+use metamatch::metamatch;
+
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{OperatorBase, OperatorData},
@@ -15,7 +17,8 @@ use crate::{
     },
     record_data::{
         field::{Field, FieldManager},
-        field_data::field_value_flags,
+        field_data::{field_value_flags, FieldValueType},
+        field_value::{Null, Undefined},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         formattable::{
@@ -38,8 +41,10 @@ use crate::{
         },
     },
     utils::{
-        int_string_conversions::i64_to_str, lazy_lock_guard::LazyRwLockGuard,
-        string_store::StringStore, text_write::TextWriteIoAdapter,
+        int_string_conversions::{f64_to_str, i64_to_str},
+        lazy_lock_guard::LazyRwLockGuard,
+        string_store::StringStore,
+        text_write::TextWriteIoAdapter,
     },
     NULL_STR, UNDEFINED_STR,
 };
@@ -224,46 +229,44 @@ pub fn handle_tf_print_raw(
     'iter: while let Some(range) =
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
-        match range.base.data {
-            FieldValueSlice::TextInline(text) => {
-                for v in RefAwareInlineTextIter::from_range(&range, text)
-                    .unfold_rl()
-                {
-                    stream.write_all(v.as_bytes())?;
+        metamatch!(match range.base.data {
+            FieldValueSlice::Null(_) if print.opts.ignore_nulls => {
+                *handled_field_count += range.base.field_count;
+            }
+
+            #[expand(T in [Null, Undefined])]
+            FieldValueSlice::T(_) => {
+                let zst_str = T::REPR.to_str().as_bytes();
+                for _ in 0..range.base.field_count {
+                    stream.write_all(zst_str)?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
-            FieldValueSlice::BytesInline(bytes) => {
-                for v in RefAwareInlineBytesIter::from_range(&range, bytes)
-                    .unfold_rl()
-                {
-                    stream.write_all(v)?;
+
+            #[expand((T, ITER, VAL) in [
+                (TextInline, RefAwareInlineTextIter, v.as_bytes()),
+                (BytesInline, RefAwareInlineBytesIter, v),
+                (TextBuffer, RefAwareTextBufferIter, v.as_bytes()),
+                (BytesBuffer, RefAwareBytesBufferIter, v),
+            ])]
+            FieldValueSlice::T(text) => {
+                for v in ITER::from_range(&range, text).unfold_rl() {
+                    stream.write_all(VAL)?;
                     stream.write_all(b"\n")?;
                     *handled_field_count += 1;
                 }
             }
-            FieldValueSlice::TextBuffer(bytes) => {
-                for v in RefAwareTextBufferIter::from_range(&range, bytes)
-                    .unfold_rl()
+
+            #[expand((T, CONV_FN) in [
+                (Int, i64_to_str(false, *v)),
+                (Float, f64_to_str(*v))
+            ])]
+            FieldValueSlice::T(ints) => {
+                for (v, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, ints)
                 {
-                    stream.write_all(v.as_bytes())?;
-                    stream.write_all(b"\n")?;
-                    *handled_field_count += 1;
-                }
-            }
-            FieldValueSlice::BytesBuffer(bytes) => {
-                for v in RefAwareBytesBufferIter::from_range(&range, bytes)
-                    .unfold_rl()
-                {
-                    stream.write_all(v)?;
-                    stream.write_all(b"\n")?;
-                    *handled_field_count += 1;
-                }
-            }
-            FieldValueSlice::Int(ints) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
-                    let v = i64_to_str(false, *v);
+                    let v = CONV_FN;
                     for _ in 0..rl {
                         stream.write_all(v.as_bytes())?;
                         stream.write_all(b"\n")?;
@@ -271,6 +274,58 @@ pub fn handle_tf_print_raw(
                     }
                 }
             }
+
+            FieldValueSlice::BigInt(big_ints) => {
+                for (v, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, big_ints)
+                {
+                    for _ in 0..rl {
+                        stream.write_fmt(format_args!("{v}\n"))?;
+                        *handled_field_count += 1;
+                    }
+                }
+            }
+
+            FieldValueSlice::BigRational(rationals) => {
+                for (v, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, rationals)
+                {
+                    for _ in 0..rl {
+                        if print.print_rationals_raw {
+                            stream.write_fmt(format_args!("{v}\n"))?;
+                        } else {
+                            format_rational_as_decimals_raw(
+                                &mut TextWriteIoAdapter(&mut stream),
+                                v,
+                                RATIONAL_DIGITS,
+                            )?;
+                            stream.write_all(b"\n")?;
+                        }
+                        *handled_field_count += 1;
+                    }
+                }
+            }
+
+            #[expand(T in [Array, Object, Argument])]
+            FieldValueSlice::T(arrays) => {
+                let mut fc = FormattingContext {
+                    ss: &mut string_store,
+                    fm,
+                    msm,
+                    print_rationals_raw: print.print_rationals_raw,
+                    is_stream_value: false,
+                    rfk: RealizedFormatKey::default(),
+                };
+                for a in
+                    RefAwareFieldValueRangeIter::from_range(&range, arrays)
+                        .unfold_rl()
+                {
+                    a.format(&mut fc, &mut TextWriteIoAdapter(&mut stream))?;
+                    stream.write_all(b"\n")?;
+                    *handled_field_count += 1;
+                }
+            }
+
             FieldValueSlice::Error(errs) => {
                 for v in RefAwareFieldValueRangeIter::from_range(&range, errs)
                     .unfold_rl()
@@ -305,17 +360,6 @@ pub fn handle_tf_print_raw(
                     *handled_field_count += 1;
                 }
             }
-            FieldValueSlice::Null(_) if print.opts.ignore_nulls => {
-                *handled_field_count += range.base.field_count;
-            }
-            FieldValueSlice::Null(_) | FieldValueSlice::Undefined(_) => {
-                let zst_str = typed_slice_zst_str(&range.base.data);
-                for _ in 0..range.base.field_count {
-                    stream.write_fmt(format_args!("{zst_str}\n"))?;
-                    *handled_field_count += 1;
-                }
-            }
-
             FieldValueSlice::StreamValueId(svs) => {
                 let mut pos = *handled_field_count;
                 let mut sv_iter = FieldValueRangeIter::from_range(&range, svs);
@@ -368,83 +412,9 @@ pub fn handle_tf_print_raw(
                     }
                 }
             }
-            FieldValueSlice::BigInt(big_ints) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, big_ints)
-                {
-                    for _ in 0..rl {
-                        stream.write_fmt(format_args!("{v}\n"))?;
-                        *handled_field_count += 1;
-                    }
-                }
-            }
-            FieldValueSlice::Float(floats) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, floats)
-                {
-                    for _ in 0..rl {
-                        stream.write_fmt(format_args!("{v}\n"))?;
-                        *handled_field_count += 1;
-                    }
-                }
-            }
-            FieldValueSlice::Rational(rationals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, rationals)
-                {
-                    for _ in 0..rl {
-                        if print.print_rationals_raw {
-                            stream.write_fmt(format_args!("{v}\n"))?;
-                        } else {
-                            format_rational_as_decimals_raw(
-                                &mut TextWriteIoAdapter(&mut stream),
-                                v,
-                                RATIONAL_DIGITS,
-                            )?;
-                            stream.write_all(b"\n")?;
-                        }
-                        *handled_field_count += 1;
-                    }
-                }
-            }
-            FieldValueSlice::Array(arrays) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
-                    print_rationals_raw: print.print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
-                for a in
-                    RefAwareFieldValueRangeIter::from_range(&range, arrays)
-                        .unfold_rl()
-                {
-                    a.format(&mut fc, &mut TextWriteIoAdapter(&mut stream))?;
-                    stream.write_all(b"\n")?;
-                    *handled_field_count += 1;
-                }
-            }
-            FieldValueSlice::Object(objects) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
-                    print_rationals_raw: print.print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
-                for o in
-                    RefAwareFieldValueRangeIter::from_range(&range, objects)
-                        .unfold_rl()
-                {
-                    o.format(&mut fc, &mut TextWriteIoAdapter(&mut stream))?;
-                    stream.write_all(b"\n")?;
-                    *handled_field_count += 1;
-                }
-            }
             FieldValueSlice::FieldReference(_)
             | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-        }
+        });
     }
     // TODO: remove this once `sequence` became a reasonable member of society
     while *handled_field_count < batch_size

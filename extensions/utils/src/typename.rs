@@ -120,7 +120,7 @@ impl TfTypename {
                 | FieldValueSlice::Int(_)
                 | FieldValueSlice::Float(_)
                 | FieldValueSlice::BigInt(_)
-                | FieldValueSlice::Rational(_)
+                | FieldValueSlice::BigRational(_)
                 | FieldValueSlice::TextInline(_)
                 | FieldValueSlice::TextBuffer(_)
                 | FieldValueSlice::BytesInline(_)
@@ -128,6 +128,7 @@ impl TfTypename {
                 | FieldValueSlice::Custom(_)
                 | FieldValueSlice::Object(_)
                 | FieldValueSlice::Error(_)
+                | FieldValueSlice::Argument(_)
                 | FieldValueSlice::Array(_) => {
                     inserter.push_with_rl(
                         range.base.data.repr().kind().to_str(),

@@ -29,7 +29,7 @@ use super::{
 };
 
 pub struct OpAggregator {
-    pub sub_ops_from_user: Vec<(OperatorBaseOptions<'static>, OperatorData)>,
+    pub sub_ops_from_user: Vec<(OperatorBaseOptions, OperatorData)>,
     pub sub_ops: IndexVec<OffsetInAggregation, OperatorId>,
 }
 
@@ -92,7 +92,7 @@ pub fn create_op_aggregate(
 }
 
 pub fn create_op_aggregate_with_opts(
-    sub_ops: Vec<(OperatorBaseOptions<'static>, OperatorData)>,
+    sub_ops: Vec<(OperatorBaseOptions, OperatorData)>,
 ) -> OperatorData {
     OperatorData::Aggregator(OpAggregator {
         sub_ops_from_user: sub_ops,

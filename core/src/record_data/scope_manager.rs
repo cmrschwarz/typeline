@@ -5,8 +5,8 @@ use crate::{
     operators::macro_def::Macro,
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32,
-        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
-        universe::Universe,
+        identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
+        string_store::StringStoreEntry, universe::Universe,
     },
 };
 
@@ -15,6 +15,8 @@ use super::{field::FieldId, stream_value::StreamValueId};
 index_newtype! {
     pub struct ScopeId(DebuggableNonMaxU32);
 }
+
+pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;
 
 pub enum Symbol {
     Atom(StreamValueId),

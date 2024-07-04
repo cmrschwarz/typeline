@@ -1,11 +1,15 @@
 use std::{any::Any, fmt::Display, mem::ManuallyDrop};
 
 use indexmap::IndexMap;
+use metamatch::metamatch;
 use num::{BigInt, BigRational};
 
 use crate::{
+    cli::call_expr::Argument,
     operators::errors::OperatorApplicationError,
-    utils::{maybe_text::MaybeText, string_store::StringStoreEntry},
+    utils::{
+        force_cast, maybe_text::MaybeText, string_store::StringStoreEntry,
+    },
 };
 
 use super::{
@@ -13,7 +17,7 @@ use super::{
     custom_data::CustomDataBox,
     field::FieldRefOffset,
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
-    field_value_ref::FieldValueRef,
+    field_value_ref::{FieldValueRef, FieldValueRefMut},
     stream_value::StreamValueId,
 };
 
@@ -26,12 +30,12 @@ pub enum FieldValueKind {
     Null,
     Int,
     Float,
-    Rational,
     Error,
     Bytes,
     Text,
     Object,
     Array,
+    Argument,
     FieldReference,
     SlicedFieldReference,
     StreamValueId,
@@ -52,7 +56,7 @@ pub enum FieldValue {
     Int(i64),
     BigInt(Box<BigInt>),
     Float(f64),
-    Rational(Box<BigRational>),
+    BigRational(Box<BigRational>),
     // PERF: better to use a custom version of Arc<String> for this with only
     // one indirection (and no weak refs) that still stores the capacity
     // (unlike `Arc<str>`). Maybe that type stores the meta info at
@@ -66,6 +70,7 @@ pub enum FieldValue {
     Object(Object),
     Custom(CustomDataBox),
     Error(OperatorApplicationError),
+    Argument(Box<Argument>),
     StreamValueId(StreamValueId),
     FieldReference(FieldReference),
     SlicedFieldReference(SlicedFieldReference),
@@ -78,8 +83,8 @@ pub struct Undefined;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GroupSeparator;
 
-pub type ObjectKeysStored = Box<IndexMap<String, FieldValue>>;
-pub type ObjectKeysInterned = Box<IndexMap<StringStoreEntry, FieldValue>>;
+pub type ObjectKeysStored = IndexMap<String, FieldValue>;
+pub type ObjectKeysInterned = IndexMap<StringStoreEntry, FieldValue>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Object {
@@ -120,7 +125,7 @@ impl FieldReference {
 
 impl Object {
     pub fn new_keys_stored() -> Object {
-        Object::KeysStored(Box::default())
+        Object::KeysStored(IndexMap::default())
     }
     pub fn len(&self) -> usize {
         match self {
@@ -151,18 +156,41 @@ impl FromIterator<(String, FieldValue)> for Object {
     fn from_iter<I: IntoIterator<Item = (String, FieldValue)>>(
         iter: I,
     ) -> Self {
-        Object::KeysStored(Box::new(IndexMap::from_iter(iter)))
+        Object::KeysStored(IndexMap::from_iter(iter))
     }
 }
 
 impl FieldValueKind {
+    pub fn repr(&self, inline: bool) -> FieldValueRepr {
+        metamatch!(match self {
+            #[expand((KIND, INLINE, BUFFERED) in [
+                (Text, TextInline, TextBuffer),
+                (Bytes, BytesInline, BytesBuffer),
+                (Int, Int, BigInt),
+                (Float, Float, BigRational)
+            ])]
+            FieldValueKind::KIND => {
+                if inline {
+                    FieldValueRepr::INLINE
+                } else {
+                    FieldValueRepr::BUFFERED
+                }
+            }
+
+            #[expand(T in [
+                Undefined, Null, Error, Object, Array,
+                Argument, FieldReference,
+                SlicedFieldReference, StreamValueId, Custom
+            ])]
+            FieldValueKind::T => FieldValueRepr::T,
+        })
+    }
     pub fn to_str(self) -> &'static str {
         match self {
             FieldValueKind::Undefined => "undefined",
             FieldValueKind::Null => "null",
             FieldValueKind::Int => "int",
             FieldValueKind::Float => "float",
-            FieldValueKind::Rational => "rational",
             FieldValueKind::Error => "error",
             FieldValueKind::Text => "str",
             FieldValueKind::Bytes => "bytes",
@@ -172,6 +200,7 @@ impl FieldValueKind {
             FieldValueKind::FieldReference => "field_reference",
             FieldValueKind::SlicedFieldReference => "sliced_field_reference",
             FieldValueKind::StreamValueId => "stream_value_id",
+            FieldValueKind::Argument => "argument",
         }
     }
     pub fn is_valid_utf8(self) -> bool {
@@ -180,7 +209,6 @@ impl FieldValueKind {
             | FieldValueKind::Null
             | FieldValueKind::Int
             | FieldValueKind::Float
-            | FieldValueKind::Rational
             | FieldValueKind::Error
             | FieldValueKind::Text
             | FieldValueKind::Object
@@ -189,99 +217,100 @@ impl FieldValueKind {
             | FieldValueKind::FieldReference
             | FieldValueKind::SlicedFieldReference
             | FieldValueKind::StreamValueId
-            | FieldValueKind::Custom => false,
+            | FieldValueKind::Custom
+            | FieldValueKind::Argument => false,
         }
     }
 }
 
 impl PartialEq for FieldValue {
     fn eq(&self, other: &Self) -> bool {
-        match self {
-            Self::Int(l) => matches!(other, Self::Int(r) if r == l),
-            Self::BigInt(l) => matches!(other, Self::BigInt(r) if r == l),
-            Self::Float(l) => matches!(other, Self::Float(r) if r == l),
-            Self::Rational(l) => {
-                matches!(other, Self::Rational(r) if r == l)
-            }
-            Self::Bytes(l) => matches!(other, Self::Bytes(r) if r == l),
-            Self::Text(l) => matches!(other, Self::Text(r) if r == l),
-            Self::Error(l) => matches!(other, Self::Error(r) if r == l),
-            Self::Array(l) => matches!(other, Self::Array(r) if r == l),
-            Self::Object(l) => matches!(other, Self::Object(r) if r == l),
-            Self::FieldReference(l) => {
-                matches!(other, Self::FieldReference(r) if r == l)
-            }
-            Self::SlicedFieldReference(l) => {
-                matches!(other, Self::SlicedFieldReference(r) if r == l)
-            }
-            Self::StreamValueId(l) => {
-                matches!(other, Self::StreamValueId(r) if l == r)
-            }
-            Self::Custom(l) => matches!(other, Self::Custom(r) if r == l),
+        metamatch!(match self {
             Self::Null => matches!(other, Self::Null),
             Self::Undefined => matches!(other, Self::Undefined),
-        }
+            #[expand(T in [
+                Int, Error, Array, Object, Bytes, Text,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            FieldValue::T(l) => matches!(other, FieldValue::T(r) if r == l),
+        })
     }
 }
 
 impl FieldValue {
     pub fn repr(&self) -> FieldValueRepr {
-        match self {
+        metamatch!(match self {
             FieldValue::Null => FieldValueRepr::Null,
             FieldValue::Undefined => FieldValueRepr::Undefined,
-            FieldValue::Int(_) => FieldValueRepr::Int,
-            FieldValue::BigInt(_) => FieldValueRepr::BigInt,
-            FieldValue::Float(_) => FieldValueRepr::Float,
-            FieldValue::Rational(_) => FieldValueRepr::Rational,
-            FieldValue::Bytes(_) => FieldValueRepr::BytesBuffer,
+
             FieldValue::Text(_) => FieldValueRepr::TextBuffer,
-            FieldValue::Error(_) => FieldValueRepr::Error,
-            FieldValue::Array(_) => FieldValueRepr::Array,
-            FieldValue::Object(_) => FieldValueRepr::Object,
-            FieldValue::FieldReference(_) => FieldValueRepr::FieldReference,
-            FieldValue::SlicedFieldReference(_) => {
-                FieldValueRepr::SlicedFieldReference
-            }
-            FieldValue::Custom(_) => FieldValueRepr::Custom,
-            FieldValue::StreamValueId(_) => FieldValueRepr::StreamValueId,
-        }
+            FieldValue::Bytes(_) => FieldValueRepr::BytesBuffer,
+
+            #[expand(T in [
+                Int, Error, Array, Object,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            FieldValue::T(_) => FieldValueRepr::T,
+        })
     }
     pub fn downcast_ref<R: FieldValueType>(&self) -> Option<&R> {
-        match self {
-            FieldValue::Null => <dyn Any>::downcast_ref(&Null),
-            FieldValue::Undefined => <dyn Any>::downcast_ref(&Undefined),
-            FieldValue::Int(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::BigInt(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::Float(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::Rational(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::Text(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::Bytes(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::Array(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::Object(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::Custom(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::Error(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::FieldReference(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::SlicedFieldReference(v) => <dyn Any>::downcast_ref(v),
-            FieldValue::StreamValueId(v) => <dyn Any>::downcast_ref(v),
-        }
+        metamatch!(match self {
+            #[expand(T in [Null, Undefined])]
+            FieldValue::T => <dyn Any>::downcast_ref(&T),
+
+            #[expand(T in [
+                Int, Error, Array, Object, Text, Bytes,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            FieldValue::T(v) => {
+                if R::FIELD_VALUE_BOXED {
+                    <dyn Any>::downcast_ref::<Box<R>>(v).map(|v| &**v)
+                } else {
+                    <dyn Any>::downcast_ref(v)
+                }
+            }
+        })
     }
     pub fn downcast_mut<R: FieldValueType>(&mut self) -> Option<&mut R> {
+        metamatch!(match self {
+            #[expand(T in [Null, Undefined])]
+            v @ FieldValue::T => <dyn Any>::downcast_mut(v),
+
+            #[expand(T in [
+                Int, Error, Array, Object, Text, Bytes,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            FieldValue::T(v) => {
+                if R::FIELD_VALUE_BOXED {
+                    <dyn Any>::downcast_mut::<Box<R>>(v).map(|v| &mut **v)
+                } else {
+                    <dyn Any>::downcast_mut(v)
+                }
+            }
+        })
+    }
+    pub fn text_or_bytes(&self) -> Option<&[u8]> {
         match self {
-            v @ FieldValue::Null => <dyn Any>::downcast_mut(v),
-            v @ FieldValue::Undefined => <dyn Any>::downcast_mut(v),
-            FieldValue::Int(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::BigInt(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::Float(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::Rational(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::Text(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::Bytes(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::Array(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::Object(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::Custom(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::Error(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::FieldReference(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::SlicedFieldReference(v) => <dyn Any>::downcast_mut(v),
-            FieldValue::StreamValueId(v) => <dyn Any>::downcast_mut(v),
+            FieldValue::Text(v) => Some(v.as_bytes()),
+            FieldValue::Bytes(v) => Some(v),
+            FieldValue::Argument(v) => v.value.text_or_bytes(),
+            FieldValue::Undefined
+            | FieldValue::Null
+            | FieldValue::Int(_)
+            | FieldValue::BigInt(_)
+            | FieldValue::Float(_)
+            | FieldValue::BigRational(_)
+            | FieldValue::Array(_)
+            | FieldValue::Object(_)
+            | FieldValue::Custom(_)
+            | FieldValue::Error(_)
+            | FieldValue::StreamValueId(_)
+            | FieldValue::FieldReference(_)
+            | FieldValue::SlicedFieldReference(_) => None,
         }
     }
     pub fn downcast<R: FixedSizeFieldValueType>(self) -> Option<R> {
@@ -301,25 +330,36 @@ impl FieldValue {
         this.downcast_mut().map(|v| unsafe { std::ptr::read(v) })
     }
     pub fn as_ref(&self) -> FieldValueRef {
-        match self {
-            FieldValue::Undefined => FieldValueRef::Undefined,
-            FieldValue::Null => FieldValueRef::Null,
-            FieldValue::Int(v) => FieldValueRef::Int(v),
-            FieldValue::BigInt(v) => FieldValueRef::BigInt(v),
-            FieldValue::Float(v) => FieldValueRef::Float(v),
-            FieldValue::Rational(v) => FieldValueRef::Rational(v),
-            FieldValue::Text(v) => FieldValueRef::Text(v),
-            FieldValue::Bytes(v) => FieldValueRef::Bytes(v),
-            FieldValue::Array(v) => FieldValueRef::Array(v),
-            FieldValue::Object(v) => FieldValueRef::Object(v),
-            FieldValue::Custom(v) => FieldValueRef::Custom(v),
-            FieldValue::Error(v) => FieldValueRef::Error(v),
-            FieldValue::StreamValueId(v) => FieldValueRef::StreamValueId(v),
-            FieldValue::FieldReference(v) => FieldValueRef::FieldReference(v),
-            FieldValue::SlicedFieldReference(v) => {
-                FieldValueRef::SlicedFieldReference(v)
-            }
-        }
+        metamatch!(match self {
+            #[expand(ZST_T in [Null, Undefined])]
+            FieldValue::ZST_T => FieldValueRef::ZST_T,
+
+            #[expand(T in [
+                Int, Error, Array, Object, Text, Bytes,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            FieldValue::T(v) => FieldValueRef::T(v),
+        })
+    }
+    pub fn as_ref_mut(&mut self) -> FieldValueRefMut {
+        metamatch!(match self {
+            #[expand(ZST_T in [Null, Undefined])]
+            FieldValue::ZST_T => FieldValueRefMut::ZST_T,
+
+            #[expand(T in [
+                Int, Error, Array, Object,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            FieldValue::T(v) => FieldValueRefMut::T(v),
+
+            #[expand((VALUE_T, REF_T) in [
+                (Text, TextBuffer),
+                (Bytes, BytesBuffer)
+            ])]
+            FieldValue::VALUE_T(v) => FieldValueRefMut::REF_T(v),
+        })
     }
     pub fn from_maybe_text(t: MaybeText) -> Self {
         match t {
@@ -339,38 +379,36 @@ impl FieldValue {
         // the check on `T::REPR`. `FixedSizeFieldValueType` is an
         // unsafe trait, so assuming that nobody gave us an incorrect
         // `REPR` is sound.
-        use crate::utils::force_cast as xx;
-        unsafe {
-            match T::REPR {
-                FieldValueRepr::Null => FieldValue::Null,
-                FieldValueRepr::Undefined => FieldValue::Undefined,
-                FieldValueRepr::Int => FieldValue::Int(xx(v)),
-                FieldValueRepr::BigInt => xx(v),
-                FieldValueRepr::Float => FieldValue::Float(xx(v)),
-                FieldValueRepr::Rational => {
-                    FieldValue::Rational(Box::new(xx::<T, BigRational>(v)))
-                }
-                FieldValueRepr::TextBuffer => FieldValue::Text(xx(v)),
-                FieldValueRepr::BytesBuffer => FieldValue::Bytes(xx(v)),
-                FieldValueRepr::Object => FieldValue::Object(xx(v)),
-                FieldValueRepr::Array => FieldValue::Array(xx(v)),
-                FieldValueRepr::Custom => FieldValue::Custom(xx(v)),
-                FieldValueRepr::Error => FieldValue::Error(xx(v)),
-                FieldValueRepr::StreamValueId => {
-                    FieldValue::StreamValueId(xx(v))
-                }
-                FieldValueRepr::FieldReference => {
-                    FieldValue::FieldReference(xx(v))
-                }
-                FieldValueRepr::SlicedFieldReference => {
-                    FieldValue::SlicedFieldReference(xx(v))
-                }
-                // not fixed size types
-                FieldValueRepr::TextInline | FieldValueRepr::BytesInline => {
-                    unreachable!()
+        metamatch!(match T::REPR {
+            #[expand(ZST_T in [Null, Undefined])]
+            FieldValueRepr::ZST_T => FieldValue::ZST_T,
+
+            #[expand(REPR in [
+                Int, Error, Array, Object,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            FieldValueRepr::REPR => {
+                if T::FIELD_VALUE_BOXED {
+                    FieldValue::REPR(unsafe { force_cast(Box::new(v)) })
+                } else {
+                    FieldValue::REPR(unsafe { force_cast(v) })
                 }
             }
-        }
+
+            #[expand((REPR_T, VALUE_T) in [
+                (TextBuffer, Text),
+                (BytesBuffer, Bytes)
+            ])]
+            FieldValueRepr::REPR_T => {
+                FieldValue::VALUE_T(unsafe { force_cast(v) })
+            }
+
+            // not fixed size types
+            FieldValueRepr::TextInline | FieldValueRepr::BytesInline => {
+                unreachable!()
+            }
+        })
     }
     pub fn is_error(&self) -> bool {
         matches!(self, FieldValue::Error(_))

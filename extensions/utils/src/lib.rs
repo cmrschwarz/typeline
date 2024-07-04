@@ -40,11 +40,11 @@ impl Extension for UtilsExtension {
     fn name(&self) -> std::borrow::Cow<'static, str> {
         "scr_ext_utils".into()
     }
-    fn parse_call_expr<'a>(
+    fn parse_call_expr(
         &self,
         _ctx_opts: &mut SessionOptions,
-        expr: CallExpr<'a>,
-    ) -> Result<OperatorData, OperatorParsingError<'a>> {
+        expr: CallExpr,
+    ) -> Result<OperatorData, OperatorParsingError> {
         let ctor_with_arg: Option<fn(_) -> _> = match &*expr.op_name {
             "head" => Some(parse_op_head),
             "tail" => Some(parse_op_tail),

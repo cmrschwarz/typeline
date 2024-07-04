@@ -12,11 +12,11 @@ impl Extension for SqliteExtension {
     fn name(&self) -> std::borrow::Cow<'static, str> {
         "scr_ext_sqlite".into()
     }
-    fn parse_call_expr<'a>(
+    fn parse_call_expr(
         &self,
         _ctx_opts: &mut SessionOptions,
-        expr: CallExpr<'a>,
-    ) -> Result<OperatorData, OperatorParsingError<'a>> {
+        expr: CallExpr,
+    ) -> Result<OperatorData, OperatorParsingError> {
         Err(OperatorParsingError::UnknownOperator(expr))
     }
 }

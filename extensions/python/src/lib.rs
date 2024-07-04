@@ -15,11 +15,11 @@ impl Extension for PythonExtension {
     fn name(&self) -> std::borrow::Cow<'static, str> {
         "scr_ext_python".into()
     }
-    fn parse_call_expr<'a>(
+    fn parse_call_expr(
         &self,
         _ctx_opts: &mut SessionOptions,
-        expr: CallExpr<'a>,
-    ) -> Result<OperatorData, OperatorParsingError<'a>> {
+        expr: CallExpr,
+    ) -> Result<OperatorData, OperatorParsingError> {
         if expr.op_name == "py" {
             let val = expr.require_single_string_arg()?;
             return Ok(build_op_py(val.to_owned(), expr.span)?);

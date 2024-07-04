@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     cli::{call_expr::Span, parse_cli, CliOptions},
@@ -68,15 +68,16 @@ impl ContextBuilder {
     pub fn ref_add_op_with_opts(
         &mut self,
         op_data: OperatorData,
-        argname: Option<Cow<'static, str>>,
-        label: Option<Cow<'static, str>>,
+        argname: Option<String>,
+        label: Option<String>,
         append_mode: bool,
         transparent_mode: bool,
         output_is_atom: bool,
     ) -> OperatorDataId {
         self.opts.add_op(
             OperatorBaseOptions {
-                argname: argname.unwrap_or_else(|| op_data.default_op_name()),
+                argname: argname
+                    .unwrap_or_else(|| op_data.default_op_name().into()),
                 label,
                 span: Span::Generated,
                 transparent_mode,
@@ -89,8 +90,8 @@ impl ContextBuilder {
     pub fn add_op_with_opts(
         mut self,
         op_data: OperatorData,
-        argname: Option<Cow<'static, str>>,
-        label: Option<Cow<'static, str>>,
+        argname: Option<String>,
+        label: Option<String>,
         append_mode: bool,
         transparent_mode: bool,
         output_is_atom: bool,
@@ -128,8 +129,8 @@ impl ContextBuilder {
     }
     pub fn add_op_aggregate_with_opts(
         mut self,
-        argname: Option<Cow<'static, str>>,
-        label: Option<Cow<'static, str>>,
+        argname: Option<String>,
+        label: Option<String>,
         append_mode: bool,
         transparent_mode: bool,
         output_is_atom: bool,
@@ -157,7 +158,7 @@ impl ContextBuilder {
     pub fn add_op_with_label(
         self,
         op_data: OperatorData,
-        label: Cow<'static, str>,
+        label: String,
     ) -> Self {
         self.add_op_with_opts(op_data, None, Some(label), false, false, false)
     }

@@ -31,7 +31,7 @@ use super::{
 };
 
 pub struct OpForeach {
-    pub subchain: Vec<(OperatorBaseOptions<'static>, OperatorData)>,
+    pub subchain: Vec<(OperatorBaseOptions, OperatorData)>,
     pub subchain_idx: SubchainIndex,
 }
 pub struct TfForeachHeader {
@@ -269,20 +269,18 @@ pub fn parse_op_foreach(
     let mut subchain = Vec::new();
     for expr in CallExprIter::from_args_iter(expr.args) {
         let expr = expr?;
-        let op_base = expr.op_base_options_static();
+        let op_base = expr.op_base_options();
         let op_data = parse_operator_data(sess_opts, expr)?;
         subchain.push((op_base, op_data));
     }
     Ok(create_op_foreach_with_opts(subchain))
 }
 pub fn create_op_foreach_with_opts(
-    mut subchain: Vec<(OperatorBaseOptions<'static>, OperatorData)>,
+    mut subchain: Vec<(OperatorBaseOptions, OperatorData)>,
 ) -> OperatorData {
     if subchain.is_empty() {
-        subchain.push((
-            OperatorBaseOptions::from_name("nop".into()),
-            create_op_nop(),
-        ));
+        subchain
+            .push((OperatorBaseOptions::from_name("nop"), create_op_nop()));
     }
     OperatorData::Foreach(OpForeach {
         subchain,

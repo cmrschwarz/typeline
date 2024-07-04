@@ -14,11 +14,11 @@ use scr_core::{
 pub struct HttpExtension {}
 
 impl Extension for HttpExtension {
-    fn parse_call_expr<'a>(
+    fn parse_call_expr(
         &self,
         _ctx_opts: &mut SessionOptions,
-        expr: CallExpr<'a>,
-    ) -> Result<OperatorData, OperatorParsingError<'a>> {
+        expr: CallExpr,
+    ) -> Result<OperatorData, OperatorParsingError> {
         if expr.op_name == "GET" || expr.op_name == "http-get" {
             expr.reject_args()?;
             return Ok(create_op_GET());

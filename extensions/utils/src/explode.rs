@@ -244,12 +244,13 @@ impl Transform<'_> for TfExplode {
                 | FieldValueSlice::Float(_)
                 | FieldValueSlice::StreamValueId(_)
                 | FieldValueSlice::BigInt(_)
-                | FieldValueSlice::Rational(_)
+                | FieldValueSlice::BigRational(_)
                 | FieldValueSlice::BytesInline(_)
                 | FieldValueSlice::TextInline(_)
                 | FieldValueSlice::TextBuffer(_)
                 | FieldValueSlice::BytesBuffer(_)
                 | FieldValueSlice::Array(_)
+                | FieldValueSlice::Argument(_)
                 | FieldValueSlice::Custom(_)
                 | FieldValueSlice::Error(_) => {
                     inserters[0].extend_from_ref_aware_range_smart_ref(

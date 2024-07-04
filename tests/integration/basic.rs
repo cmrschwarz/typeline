@@ -51,7 +51,7 @@ fn string_sink() -> Result<(), ScrError> {
 fn tf_literal() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_literal(Literal::String("foo".to_owned())))
+        .add_op(create_op_literal(Literal::Text("foo".to_owned())))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
@@ -62,7 +62,7 @@ fn tf_literal() -> Result<(), ScrError> {
 fn counted_tf_literal() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
-        .add_op(create_op_literal_n(Literal::String("x".to_owned()), 3))
+        .add_op(create_op_literal_n(Literal::Text("x".to_owned()), 3))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["x", "x", "x"]);
@@ -396,7 +396,7 @@ fn select() -> Result<(), ScrError> {
     ContextBuilder::default()
         .set_batch_size(5)
         .add_op_with_opts(
-            create_op_literal_n(Literal::String("foo".to_owned()), 3),
+            create_op_literal_n(Literal::Text("foo".to_owned()), 3),
             None,
             Some("a".into()),
             false,
@@ -416,7 +416,7 @@ fn select_after_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::default()
         .set_batch_size(5)
-        .add_op(create_op_literal(Literal::String("foo".to_owned())))
+        .add_op(create_op_literal(Literal::Text("foo".to_owned())))
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_enum(0, 3, 1).unwrap())
         .add_op(create_op_select("a".to_owned()))

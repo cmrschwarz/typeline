@@ -13,7 +13,7 @@ pub struct CallExprIter<'a, I> {
     _phantom: PhantomData<fn() -> &'a ()>,
 }
 
-impl<'a, I: Iterator<Item = Argument<'a>>> CallExprIter<'a, Peekable<I>> {
+impl<'a, I: Iterator<Item = Argument>> CallExprIter<'a, Peekable<I>> {
     pub fn new(input: Peekable<I>) -> Self {
         Self {
             input,
@@ -28,7 +28,7 @@ impl<'a, I: Iterator<Item = Argument<'a>>> CallExprIter<'a, Peekable<I>> {
     }
 }
 
-impl<'a, I: Iterator<Item = &'a Argument<'a>>>
+impl<'a, I: Iterator<Item = &'a Argument>>
     CallExprIter<'a, Peekable<Cloned<I>>>
 {
     pub fn from_args_ref_iter(input: impl IntoIterator<IntoIter = I>) -> Self {
@@ -39,10 +39,10 @@ impl<'a, I: Iterator<Item = &'a Argument<'a>>>
     }
 }
 
-impl<'a, I: Iterator<Item = Argument<'a>>> Iterator
+impl<'a, I: Iterator<Item = Argument>> Iterator
     for CallExprIter<'a, Peekable<I>>
 {
-    type Item = Result<CallExpr<'a>, CliArgumentError>;
+    type Item = Result<CallExpr, CliArgumentError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match parse_call_expr(&mut self.input) {

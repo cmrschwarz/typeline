@@ -937,7 +937,6 @@ impl<'a, T: FieldValueType + 'static> RefAwareFieldValueRangeIter<'a, T> {
         last_oversize: RunLength,
         refs: Option<AnyRefSliceIter<'a>>,
     ) -> Self {
-        debug_assert!(T::SUPPORTS_REFS);
         Self {
             iter: unsafe {
                 FieldValueRangeIter::new(
@@ -951,7 +950,6 @@ impl<'a, T: FieldValueType + 'static> RefAwareFieldValueRangeIter<'a, T> {
         }
     }
     pub fn from_range(range: &'a RefAwareTypedRange, values: &'a [T]) -> Self {
-        debug_assert!(T::SUPPORTS_REFS);
         Self {
             iter: FieldValueRangeIter::from_valid_range(&range.base, values),
             refs: Self::unpack_refs_iter(range.refs.clone()),

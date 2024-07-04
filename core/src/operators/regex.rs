@@ -1,6 +1,6 @@
 use arrayvec::ArrayString;
-
 use bstr::ByteSlice;
+use metamatch::metamatch;
 use regex::bytes;
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::RefMut};
@@ -380,17 +380,17 @@ pub fn parse_op_regex(
                 return Err(expr.error_named_args_unsupported(arg.span))
             }
             ParsedArgValue::PositionalArg { value, .. } => {
-                regex = Some(
-                    value
-                        .expect_plain(&expr.op_name, arg.span)?
-                        .to_str()
-                        .map_err(|_| {
-                            OperatorCreationError::new(
-                                "regex must be valid utf-8",
-                                arg.span,
-                            )
-                        })?,
-                );
+                let Some(argv) = value.text_or_bytes() else {
+                    return Err(
+                        expr.error_positional_arg_not_plaintext(arg.span)
+                    );
+                };
+                regex = Some(argv.to_str().map_err(|_| {
+                    OperatorCreationError::new(
+                        "regex must be valid utf-8",
+                        arg.span,
+                    )
+                })?);
             }
         }
         if opts.ascii_mode && unicode_mode {
@@ -1037,16 +1037,23 @@ pub fn handle_tf_regex(
                 .field_ref_offset
                 .unwrap_or(re.input_field_ref_offset),
         };
-        match range.base.data {
-            FieldValueSlice::TextInline(text) => {
-                for (v, rl, offsets) in
-                    RefAwareInlineTextIter::from_range(&range, text)
-                {
-                    if let Some(tr) = &mut text_regex {
+        metamatch!(match range.base.data {
+            #[expand((REPR, ITER) in [
+                (TextInline, RefAwareInlineTextIter),
+                (TextBuffer, RefAwareTextBufferIter),
+            ])]
+            FieldValueSlice::REPR(text) => {
+                if let Some(tr) = &mut text_regex {
+                    for (v, rl, offsets) in ITER::from_range(&range, text) {
                         match_regex_inner::<true, _>(
                             &mut rmis, tr, v, rl, offsets,
                         );
-                    } else {
+                        if rmis.batch_state.batch_size_reached() {
+                            break 'batch;
+                        }
+                    }
+                } else {
+                    for (v, rl, offsets) in ITER::from_range(&range, text) {
                         match_regex_inner::<true, _>(
                             &mut rmis,
                             &mut bytes_regex,
@@ -1054,16 +1061,18 @@ pub fn handle_tf_regex(
                             rl,
                             offsets,
                         );
-                    };
-                    if rmis.batch_state.batch_size_reached() {
-                        break 'batch;
+                        if rmis.batch_state.batch_size_reached() {
+                            break 'batch;
+                        }
                     }
                 }
             }
-            FieldValueSlice::BytesInline(bytes) => {
-                for (v, rl, offset) in
-                    RefAwareInlineBytesIter::from_range(&range, bytes)
-                {
+            #[expand((REPR, ITER) in [
+                (BytesInline, RefAwareInlineBytesIter),
+                (BytesBuffer, RefAwareBytesBufferIter),
+            ])]
+            FieldValueSlice::REPR(bytes) => {
+                for (v, rl, offset) in ITER::from_range(&range, bytes) {
                     match_regex_inner::<true, _>(
                         &mut rmis,
                         &mut bytes_regex,
@@ -1076,44 +1085,7 @@ pub fn handle_tf_regex(
                     }
                 }
             }
-            FieldValueSlice::TextBuffer(bytes) => {
-                for (v, rl, offset) in
-                    RefAwareTextBufferIter::from_range(&range, bytes)
-                {
-                    if let Some(tr) = &mut text_regex {
-                        match_regex_inner::<true, _>(
-                            &mut rmis, tr, v, rl, offset,
-                        );
-                    } else {
-                        match_regex_inner::<true, _>(
-                            &mut rmis,
-                            &mut bytes_regex,
-                            v.as_bytes(),
-                            rl,
-                            offset,
-                        );
-                    };
-                    if rmis.batch_state.batch_size_reached() {
-                        break 'batch;
-                    }
-                }
-            }
-            FieldValueSlice::BytesBuffer(bytes) => {
-                for (v, rl, offset) in
-                    RefAwareBytesBufferIter::from_range(&range, bytes)
-                {
-                    match_regex_inner::<true, _>(
-                        &mut rmis,
-                        &mut bytes_regex,
-                        v,
-                        rl,
-                        offset,
-                    );
-                    if rmis.batch_state.batch_size_reached() {
-                        break 'batch;
-                    }
-                }
-            }
+
             FieldValueSlice::Custom(custom_types) => {
                 for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                     &range,
@@ -1286,11 +1258,11 @@ pub fn handle_tf_regex(
             }
             FieldValueSlice::BigInt(_)
             | FieldValueSlice::Float(_)
-            | FieldValueSlice::Rational(_) => {
+            | FieldValueSlice::BigRational(_)
+            | FieldValueSlice::Argument(_) => {
                 todo!();
             }
-            FieldValueSlice::SlicedFieldReference(_)
-            | FieldValueSlice::FieldReference(_) => unreachable!(),
+
             FieldValueSlice::Null(_)
             | FieldValueSlice::Undefined(_)
             | FieldValueSlice::Object(_)
@@ -1332,7 +1304,9 @@ pub fn handle_tf_regex(
                     }
                 }
             }
-        }
+            FieldValueSlice::SlicedFieldReference(_)
+            | FieldValueSlice::FieldReference(_) => unreachable!(),
+        })
     }
     re.unfinished_value_offset = rbs.next_start;
     let field_pos_input = rbs.field_pos_input; // brrwchck...

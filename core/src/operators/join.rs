@@ -1,15 +1,14 @@
-use std::{collections::VecDeque, sync::Arc};
-
 use bstr::ByteSlice;
+use metamatch::metamatch;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::{collections::VecDeque, sync::Arc};
 
 use crate::{
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
     job::{JobData, TransformManager},
     record_data::{
         action_buffer::ActorId,
-        custom_data::CustomData,
         field::FieldRefOffset,
         field_data::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
@@ -17,7 +16,9 @@ use crate::{
         },
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
-        formattable::RealizedFormatKey,
+        formattable::{
+            Formattable, FormattingContext, RealizedFormatKey, TypeReprFormat,
+        },
         group_track::GroupTrackIterRef,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
@@ -37,16 +38,17 @@ use crate::{
     },
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
-        int_string_conversions::{i64_to_str, usize_to_str},
+        int_string_conversions::{f64_to_str, i64_to_str, usize_to_str},
         lazy_lock_guard::LazyRwLockGuard,
         maybe_text::{MaybeText, MaybeTextBoxed, MaybeTextCow, MaybeTextRef},
+        text_write::MaybeTextWritePanicAdapter,
         universe::Universe,
     },
 };
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{OperatorBase, OperatorData, OperatorId, OperatorName},
+    operator::{OperatorBase, OperatorData, OperatorName},
     print::typed_slice_zst_str,
     transform::{TransformData, TransformId, TransformState},
 };
@@ -168,7 +170,12 @@ pub fn parse_op_join(
                 return Err(expr.error_named_arg_unsupported(key, arg.span));
             }
             ParsedArgValue::PositionalArg { value: v, .. } => {
-                value = Some(v.expect_plain(&expr.op_name, arg.span)?);
+                let Some(argv) = v.text_or_bytes() else {
+                    return Err(
+                        expr.error_positional_arg_not_plaintext(arg.span)
+                    );
+                };
+                value = Some(argv);
             }
         }
     }
@@ -179,7 +186,7 @@ pub fn parse_op_join(
         ));
     }
     Ok(create_op_join(
-        value.map(|v| MaybeText::from_bytes_try_str(v)),
+        value.map(MaybeText::from_bytes_try_str),
         count,
         drop_incomplete,
     ))
@@ -566,7 +573,6 @@ pub fn handle_tf_join<'a>(
     let mut desired_group_len_rem =
         join.group_capacity.unwrap_or(usize::MAX) - join.curr_group_len;
     let mut groups_emitted = 0;
-    let sv_mgr = &mut jd.sv_mgr;
     let mut batch_size_rem = batch_size;
     let mut last_group_end = field_pos_start;
     let mut prebuffered_record = join.first_record_added;
@@ -610,11 +616,11 @@ pub fn handle_tf_join<'a>(
             }
             last_group_end = field_pos;
             if should_drop {
-                drop_group(join, sv_mgr, tf_id);
+                drop_group(join, &mut jd.sv_mgr, tf_id);
             } else {
                 emit_group(
                     join,
-                    sv_mgr,
+                    &mut jd.sv_mgr,
                     &mut jd.tf_mgr,
                     tf_id,
                     &mut output_inserter,
@@ -662,7 +668,7 @@ pub fn handle_tf_join<'a>(
                     .extend_from_ref_aware_range_stringified_smart_ref(
                         &jd.field_mgr,
                         &jd.match_set_mgr,
-                        sv_mgr,
+                        &jd.sv_mgr,
                         &mut string_store,
                         range,
                         true,
@@ -686,99 +692,133 @@ pub fn handle_tf_join<'a>(
         ) else {
             break;
         };
-        match range.base.data {
-            FieldValueSlice::TextInline(text) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineTextIter::from_range(&range, text)
-                {
-                    push_join_data(join, sv_mgr, MaybeTextCow::TextRef(v), rl);
-                }
-            }
-            FieldValueSlice::BytesInline(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineBytesIter::from_range(&range, bytes)
-                {
-                    push_join_data(
-                        join,
-                        sv_mgr,
-                        MaybeTextCow::BytesRef(v),
-                        rl,
-                    );
-                }
-            }
-            FieldValueSlice::TextBuffer(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareTextBufferIter::from_range(&range, bytes)
-                {
-                    push_join_data(join, sv_mgr, MaybeTextCow::TextRef(v), rl);
-                }
-            }
-            FieldValueSlice::BytesBuffer(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareBytesBufferIter::from_range(&range, bytes)
-                {
-                    push_join_data(
-                        join,
-                        sv_mgr,
-                        MaybeTextCow::BytesRef(v),
-                        rl,
-                    );
-                }
-            }
-            FieldValueSlice::Int(ints) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
-                    let v = i64_to_str(false, *v);
-                    push_join_data(
-                        join,
-                        sv_mgr,
-                        MaybeTextCow::TextRef(&v),
-                        rl,
-                    );
-                }
-            }
-            FieldValueSlice::Custom(custom_data) => {
-                for (v, rl) in RefAwareFieldValueRangeIter::from_range(
-                    &range,
-                    custom_data,
-                ) {
-                    push_custom_type(op_id, join, sv_mgr, &**v, rl);
-                }
-            }
-            FieldValueSlice::Error(errs) => {
-                push_error(join, sv_mgr, errs[0].clone());
-            }
+        metamatch!(match range.base.data {
             FieldValueSlice::Null(_) | FieldValueSlice::Undefined(_) => {
                 let str = typed_slice_zst_str(&range.base.data);
                 push_error(
                     join,
-                    sv_mgr,
+                    &mut jd.sv_mgr,
                     OperatorApplicationError::new_s(
                         format!("join does not support {str}"),
                         op_id,
                     ),
                 );
             }
+
+            #[expand((T, ITER, REF) in [
+                (TextInline, RefAwareInlineTextIter, TextRef),
+                (TextBuffer, RefAwareTextBufferIter, TextRef),
+                (BytesInline, RefAwareInlineBytesIter, BytesRef),
+                (BytesBuffer, RefAwareBytesBufferIter, BytesRef),
+            ])]
+            FieldValueSlice::T(text) => {
+                for (v, rl, _offs) in ITER::from_range(&range, text) {
+                    push_join_data(
+                        join,
+                        &mut jd.sv_mgr,
+                        MaybeTextCow::REF(v),
+                        rl,
+                    );
+                }
+            }
+            #[expand((T, CONV_FN) in [
+                (Int, i64_to_str(false, *v)),
+                (Float, f64_to_str(*v)),
+            ])]
+            FieldValueSlice::T(ints) => {
+                for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
+                    push_join_data(
+                        join,
+                        &mut jd.sv_mgr,
+                        MaybeTextCow::TextRef(&CONV_FN),
+                        rl,
+                    );
+                }
+            }
+            FieldValueSlice::Custom(custom_data) => {
+                let rfk = RealizedFormatKey::default();
+                for (v, rl) in RefAwareFieldValueRangeIter::from_range(
+                    &range,
+                    custom_data,
+                ) {
+                    let mut res = MaybeText::default();
+                    if let Err(e) = v.format_raw(&mut res, &rfk) {
+                        push_error(
+                            join,
+                            &mut jd.sv_mgr,
+                            OperatorApplicationError::new_s(
+                                e.to_string(),
+                                op_id,
+                            ),
+                        );
+                    }
+                    push_join_data(
+                        join,
+                        &mut jd.sv_mgr,
+                        MaybeTextCow::from_maybe_text(res),
+                        rl,
+                    )
+                }
+            }
+
+            FieldValueSlice::BigInt(_) => {
+                todo!();
+            }
+
+            #[expand(T in [Object, Array, Argument, BigRational])]
+            FieldValueSlice::T(v) => {
+                let mut fc = FormattingContext {
+                    ss: &mut string_store,
+                    print_rationals_raw: jd
+                        .get_transform_chain(tf_id)
+                        .settings
+                        .print_rationals_raw,
+                    fm: &jd.field_mgr,
+                    msm: &jd.match_set_mgr,
+                    is_stream_value: false,
+                    rfk: RealizedFormatKey::with_type_repr(
+                        TypeReprFormat::Typed,
+                    ),
+                };
+                for (v, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, v)
+                {
+                    // PERF: much allocs, much sadness
+                    let mut buff = String::new();
+                    v.format(
+                        &mut fc,
+                        &mut MaybeTextWritePanicAdapter(&mut buff),
+                    )
+                    .unwrap();
+                    push_join_data(
+                        join,
+                        &mut jd.sv_mgr,
+                        MaybeTextCow::Text(buff),
+                        rl,
+                    );
+                }
+            }
+
+            FieldValueSlice::Error(errs) => {
+                push_error(join, &mut jd.sv_mgr, errs[0].clone());
+            }
+
             FieldValueSlice::StreamValueId(svs) => {
-                if try_consume_stream_values(tf_id, join, sv_mgr, &range, svs)
-                    .is_err()
+                if try_consume_stream_values(
+                    tf_id,
+                    join,
+                    &mut jd.sv_mgr,
+                    &range,
+                    svs,
+                )
+                .is_err()
                 {
                     break 'iter;
                 }
             }
-            FieldValueSlice::BigInt(_)
-            | FieldValueSlice::Float(_)
-            | FieldValueSlice::Rational(_) => {
-                todo!();
-            }
-            FieldValueSlice::Object(_) => {
-                todo!();
-            }
-            FieldValueSlice::Array(_) => {
-                todo!();
-            }
             FieldValueSlice::FieldReference(_)
             | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-        }
+        });
         let fc = range.base.field_count;
         join.curr_group_len += fc;
         desired_group_len_rem -= fc;
@@ -799,7 +839,7 @@ pub fn handle_tf_join<'a>(
             join.active_stream_value_appended = false;
         }
         if join.active_stream_value_appended {
-            sv_mgr.inform_stream_value_subscribers(sv_id);
+            jd.sv_mgr.inform_stream_value_subscribers(sv_id);
             join.active_stream_value_appended = false;
         }
         if let Some(gbi) = join.active_group_batch {
@@ -854,7 +894,7 @@ fn push_partial_stream_value_and_sub<'a>(
     join: &mut TfJoin<'a>,
     sv_mgr: &mut StreamValueManager<'a>,
     tf_id: TransformId,
-    sv_id: usize,
+    sv_id: StreamValueId,
     rl: u32,
 ) {
     let gbi = get_active_group_batch(join, sv_mgr);
@@ -914,25 +954,6 @@ fn push_partial_stream_value_and_sub<'a>(
         run_length: rl,
     });
     sv.subscribe(sv_id, tf_id, gbi.get(), buffered, streaming_emit);
-}
-
-fn push_custom_type<'a>(
-    op_id: OperatorId,
-    join: &mut TfJoin<'a>,
-    sv_mgr: &mut StreamValueManager<'a>,
-    value: &dyn CustomData,
-    rl: RunLength,
-) {
-    // PERF: we could implement this better
-    let mut res = MaybeText::default();
-    if let Err(e) = value.format_raw(&mut res, &RealizedFormatKey::default()) {
-        push_error(
-            join,
-            sv_mgr,
-            OperatorApplicationError::new_s(e.to_string(), op_id),
-        );
-    }
-    push_join_data(join, sv_mgr, MaybeTextCow::from_maybe_text(res), rl)
 }
 
 pub fn handle_tf_join_stream_value_update(

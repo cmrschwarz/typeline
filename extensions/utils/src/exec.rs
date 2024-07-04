@@ -10,7 +10,7 @@ use bstr::ByteSlice;
 use metamatch::metamatch;
 use scr_core::{
     chain::ChainId,
-    cli::call_expr::{ArgumentValue, CallExpr, ParsedArgValue, Span},
+    cli::call_expr::{CallExpr, ParsedArgValue, Span},
     context::{SessionData, SessionSetupData},
     job::{Job, JobData},
     liveness_analysis::{
@@ -59,7 +59,7 @@ use scr_core::{
     },
     smallbox,
     utils::{
-        int_string_conversions::i64_to_str,
+        int_string_conversions::{f64_to_str, i64_to_str},
         maybe_text::MaybeText,
         string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
         universe::Universe,
@@ -374,11 +374,16 @@ impl<'a> TfExec<'a> {
                         cmd_idx += 1;
                     }
                 }
-                FieldValueSlice::Int(ints) => {
+
+                #[expand((T, CONV_FN) in [
+                    (Int, i64_to_str(false, *v)),
+                    (Float, f64_to_str(*v)),
+                ])]
+                FieldValueSlice::T(ints) => {
                     for (v, rl) in
                         FieldValueRangeIter::from_range(&range, ints)
                     {
-                        let v = i64_to_str(false, *v);
+                        let v = CONV_FN;
                         for _ in 0..rl {
                             self.push_bytes(
                                 op_id,
@@ -390,6 +395,11 @@ impl<'a> TfExec<'a> {
                         }
                     }
                 }
+                FieldValueSlice::BigInt(_)
+                | FieldValueSlice::BigRational(_) => {
+                    todo!();
+                }
+
                 FieldValueSlice::Custom(custom_types) => {
                     for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                         &range,
@@ -457,12 +467,8 @@ impl<'a> TfExec<'a> {
                         todo!()
                     }
                 }
-                FieldValueSlice::BigInt(_)
-                | FieldValueSlice::Float(_)
-                | FieldValueSlice::Rational(_) => {
-                    todo!();
-                }
-                #[expand(T in [Null, Undefined, Array, Object])]
+
+                #[expand(T in [Null, Undefined, Array, Object, Argument])]
                 FieldValueSlice::T(_) => {
                     let e = OperatorApplicationError::new_s(
                         format!(
@@ -820,7 +826,7 @@ pub fn parse_op_exec(
                 return Err(expr.error_named_args_unsupported(arg.span));
             }
             ParsedArgValue::PositionalArg { idx, value } => {
-                let ArgumentValue::Plain(value) = value else {
+                let Some(value) = value.text_or_bytes() else {
                     return Err(expr.error_list_arg_unsupported(arg.span));
                 };
                 append_exec_arg(

@@ -10,6 +10,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
+    index_newtype,
     operators::{errors::OperatorApplicationError, transform::TransformId},
     utils::{
         escaped_writer::EscapedWriter,
@@ -135,7 +136,9 @@ pub struct StreamValueDataInserter<'s, 'd> {
     memory_budget: usize,
 }
 
-pub type StreamValueId = usize;
+index_newtype! {
+    pub struct StreamValueId(usize);
+}
 
 #[derive(Default)]
 pub struct StreamValueManager<'a> {

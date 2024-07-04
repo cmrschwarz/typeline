@@ -53,6 +53,8 @@ pub fn convert_vec_cleared<T, U>(mut v: Vec<T>) -> Vec<U> {
     if !(same_align && capacity_compatible) {
         return Vec::new();
     }
+    // SAFETY: This clear is the reason why this function is sound.
+    // That way there's never any transmutation of the values of the vec.
     v.clear();
     let mut v = ManuallyDrop::new(v);
     unsafe { Vec::from_raw_parts(v.as_mut_ptr().cast(), 0, capacity_new) }

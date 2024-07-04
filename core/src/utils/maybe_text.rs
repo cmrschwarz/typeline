@@ -50,6 +50,9 @@ impl<'a> Default for MaybeTextCow<'a> {
 }
 
 impl MaybeText {
+    pub const fn new() -> MaybeText {
+        MaybeText::Text(String::new())
+    }
     pub fn with_capacity(cap: usize) -> Self {
         MaybeText::Text(String::with_capacity(cap))
     }

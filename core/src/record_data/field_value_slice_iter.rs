@@ -82,7 +82,6 @@ impl<'a, T: FieldValueType + 'static> FieldValueRangeIter<'a, T> {
         range: &RefAwareTypedRange<'a>,
         values: &'a [T],
     ) -> Self {
-        assert!(!T::SUPPORTS_REFS);
         Self::from_valid_range(&range.base, values)
     }
     pub fn from_valid_range(

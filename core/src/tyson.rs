@@ -585,7 +585,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 BigInt::parse_bytes(buf[e + 1..].as_bytes(), 10).unwrap(),
             ));
         }
-        Ok(FieldValue::Rational(Box::new(rational)))
+        Ok(FieldValue::BigRational(Box::new(rational)))
     }
     fn parse_array_after_bracket(
         &mut self,
@@ -618,9 +618,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         let mut c = self.consume_char_eat_whitespace()?;
         loop {
             if c == '}' {
-                return Ok(FieldValue::Object(Object::KeysStored(Box::new(
-                    map,
-                ))));
+                return Ok(FieldValue::Object(Object::KeysStored(map)));
             }
             let key = if c == '"' || c == '\'' {
                 let key = self.parse_string_token_after_quote(c as u8)?;
@@ -917,9 +915,9 @@ mod test {
 
         assert_eq!(
             parse(input),
-            Ok(FieldValue::Object(Object::KeysStored(Box::new(indexmap![
+            Ok(FieldValue::Object(Object::KeysStored(indexmap![
                 key_name.to_string() => FieldValue::Int(3)
-            ])))),
+            ]))),
         );
     }
 }

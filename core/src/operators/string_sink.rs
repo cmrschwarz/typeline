@@ -5,6 +5,7 @@ use std::{
 };
 
 use bstr::ByteSlice;
+use metamatch::metamatch;
 
 use crate::{
     job::JobData,
@@ -14,7 +15,9 @@ use crate::{
         field_data::field_value_flags,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
-        formattable::{Formattable, FormattingContext, RealizedFormatKey},
+        formattable::{
+            Formattable, FormattingContext, RealizedFormatKey, TypeReprFormat,
+        },
         iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
@@ -30,9 +33,12 @@ use crate::{
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
-        int_string_conversions::i64_to_str,
+        int_string_conversions::{f64_to_str, i64_to_str},
         lazy_lock_guard::LazyRwLockGuard,
-        text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter},
+        text_write::{
+            MaybeTextWriteFlaggedAdapter, MaybeTextWritePanicAdapter,
+            TextWriteIoAdapter,
+        },
         universe::CountedUniverse,
     },
     NULL_STR, UNDEFINED_STR,
@@ -186,21 +192,6 @@ fn push_bytes(
     }
 }
 
-fn push_bytes_buffer(
-    op_id: OperatorId,
-    field_pos: usize,
-    out: &mut StringSink,
-    bytes: Vec<u8>,
-    run_len: usize,
-) {
-    match String::from_utf8(bytes) {
-        Ok(s) => push_string(out, s, run_len),
-        Err(e) => {
-            push_invalid_utf8(op_id, field_pos, out, e.as_bytes(), run_len)
-        }
-    }
-}
-
 fn append_stream_val(
     op_id: OperatorId,
     sv: &mut StreamValue,
@@ -303,41 +294,93 @@ pub fn handle_tf_string_sink(
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
-        match range.base.data {
-            FieldValueSlice::TextInline(text) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineTextIter::from_range(&range, text)
-                {
+        metamatch!(match range.base.data {
+            FieldValueSlice::Null(_) => {
+                push_str(&mut out, NULL_STR, range.base.field_count);
+            }
+
+            FieldValueSlice::Undefined(_) => {
+                push_errors(
+                    &mut out,
+                    OperatorApplicationError::new("value is undefined", op_id),
+                    range.base.field_count,
+                    field_pos,
+                    &mut last_interruption_end,
+                    &mut output_field,
+                );
+            }
+
+            #[expand((T, ITER) in [
+                (TextInline, RefAwareInlineTextIter),
+                (TextBuffer, RefAwareTextBufferIter),
+            ])]
+            FieldValueSlice::T(v) => {
+                for (v, rl, _offs) in ITER::from_range(&range, v) {
                     push_str(&mut out, v, rl as usize);
                 }
             }
-            FieldValueSlice::BytesInline(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineBytesIter::from_range(&range, bytes)
-                {
+
+            #[expand((T, ITER) in [
+                (BytesInline, RefAwareInlineBytesIter),
+                (BytesBuffer, RefAwareBytesBufferIter),
+            ])]
+            FieldValueSlice::T(v) => {
+                for (v, rl, _offs) in ITER::from_range(&range, v) {
                     push_bytes(op_id, field_pos, &mut out, v, rl as usize);
                 }
             }
-            FieldValueSlice::TextBuffer(text) => {
-                for (v, rl, _offs) in
-                    RefAwareTextBufferIter::from_range(&range, text)
-                {
-                    push_str(&mut out, v, rl as usize);
-                }
-            }
-            FieldValueSlice::BytesBuffer(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareBytesBufferIter::from_range(&range, bytes)
-                {
-                    push_bytes(op_id, field_pos, &mut out, v, rl as usize);
-                }
-            }
-            FieldValueSlice::Int(ints) => {
+
+            #[expand((T, CONV_FN) in [
+                (Int, i64_to_str(false, *v)),
+                (Float, f64_to_str(*v))
+            ])]
+            FieldValueSlice::T(ints) => {
                 for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
-                    let v = i64_to_str(false, *v);
+                    let v = CONV_FN;
                     push_str(&mut out, v.as_str(), rl as usize);
                 }
             }
+
+            FieldValueSlice::BigInt(values) => {
+                let mut rfk = RealizedFormatKey::default();
+                for (a, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, values)
+                {
+                    let mut data = String::new();
+                    a.format(
+                        &mut rfk,
+                        &mut MaybeTextWritePanicAdapter(&mut data),
+                    )
+                    .unwrap();
+                    push_string(&mut out, data, rl as usize);
+                }
+            }
+
+            #[expand(T in [BigRational, Array, Object, Argument])]
+            FieldValueSlice::T(values) => {
+                let mut fc = FormattingContext {
+                    ss: &mut string_store,
+                    fm: &jd.field_mgr,
+                    msm: &jd.match_set_mgr,
+                    print_rationals_raw,
+                    is_stream_value: false,
+                    rfk: RealizedFormatKey::with_type_repr(
+                        TypeReprFormat::Typed,
+                    ),
+                };
+                for (a, rl) in
+                    RefAwareFieldValueRangeIter::from_range(&range, values)
+                {
+                    let mut data = String::new();
+                    a.format(
+                        &mut fc,
+                        &mut MaybeTextWritePanicAdapter(&mut data),
+                    )
+                    .unwrap();
+                    push_string(&mut out, data, rl as usize);
+                }
+            }
+
             FieldValueSlice::Custom(custom_types) => {
                 for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                     &range,
@@ -382,11 +425,7 @@ pub fn handle_tf_string_sink(
                     }
                 }
             }
-            FieldValueSlice::FieldReference(_)
-            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-            FieldValueSlice::Null(_) => {
-                push_str(&mut out, NULL_STR, range.base.field_count);
-            }
+
             FieldValueSlice::Error(errs) => {
                 let mut pos = field_pos;
                 for (v, rl) in
@@ -403,16 +442,7 @@ pub fn handle_tf_string_sink(
                     pos += rl as usize;
                 }
             }
-            FieldValueSlice::Undefined(_) => {
-                push_errors(
-                    &mut out,
-                    OperatorApplicationError::new("value is undefined", op_id),
-                    range.base.field_count,
-                    field_pos,
-                    &mut last_interruption_end,
-                    &mut output_field,
-                );
-            }
+
             FieldValueSlice::StreamValueId(svs) => {
                 let mut pos = field_pos;
                 for (sv_id, rl) in FieldValueRangeIter::from_range(&range, svs)
@@ -455,60 +485,9 @@ pub fn handle_tf_string_sink(
                     pos += rl;
                 }
             }
-            FieldValueSlice::BigInt(_)
-            | FieldValueSlice::Float(_)
-            | FieldValueSlice::Rational(_) => {
-                todo!();
-            }
-            FieldValueSlice::Array(arrays) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm: &jd.field_mgr,
-                    msm: &jd.match_set_mgr,
-                    print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
-                for (a, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, arrays)
-                {
-                    let mut data = Vec::new();
-                    a.format(&mut fc, &mut TextWriteIoAdapter(&mut data))
-                        .unwrap();
-                    push_bytes_buffer(
-                        op_id,
-                        field_pos,
-                        &mut out,
-                        data,
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::Object(object) => {
-                let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm: &jd.field_mgr,
-                    msm: &jd.match_set_mgr,
-                    print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
-                for (a, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, object)
-                {
-                    let mut data = Vec::new();
-                    a.format(&mut fc, &mut TextWriteIoAdapter(&mut data))
-                        .unwrap();
-                    push_bytes_buffer(
-                        op_id,
-                        field_pos,
-                        &mut out,
-                        data,
-                        rl as usize,
-                    );
-                }
-            }
-        }
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
+        });
         field_pos += range.base.field_count;
     }
     let base_iter = iter.into_base_iter();

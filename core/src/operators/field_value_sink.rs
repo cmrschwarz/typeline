@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex, MutexGuard};
-
 use crate::{
     job::JobData,
     record_data::{
@@ -20,6 +18,8 @@ use crate::{
     },
     utils::universe::CountedUniverse,
 };
+use metamatch::metamatch;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::{
     errors::OperatorApplicationError,
@@ -129,112 +129,52 @@ pub fn handle_tf_field_value_sink(
         usize::MAX,
         field_value_flags::DEFAULT,
     ) {
-        match range.base.data {
-            FieldValueSlice::TextInline(text) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineTextIter::from_range(&range, text)
-                {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Text(v.to_string()),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::BytesInline(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareInlineBytesIter::from_range(&range, bytes)
-                {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Bytes(v.to_vec()),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::TextBuffer(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareTextBufferIter::from_range(&range, bytes)
-                {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Text(v.to_string()),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::BytesBuffer(bytes) => {
-                for (v, rl, _offs) in
-                    RefAwareBytesBufferIter::from_range(&range, bytes)
-                {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Bytes(v.to_vec()),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::Int(ints) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Int(*v),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::Float(vals) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Float(*v),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::BigInt(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::BigInt(Box::new(v.clone())),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::Rational(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Rational(Box::new(v.clone())),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::Custom(custom_types) => {
-                for (v, rl) in RefAwareFieldValueRangeIter::from_range(
-                    &range,
-                    custom_types,
-                ) {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Custom(v.clone()),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::FieldReference(_)
-            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-            FieldValueSlice::Null(_) => {
+        metamatch!(match range.base.data {
+            #[expand(T in [Null, Undefined])]
+            FieldValueSlice::T(_) => {
                 push_field_values(
                     &mut fvs,
-                    FieldValue::Null,
+                    FieldValue::T,
                     range.base.field_count,
                 );
             }
+
+            #[expand((REPR, KIND, ITER, CONV) in [
+                (TextInline, Text, RefAwareInlineTextIter, v.to_string()),
+                (BytesInline, Bytes, RefAwareInlineBytesIter, v.to_vec()),
+                (TextBuffer, Text, RefAwareTextBufferIter, v.to_string()),
+                (BytesBuffer, Bytes, RefAwareBytesBufferIter, v.to_vec()),
+            ])]
+            FieldValueSlice::REPR(text) => {
+                for (v, rl, _offs) in ITER::from_range(&range, text) {
+                    push_field_values(
+                        &mut fvs,
+                        FieldValue::KIND(CONV),
+                        rl as usize,
+                    );
+                }
+            }
+
+            #[expand((REPR, ITER, CONV) in [
+                (Int, FieldValueRangeIter, *v),
+                (Float, FieldValueRangeIter, *v),
+                (BigInt, RefAwareFieldValueRangeIter, Box::new(v.clone())),
+                (BigRational, RefAwareFieldValueRangeIter, Box::new(v.clone())),
+                (Argument, RefAwareFieldValueRangeIter, Box::new(v.clone())),
+                (Array, RefAwareFieldValueRangeIter, v.clone()),
+                (Object, RefAwareFieldValueRangeIter, v.clone()),
+                (Custom, RefAwareFieldValueRangeIter, v.clone()),
+            ])]
+            FieldValueSlice::REPR(text) => {
+                for (v, rl) in ITER::from_range(&range, text) {
+                    push_field_values(
+                        &mut fvs,
+                        FieldValue::REPR(CONV),
+                        rl as usize,
+                    );
+                }
+            }
+
             FieldValueSlice::Error(errs) => {
                 let mut pos = field_pos;
                 for (v, rl) in
@@ -255,13 +195,7 @@ pub fn handle_tf_field_value_sink(
                     pos += rl as usize;
                 }
             }
-            FieldValueSlice::Undefined(_) => {
-                push_field_values(
-                    &mut fvs,
-                    FieldValue::Undefined,
-                    range.base.field_count,
-                );
-            }
+
             FieldValueSlice::StreamValueId(sv_ids) => {
                 let mut pos = field_pos;
                 for (svid, rl) in
@@ -282,29 +216,10 @@ pub fn handle_tf_field_value_sink(
                     push_field_values(&mut fvs, sv.to_field_value(), run_len);
                 }
             }
-            FieldValueSlice::Array(arrays) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, arrays)
-                {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Array(v.clone()),
-                        rl as usize,
-                    );
-                }
-            }
-            FieldValueSlice::Object(object) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, object)
-                {
-                    push_field_values(
-                        &mut fvs,
-                        FieldValue::Object(v.clone()),
-                        rl as usize,
-                    );
-                }
-            }
-        }
+
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
+        });
         field_pos += range.base.field_count;
     }
     let base_iter = iter.into_base_iter();

@@ -11,12 +11,13 @@ use crate::{
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{AutoDerefIter, RefAwareFieldValueRangeIter},
-        stream_value::{StreamValueData, StreamValueUpdate},
+        stream_value::{StreamValueData, StreamValueId, StreamValueUpdate},
     },
     utils::{
         encoding::{
             self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER_BYTES,
         },
+        indexing_type::IndexingType,
         retain_vec_range,
     },
 };
@@ -220,7 +221,7 @@ pub fn handle_tf_to_str_stream_value_update(
         .settings
         .stream_buffer_size;
     let sv_in_id = update.sv_id;
-    let sv_out_id = update.custom;
+    let sv_out_id = StreamValueId::from_usize(update.custom);
     let (sv_in, sv_out) = jd
         .sv_mgr
         .stream_values

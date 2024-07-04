@@ -131,7 +131,7 @@ fn python_rational() -> Result<(), ScrError> {
         .run_collect()?;
     assert_eq!(
         res,
-        [FieldValue::Rational(Box::new(BigRational::new_raw(
+        [FieldValue::BigRational(Box::new(BigRational::new_raw(
             1.into(),
             3.into()
         )))]

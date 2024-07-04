@@ -1,5 +1,9 @@
+use std::{cell::RefMut, ops::ControlFlow};
+
+use metamatch::metamatch;
+
 use scr_core::{
-    cli::call_expr::CallExpr,
+    cli::call_expr::{Argument, CallExpr},
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -21,7 +25,7 @@ use scr_core::{
         },
     },
     record_data::{
-        action_buffer::{ActorId, ActorRef},
+        action_buffer::{ActionBuffer, ActorId, ActorRef},
         array::Array,
         field::FieldRefOffset,
         field_action::FieldActionKind,
@@ -34,6 +38,7 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
+    utils::{lazy_lock_guard::LazyRwLockGuard, string_store::StringStore},
 };
 
 #[derive(Default)]
@@ -142,32 +147,166 @@ fn insert_object_entry(
     inserter.push_array(arr, 1, true, false);
 }
 
+fn flatten_object(
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    ab: &mut RefMut<ActionBuffer>,
+    string_store: &mut LazyRwLockGuard<'_, StringStore>,
+    field_idx: &mut usize,
+    v: &Object,
+    rl: u32,
+) -> ControlFlow<()> {
+    let rl = rl as usize;
+    let len = v.len();
+    if len == 0 {
+        ab.push_action(FieldActionKind::Drop, *field_idx, rl);
+        return ControlFlow::Break(());
+    }
+    let elem_count = len * rl;
+    if len != 1 {
+        ab.push_action(FieldActionKind::Dup, *field_idx, elem_count - rl);
+    }
+    *field_idx += elem_count;
+
+    for _ in 0..rl {
+        match v {
+            Object::KeysStored(d) => {
+                for (k, v) in d.iter() {
+                    insert_object_entry(v, k, inserter);
+                }
+            }
+            Object::KeysInterned(d) => {
+                for (&k, v) in d.iter() {
+                    insert_object_entry(
+                        v,
+                        string_store.get().lookup(k),
+                        inserter,
+                    );
+                }
+            }
+        }
+    }
+    ControlFlow::Continue(())
+}
+
+fn flatten_array(
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    ab: &mut RefMut<ActionBuffer>,
+    _string_store: &mut LazyRwLockGuard<'_, StringStore>,
+    field_idx: &mut usize,
+    v: &Array,
+    rl: u32,
+) -> ControlFlow<()> {
+    let rl = rl as usize;
+    let len = v.len();
+    if len == 0 {
+        ab.push_action(FieldActionKind::Drop, *field_idx, rl);
+        return ControlFlow::Continue(());
+    }
+    let elem_count = len * rl;
+    if len != 1 {
+        ab.push_action(FieldActionKind::Dup, *field_idx, elem_count - rl);
+    }
+    *field_idx += elem_count;
+    // PERF: we could optimize this for len 1 and for the
+    // zsts
+    for _ in 0..rl {
+        metamatch!(match v {
+            Array::Null(_) => {
+                inserter.push_null(len, true)
+            }
+            Array::Undefined(_) => {
+                inserter.push_undefined(len, true)
+            }
+
+            #[expand(T in [
+                Int, Float, Array, Object, Argument,
+                BigInt, BigRational, Custom,
+                FieldReference, SlicedFieldReference,
+                StreamValueId, Error,
+            ])]
+            Array::T(vals) =>
+                inserter.extend(vals.iter().cloned(), true, false,),
+
+            #[expand((T, PUSH_FN) in  [
+                                    (Text, extend_from_strings),
+                                    (Bytes, extend_from_bytes),
+                                ])]
+            Array::T(vals) =>
+                inserter.PUSH_FN(vals.iter().map(|v| &**v), true, false,),
+
+            Array::Mixed(vals) => {
+                for v in vals.iter() {
+                    inserter.push_field_value_unpacked(
+                        v.clone(),
+                        1,
+                        true,
+                        false,
+                    );
+                }
+            }
+        })
+    }
+    ControlFlow::Break(())
+}
+
+fn flatten_argument(
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    ab: &mut RefMut<ActionBuffer>,
+    string_store: &mut LazyRwLockGuard<'_, StringStore>,
+    field_idx: &mut usize,
+    v: &Argument,
+    rl: u32,
+) -> ControlFlow<()> {
+    metamatch!(match &v.value {
+        FieldValue::Undefined | FieldValue::Null |
+        #[expand_pattern(T in [
+            Int, Float, StreamValueId, BigInt,
+            BigRational, Text, Bytes,Custom, Error,
+            FieldReference, SlicedFieldReference
+        ])]
+        FieldValue::T(_) => {
+            *field_idx += rl as usize;
+            inserter.push_field_value_unpacked(
+                v.value.clone(),
+                rl as usize,
+                true,
+                false,
+            );
+            ControlFlow::Continue(())
+        }
+
+        FieldValue::Argument(v) => {
+            flatten_argument(inserter, ab, string_store, field_idx, v, rl)
+        }
+        FieldValue::Object(v) => {
+            flatten_object(inserter, ab, string_store, field_idx, v, rl)
+        }
+        FieldValue::Array(v) => flatten_array(
+            inserter, ab, string_store, field_idx, v, rl
+        ),
+    })
+}
+
 impl TfFlatten {
     fn basic_update(&mut self, bud: BasicUpdateData) -> (usize, bool) {
         let mut output_field =
             bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = output_field.iter_hall.varying_type_inserter();
-        bud.match_set_mgr.match_sets[bud.match_set_id]
+        let mut ab = bud.match_set_mgr.match_sets[bud.match_set_id]
             .action_buffer
-            .borrow_mut()
-            .begin_action_group(self.actor_id);
+            .borrow_mut();
+        ab.begin_action_group(self.actor_id);
         let mut field_idx = bud.iter.get_next_field_pos();
-        let mut string_store = None;
+        let mut string_store =
+            LazyRwLockGuard::new(&bud.session_data.string_store);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
-            match range.base.data {
-                FieldValueSlice::Undefined(_)
-                | FieldValueSlice::Null(_)
-                | FieldValueSlice::Int(_)
-                | FieldValueSlice::Float(_)
-                | FieldValueSlice::StreamValueId(_)
-                | FieldValueSlice::BigInt(_)
-                | FieldValueSlice::Rational(_)
-                | FieldValueSlice::TextInline(_)
-                | FieldValueSlice::TextBuffer(_)
-                | FieldValueSlice::BytesInline(_)
-                | FieldValueSlice::BytesBuffer(_)
-                | FieldValueSlice::Custom(_)
-                | FieldValueSlice::Error(_) => {
+            metamatch!(match range.base.data {
+                #[expand_pattern(T in [
+                    Undefined, Null, Int, Float, StreamValueId, BigInt,
+                    BigRational, TextInline, TextBuffer, BytesInline,
+                    BytesBuffer, Custom, Error
+                ])]
+                FieldValueSlice::T(_) => {
                     field_idx += range.base.field_count;
                     inserter.extend_from_ref_aware_range_smart_ref(
                         range,
@@ -177,181 +316,32 @@ impl TfFlatten {
                         self.input_field_ref_offset,
                     );
                 }
-                FieldValueSlice::Object(objects) => {
-                    let mut ab = bud.match_set_mgr.match_sets
-                        [bud.match_set_id]
-                        .action_buffer
-                        .borrow_mut();
+                #[expand((T, FLATTEN_FN) in [
+                    (Array, flatten_array),
+                    (Object, flatten_object),
+                    (Argument, flatten_argument),
+                ])]
+                FieldValueSlice::T(arguments) => {
                     for (v, rl) in RefAwareFieldValueRangeIter::from_range(
-                        &range, objects,
+                        &range, arguments,
                     ) {
-                        let rl = rl as usize;
-                        let len = v.len();
-                        if len == 0 {
-                            ab.push_action(
-                                FieldActionKind::Drop,
-                                field_idx,
-                                rl,
-                            );
-                            continue;
-                        }
-                        let elem_count = len * rl;
-                        if len != 1 {
-                            ab.push_action(
-                                FieldActionKind::Dup,
-                                field_idx,
-                                elem_count - rl,
-                            );
-                        }
-                        field_idx += elem_count;
-                        for _ in 0..rl {
-                            match v {
-                                Object::KeysStored(d) => {
-                                    for (k, v) in d.iter() {
-                                        insert_object_entry(
-                                            v,
-                                            k,
-                                            &mut inserter,
-                                        );
-                                    }
-                                }
-                                Object::KeysInterned(d) => {
-                                    let ss = string_store.get_or_insert_with(
-                                        || {
-                                            bud.session_data
-                                                .string_store
-                                                .write()
-                                                .unwrap()
-                                        },
-                                    );
-                                    for (&k, v) in d.iter() {
-                                        insert_object_entry(
-                                            v,
-                                            ss.lookup(k),
-                                            &mut inserter,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                FieldValueSlice::Array(arrays) => {
-                    let mut ab = bud.match_set_mgr.match_sets
-                        [bud.match_set_id]
-                        .action_buffer
-                        .borrow_mut();
-                    for (v, rl) in
-                        RefAwareFieldValueRangeIter::from_range(&range, arrays)
-                    {
-                        let rl = rl as usize;
-                        let len = v.len();
-                        if len == 0 {
-                            ab.push_action(
-                                FieldActionKind::Drop,
-                                field_idx,
-                                rl,
-                            );
-                            continue;
-                        }
-                        let elem_count = len * rl;
-                        if len != 1 {
-                            ab.push_action(
-                                FieldActionKind::Dup,
-                                field_idx,
-                                elem_count - rl,
-                            );
-                        }
-                        field_idx += elem_count;
-                        // PERF: we could optimize this for len 1 and for the
-                        // zsts
-                        for _ in 0..rl {
-                            match v {
-                                Array::Null(_) => {
-                                    inserter.push_null(len, true)
-                                }
-                                Array::Undefined(_) => {
-                                    inserter.push_undefined(len, true)
-                                }
-                                Array::Int(vals) => inserter.extend(
-                                    vals.iter().copied(),
-                                    true,
-                                    false,
-                                ),
-                                Array::Float(vals) => inserter.extend(
-                                    vals.iter().copied(),
-                                    true,
-                                    false,
-                                ),
-                                Array::BigInt(vals) => inserter.extend(
-                                    vals.iter().cloned(),
-                                    true,
-                                    false,
-                                ),
-                                Array::Rational(vals) => inserter.extend(
-                                    vals.iter().cloned(),
-                                    true,
-                                    false,
-                                ),
-                                Array::Bytes(vals) => inserter.extend(
-                                    vals.iter().map(|v| v.to_vec()),
-                                    true,
-                                    false,
-                                ),
-                                Array::Text(vals) => inserter
-                                    .extend_from_strings(
-                                        vals.iter().map(|v| v.to_string()),
-                                        true,
-                                        false,
-                                    ),
-                                Array::Error(vals) => inserter.extend(
-                                    vals.iter().cloned(),
-                                    true,
-                                    false,
-                                ),
-                                Array::Array(vals) => inserter.extend(
-                                    vals.iter().cloned(),
-                                    true,
-                                    false,
-                                ),
-                                Array::Object(vals) => inserter.extend(
-                                    vals.iter().cloned(),
-                                    true,
-                                    false,
-                                ),
-                                Array::FieldReference(vals) => inserter
-                                    .extend(vals.iter().cloned(), true, false),
-                                Array::SlicedFieldReference(vals) => inserter
-                                    .extend(vals.iter().cloned(), true, false),
-                                Array::Custom(vals) => inserter.extend(
-                                    vals.iter().cloned(),
-                                    true,
-                                    false,
-                                ),
-                                Array::Mixed(vals) => {
-                                    for v in vals.iter() {
-                                        inserter.push_field_value_unpacked(
-                                            v.clone(),
-                                            1,
-                                            true,
-                                            false,
-                                        );
-                                    }
-                                }
-
-                                Array::StreamValueId(_) => todo!(),
-                            }
+                        if let ControlFlow::Break(_) = FLATTEN_FN(
+                            &mut inserter,
+                            &mut ab,
+                            &mut string_store,
+                            &mut field_idx,
+                            v,
+                            rl,
+                        ) {
+                            break;
                         }
                     }
                 }
                 FieldValueSlice::FieldReference(_)
                 | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-            }
+            })
         }
-        bud.match_set_mgr.match_sets[bud.match_set_id]
-            .action_buffer
-            .borrow_mut()
-            .end_action_group();
+        ab.end_action_group();
         (field_idx, bud.ps.input_done)
     }
 }

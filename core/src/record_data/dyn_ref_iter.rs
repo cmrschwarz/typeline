@@ -1,6 +1,7 @@
 use num::{BigInt, BigRational};
 
 use crate::{
+    cli::call_expr::Argument,
     operators::errors::OperatorApplicationError,
     record_data::{
         field_value_ref::FieldValueSlice,
@@ -33,13 +34,14 @@ pub enum DynFieldValueRangeIter<'a> {
     Int(FieldValueRangeIter<'a, i64>),
     BigInt(FieldValueRangeIter<'a, BigInt>),
     Float(FieldValueRangeIter<'a, f64>),
-    Rational(FieldValueRangeIter<'a, BigRational>),
+    BigRational(FieldValueRangeIter<'a, BigRational>),
     TextInline(InlineTextIter<'a>),
     TextBuffer(FieldValueRangeIter<'a, String>),
     BytesInline(InlineBytesIter<'a>),
     BytesBuffer(FieldValueRangeIter<'a, Vec<u8>>),
     Object(FieldValueRangeIter<'a, Object>),
     Array(FieldValueRangeIter<'a, Array>),
+    Argument(FieldValueRangeIter<'a, Argument>),
     Custom(FieldValueRangeIter<'a, CustomDataBox>),
     Error(FieldValueRangeIter<'a, OperatorApplicationError>),
     StreamValueId(FieldValueRangeIter<'a, StreamValueId>),
@@ -72,9 +74,9 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 ),
 
             #[expand(REPR in [
-                Int, BigInt, Float, Rational,
+                Int, BigInt, Float, BigRational,
                 TextBuffer, BytesBuffer,
-                Object, Array, Custom, Error,
+                Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             FieldValueSlice::REPR(vals) => DynFieldValueRangeIter::REPR(
@@ -108,8 +110,8 @@ impl<'a> DynFieldValueRangeIter<'a> {
             }
 
             #[expand(REPR in [
-                Int, BigInt, Float, Rational,
-                Object, Array, Custom, Error,
+                Int, BigInt, Float, BigRational,
+                Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             DynFieldValueRangeIter::REPR(it) => {
@@ -131,8 +133,8 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 res
             }
             #[expand(REPR in [
-                Int, BigInt,Float, Rational, TextInline, TextBuffer,
-                BytesInline, BytesBuffer, Object, Array, Custom, Error,
+                Int, BigInt,Float, BigRational, TextInline, TextBuffer,
+                BytesInline, BytesBuffer, Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             DynFieldValueRangeIter::REPR(it) => {
@@ -187,8 +189,8 @@ impl<'a> DynFieldValueRangeIter<'a> {
             }
 
             #[expand(REPR in [
-                Int, BigInt, Float, Rational,
-                Object, Array, Custom, Error,
+                Int, BigInt, Float, BigRational,
+                Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             DynFieldValueRangeIter::REPR(it) => {
@@ -222,20 +224,20 @@ impl<'a> Iterator for DynFieldValueRangeIter<'a> {
                     Some((FieldValueRef::T, rl as RunLength))
                 }
             }
-            #[expand((IT, T) in [
+            #[expand((ITER, T) in [
                 (TextInline, Text),
                 (TextBuffer, Text),
                 (BytesInline, Bytes),
                 (BytesBuffer, Bytes)
             ])]
-            DynFieldValueRangeIter::IT(it) => {
+            DynFieldValueRangeIter::ITER(it) => {
                 let (v, rl) = it.next()?;
                 Some((FieldValueRef::T(v), rl))
             }
 
             #[expand(T in [
-                Int, BigInt, Float, Rational,
-                Object, Array, Custom, Error,
+                Int, BigInt, Float, BigRational,
+                Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             DynFieldValueRangeIter::T(it) => {
@@ -363,9 +365,9 @@ impl<'a> Iterator for FieldValueSliceIter<'a> {
                 }
             }
             #[expand(REPR in [
-                Int, BigInt, Float, Rational,
-                Object, Array, Custom, Error, StreamValueId, FieldReference,
-                SlicedFieldReference
+                Int, BigInt, Float, BigRational,
+                Object, Array, Argument, Custom, Error,
+                StreamValueId, FieldReference, SlicedFieldReference
             ])]
             FieldValueSlice::REPR(v) => {
                 if v.is_empty() {

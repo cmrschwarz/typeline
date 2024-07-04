@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use crate::{
     cli::call_expr::Span,
     utils::string_store::{StringStore, StringStoreEntry},
@@ -16,24 +14,24 @@ pub struct OperatorBaseOptionsInterned {
 }
 
 #[derive(Clone, Default)]
-pub struct OperatorBaseOptions<'a> {
-    pub argname: Cow<'a, str>,
-    pub label: Option<Cow<'a, str>>,
+pub struct OperatorBaseOptions {
+    pub argname: String,
+    pub label: Option<String>,
     pub span: Span,
     pub transparent_mode: bool,
     pub append_mode: bool,
     pub output_is_atom: bool,
 }
 
-impl<'a> OperatorBaseOptions<'a> {
+impl OperatorBaseOptions {
     pub fn new(
-        argname: Cow<'a, str>,
-        label: Option<Cow<'a, str>>,
+        argname: String,
+        label: Option<String>,
         append_mode: bool,
         transparent_mode: bool,
         output_is_atom: bool,
         span: Span,
-    ) -> OperatorBaseOptions<'a> {
+    ) -> OperatorBaseOptions {
         OperatorBaseOptions {
             argname,
             label,
@@ -43,9 +41,9 @@ impl<'a> OperatorBaseOptions<'a> {
             output_is_atom,
         }
     }
-    pub fn from_name(argname: Cow<'static, str>) -> OperatorBaseOptions {
+    pub fn from_name(argname: impl Into<String>) -> OperatorBaseOptions {
         OperatorBaseOptions::new(
-            argname,
+            argname.into(),
             None,
             false,
             false,

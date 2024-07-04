@@ -32,6 +32,7 @@ use scr_core::{
     smallbox,
 };
 
+use metamatch::metamatch;
 use scr_core::operators::utils::any_number::AnyNumber;
 
 #[derive(Clone, Default)]
@@ -200,7 +201,7 @@ impl TfSum {
             let count = range.base.field_count;
             batch_size_rem -= count;
             group_iter.next_n_fields_in_group(count);
-            match range.base.data {
+            metamatch!(match range.base.data {
                 FieldValueSlice::Int(ints) => {
                     let mut iter =
                         FieldValueRangeIter::from_range(&range, ints);
@@ -229,30 +230,24 @@ impl TfSum {
                         self.aggregate.add_float(*v, rl, fpm)
                     }
                 }
-                FieldValueSlice::Rational(rationals) => {
+                FieldValueSlice::BigRational(rationals) => {
                     for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                         &range, rationals,
                     ) {
                         self.aggregate.add_rational(v, rl, fpm)
                     }
                 }
-                FieldValueSlice::Null(_)
-                | FieldValueSlice::Undefined(_)
-                | FieldValueSlice::BytesInline(_)
-                | FieldValueSlice::TextInline(_)
-                | FieldValueSlice::TextBuffer(_)
-                | FieldValueSlice::BytesBuffer(_)
-                | FieldValueSlice::Array(_)
-                | FieldValueSlice::Object(_)
-                | FieldValueSlice::Custom(_)
-                | FieldValueSlice::StreamValueId(_)
-                | FieldValueSlice::Error(_)
-                | FieldValueSlice::FieldReference(_)
-                | FieldValueSlice::SlicedFieldReference(_) => {
+                #[expand_pattern(T in [
+                    Null, Undefined,
+                    BytesInline, TextInline, TextBuffer, BytesBuffer,
+                    Array, Object, Argument, Custom,
+                    StreamValueId, Error, FieldReference, SlicedFieldReference
+                ])]
+                FieldValueSlice::T(_) => {
                     self.current_group_error_type =
                         Some(range.base.data.repr());
                 }
-            }
+            })
         }
         let pending_group_size =
             group_iter.field_pos() - last_finished_group_end;

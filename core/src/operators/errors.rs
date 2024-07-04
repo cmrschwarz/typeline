@@ -17,9 +17,9 @@ pub struct OperatorCreationError {
     pub span: Span,
 }
 
-pub enum OperatorParsingError<'a> {
+pub enum OperatorParsingError {
     CreationFailed(OperatorCreationError),
-    UnknownOperator(CallExpr<'a>),
+    UnknownOperator(CallExpr),
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -67,13 +67,13 @@ impl From<CliArgumentError> for OperatorCreationError {
     }
 }
 
-impl From<OperatorCreationError> for OperatorParsingError<'static> {
+impl From<OperatorCreationError> for OperatorParsingError {
     fn from(e: OperatorCreationError) -> Self {
         OperatorParsingError::CreationFailed(e)
     }
 }
 
-impl<'a> From<OperatorParsingError<'a>> for OperatorCreationError {
+impl From<OperatorParsingError> for OperatorCreationError {
     fn from(e: OperatorParsingError) -> Self {
         match e {
             OperatorParsingError::CreationFailed(e) => e,

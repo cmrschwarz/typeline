@@ -19,11 +19,7 @@ pub struct TfNop {}
 pub fn parse_op_nop(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    if expr
-        .require_at_most_one_arg()?
-        .map(|v| &**v == b"-c")
-        .unwrap_or(false)
-    {
+    if expr.require_at_most_one_plaintext_arg()? == Some(b"-c") {
         Ok(create_op_nop_copy())
     } else {
         Ok(create_op_nop())

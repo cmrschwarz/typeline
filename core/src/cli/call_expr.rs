@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Display, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 
 use bstr::ByteSlice;
 use num::{FromPrimitive, PrimInt};
@@ -10,6 +10,10 @@ use crate::{
             OperatorBaseOptions, OperatorBaseOptionsInterned,
         },
         setting::CliArgIdx,
+    },
+    record_data::{
+        field_value::FieldValue, field_value_ref::FieldValueRef,
+        scope_manager::ScopeId,
     },
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32, indexing_type::IndexingType,
@@ -41,21 +45,16 @@ pub enum Span {
     },
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub enum ArgumentValue<'a> {
-    List(Vec<Argument<'a>>),
-    Plain(Cow<'a, [u8]>),
-}
-
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Argument<'a> {
-    pub value: ArgumentValue<'a>,
+#[derive(Clone, PartialEq, Debug)]
+pub struct Argument {
+    pub value: FieldValue,
     pub span: Span,
+    pub source_scope: ScopeId,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Label<'a> {
-    pub value: Cow<'a, str>,
+pub struct Label {
+    pub value: String,
     pub is_atom: bool,
     pub span: Span,
 }
@@ -67,19 +66,19 @@ pub enum CallExprEndKind {
     End(Span),
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct CallExpr<'a> {
+#[derive(Clone, PartialEq, Debug)]
+pub struct CallExpr {
     pub append_mode: bool,
     pub transparent_mode: bool,
-    pub op_name: Cow<'a, str>,
-    pub label: Option<Label<'a>>,
-    pub args: Vec<Argument<'a>>,
+    pub op_name: String,
+    pub label: Option<Label>,
+    pub args: Vec<Argument>,
     pub end_kind: CallExprEndKind,
     pub span: Span,
 }
 
 pub struct ParsedArgsIter<'a> {
-    args: &'a [Argument<'a>],
+    args: &'a [Argument],
     flag_offset: Option<usize>,
     flags_over: bool,
     positional_arg_idx: usize,
@@ -101,7 +100,7 @@ pub enum ParsedArgValue<'a> {
     },
     PositionalArg {
         idx: usize,
-        value: &'a ArgumentValue<'a>,
+        value: FieldValueRef<'a>,
     },
 }
 
@@ -208,36 +207,47 @@ impl Span {
     }
 }
 
-impl<'a> ArgumentValue<'a> {
+impl Argument {
     pub fn expect_plain(
         &self,
         op_name: &str,
-        span: Span,
-    ) -> Result<&Cow<'a, [u8]>, OperatorCreationError> {
-        match self {
-            ArgumentValue::Plain(value) => Ok(value),
-            ArgumentValue::List(_) => Err(OperatorCreationError::new_s(
-                format!("operator `{op_name}` expected a plaintext argument, not a list"), span)
-            ),
+    ) -> Result<&[u8], OperatorCreationError> {
+        match &self.value {
+            FieldValue::Text(v) => Ok(v.as_bytes()),
+            FieldValue::Bytes(v) => Ok(v),
+            _ => Err(OperatorCreationError::new_s(
+                format!(
+                    "operator `{op_name}` expected a plaintext argument, not `{}`",
+                    self.value.repr()
+                ),
+                self.span,
+            )),
         }
-    }
-}
-impl<'a> Argument<'a> {
-    pub fn expect_plain(
-        &self,
-        op_name: &str,
-    ) -> Result<&Cow<'a, [u8]>, OperatorCreationError> {
-        self.value.expect_plain(op_name, self.span)
     }
     pub fn expect_string(
         &self,
         op_name: &str,
-    ) -> Result<&Cow<'a, [u8]>, OperatorCreationError> {
-        self.value.expect_plain(op_name, self.span)
+    ) -> Result<&str, OperatorCreationError> {
+        match &self.value {
+            FieldValue::Text(v) => Ok(v),
+            FieldValue::Bytes(_) => Err(OperatorCreationError::new_s(
+                format!(
+                    "argument for operator `{op_name}` must be valid utf-8",
+                ),
+                self.span,
+            )),
+            _ => Err(OperatorCreationError::new_s(
+                format!(
+                    "operator `{op_name}` expected a plaintext argument, not `{}`",
+                    self.value.repr()
+                ),
+                self.span,
+            )),
+        }
     }
 }
 
-impl<'a> CallExpr<'a> {
+impl CallExpr {
     pub fn error_named_args_unsupported(
         &self,
         span: Span,
@@ -257,6 +267,18 @@ impl<'a> CallExpr<'a> {
         OperatorCreationError::new_s(
             format!(
                 "operator `{}` does not support positional arguments",
+                self.op_name
+            ),
+            span,
+        )
+    }
+    pub fn error_positional_arg_not_plaintext(
+        &self,
+        span: Span,
+    ) -> OperatorCreationError {
+        OperatorCreationError::new_s(
+            format!(
+                "positional arguments for operator `{}` must be plaintext",
                 self.op_name
             ),
             span,
@@ -393,9 +415,9 @@ impl<'a> CallExpr<'a> {
         }
         Ok(())
     }
-    pub fn require_at_most_one_arg(
+    pub fn require_at_most_one_plaintext_arg(
         &self,
-    ) -> Result<Option<&Cow<'a, [u8]>>, OperatorCreationError> {
+    ) -> Result<Option<&[u8]>, OperatorCreationError> {
         if self.args.is_empty() {
             return Ok(None);
         }
@@ -408,20 +430,11 @@ impl<'a> CallExpr<'a> {
                 self.span,
             ));
         }
-        match &self.args[0].value {
-            ArgumentValue::Plain(value) => Ok(Some(value)),
-            ArgumentValue::List(_) => Err(OperatorCreationError::new_s(
-                format!(
-                    "operator `{}` requires a value argument, not a list",
-                    self.op_name
-                ),
-                self.args[0].span,
-            )),
-        }
+        self.args[0].expect_plain(&self.op_name).map(Some)
     }
-    pub fn require_single_arg(
+    pub fn require_single_plaintext_arg(
         &self,
-    ) -> Result<&Cow<'a, [u8]>, OperatorCreationError> {
+    ) -> Result<&[u8], OperatorCreationError> {
         if self.args.len() != 1 {
             return Err(OperatorCreationError::new_s(
                 format!(
@@ -431,21 +444,12 @@ impl<'a> CallExpr<'a> {
                 self.span,
             ));
         }
-        match &self.args[0].value {
-            ArgumentValue::Plain(value) => Ok(value),
-            ArgumentValue::List(_) => Err(OperatorCreationError::new_s(
-                format!(
-                    "operator `{}` requires a value parameter, not a list",
-                    self.op_name
-                ),
-                self.args[0].span,
-            )),
-        }
+        self.args[0].expect_plain(&self.op_name)
     }
     pub fn require_single_string_arg(
         &self,
     ) -> Result<&str, OperatorCreationError> {
-        let arg = self.require_single_arg()?;
+        let arg = self.require_single_plaintext_arg()?;
         arg.to_str().map_err(|_| {
             OperatorCreationError::new_s(
                 format!(
@@ -486,7 +490,7 @@ impl<'a> CallExpr<'a> {
             + FromPrimitive
             + FromStr<Err = std::num::ParseIntError>,
     {
-        let arg = self.require_at_most_one_arg()?;
+        let arg = self.require_at_most_one_plaintext_arg()?;
         if arg.is_none() {
             return Ok(None);
         }
@@ -495,7 +499,7 @@ impl<'a> CallExpr<'a> {
     pub fn require_at_most_one_string_arg(
         &self,
     ) -> Result<Option<&str>, OperatorCreationError> {
-        let arg = self.require_at_most_one_arg()?;
+        let arg = self.require_at_most_one_plaintext_arg()?;
         if arg.is_none() {
             return Ok(None);
         }
@@ -516,7 +520,7 @@ impl<'a> CallExpr<'a> {
                 self.span,
             ));
         }
-        let val = self.require_single_arg()?;
+        let val = self.require_single_plaintext_arg()?;
         if let Some(b) = try_parse_bool(val) {
             Ok(Some(b))
         } else {
@@ -530,7 +534,7 @@ impl<'a> CallExpr<'a> {
             ))
         }
     }
-    pub fn op_base_options(&self) -> OperatorBaseOptions<'a> {
+    pub fn op_base_options(&self) -> OperatorBaseOptions {
         OperatorBaseOptions {
             argname: self.op_name.clone(),
             span: self.span,
@@ -544,9 +548,9 @@ impl<'a> CallExpr<'a> {
             label: self.label.clone().map(|l| l.value),
         }
     }
-    pub fn op_base_options_static(&self) -> OperatorBaseOptions<'static> {
+    pub fn into_op_base_options(self) -> OperatorBaseOptions {
         OperatorBaseOptions {
-            argname: Cow::Owned(self.op_name.clone().into_owned()),
+            argname: self.op_name,
             span: self.span,
             transparent_mode: self.transparent_mode,
             append_mode: self.append_mode,
@@ -555,9 +559,10 @@ impl<'a> CallExpr<'a> {
                 .as_ref()
                 .map(|l| l.is_atom)
                 .unwrap_or(false),
-            label: self.label.clone().map(|l| l.value.into_owned().into()),
+            label: self.label.map(|l| l.value),
         }
     }
+
     pub fn op_base_options_interned(
         &self,
         string_store: &mut StringStore,
@@ -585,7 +590,7 @@ impl<'a> Iterator for ParsedArgsIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let first = self.args.first()?;
-        if let ArgumentValue::Plain(value) = &first.value {
+        if let Some(value) = &first.value.text_or_bytes() {
             if let Some(flag_offset) = self.flag_offset {
                 if let Some((mut begin, mut end, _char)) =
                     value[flag_offset..].char_indices().next()
@@ -626,7 +631,7 @@ impl<'a> Iterator for ParsedArgsIter<'a> {
         Some(ParsedArg {
             value: ParsedArgValue::PositionalArg {
                 idx,
-                value: &first.value,
+                value: first.value.as_ref(),
             },
             span: first.span,
         })

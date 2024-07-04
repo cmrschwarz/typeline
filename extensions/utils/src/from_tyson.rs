@@ -1,5 +1,4 @@
-use std::io::BufRead;
-
+use metamatch::metamatch;
 use scr_core::{
     context::SessionData,
     extension::ExtensionRegistry,
@@ -42,7 +41,9 @@ use scr_core::{
     },
     smallbox,
     tyson::parse_tyson,
+    utils::indexing_type::IndexingType,
 };
+use std::io::BufRead;
 
 #[derive(Clone, Default)]
 pub struct OpFromTyson {}
@@ -141,63 +142,45 @@ impl TfFromTyson {
             .floating_point_math;
         let exts = Some(&*bud.session_data.extensions);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
-            match range.base.data {
-                FieldValueSlice::TextInline(vals) => {
-                    for (v, rl, _offset) in
-                        RefAwareInlineTextIter::from_range(&range, vals)
-                    {
+            metamatch!(match range.base.data {
+                #[expand((T, ITER, VAL) in [
+                    (TextInline, RefAwareInlineTextIter, v.as_bytes()),
+                    (BytesInline, RefAwareInlineBytesIter, v),
+                    (TextBuffer, RefAwareTextBufferIter, v.as_bytes()),
+                    (BytesBuffer, RefAwareBytesBufferIter, v),
+                ])]
+                FieldValueSlice::T(text) => {
+                    for (v, rl, _offs) in ITER::from_range(&range, text) {
                         self.push_as_tyson(
                             exts,
                             &mut inserter,
-                            v.as_bytes(),
+                            VAL,
                             rl,
                             op_id,
                             fpm,
                         );
                     }
                 }
-                FieldValueSlice::TextBuffer(vals) => {
-                    for (v, rl, _offset) in
-                        RefAwareTextBufferIter::from_range(&range, vals)
-                    {
-                        self.push_as_tyson(
-                            exts,
-                            &mut inserter,
-                            v.as_bytes(),
-                            rl,
-                            op_id,
-                            fpm,
-                        );
-                    }
+
+                #[expand_pattern(T in [
+                    Undefined, Null, Int, Float, Argument,
+                    BigInt, BigRational, Custom, Object, Array, Error
+                ])]
+                FieldValueSlice::T(_) => {
+                    inserter.push_fixed_size_type(
+                        OperatorApplicationError::new_s(
+                            format!(
+                                "from_tyson can't handle values of type `{}`",
+                                range.base.data.repr()
+                            ),
+                            bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap(),
+                        ),
+                        range.base.field_count,
+                        true,
+                        true,
+                    );
                 }
-                FieldValueSlice::BytesInline(vals) => {
-                    for (v, rl, _offset) in
-                        RefAwareInlineBytesIter::from_range(&range, vals)
-                    {
-                        self.push_as_tyson(
-                            exts,
-                            &mut inserter,
-                            v,
-                            rl,
-                            op_id,
-                            fpm,
-                        );
-                    }
-                }
-                FieldValueSlice::BytesBuffer(vals) => {
-                    for (v, rl, _offset) in
-                        RefAwareBytesBufferIter::from_range(&range, vals)
-                    {
-                        self.push_as_tyson(
-                            exts,
-                            &mut inserter,
-                            v,
-                            rl,
-                            op_id,
-                            fpm,
-                        );
-                    }
-                }
+
                 FieldValueSlice::StreamValueId(vals) => {
                     for (&sv_id, rl) in
                         FieldValueRangeIter::from_range(&range, vals)
@@ -263,37 +246,19 @@ impl TfFromTyson {
                                 ));
 
                             bud.sv_mgr.subscribe_to_stream_value(
-                                sv_id, bud.tf_id, out_sv_id, true, true,
+                                sv_id,
+                                bud.tf_id,
+                                out_sv_id.into_usize(),
+                                true,
+                                true,
                             )
                         }
                     }
                 }
-                FieldValueSlice::Undefined(_)
-                | FieldValueSlice::Null(_)
-                | FieldValueSlice::Int(_)
-                | FieldValueSlice::Float(_)
-                | FieldValueSlice::BigInt(_)
-                | FieldValueSlice::Rational(_)
-                | FieldValueSlice::Custom(_)
-                | FieldValueSlice::Object(_)
-                | FieldValueSlice::Array(_)
-                | FieldValueSlice::Error(_) => {
-                    inserter.push_fixed_size_type(
-                        OperatorApplicationError::new_s(
-                            format!(
-                                "from_tyson can't handle values of type `{}`",
-                                range.base.data.repr()
-                            ),
-                            bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap(),
-                        ),
-                        range.base.field_count,
-                        true,
-                        true,
-                    );
-                }
-                FieldValueSlice::FieldReference(_)
-                | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-            }
+
+                #[expand_pattern(T in [FieldReference, SlicedFieldReference])]
+                FieldValueSlice::T(_) => unreachable!(),
+            })
         }
         (bud.batch_size, bud.ps.input_done)
     }

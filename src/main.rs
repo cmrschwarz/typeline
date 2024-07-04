@@ -3,7 +3,7 @@ use scr::{
     cli::{call_expr::Span, collect_env_args, parse_cli, CliOptions},
     context::Context,
     options::session_options::SessionOptions,
-    record_data::record_set::RecordSet,
+    record_data::{record_set::RecordSet, scope_manager::DEFAULT_SCOPE_ID},
     scr_error::ScrError,
 };
 use std::{process::ExitCode, sync::Arc};
@@ -17,6 +17,7 @@ fn run() -> Result<bool, String> {
         print_output: true,
         add_success_updator: true,
         extensions: build_extension_registry(),
+        default_scope_id: DEFAULT_SCOPE_ID,
     };
 
     let args = collect_env_args().map_err(|e| {

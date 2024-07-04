@@ -2,6 +2,8 @@ use std::mem::ManuallyDrop;
 
 use num::{BigInt, BigRational};
 
+use metamatch::metamatch;
+
 use super::{
     array::Array,
     bytes_insertion_stream::{
@@ -27,9 +29,13 @@ use super::{
 };
 use crate::{
     operators::errors::OperatorApplicationError,
-    record_data::field_data::{
-        field_value_flags::{DELETED, SHARED_VALUE},
-        INLINE_STR_MAX_LEN,
+    record_data::{
+        field_data::{
+            field_value_flags::{DELETED, SHARED_VALUE},
+            INLINE_STR_MAX_LEN,
+        },
+        field_value::{Null, Undefined},
+        ref_iter::{RefAwareBytesBufferIter, RefAwareTextBufferIter},
     },
     utils::{
         as_u8_slice,
@@ -39,7 +45,6 @@ use crate::{
         string_store::StringStore,
         text_write::MaybeTextWritePanicAdapter,
     },
-    NULL_STR, UNDEFINED_STR,
 };
 
 pub unsafe trait PushInterface {
@@ -281,8 +286,6 @@ pub unsafe trait PushInterface {
             );
         }
     }
-
-    // fixed sized types / ZST convenience wrappers
     fn push_string(
         &mut self,
         data: String,
@@ -290,15 +293,12 @@ pub unsafe trait PushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        unsafe {
-            self.push_fixed_size_type_unchecked(
-                FieldValueRepr::TextBuffer,
-                data,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            );
-        }
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
     }
     fn push_bytes_buffer(
         &mut self,
@@ -314,19 +314,52 @@ pub unsafe trait PushInterface {
             try_data_rle,
         );
     }
-    fn push_text_buffer(
+
+    fn push_string_check_inline(
         &mut self,
         data: String,
         run_length: usize,
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        self.push_fixed_size_type(
-            data,
-            run_length,
-            try_header_rle,
-            try_data_rle,
-        );
+        if data.len() < INLINE_STR_MAX_LEN {
+            self.push_inline_str(
+                &data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            )
+        } else {
+            self.push_fixed_size_type(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+    }
+    fn push_bytes_buffer_check_inline(
+        &mut self,
+        data: Vec<u8>,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        if data.len() < INLINE_STR_MAX_LEN {
+            self.push_inline_bytes(
+                &data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            )
+        } else {
+            self.push_fixed_size_type(
+                data,
+                run_length,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
     }
 
     fn push_custom(
@@ -385,7 +418,7 @@ pub unsafe trait PushInterface {
             try_data_rle,
         );
     }
-    fn push_rational(
+    fn push_big_rational(
         &mut self,
         data: BigRational,
         run_length: usize,
@@ -486,84 +519,44 @@ pub unsafe trait PushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        match v {
+        metamatch!(match v {
             FieldValue::Null => self.push_null(run_length, try_header_rle),
             FieldValue::Undefined => {
                 self.push_undefined(run_length, try_header_rle)
             }
-            FieldValue::Int(v) => {
-                self.push_int(v, run_length, try_header_rle, try_data_rle)
+            #[expand(T in [
+                Float, Array, Object, Custom, Error,
+                FieldReference, SlicedFieldReference, StreamValueId,
+                Int,
+            ])]
+            FieldValue::T(v) => {
+                self.push_fixed_size_type(
+                    v,
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
             }
-            FieldValue::BigInt(v) => self.push_fixed_size_type(
-                *v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::Float(v) => self.push_fixed_size_type(
-                v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::Rational(v) => self.push_fixed_size_type(
-                *v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::Text(v) => {
-                self.push_string(v, run_length, try_header_rle, try_data_rle)
+            #[expand((DST_T, PUSH_FN) in [
+                (Text, push_string_check_inline),
+                (Bytes, push_bytes_buffer_check_inline)
+            ])]
+            FieldValue::DST_T(v) => {
+                self.PUSH_FN(v, run_length, try_header_rle, try_data_rle)
             }
-            FieldValue::Bytes(v) => self.push_bytes_buffer(
-                v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::Array(v) => self.push_fixed_size_type(
-                v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::Object(v) => self.push_fixed_size_type(
-                v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::Custom(v) => self.push_fixed_size_type(
-                v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::Error(v) => self.push_fixed_size_type(
-                v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::FieldReference(v) => self.push_fixed_size_type(
-                v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::SlicedFieldReference(v) => self.push_fixed_size_type(
-                v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValue::StreamValueId(v) => self.push_fixed_size_type(
-                v,
-                run_length,
-                try_header_rle,
-                try_data_rle,
-            ),
-        }
+
+            #[expand(BOX_T in [
+                BigInt, BigRational, Argument
+            ])]
+            FieldValue::BOX_T(v) => {
+                self.push_fixed_size_type(
+                    *v,
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
+            }
+        })
     }
     fn extend_from_valid_range(
         &mut self,
@@ -586,168 +579,53 @@ pub unsafe trait PushInterface {
     ) {
         // PERF: this sucks
         let fc = range.base.field_count;
-        match range.base.data {
-            FieldValueSlice::Null(_) => self.push_null(fc, try_header_rle),
-            FieldValueSlice::Undefined(_) => {
-                self.push_undefined(fc, try_header_rle)
+        metamatch!(match range.base.data {
+            #[expand(T in [Null, Undefined])]
+            FieldValueSlice::T(_) => {
+                self.push_zst(T::REPR, fc, try_header_rle)
             }
-            FieldValueSlice::Int(vals) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
-                    self.push_int(
-                        *v,
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
+
+            #[expand((REPR, KIND, ITER, PUSH_FN) in [
+                (TextInline, Text, RefAwareInlineTextIter, push_inline_str),
+                (BytesInline, Bytes, RefAwareInlineBytesIter, push_inline_bytes),
+                (TextBuffer, Text, RefAwareTextBufferIter, push_str),
+                (BytesBuffer, Bytes, RefAwareBytesBufferIter, push_bytes),
+            ])]
+            FieldValueSlice::REPR(vals) => {
+                for (v, rl, _offset) in ITER::from_range(&range, vals) {
+                    self.PUSH_FN(v, rl as usize, try_header_rle, try_data_rle);
                 }
             }
-            FieldValueSlice::BigInt(vals) => {
+
+            #[expand((REPR, VAL) in [
+                (Int, *v),
+                (Float, *v),
+                (StreamValueId, *v),
+                (BigInt, v.clone()),
+                (BigRational, v.clone()),
+                (Custom, v.clone()),
+                (Error, v.clone()),
+                (Object, v.clone()),
+                (Argument, v.clone()),
+                //TODO: support slicing
+                (Array, v.clone()),
+            ])]
+            FieldValueSlice::REPR(vals) => {
                 for (v, rl) in
                     RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
-                    self.push_big_int(
-                        v.clone(),
+                    self.push_fixed_size_type(
+                        VAL,
                         rl as usize,
                         try_header_rle,
                         try_data_rle,
                     );
                 }
             }
-            FieldValueSlice::Float(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    self.push_float(
-                        *v,
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::Rational(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    self.push_rational(
-                        v.clone(),
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::BytesInline(vals) => {
-                // we can ignore the offset here because we copy
-                for (v, rl, _offset) in
-                    RefAwareInlineBytesIter::from_range(&range, vals)
-                {
-                    self.push_inline_bytes(
-                        v,
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::TextInline(vals) => {
-                // we can ignore the offset here because we copy
-                for (v, rl, _offset) in
-                    RefAwareInlineTextIter::from_range(&range, vals)
-                {
-                    self.push_inline_str(
-                        v,
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::TextBuffer(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    self.push_text_buffer(
-                        v.clone(),
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::BytesBuffer(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    self.push_bytes_buffer(
-                        v.clone(),
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::Object(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    self.push_object(
-                        v.clone(),
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::Array(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    self.push_array(
-                        v.clone(),
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::Custom(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    self.push_custom(
-                        v.clone(),
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::Error(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    self.push_error(
-                        v.clone(),
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::StreamValueId(vals) => {
-                for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
-                    self.push_stream_value_id(
-                        *v,
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
+
             FieldValueSlice::FieldReference(_)
             | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-        }
+        })
     }
     fn extend_from_valid_range_re_ref(
         &mut self,
@@ -771,13 +649,14 @@ pub unsafe trait PushInterface {
                 );
             }
             FieldValueSlice::BigInt(_)
-            | FieldValueSlice::Rational(_)
+            | FieldValueSlice::BigRational(_)
             | FieldValueSlice::TextBuffer(_)
             | FieldValueSlice::BytesBuffer(_)
             | FieldValueSlice::Array(_)
             | FieldValueSlice::Custom(_)
             | FieldValueSlice::Error(_)
             | FieldValueSlice::Object(_)
+            | FieldValueSlice::Argument(_)
             | FieldValueSlice::TextInline(_)
             | FieldValueSlice::BytesInline(_) => {
                 self.push_field_reference(
@@ -842,10 +721,11 @@ pub unsafe trait PushInterface {
                 );
             }
             FieldValueSlice::BigInt(_)
-            | FieldValueSlice::Rational(_)
+            | FieldValueSlice::BigRational(_)
             | FieldValueSlice::TextBuffer(_)
             | FieldValueSlice::BytesBuffer(_)
             | FieldValueSlice::Array(_)
+            | FieldValueSlice::Argument(_)
             | FieldValueSlice::Custom(_)
             | FieldValueSlice::Error(_)
             | FieldValueSlice::Object(_) => {
@@ -947,7 +827,7 @@ pub unsafe trait PushInterface {
         print_rationals_raw: bool,
     ) {
         let field_count = range.base.field_count;
-        match range.base.data {
+        metamatch!(match range.base.data {
             FieldValueSlice::BytesInline(_)
             | FieldValueSlice::TextInline(_)
             | FieldValueSlice::TextBuffer(_)
@@ -960,28 +840,29 @@ pub unsafe trait PushInterface {
                     input_field_ref_offset,
                 );
             }
-            FieldValueSlice::Null(_) => self.push_inline_str(
-                NULL_STR,
-                field_count,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValueSlice::Undefined(_) => self.push_inline_str(
-                UNDEFINED_STR,
-                field_count,
-                try_header_rle,
-                try_data_rle,
-            ),
-            FieldValueSlice::Int(vals) => {
+            FieldValueSlice::Null(_) | FieldValueSlice::Undefined(_) => self
+                .push_inline_str(
+                    range.base.data.repr().to_str(),
+                    field_count,
+                    try_header_rle,
+                    try_data_rle,
+                ),
+
+            #[expand((T, CONV) in [
+                (Int, i64_to_str(false, *v)),
+                (Float, f64_to_str(*v))
+            ])]
+            FieldValueSlice::T(vals) => {
                 for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
                     self.push_inline_str(
-                        &i64_to_str(false, *v),
+                        &CONV,
                         rl as usize,
                         try_header_rle,
                         try_data_rle,
                     );
                 }
             }
+
             FieldValueSlice::BigInt(vals) => {
                 let mut rfk = RealizedFormatKey::default();
                 for (v, rl) in
@@ -995,19 +876,7 @@ pub unsafe trait PushInterface {
                     .unwrap();
                 }
             }
-            FieldValueSlice::Float(vals) => {
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    self.push_str(
-                        &f64_to_str(*v),
-                        rl as usize,
-                        try_header_rle,
-                        try_data_rle,
-                    );
-                }
-            }
-            FieldValueSlice::Rational(vals) => {
+            FieldValueSlice::BigRational(vals) => {
                 let mut fc = FormattingContext {
                     ss,
                     fm,
@@ -1024,8 +893,8 @@ pub unsafe trait PushInterface {
                         .unwrap();
                 }
             }
-
-            FieldValueSlice::Object(vals) => {
+            #[expand(T in [Object, Array, Argument])]
+            FieldValueSlice::T(vals) => {
                 let mut fc = FormattingContext {
                     ss,
                     fm,
@@ -1044,23 +913,7 @@ pub unsafe trait PushInterface {
                     .unwrap();
                 }
             }
-            FieldValueSlice::Array(vals) => {
-                let mut fc = FormattingContext {
-                    ss,
-                    fm,
-                    msm,
-                    print_rationals_raw,
-                    is_stream_value: false,
-                    rfk: RealizedFormatKey::default(),
-                };
-                for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
-                {
-                    let mut stream =
-                        self.maybe_text_insertion_stream(rl as usize);
-                    v.format(&mut fc, &mut stream).unwrap();
-                }
-            }
+
             FieldValueSlice::Custom(vals) => {
                 let rfk = RealizedFormatKey::default();
                 for (v, rl) in
@@ -1108,7 +961,7 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::FieldReference(_)
             | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-        }
+        })
     }
     unsafe fn extend_unchecked<T: FieldValueType + Sized>(
         &mut self,
@@ -1121,7 +974,7 @@ pub unsafe trait PushInterface {
             self.push_zst(T::REPR, iter.count(), try_header_rle);
             return;
         }
-        // implementers of this trait would do well to specialize this
+        // PERF: implementers of this trait would do well to specialize this
         for v in iter {
             unsafe {
                 self.push_fixed_size_type_unchecked(
@@ -1134,19 +987,26 @@ pub unsafe trait PushInterface {
             }
         }
     }
-    fn extend_from_strings(
+    fn extend_from_strings<'a>(
         &mut self,
-        iter: impl Iterator<Item = String>,
+        iter: impl Iterator<Item = &'a str>,
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        unsafe {
-            self.extend_unchecked(
-                FieldValueRepr::TextBuffer,
-                iter.map(String::into_bytes),
-                try_header_rle,
-                try_data_rle,
-            )
+        // PERF: implementers of this trait would do well to specialize this
+        for v in iter {
+            self.push_str(v, 1, try_header_rle, try_data_rle)
+        }
+    }
+    fn extend_from_bytes<'a>(
+        &mut self,
+        iter: impl Iterator<Item = &'a [u8]>,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        // PERF: implementers of this trait would do well to specialize this
+        for v in iter {
+            self.push_bytes(v, 1, try_header_rle, try_data_rle)
         }
     }
     fn extend<T: FieldValueType + Sized>(

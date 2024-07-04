@@ -1,10 +1,10 @@
+use bstr::ByteSlice;
+use metamatch::metamatch;
+use num::{BigInt, BigRational};
 use std::sync::Arc;
 
-use bstr::ByteSlice;
-use num::{BigInt, BigRational};
-
 use crate::{
-    cli::call_expr::{CallExpr, ParsedArgValue, Span},
+    cli::call_expr::{Argument, CallExpr, ParsedArgValue, Span},
     job::JobData,
     options::{
         chain_options::DEFAULT_CHAIN_OPTIONS, session_options::SessionOptions,
@@ -12,6 +12,7 @@ use crate::{
     record_data::{
         array::Array,
         custom_data::CustomDataBox,
+        field_data::FieldValueRepr,
         field_value::{FieldValue, FieldValueKind, Object},
         iter_hall::IterId,
         push_interface::PushInterface,
@@ -31,19 +32,20 @@ use super::{
 pub enum Literal {
     Bytes(Vec<u8>),
     StreamBytes(Arc<Vec<u8>>),
-    String(String),
+    Text(String),
     StreamString(Arc<String>),
     Object(Object),
     Array(Array),
     Int(i64),
     BigInt(BigInt),
     Float(f64),
-    Rational(BigRational),
+    BigRational(BigRational),
     Null,
     Undefined,
     Error(String),
     StreamError(String),
     Custom(CustomDataBox),
+    Argument(Argument),
 }
 
 #[derive(Clone)]
@@ -64,7 +66,7 @@ impl OpLiteral {
         match &self.data {
             Literal::Null => "null",
             Literal::Undefined => "undefined",
-            Literal::String(_) => "str",
+            Literal::Text(_) => "str",
             Literal::StreamString(_) => "~str",
             Literal::Bytes(_) => "bytes",
             Literal::StreamBytes(_) => "~bytes",
@@ -73,9 +75,10 @@ impl OpLiteral {
             Literal::Int(_) => "int",
             Literal::BigInt(_) => "integer",
             Literal::Float(_) => "float",
-            Literal::Rational(_) => "rational",
+            Literal::BigRational(_) => "rational",
             Literal::Object(_) => "object",
             Literal::Array(_) => "array",
+            Literal::Argument(_) => "argument",
             Literal::Custom(v) => return v.type_name(),
         }
         .into()
@@ -113,16 +116,47 @@ pub fn insert_value(
         tf_id,
     );
     let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
-    match lit.data {
-        Literal::Bytes(b) => {
-            output_field.iter_hall.push_bytes(b, 1, true, true)
+    metamatch!(match lit.data {
+        #[expand(T in [Null, Undefined])]
+        Literal::T =>
+            output_field.iter_hall.push_zst(FieldValueRepr::T, 1, true),
+
+        #[expand((T, PUSH_FN, VAL) in [
+            (Int, push_int, *v),
+            (Float, push_float, *v),
+            (Bytes, push_bytes, v),
+            (Text, push_str, v),
+            (Object, push_object, v.clone()),
+            (Array, push_array, v.clone()),
+            (BigInt, push_big_int, v.clone()),
+            (BigRational, push_big_rational, v.clone()),
+            (Custom, push_custom, v.clone()),
+            (Argument, push_fixed_size_type, v.clone()),
+        ])]
+        Literal::T(v) => {
+            output_field.iter_hall.PUSH_FN(VAL, 1, true, true)
         }
-        Literal::String(s) => {
-            output_field.iter_hall.push_str(s, 1, true, true)
+
+        #[expand((LIT, DATA) in [(StreamString, Text), (StreamBytes, Bytes)])]
+        Literal::LIT(ss) => {
+            let sv_id = jd.sv_mgr.claim_stream_value(
+                StreamValue::from_data_done(StreamValueData::DATA {
+                    data: ss.clone(),
+                    range: 0..ss.len(),
+                }),
+            );
+            output_field
+                .iter_hall
+                .push_stream_value_id(sv_id, 1, true, false);
         }
-        Literal::Int(i) => output_field.iter_hall.push_int(*i, 1, true, true),
-        Literal::Null => output_field.iter_hall.push_null(1, true),
-        Literal::Undefined => output_field.iter_hall.push_undefined(1, true),
+
+        Literal::Error(e) => output_field.iter_hall.push_error(
+            OperatorApplicationError::new_s(e.clone(), op_id),
+            1,
+            true,
+            false,
+        ),
+
         Literal::StreamError(ss) => {
             let sv_id = jd.sv_mgr.claim_stream_value(StreamValue {
                 error: Some(Arc::new(OperatorApplicationError::new_s(
@@ -136,68 +170,7 @@ pub fn insert_value(
                 .iter_hall
                 .push_stream_value_id(sv_id, 1, true, false);
         }
-        Literal::StreamString(ss) => {
-            let sv_id = jd.sv_mgr.claim_stream_value(
-                StreamValue::from_data_done(StreamValueData::Text {
-                    data: ss.clone(),
-                    range: 0..ss.len(),
-                }),
-            );
-            output_field
-                .iter_hall
-                .push_stream_value_id(sv_id, 1, true, false);
-        }
-        Literal::StreamBytes(sb) => {
-            let sv_id = jd.sv_mgr.claim_stream_value(
-                StreamValue::from_data_done(StreamValueData::Bytes {
-                    data: sb.clone(),
-                    range: 0..sb.len(),
-                }),
-            );
-            output_field
-                .iter_hall
-                .push_stream_value_id(sv_id, 1, true, false);
-        }
-        Literal::Error(e) => output_field.iter_hall.push_error(
-            OperatorApplicationError::new_s(e.clone(), op_id),
-            1,
-            true,
-            false,
-        ),
-        Literal::Object(o) => output_field.iter_hall.push_fixed_size_type(
-            o.clone(),
-            1,
-            true,
-            true,
-        ),
-        Literal::Array(v) => output_field.iter_hall.push_fixed_size_type(
-            v.clone(),
-            1,
-            true,
-            true,
-        ),
-        Literal::BigInt(v) => output_field.iter_hall.push_fixed_size_type(
-            v.clone(),
-            1,
-            true,
-            true,
-        ),
-        Literal::Float(v) => output_field
-            .iter_hall
-            .push_fixed_size_type(*v, 1, true, true),
-        Literal::Rational(v) => output_field.iter_hall.push_fixed_size_type(
-            v.clone(),
-            1,
-            true,
-            true,
-        ),
-        Literal::Custom(v) => output_field.iter_hall.push_fixed_size_type(
-            v.clone(),
-            1,
-            true,
-            true,
-        ),
-    }
+    })
 }
 
 pub fn handle_tf_literal(
@@ -238,7 +211,7 @@ pub fn parse_op_str(
         data: if stream {
             Literal::StreamString(Arc::new(value_owned))
         } else {
-            Literal::String(value_owned)
+            Literal::Text(value_owned)
         },
         insert_count,
     }))
@@ -300,9 +273,9 @@ pub fn parse_insert_count_reject_value(
     Ok(insert_count)
 }
 
-pub fn parse_insert_count_and_value_args<'a: 'b, 'b>(
-    expr: &'b CallExpr<'a>,
-) -> Result<(Option<usize>, &'b [u8], Span), OperatorCreationError> {
+pub fn parse_insert_count_and_value_args(
+    expr: &CallExpr,
+) -> Result<(Option<usize>, &[u8], Span), OperatorCreationError> {
     let mut insert_count = None;
     let mut value = None;
     for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
@@ -317,8 +290,12 @@ pub fn parse_insert_count_and_value_args<'a: 'b, 'b>(
                 )?);
             }
             ParsedArgValue::PositionalArg { value: v, .. } => {
-                value =
-                    Some((v.expect_plain(&expr.op_name, arg.span)?, arg.span));
+                let Some(argv) = v.text_or_bytes() else {
+                    return Err(
+                        expr.error_positional_arg_not_plaintext(arg.span)
+                    );
+                };
+                value = Some((argv, arg.span));
             }
         }
     }
@@ -326,9 +303,9 @@ pub fn parse_insert_count_and_value_args<'a: 'b, 'b>(
     Ok((insert_count, value, value_span))
 }
 
-pub fn parse_insert_count_and_value_args_str<'a: 'b, 'b>(
-    expr: &'b CallExpr<'a>,
-) -> Result<(Option<usize>, &'b str, Span), OperatorCreationError> {
+pub fn parse_insert_count_and_value_args_str(
+    expr: &CallExpr,
+) -> Result<(Option<usize>, &str, Span), OperatorCreationError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;
 
@@ -371,26 +348,23 @@ pub fn parse_op_bytes(
     }))
 }
 pub fn field_value_to_literal(v: FieldValue) -> Literal {
-    match v {
-        FieldValue::Null => Literal::Null,
-        FieldValue::Undefined => Literal::Undefined,
-        FieldValue::Int(v) => Literal::Int(v),
-        FieldValue::BigInt(v) => Literal::BigInt(*v),
-        FieldValue::Float(v) => Literal::Float(v),
-        FieldValue::Rational(v) => Literal::Rational(*v),
-        FieldValue::Bytes(v) => Literal::Bytes(v),
-        FieldValue::Text(v) => Literal::String(v),
-        FieldValue::Error(v) => Literal::Error(v.message().to_owned()),
-        FieldValue::Array(v) => Literal::Array(v),
-        FieldValue::Object(v) => Literal::Object(v),
-        FieldValue::Custom(v) => Literal::Custom(v),
+    metamatch!(match v {
+        #[expand(T in [Null, Undefined])]
+        FieldValue::T => Literal::T,
 
-        FieldValue::StreamValueId(_)
-        | FieldValue::FieldReference(_)
-        | FieldValue::SlicedFieldReference(_) => {
+        #[expand(T in [Int, Float, Bytes, Text, Array, Object, Custom])]
+        FieldValue::T(v) => Literal::T(v),
+
+        #[expand(T in [BigInt, BigRational, Argument])]
+        FieldValue::T(v) => Literal::T(*v),
+
+        FieldValue::Error(v) => Literal::Error(v.message().to_owned()),
+
+        #[expand_pattern(T in [StreamValueId, FieldReference, SlicedFieldReference])]
+        FieldValue::T(_) => {
             panic!("{} is not a valid literal", v.kind().to_str())
         }
-    }
+    })
 }
 pub fn parse_op_tyson(
     expr: &CallExpr,
@@ -485,7 +459,7 @@ pub fn create_op_error(str: &str) -> OperatorData {
     create_op_literal(Literal::Error(str.to_owned()))
 }
 pub fn create_op_str(str: &str) -> OperatorData {
-    create_op_literal(Literal::String(str.to_owned()))
+    create_op_literal(Literal::Text(str.to_owned()))
 }
 pub fn create_op_stream_bytes(v: &[u8]) -> OperatorData {
     create_op_literal(Literal::StreamBytes(Arc::new(v.to_owned())))
@@ -519,7 +493,7 @@ pub fn create_op_error_n(str: &str, insert_count: usize) -> OperatorData {
     create_op_literal_n(Literal::Error(str.to_owned()), insert_count)
 }
 pub fn create_op_str_n(str: &str, insert_count: usize) -> OperatorData {
-    create_op_literal_n(Literal::String(str.to_owned()), insert_count)
+    create_op_literal_n(Literal::Text(str.to_owned()), insert_count)
 }
 pub fn create_op_stream_bytes_n(
     v: &[u8],

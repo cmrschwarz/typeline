@@ -22,7 +22,7 @@ thiserror = "1.0.61"
 derive_more = "0.99.18"
 ref-cast = "1.0.23"
 subenum = "1.1.2"
-metamatch = "0.2.3"
+metamatch = "0.2.4"
 
 
 # small size / layout optimizations
@@ -43,7 +43,7 @@ unicode-ident = "1.0.12"
 
 # for debug_log
 serde_derive = { version = "1.0.203", optional = true }
-serde_json = { version = "1.0.118", optional = true }
+serde_json = { version = "1.0.120", optional = true }
 handlebars = { git = "https://github.com/cmrschwarz/handlebars-rust.git", branch = "master", optional = true }
 
 # deps for repl mode:
