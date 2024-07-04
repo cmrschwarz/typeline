@@ -524,12 +524,12 @@ pub unsafe trait PushInterface {
             FieldValue::Undefined => {
                 self.push_undefined(run_length, try_header_rle)
             }
-            #[expand(T in [
+            #[expand(REP in [
                 Float, Array, Object, Custom, Error,
                 FieldReference, SlicedFieldReference, StreamValueId,
                 Int,
             ])]
-            FieldValue::T(v) => {
+            FieldValue::REP(v) => {
                 self.push_fixed_size_type(
                     v,
                     run_length,
@@ -537,18 +537,16 @@ pub unsafe trait PushInterface {
                     try_data_rle,
                 );
             }
-            #[expand((DST_T, PUSH_FN) in [
+            #[expand((REP, PUSH_FN) in [
                 (Text, push_string_check_inline),
                 (Bytes, push_bytes_buffer_check_inline)
             ])]
-            FieldValue::DST_T(v) => {
+            FieldValue::REP(v) => {
                 self.PUSH_FN(v, run_length, try_header_rle, try_data_rle)
             }
 
-            #[expand(BOX_T in [
-                BigInt, BigRational, Argument
-            ])]
-            FieldValue::BOX_T(v) => {
+            #[expand(REP in [BigInt, BigRational, Argument])]
+            FieldValue::REP(v) => {
                 self.push_fixed_size_type(
                     *v,
                     run_length,
@@ -580,24 +578,24 @@ pub unsafe trait PushInterface {
         // PERF: this sucks
         let fc = range.base.field_count;
         metamatch!(match range.base.data {
-            #[expand(T in [Null, Undefined])]
-            FieldValueSlice::T(_) => {
-                self.push_zst(T::REPR, fc, try_header_rle)
+            #[expand(ZST in [Null, Undefined])]
+            FieldValueSlice::ZST(_) => {
+                self.push_zst(ZST::REPR, fc, try_header_rle)
             }
 
-            #[expand((REPR, KIND, ITER, PUSH_FN) in [
+            #[expand((REP, KIND, ITER, PUSH_FN) in [
                 (TextInline, Text, RefAwareInlineTextIter, push_inline_str),
                 (BytesInline, Bytes, RefAwareInlineBytesIter, push_inline_bytes),
                 (TextBuffer, Text, RefAwareTextBufferIter, push_str),
                 (BytesBuffer, Bytes, RefAwareBytesBufferIter, push_bytes),
             ])]
-            FieldValueSlice::REPR(vals) => {
+            FieldValueSlice::REP(vals) => {
                 for (v, rl, _offset) in ITER::from_range(&range, vals) {
                     self.PUSH_FN(v, rl as usize, try_header_rle, try_data_rle);
                 }
             }
 
-            #[expand((REPR, VAL) in [
+            #[expand((REP, VAL) in [
                 (Int, *v),
                 (Float, *v),
                 (StreamValueId, *v),
@@ -610,7 +608,7 @@ pub unsafe trait PushInterface {
                 //TODO: support slicing
                 (Array, v.clone()),
             ])]
-            FieldValueSlice::REPR(vals) => {
+            FieldValueSlice::REP(vals) => {
                 for (v, rl) in
                     RefAwareFieldValueRangeIter::from_range(&range, vals)
                 {
@@ -848,11 +846,11 @@ pub unsafe trait PushInterface {
                     try_data_rle,
                 ),
 
-            #[expand((T, CONV) in [
+            #[expand((REP, CONV) in [
                 (Int, i64_to_str(false, *v)),
                 (Float, f64_to_str(*v))
             ])]
-            FieldValueSlice::T(vals) => {
+            FieldValueSlice::REP(vals) => {
                 for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
                     self.push_inline_str(
                         &CONV,
@@ -893,8 +891,8 @@ pub unsafe trait PushInterface {
                         .unwrap();
                 }
             }
-            #[expand(T in [Object, Array, Argument])]
-            FieldValueSlice::T(vals) => {
+            #[expand(REP in [Object, Array, Argument])]
+            FieldValueSlice::REP(vals) => {
                 let mut fc = FormattingContext {
                     ss,
                     fm,

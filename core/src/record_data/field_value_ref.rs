@@ -139,13 +139,13 @@ impl<'a> FieldValueRef<'a> {
                     FieldValueRef::Text(to_ref::<String, R>(fdr, data_begin))
                 }
 
-                #[expand(REPR in [
+                #[expand(REP in [
                     Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
                     SlicedFieldReference, Error,
                     Object, Array, Custom, Argument
                 ])]
-                FieldValueRepr::REPR => {
-                    FieldValueRef::REPR(to_ref(fdr, data_begin))
+                FieldValueRepr::REP => {
+                    FieldValueRef::REP(to_ref(fdr, data_begin))
                 }
             })
         }
@@ -154,42 +154,42 @@ impl<'a> FieldValueRef<'a> {
         use std::slice::from_ref;
 
         metamatch!(match self {
-            #[expand(T in [Null, Undefined])]
-            FieldValueRef::T => FieldValueSlice::T(1),
+            #[expand(REP in [Null, Undefined])]
+            FieldValueRef::REP => FieldValueSlice::REP(1),
 
-            #[expand((KIND, REPR) in [(Text, TextInline), (Bytes, BytesInline)])]
-            FieldValueRef::KIND(v) => FieldValueSlice::REPR(v),
+            #[expand((KIND, REP) in [(Text, TextInline), (Bytes, BytesInline)])]
+            FieldValueRef::KIND(v) => FieldValueSlice::REP(v),
 
-            #[expand(REPR in [
+            #[expand(REP in [
                 Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
                 SlicedFieldReference, Error, Argument,
                 Object, Array, Custom,
             ])]
-            FieldValueRef::REPR(v) => FieldValueSlice::REPR(from_ref(v)),
+            FieldValueRef::REP(v) => FieldValueSlice::REP(from_ref(v)),
         })
     }
     pub fn to_field_value(&self) -> FieldValue {
         metamatch!(match *self {
-            #[expand(T in [Null, Undefined])]
-            FieldValueRef::T => FieldValue::T,
+            #[expand(REP in [Null, Undefined])]
+            FieldValueRef::REP => FieldValue::REP,
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Float, StreamValueId, FieldReference,
                 SlicedFieldReference,
             ])]
-            FieldValueRef::T(v) => FieldValue::T(*v),
+            FieldValueRef::REP(v) => FieldValue::REP(*v),
 
-            #[expand(T in [Error, Object, Array, Custom,])]
-            FieldValueRef::T(v) => FieldValue::T(v.clone()),
+            #[expand(REP in [Error, Object, Array, Custom,])]
+            FieldValueRef::REP(v) => FieldValue::REP(v.clone()),
 
-            #[expand((T, CONV_FN) in [
+            #[expand((REP, CONV_FN) in [
                 (Text, to_string),
                 (Bytes, to_vec)
             ])]
-            FieldValueRef::T(v) => FieldValue::T(v.CONV_FN()),
+            FieldValueRef::REP(v) => FieldValue::REP(v.CONV_FN()),
 
-            #[expand(T in [BigInt, BigRational, Argument])]
-            FieldValueRef::T(v) => FieldValue::T(Box::new(v.clone())),
+            #[expand(REP in [BigInt, BigRational, Argument])]
+            FieldValueRef::REP(v) => FieldValue::REP(Box::new(v.clone())),
         })
     }
     pub fn repr(&self) -> FieldValueRepr {
@@ -201,21 +201,15 @@ impl<'a> FieldValueRef<'a> {
 
             FieldValueRef::Array(_) => todo!(),
 
-            #[expand(T in [Text, Bytes])]
-            FieldValueRef::T(v) => FieldValueRef::T(&v[range]),
+            #[expand(REP in [Text, Bytes])]
+            FieldValueRef::REP(v) => FieldValueRef::REP(&v[range]),
 
-            FieldValueRef::Null
-            | FieldValueRef::Undefined
-            | FieldValueRef::Int(_)
-            | FieldValueRef::BigInt(_)
-            | FieldValueRef::Float(_)
-            | FieldValueRef::BigRational(_)
-            | FieldValueRef::Object(_)
-            | FieldValueRef::Custom(_)
-            | FieldValueRef::StreamValueId(_)
-            | FieldValueRef::Error(_)
-            | FieldValueRef::FieldReference(_)
-            | FieldValueRef::SlicedFieldReference(_) => {
+            FieldValueRef::Null | FieldValueRef::Undefined |
+            #[expand_pattern(REP in [
+                Int, BigInt, Float, BigRational, Object, Custom, StreamValueId,
+                Error, FieldReference, SlicedFieldReference,
+            ])]
+            FieldValueRef::REP(_) => {
                 panic!("typed value kind {:?} is not slicable", self.repr(),)
             }
         })
@@ -314,13 +308,13 @@ impl<'a> FieldValueSlice<'a> {
                     ))
                 }
 
-                #[expand(REPR in [
+                #[expand(REP in [
                     Int, BigInt, Float, BigRational, TextBuffer, BytesInline,
                     BytesBuffer, Object, Array, Custom, Error, StreamValueId,
                     FieldReference, SlicedFieldReference, Argument
                 ])]
-                FieldValueRepr::REPR => {
-                    FieldValueSlice::REPR(to_slice(fdr, data_begin, data_end))
+                FieldValueRepr::REP => {
+                    FieldValueSlice::REP(to_slice(fdr, data_begin, data_end))
                 }
             })
         }
@@ -334,36 +328,36 @@ impl<'a> FieldValueSlice<'a> {
                 FieldValueSlice::BytesInline(v) => v,
                 FieldValueSlice::TextInline(v) => v.as_bytes(),
 
-                #[expand(REPR in [
+                #[expand(REP in [
                     Int, BigInt, Float, BigRational, StreamValueId,
                     FieldReference, SlicedFieldReference, Error,
                     BytesBuffer, TextBuffer, Object, Array, Argument, Custom
                 ])]
-                FieldValueSlice::REPR(v) => slice_as_bytes(v),
+                FieldValueSlice::REP(v) => slice_as_bytes(v),
             })
         }
     }
     pub fn repr(&self) -> FieldValueRepr {
         metamatch!(match self {
-            #[expand(REPR in [
+            #[expand(REP in [
                 Undefined, Null, BytesInline, TextInline,
                 Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
                 SlicedFieldReference, Error,
                 BytesBuffer, TextBuffer, Object, Array, Argument, Custom
             ])]
-            FieldValueSlice::REPR(_) => FieldValueRepr::REPR,
+            FieldValueSlice::REP(_) => FieldValueRepr::REP,
         })
     }
     pub fn len(&self) -> usize {
         metamatch!(match self {
             FieldValueSlice::Undefined(v) | FieldValueSlice::Null(v) => *v,
-            #[expand(REPR in [
+            #[expand(REP in [
                 BytesInline, TextInline,
                 Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
                 SlicedFieldReference, Error,
                 BytesBuffer, TextBuffer, Object, Array, Argument, Custom
             ])]
-            FieldValueSlice::REPR(v) => v.len(),
+            FieldValueSlice::REP(v) => v.len(),
         })
     }
     // like `len`, but 1 for `TextInline` and `BytesInline`,
@@ -395,7 +389,7 @@ impl<'a> FieldValueSlice<'a> {
     ) {
         unsafe {
             metamatch!(match repr {
-                #[expand((REPR, TYPE) in [
+                #[expand((REP, TYPE) in [
                     (BigInt, BigInt),
                     (BigRational, BigRational),
                     (TextBuffer, String),
@@ -406,7 +400,7 @@ impl<'a> FieldValueSlice<'a> {
                     (Custom, CustomDataBox),
                     (Error, OperatorApplicationError)
                 ])]
-                FieldValueRepr::REPR => {
+                FieldValueRepr::REP => {
                     #[allow(clippy::assertions_on_constants)]
                     {
                         debug_assert!(
@@ -415,11 +409,11 @@ impl<'a> FieldValueSlice<'a> {
                     }
                     drop_slice::<TYPE>(ptr, len)
                 }
-                #[expand_pattern(REPR in [
+                #[expand_pattern(REP in [
                     Null, Undefined, Int, Float, TextInline, BytesInline,
                     StreamValueId, FieldReference, SlicedFieldReference,
                 ])]
-                FieldValueRepr::REPR => {
+                FieldValueRepr::REP => {
                     debug_assert!(repr.is_trivially_copyable(), "{repr}");
                 }
             })

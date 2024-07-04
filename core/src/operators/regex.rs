@@ -1038,11 +1038,11 @@ pub fn handle_tf_regex(
                 .unwrap_or(re.input_field_ref_offset),
         };
         metamatch!(match range.base.data {
-            #[expand((REPR, ITER) in [
+            #[expand((REP, ITER) in [
                 (TextInline, RefAwareInlineTextIter),
                 (TextBuffer, RefAwareTextBufferIter),
             ])]
-            FieldValueSlice::REPR(text) => {
+            FieldValueSlice::REP(text) => {
                 if let Some(tr) = &mut text_regex {
                     for (v, rl, offsets) in ITER::from_range(&range, text) {
                         match_regex_inner::<true, _>(
@@ -1067,11 +1067,11 @@ pub fn handle_tf_regex(
                     }
                 }
             }
-            #[expand((REPR, ITER) in [
+            #[expand((REP, ITER) in [
                 (BytesInline, RefAwareInlineBytesIter),
                 (BytesBuffer, RefAwareBytesBufferIter),
             ])]
-            FieldValueSlice::REPR(bytes) => {
+            FieldValueSlice::REP(bytes) => {
                 for (v, rl, offset) in ITER::from_range(&range, bytes) {
                     match_regex_inner::<true, _>(
                         &mut rmis,

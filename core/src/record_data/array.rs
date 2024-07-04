@@ -47,12 +47,12 @@ impl Array {
     pub fn len(&self) -> usize {
         metamatch!(match self {
             Array::Null(len) | Array::Undefined(len) => *len,
-            #[expand(T in [
+            #[expand(REP in [
                 Int, BigInt, BigRational, Bytes, Text, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Mixed, Float,
                 StreamValueId, Argument
             ])]
-            Array::T(a) => a.len(),
+            Array::REP(a) => a.len(),
         })
     }
     pub fn is_empty(&self) -> bool {
@@ -61,13 +61,13 @@ impl Array {
     /// returns the present variant even if the array is empty
     pub fn repr_raw(&self) -> Option<FieldValueRepr> {
         Some(metamatch!(match self {
-            #[expand(T in [
+            #[expand(REP in [
                 Null, Undefined,
                 Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Argument
             ])]
-            Array::T(_) => FieldValueRepr::T,
+            Array::REP(_) => FieldValueRepr::REP,
             Array::Bytes(_) => FieldValueRepr::BytesBuffer,
             Array::Text(_) => FieldValueRepr::TextBuffer,
             Array::Mixed(_) => return None,
@@ -84,12 +84,12 @@ impl Array {
     pub fn into_cleared_vec<T>(self) -> Vec<T> {
         metamatch!(match self {
             Array::Null(_) | Array::Undefined(_) => Vec::new(),
-            #[expand(T in [
+            #[expand(REP in [
                 Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Argument, Mixed, Text, Bytes,
             ])]
-            Array::T(v) => convert_vec_cleared(v),
+            Array::REP(v) => convert_vec_cleared(v),
         })
     }
     pub fn convert_cleared(&mut self, repr: FieldValueRepr) {
@@ -103,12 +103,12 @@ impl Array {
             FieldValueRepr::BytesBuffer | FieldValueRepr::BytesInline => {
                 Array::Bytes(arr.into_cleared_vec())
             }
-            #[expand(T in [
+            #[expand(REP in [
                 Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Argument,
             ])]
-            FieldValueRepr::T => Array::T(arr.into_cleared_vec()),
+            FieldValueRepr::REP => Array::REP(arr.into_cleared_vec()),
         })
     }
 
@@ -116,16 +116,16 @@ impl Array {
         *self = Array::Mixed(metamatch!(match std::mem::take(self) {
             Array::Mixed(v) => v,
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
             ])]
-            Array::T(a) => a.into_iter().map(FieldValue::T).collect(),
+            Array::REP(a) => a.into_iter().map(FieldValue::REP).collect(),
 
-            #[expand(ZST_T in [Null, Undefined])]
-            Array::ZST_T(n) => {
-                std::iter::repeat(FieldValue::ZST_T).take(n).collect()
+            #[expand(REP in [Null, Undefined])]
+            Array::REP(n) => {
+                std::iter::repeat(FieldValue::REP).take(n).collect()
             }
 
             #[expand(BOX_T in [
@@ -144,17 +144,17 @@ impl Array {
     }
     pub fn push_raw(&mut self, value: FieldValue) {
         metamatch!(match (self, value) {
-            #[expand_pattern(ZST_T in [Null, Undefined])]
-            (Array::ZST_T(n), FieldValue::ZST_T) => {
+            #[expand_pattern(REP in [Null, Undefined])]
+            (Array::REP(n), FieldValue::REP) => {
                 *n += 1;
             }
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
             ])]
-            (Array::T(a), FieldValue::T(v)) => {
+            (Array::REP(a), FieldValue::REP(v)) => {
                 a.push(v);
             }
 
@@ -178,19 +178,19 @@ impl Array {
         iter: impl Iterator<Item = T>,
     ) {
         // SAFETY: We *know* that `T` and `Q` will be *identical* because of
-        // the check on `T::REPR`. `FixedSizeFieldValueType` is an
+        // the check on `T::REP`. `FixedSizeFieldValueType` is an
         // unsafe trait, so assuming that nobody gave us an incorrect
-        // `REPR` is sound.
+        // `REP` is sound.
         metamatch!(match self {
-            #[expand(ZST_T in [Null, Undefined])]
-            Array::ZST_T(n) => {
-                if T::REPR == FieldValueRepr::ZST_T {
+            #[expand(REP in [Null, Undefined])]
+            Array::REP(n) => {
+                if T::REPR == FieldValueRepr::REP {
                     *n += iter.count();
                     return;
                 }
             }
 
-            #[expand((ARRAY_T, REPR_T, VALUE_T) in [
+            #[expand((ARRAY_T, REP_T, VALUE_T) in [
                 (Int, Int, i64),
                 (Float, Float, f64),
                 (Text, TextBuffer, String),
@@ -204,7 +204,7 @@ impl Array {
                 (StreamValueId, StreamValueId, StreamValueId),
             ])]
             Array::ARRAY_T(a) => {
-                if T::REPR == FieldValueRepr::REPR_T {
+                if T::REPR == FieldValueRepr::REP_T {
                     debug_assert!(!T::FIELD_VALUE_BOXED);
                     a.extend(
                         iter.map(|v| unsafe { force_cast::<T, VALUE_T>(v) }),
@@ -287,49 +287,49 @@ impl Array {
     }
     pub fn pop(&mut self) -> Option<FieldValue> {
         Some(metamatch!(match self {
-            #[expand(ZST_T in [Null, Undefined])]
-            Array::ZST_T(n) => {
+            #[expand(REP in [Null, Undefined])]
+            Array::REP(n) => {
                 if *n == 0 {
                     return None;
                 }
                 *n -= 1;
-                FieldValue::ZST_T
+                FieldValue::REP
             }
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
             ])]
-            Array::T(v) => FieldValue::T(v.pop()?),
+            Array::REP(v) => FieldValue::REP(v.pop()?),
 
-            #[expand(BOX_T in [BigInt, BigRational, Argument])]
-            Array::BOX_T(v) => FieldValue::BOX_T(Box::new(v.pop()?)),
+            #[expand(REP in [BigInt, BigRational, Argument])]
+            Array::REP(v) => FieldValue::REP(Box::new(v.pop()?)),
 
             Array::Mixed(v) => return v.pop(),
         }))
     }
     pub fn get(&self, index: usize) -> Option<FieldValueRef> {
         metamatch!(match self {
-            #[expand(ZST_T in [Null, Undefined])]
-            Array::ZST_T(len) => {
+            #[expand(REP in [Null, Undefined])]
+            Array::REP(len) => {
                 if *len <= index {
                     return None;
                 }
-                Some(FieldValueRef::ZST_T)
+                Some(FieldValueRef::REP)
             }
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            Array::T(v) => {
-                v.get(index).map(FieldValueRef::T)
+            Array::REP(v) => {
+                v.get(index).map(FieldValueRef::REP)
             }
 
-            #[expand(T in [Text, Bytes])]
-            Array::T(v) => {
-                v.get(index).map(|v| FieldValueRef::T(v))
+            #[expand(REP in [Text, Bytes])]
+            Array::REP(v) => {
+                v.get(index).map(|v| FieldValueRef::REP(v))
             }
 
             Array::Mixed(v) => v.get(index).map(|v| v.as_ref()),
@@ -337,28 +337,28 @@ impl Array {
     }
     pub fn get_mut(&mut self, index: usize) -> Option<FieldValueRefMut> {
         metamatch!(match self {
-            #[expand(ZST_T in [Null, Undefined])]
-            Array::ZST_T(len) => {
+            #[expand(REP in [Null, Undefined])]
+            Array::REP(len) => {
                 if *len <= index {
                     return None;
                 }
-                Some(FieldValueRefMut::ZST_T)
+                Some(FieldValueRefMut::REP)
             }
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            Array::T(v) => {
-                v.get_mut(index).map(FieldValueRefMut::T)
+            Array::REP(v) => {
+                v.get_mut(index).map(FieldValueRefMut::REP)
             }
 
-            #[expand((REPR_T, REF_T) in [
+            #[expand((REP, REF) in [
                 (Text, TextBuffer),
                 (Bytes, BytesBuffer)
             ])]
-            Array::REPR_T(v) => {
-                v.get_mut(index).map(FieldValueRefMut::REF_T)
+            Array::REP(v) => {
+                v.get_mut(index).map(FieldValueRefMut::REF)
             }
 
             Array::Mixed(v) => v.get_mut(index).map(|v| v.as_ref_mut()),

@@ -117,11 +117,14 @@ pub fn insert_value(
     );
     let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
     metamatch!(match lit.data {
-        #[expand(T in [Null, Undefined])]
-        Literal::T =>
-            output_field.iter_hall.push_zst(FieldValueRepr::T, 1, true),
+        #[expand(REP in [Null, Undefined])]
+        Literal::REP => {
+            output_field
+                .iter_hall
+                .push_zst(FieldValueRepr::REP, 1, true)
+        }
 
-        #[expand((T, PUSH_FN, VAL) in [
+        #[expand((REP, PUSH_FN, VAL) in [
             (Int, push_int, *v),
             (Float, push_float, *v),
             (Bytes, push_bytes, v),
@@ -133,7 +136,7 @@ pub fn insert_value(
             (Custom, push_custom, v.clone()),
             (Argument, push_fixed_size_type, v.clone()),
         ])]
-        Literal::T(v) => {
+        Literal::REP(v) => {
             output_field.iter_hall.PUSH_FN(VAL, 1, true, true)
         }
 
@@ -349,19 +352,19 @@ pub fn parse_op_bytes(
 }
 pub fn field_value_to_literal(v: FieldValue) -> Literal {
     metamatch!(match v {
-        #[expand(T in [Null, Undefined])]
-        FieldValue::T => Literal::T,
+        #[expand(REP in [Null, Undefined])]
+        FieldValue::REP => Literal::REP,
 
-        #[expand(T in [Int, Float, Bytes, Text, Array, Object, Custom])]
-        FieldValue::T(v) => Literal::T(v),
+        #[expand(REP in [Int, Float, Bytes, Text, Array, Object, Custom])]
+        FieldValue::REP(v) => Literal::REP(v),
 
-        #[expand(T in [BigInt, BigRational, Argument])]
-        FieldValue::T(v) => Literal::T(*v),
+        #[expand(REP in [BigInt, BigRational, Argument])]
+        FieldValue::REP(v) => Literal::REP(*v),
 
         FieldValue::Error(v) => Literal::Error(v.message().to_owned()),
 
-        #[expand_pattern(T in [StreamValueId, FieldReference, SlicedFieldReference])]
-        FieldValue::T(_) => {
+        #[expand_pattern(REP in [StreamValueId, FieldReference, SlicedFieldReference])]
+        FieldValue::REP(_) => {
             panic!("{} is not a valid literal", v.kind().to_str())
         }
     })

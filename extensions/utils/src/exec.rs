@@ -354,32 +354,32 @@ impl<'a> TfExec<'a> {
             field_value_flags::DEFAULT,
         ) {
             metamatch!(match range.base.data {
-                #[expand((T, ITER) in [
+                #[expand((REP, ITER) in [
                     (TextInline, RefAwareInlineTextIter),
                     (TextBuffer, RefAwareTextBufferIter),
                 ])]
-                FieldValueSlice::T(text) => {
+                FieldValueSlice::REP(text) => {
                     for v in ITER::from_range(&range, text).unfold_rl() {
                         self.push_text(cmd_idx, arg_idx, v);
                         cmd_idx += 1;
                     }
                 }
-                #[expand((T, ITER) in [
+                #[expand((REP, ITER) in [
                     (BytesInline, RefAwareInlineBytesIter),
                     (BytesBuffer, RefAwareBytesBufferIter),
                 ])]
-                FieldValueSlice::T(bytes) => {
+                FieldValueSlice::REP(bytes) => {
                     for v in ITER::from_range(&range, bytes).unfold_rl() {
                         self.push_bytes(op_id, cmd_idx, arg_idx, v);
                         cmd_idx += 1;
                     }
                 }
 
-                #[expand((T, CONV_FN) in [
+                #[expand((REP, CONV_FN) in [
                     (Int, i64_to_str(false, *v)),
                     (Float, f64_to_str(*v)),
                 ])]
-                FieldValueSlice::T(ints) => {
+                FieldValueSlice::REP(ints) => {
                     for (v, rl) in
                         FieldValueRangeIter::from_range(&range, ints)
                     {
@@ -468,12 +468,12 @@ impl<'a> TfExec<'a> {
                     }
                 }
 
-                #[expand(T in [Null, Undefined, Array, Object, Argument])]
-                FieldValueSlice::T(_) => {
+                #[expand(REP in [Null, Undefined, Array, Object, Argument])]
+                FieldValueSlice::REP(_) => {
                     let e = OperatorApplicationError::new_s(
                         format!(
                             "unsupported input type {}",
-                            FieldValueRepr::T.to_str()
+                            FieldValueRepr::REP.to_str()
                         ),
                         op_id,
                     );

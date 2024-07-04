@@ -973,14 +973,14 @@ pub fn setup_key_output_state(
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
         metamatch!(match range.base.data {
-            #[expand(T in [Null, Undefined])]
-            FieldValueSlice::T(_) if typed_format => {
+            #[expand(REP in [Null, Undefined])]
+            FieldValueSlice::REP(_) if typed_format => {
                 iter_output_states_advanced(
                     &mut fmt.output_states,
                     &mut output_index,
                     range.base.field_count,
                     |o| {
-                        o.len += calc_fmt_len_ost(k, &mut (), o, &T);
+                        o.len += calc_fmt_len_ost(k, &mut (), o, &REP);
                     },
                 );
             }
@@ -997,13 +997,13 @@ pub fn setup_key_output_state(
                 }
             }
 
-            #[expand((REPR, ITER, RAW_BYTES) in [
+            #[expand((REP, ITER, RAW_BYTES) in [
                 (TextInline, RefAwareInlineTextIter, false),
                 (TextBuffer, RefAwareTextBufferIter, false),
                 (BytesInline, RefAwareInlineBytesIter, false),
                 (BytesBuffer, RefAwareBytesBufferIter, false),
             ])]
-            FieldValueSlice::REPR(v) => {
+            FieldValueSlice::REP(v) => {
                 for (v, rl, _offs) in ITER::from_range(&range, v) {
                     iter_output_states(fmt, &mut output_index, rl, |o| {
                         o.apply_to_rfk(k, &mut fc.rfk);
@@ -1014,7 +1014,7 @@ pub fn setup_key_output_state(
                 }
             }
 
-            #[expand((T, CTX) in [
+            #[expand((REP, CTX) in [
                 (Int, &mut fc.rfk),
                 (Float, &mut fc.rfk),
                 (BigInt, &mut fc.rfk),
@@ -1023,7 +1023,7 @@ pub fn setup_key_output_state(
                 (Array, &mut fc),
                 (Argument, &mut fc)
             ])]
-            FieldValueSlice::T(ints) => {
+            FieldValueSlice::REP(ints) => {
                 for (v, rl) in
                     RefAwareFieldValueRangeIter::from_range(&range, ints)
                 {
@@ -1504,25 +1504,25 @@ fn write_fmt_key(
         iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
     {
         metamatch!(match range.base.data {
-            #[expand(T in [Null, Undefined])]
-            FieldValueSlice::T(_) => {
+            #[expand(REP in [Null, Undefined])]
+            FieldValueSlice::REP(_) => {
                 iter_output_targets(
                     fmt,
                     &mut output_index,
                     range.base.field_count,
                     |tgt| {
-                        write_formatted(k, &mut (), tgt, &T);
+                        write_formatted(k, &mut (), tgt, &REP);
                     },
                 );
             }
 
-            #[expand((REPR, ITER) in [
+            #[expand((REP, ITER) in [
                 (TextInline, RefAwareInlineTextIter),
                 (BytesInline, RefAwareInlineBytesIter),
                 (TextBuffer, RefAwareTextBufferIter),
                 (BytesBuffer, RefAwareBytesBufferIter),
             ])]
-            FieldValueSlice::REPR(text) => {
+            FieldValueSlice::REP(text) => {
                 for (v, rl, _offs) in ITER::from_range(&range, text) {
                     iter_output_targets(
                         fmt,
@@ -1535,8 +1535,8 @@ fn write_fmt_key(
                 }
             }
 
-            #[expand( T in [Int, Float, BigInt])]
-            FieldValueSlice::T(ints) => {
+            #[expand(REP in [Int, Float, BigInt])]
+            FieldValueSlice::REP(ints) => {
                 for (v, rl) in
                     RefAwareFieldValueRangeIter::from_range(&range, ints)
                 {
@@ -1555,8 +1555,8 @@ fn write_fmt_key(
                 }
             }
 
-            #[expand(T in [BigRational, Object, Array, Argument])]
-            FieldValueSlice::T(vs) => {
+            #[expand(REP in [BigRational, Object, Array, Argument])]
+            FieldValueSlice::REP(vs) => {
                 let mut fc = FormattingContext {
                     ss: &mut string_store,
                     fm,

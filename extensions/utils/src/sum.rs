@@ -237,13 +237,13 @@ impl TfSum {
                         self.aggregate.add_rational(v, rl, fpm)
                     }
                 }
-                #[expand_pattern(T in [
+                #[expand_pattern(REP in [
                     Null, Undefined,
                     BytesInline, TextInline, TextBuffer, BytesBuffer,
                     Array, Object, Argument, Custom,
                     StreamValueId, Error, FieldReference, SlicedFieldReference
                 ])]
-                FieldValueSlice::T(_) => {
+                FieldValueSlice::REP(_) => {
                     self.current_group_error_type =
                         Some(range.base.data.repr());
                 }

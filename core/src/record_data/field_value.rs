@@ -226,14 +226,17 @@ impl FieldValueKind {
 impl PartialEq for FieldValue {
     fn eq(&self, other: &Self) -> bool {
         metamatch!(match self {
-            Self::Null => matches!(other, Self::Null),
-            Self::Undefined => matches!(other, Self::Undefined),
-            #[expand(T in [
+            #[expand(REP in [Null, Undefined])]
+            Self::REP => matches!(other, Self::REP),
+
+            #[expand(REP in [
                 Int, Error, Array, Object, Bytes, Text,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            FieldValue::T(l) => matches!(other, FieldValue::T(r) if r == l),
+            FieldValue::REP(l) => {
+                matches!(other, FieldValue::REP(r) if r == l)
+            }
         })
     }
 }
@@ -247,25 +250,25 @@ impl FieldValue {
             FieldValue::Text(_) => FieldValueRepr::TextBuffer,
             FieldValue::Bytes(_) => FieldValueRepr::BytesBuffer,
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            FieldValue::T(_) => FieldValueRepr::T,
+            FieldValue::REP(_) => FieldValueRepr::REP,
         })
     }
     pub fn downcast_ref<R: FieldValueType>(&self) -> Option<&R> {
         metamatch!(match self {
-            #[expand(T in [Null, Undefined])]
-            FieldValue::T => <dyn Any>::downcast_ref(&T),
+            #[expand(REP in [Null, Undefined])]
+            FieldValue::REP => <dyn Any>::downcast_ref(&REP),
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            FieldValue::T(v) => {
+            FieldValue::REP(v) => {
                 if R::FIELD_VALUE_BOXED {
                     <dyn Any>::downcast_ref::<Box<R>>(v).map(|v| &**v)
                 } else {
@@ -279,12 +282,12 @@ impl FieldValue {
             #[expand(T in [Null, Undefined])]
             v @ FieldValue::T => <dyn Any>::downcast_mut(v),
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            FieldValue::T(v) => {
+            FieldValue::REP(v) => {
                 if R::FIELD_VALUE_BOXED {
                     <dyn Any>::downcast_mut::<Box<R>>(v).map(|v| &mut **v)
                 } else {
@@ -331,28 +334,28 @@ impl FieldValue {
     }
     pub fn as_ref(&self) -> FieldValueRef {
         metamatch!(match self {
-            #[expand(ZST_T in [Null, Undefined])]
-            FieldValue::ZST_T => FieldValueRef::ZST_T,
+            #[expand(REP in [Null, Undefined])]
+            FieldValue::REP => FieldValueRef::REP,
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            FieldValue::T(v) => FieldValueRef::T(v),
+            FieldValue::REP(v) => FieldValueRef::REP(v),
         })
     }
     pub fn as_ref_mut(&mut self) -> FieldValueRefMut {
         metamatch!(match self {
-            #[expand(ZST_T in [Null, Undefined])]
-            FieldValue::ZST_T => FieldValueRefMut::ZST_T,
+            #[expand(REP in [Null, Undefined])]
+            FieldValue::REP => FieldValueRefMut::REP,
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            FieldValue::T(v) => FieldValueRefMut::T(v),
+            FieldValue::REP(v) => FieldValueRefMut::REP(v),
 
             #[expand((VALUE_T, REF_T) in [
                 (Text, TextBuffer),
@@ -376,31 +379,31 @@ impl FieldValue {
     }
     pub fn from_fixed_sized_type<T: FixedSizeFieldValueType>(v: T) -> Self {
         // SAFETY: We *know* that `T` and `Q` will be *identical* because of
-        // the check on `T::REPR`. `FixedSizeFieldValueType` is an
+        // the check on `T::REP`. `FixedSizeFieldValueType` is an
         // unsafe trait, so assuming that nobody gave us an incorrect
-        // `REPR` is sound.
+        // `REP` is sound.
         metamatch!(match T::REPR {
-            #[expand(ZST_T in [Null, Undefined])]
-            FieldValueRepr::ZST_T => FieldValue::ZST_T,
+            #[expand(REP in [Null, Undefined])]
+            FieldValueRepr::REP => FieldValue::REP,
 
-            #[expand(REPR in [
+            #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            FieldValueRepr::REPR => {
+            FieldValueRepr::REP => {
                 if T::FIELD_VALUE_BOXED {
-                    FieldValue::REPR(unsafe { force_cast(Box::new(v)) })
+                    FieldValue::REP(unsafe { force_cast(Box::new(v)) })
                 } else {
-                    FieldValue::REPR(unsafe { force_cast(v) })
+                    FieldValue::REP(unsafe { force_cast(v) })
                 }
             }
 
-            #[expand((REPR_T, VALUE_T) in [
+            #[expand((REP_T, VALUE_T) in [
                 (TextBuffer, Text),
                 (BytesBuffer, Bytes)
             ])]
-            FieldValueRepr::REPR_T => {
+            FieldValueRepr::REP_T => {
                 FieldValue::VALUE_T(unsafe { force_cast(v) })
             }
 

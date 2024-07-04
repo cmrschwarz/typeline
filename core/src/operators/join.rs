@@ -705,13 +705,13 @@ pub fn handle_tf_join<'a>(
                 );
             }
 
-            #[expand((T, ITER, REF) in [
+            #[expand((REP, ITER, REF) in [
                 (TextInline, RefAwareInlineTextIter, TextRef),
                 (TextBuffer, RefAwareTextBufferIter, TextRef),
                 (BytesInline, RefAwareInlineBytesIter, BytesRef),
                 (BytesBuffer, RefAwareBytesBufferIter, BytesRef),
             ])]
-            FieldValueSlice::T(text) => {
+            FieldValueSlice::REP(text) => {
                 for (v, rl, _offs) in ITER::from_range(&range, text) {
                     push_join_data(
                         join,
@@ -721,11 +721,11 @@ pub fn handle_tf_join<'a>(
                     );
                 }
             }
-            #[expand((T, CONV_FN) in [
+            #[expand((REP, CONV_FN) in [
                 (Int, i64_to_str(false, *v)),
                 (Float, f64_to_str(*v)),
             ])]
-            FieldValueSlice::T(ints) => {
+            FieldValueSlice::REP(ints) => {
                 for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
                     push_join_data(
                         join,
@@ -765,8 +765,8 @@ pub fn handle_tf_join<'a>(
                 todo!();
             }
 
-            #[expand(T in [Object, Array, Argument, BigRational])]
-            FieldValueSlice::T(v) => {
+            #[expand(REP in [Object, Array, Argument, BigRational])]
+            FieldValueSlice::REP(v) => {
                 let mut fc = FormattingContext {
                     ss: &mut string_store,
                     print_rationals_raw: jd

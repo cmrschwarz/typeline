@@ -310,31 +310,31 @@ pub fn handle_tf_string_sink(
                 );
             }
 
-            #[expand((T, ITER) in [
+            #[expand((REP, ITER) in [
                 (TextInline, RefAwareInlineTextIter),
                 (TextBuffer, RefAwareTextBufferIter),
             ])]
-            FieldValueSlice::T(v) => {
+            FieldValueSlice::REP(v) => {
                 for (v, rl, _offs) in ITER::from_range(&range, v) {
                     push_str(&mut out, v, rl as usize);
                 }
             }
 
-            #[expand((T, ITER) in [
+            #[expand((REP, ITER) in [
                 (BytesInline, RefAwareInlineBytesIter),
                 (BytesBuffer, RefAwareBytesBufferIter),
             ])]
-            FieldValueSlice::T(v) => {
+            FieldValueSlice::REP(v) => {
                 for (v, rl, _offs) in ITER::from_range(&range, v) {
                     push_bytes(op_id, field_pos, &mut out, v, rl as usize);
                 }
             }
 
-            #[expand((T, CONV_FN) in [
+            #[expand((REP, CONV_FN) in [
                 (Int, i64_to_str(false, *v)),
                 (Float, f64_to_str(*v))
             ])]
-            FieldValueSlice::T(ints) => {
+            FieldValueSlice::REP(ints) => {
                 for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
                     let v = CONV_FN;
                     push_str(&mut out, v.as_str(), rl as usize);
@@ -356,8 +356,8 @@ pub fn handle_tf_string_sink(
                 }
             }
 
-            #[expand(T in [BigRational, Array, Object, Argument])]
-            FieldValueSlice::T(values) => {
+            #[expand(REP in [BigRational, Array, Object, Argument])]
+            FieldValueSlice::REP(values) => {
                 let mut fc = FormattingContext {
                     ss: &mut string_store,
                     fm: &jd.field_mgr,

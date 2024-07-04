@@ -218,21 +218,23 @@ fn flatten_array(
                 inserter.push_undefined(len, true)
             }
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, Float, Array, Object, Argument,
                 BigInt, BigRational, Custom,
                 FieldReference, SlicedFieldReference,
                 StreamValueId, Error,
             ])]
-            Array::T(vals) =>
-                inserter.extend(vals.iter().cloned(), true, false,),
+            Array::REP(vals) => {
+                inserter.extend(vals.iter().cloned(), true, false)
+            }
 
-            #[expand((T, PUSH_FN) in  [
-                                    (Text, extend_from_strings),
-                                    (Bytes, extend_from_bytes),
-                                ])]
-            Array::T(vals) =>
-                inserter.PUSH_FN(vals.iter().map(|v| &**v), true, false,),
+            #[expand((REP, PUSH_FN) in  [
+                (Text, extend_from_strings),
+                (Bytes, extend_from_bytes),
+            ])]
+            Array::REP(vals) => {
+                inserter.PUSH_FN(vals.iter().map(|v| &**v), true, false)
+            }
 
             Array::Mixed(vals) => {
                 for v in vals.iter() {
@@ -259,12 +261,12 @@ fn flatten_argument(
 ) -> ControlFlow<()> {
     metamatch!(match &v.value {
         FieldValue::Undefined | FieldValue::Null |
-        #[expand_pattern(T in [
+        #[expand_pattern(REP in [
             Int, Float, StreamValueId, BigInt,
             BigRational, Text, Bytes,Custom, Error,
             FieldReference, SlicedFieldReference
         ])]
-        FieldValue::T(_) => {
+        FieldValue::REP(_) => {
             *field_idx += rl as usize;
             inserter.push_field_value_unpacked(
                 v.value.clone(),
@@ -301,12 +303,12 @@ impl TfFlatten {
             LazyRwLockGuard::new(&bud.session_data.string_store);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             metamatch!(match range.base.data {
-                #[expand_pattern(T in [
+                #[expand_pattern(REP in [
                     Undefined, Null, Int, Float, StreamValueId, BigInt,
                     BigRational, TextInline, TextBuffer, BytesInline,
                     BytesBuffer, Custom, Error
                 ])]
-                FieldValueSlice::T(_) => {
+                FieldValueSlice::REP(_) => {
                     field_idx += range.base.field_count;
                     inserter.extend_from_ref_aware_range_smart_ref(
                         range,
@@ -316,12 +318,12 @@ impl TfFlatten {
                         self.input_field_ref_offset,
                     );
                 }
-                #[expand((T, FLATTEN_FN) in [
+                #[expand((REP, FLATTEN_FN) in [
                     (Array, flatten_array),
                     (Object, flatten_object),
                     (Argument, flatten_argument),
                 ])]
-                FieldValueSlice::T(arguments) => {
+                FieldValueSlice::REP(arguments) => {
                     for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                         &range, arguments,
                     ) {

@@ -319,7 +319,7 @@ impl FieldValueRepr {
         mut callable: impl WithFieldValueType<R>,
     ) -> R {
         metamatch!(match self {
-            #[expand((REPR, T) in [
+            #[expand((REP, T) in [
                 (Null, Null),
                 (Undefined, Undefined),
                 (Int, i64),
@@ -339,7 +339,7 @@ impl FieldValueRepr {
                 (SlicedFieldReference, SlicedFieldReference),
                 (Argument, Argument),
             ])]
-            FieldValueRepr::REPR => callable.call::<T>(),
+            FieldValueRepr::REP => callable.call::<T>(),
         })
     }
 
@@ -800,28 +800,28 @@ impl FieldData {
                 continue;
             }
             metamatch!(match tr.base.data {
-                #[expand(T in [Undefined, Null])]
-                FieldValueSlice::T(count) => {
+                #[expand(REP in [Undefined, Null])]
+                FieldValueSlice::REP(count) => {
                     targets_applicator(&mut |fd| {
                         fd.push_zst(
-                            <T as FixedSizeFieldValueType>::REPR,
+                            <REP as FixedSizeFieldValueType>::REPR,
                             count,
                             true,
                         )
                     });
                 }
 
-                #[expand((REPR, ITER, VAL) in [
+                #[expand((REP, ITER, VAL) in [
                     (TextInline, RefAwareInlineTextIter, v.as_bytes()),
                     (BytesInline, RefAwareInlineBytesIter, v),
                 ])]
-                FieldValueSlice::REPR(data) => {
+                FieldValueSlice::REP(data) => {
                     for (v, rl, _offset) in ITER::from_range(&tr, data) {
                         targets_applicator(&mut |fd| {
                             // PERF: maybe do a little rle here?
                             fd.headers.push_back(FieldValueHeader {
                                 fmt: FieldValueFormat {
-                                    repr: FieldValueRepr::REPR,
+                                    repr: FieldValueRepr::REP,
                                     flags: SHARED_VALUE,
                                     size: v.len() as FieldValueSize,
                                 },
@@ -832,11 +832,11 @@ impl FieldData {
                     }
                 }
 
-                #[expand((REPR, ITER, PUSH_FN) in [
+                #[expand((REP, ITER, PUSH_FN) in [
                     (TextBuffer, RefAwareTextBufferIter, push_str),
                     (BytesBuffer, RefAwareBytesBufferIter, push_bytes),
                 ])]
-                FieldValueSlice::REPR(data) => {
+                FieldValueSlice::REP(data) => {
                     for (v, rl, _offset) in ITER::from_range(&tr, data) {
                         targets_applicator(&mut |fd| {
                             fd.PUSH_FN(v, rl as usize, true, false);
@@ -844,11 +844,11 @@ impl FieldData {
                     }
                 }
 
-                #[expand(REPR in [
+                #[expand(REP in [
                     Int, Float, StreamValueId, FieldReference,
                     SlicedFieldReference
                 ])]
-                FieldValueSlice::REPR(data) => {
+                FieldValueSlice::REP(data) => {
                     for (v, rl) in
                         RefAwareFieldValueRangeIter::from_range(&tr, data)
                     {
@@ -863,10 +863,10 @@ impl FieldData {
                     }
                 }
 
-                #[expand(REPR in [
+                #[expand(REP in [
                     BigInt, BigRational, Error, Object, Array, Argument, Custom
                 ])]
-                FieldValueSlice::REPR(data) => {
+                FieldValueSlice::REP(data) => {
                     for (v, rl) in
                         RefAwareFieldValueRangeIter::from_range(&tr, data)
                     {
@@ -948,19 +948,19 @@ unsafe fn append_data(
             FieldValueSlice::TextInline(v) =>
                 extend_raw(target_applicator, v.as_bytes()),
 
-            #[expand(REPR in [
+            #[expand(REP in [
                 Int, Float, BytesInline,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
-            FieldValueSlice::REPR(v) => {
+            FieldValueSlice::REP(v) => {
                 extend_raw(target_applicator, v)
             }
 
-            #[expand(REPR in [
+            #[expand(REP in [
                 BigInt, BigRational, TextBuffer, BytesBuffer,
                 Error, Object, Array, Argument, Custom
             ])]
-            FieldValueSlice::REPR(v) => {
+            FieldValueSlice::REP(v) => {
                 extend_with_clones(target_applicator, v)
             }
         });

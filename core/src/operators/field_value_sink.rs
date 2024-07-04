@@ -130,22 +130,22 @@ pub fn handle_tf_field_value_sink(
         field_value_flags::DEFAULT,
     ) {
         metamatch!(match range.base.data {
-            #[expand(T in [Null, Undefined])]
-            FieldValueSlice::T(_) => {
+            #[expand(REP in [Null, Undefined])]
+            FieldValueSlice::REP(_) => {
                 push_field_values(
                     &mut fvs,
-                    FieldValue::T,
+                    FieldValue::REP,
                     range.base.field_count,
                 );
             }
 
-            #[expand((REPR, KIND, ITER, CONV) in [
+            #[expand((REP, KIND, ITER, CONV) in [
                 (TextInline, Text, RefAwareInlineTextIter, v.to_string()),
                 (BytesInline, Bytes, RefAwareInlineBytesIter, v.to_vec()),
                 (TextBuffer, Text, RefAwareTextBufferIter, v.to_string()),
                 (BytesBuffer, Bytes, RefAwareBytesBufferIter, v.to_vec()),
             ])]
-            FieldValueSlice::REPR(text) => {
+            FieldValueSlice::REP(text) => {
                 for (v, rl, _offs) in ITER::from_range(&range, text) {
                     push_field_values(
                         &mut fvs,
@@ -155,7 +155,7 @@ pub fn handle_tf_field_value_sink(
                 }
             }
 
-            #[expand((REPR, ITER, CONV) in [
+            #[expand((REP, ITER, CONV) in [
                 (Int, FieldValueRangeIter, *v),
                 (Float, FieldValueRangeIter, *v),
                 (BigInt, RefAwareFieldValueRangeIter, Box::new(v.clone())),
@@ -165,11 +165,11 @@ pub fn handle_tf_field_value_sink(
                 (Object, RefAwareFieldValueRangeIter, v.clone()),
                 (Custom, RefAwareFieldValueRangeIter, v.clone()),
             ])]
-            FieldValueSlice::REPR(text) => {
+            FieldValueSlice::REP(text) => {
                 for (v, rl) in ITER::from_range(&range, text) {
                     push_field_values(
                         &mut fvs,
-                        FieldValue::REPR(CONV),
+                        FieldValue::REP(CONV),
                         rl as usize,
                     );
                 }

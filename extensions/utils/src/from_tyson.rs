@@ -143,13 +143,13 @@ impl TfFromTyson {
         let exts = Some(&*bud.session_data.extensions);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             metamatch!(match range.base.data {
-                #[expand((T, ITER, VAL) in [
+                #[expand((REP, ITER, VAL) in [
                     (TextInline, RefAwareInlineTextIter, v.as_bytes()),
                     (BytesInline, RefAwareInlineBytesIter, v),
                     (TextBuffer, RefAwareTextBufferIter, v.as_bytes()),
                     (BytesBuffer, RefAwareBytesBufferIter, v),
                 ])]
-                FieldValueSlice::T(text) => {
+                FieldValueSlice::REP(text) => {
                     for (v, rl, _offs) in ITER::from_range(&range, text) {
                         self.push_as_tyson(
                             exts,
@@ -162,11 +162,11 @@ impl TfFromTyson {
                     }
                 }
 
-                #[expand_pattern(T in [
+                #[expand_pattern(REP in [
                     Undefined, Null, Int, Float, Argument,
                     BigInt, BigRational, Custom, Object, Array, Error
                 ])]
-                FieldValueSlice::T(_) => {
+                FieldValueSlice::REP(_) => {
                     inserter.push_fixed_size_type(
                         OperatorApplicationError::new_s(
                             format!(
@@ -256,8 +256,8 @@ impl TfFromTyson {
                     }
                 }
 
-                #[expand_pattern(T in [FieldReference, SlicedFieldReference])]
-                FieldValueSlice::T(_) => unreachable!(),
+                #[expand_pattern(REP in [FieldReference, SlicedFieldReference])]
+                FieldValueSlice::REP(_) => unreachable!(),
             })
         }
         (bud.batch_size, bud.ps.input_done)

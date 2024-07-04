@@ -61,8 +61,8 @@ impl DynFieldValueBlock<'_> {
 impl<'a> DynFieldValueRangeIter<'a> {
     pub fn new(range: &ValidTypedRange<'a>) -> Self {
         metamatch!(match range.data {
-            #[expand(REPR in [Null, Undefined])]
-            FieldValueSlice::REPR(n) => DynFieldValueRangeIter::REPR(n),
+            #[expand(REP in [Null, Undefined])]
+            FieldValueSlice::REP(n) => DynFieldValueRangeIter::REP(n),
 
             FieldValueSlice::TextInline(vals) =>
                 DynFieldValueRangeIter::TextInline(InlineTextIter::from_range(
@@ -73,50 +73,50 @@ impl<'a> DynFieldValueRangeIter<'a> {
                     InlineBytesIter::from_range(range, vals)
                 ),
 
-            #[expand(REPR in [
+            #[expand(REP in [
                 Int, BigInt, Float, BigRational,
                 TextBuffer, BytesBuffer,
                 Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
-            FieldValueSlice::REPR(vals) => DynFieldValueRangeIter::REPR(
+            FieldValueSlice::REP(vals) => DynFieldValueRangeIter::REP(
                 FieldValueRangeIter::from_valid_range(range, vals),
             ),
         })
     }
     pub fn peek(&self) -> Option<(FieldValueRef<'a>, RunLength)> {
         metamatch!(match self {
-            #[expand(REPR in [Null, Undefined])]
-            DynFieldValueRangeIter::REPR(it) => {
+            #[expand(REP in [Null, Undefined])]
+            DynFieldValueRangeIter::REP(it) => {
                 if *it == 0 {
                     None
                 } else {
                     Some((
-                        FieldValueRef::REPR,
+                        FieldValueRef::REP,
                         (*it).min(RunLength::MAX as usize) as RunLength,
                     ))
                 }
             }
 
-            #[expand((REPR, KIND) in [
+            #[expand((REP, KIND) in [
                 (TextInline, Text),
                 (TextBuffer, Text),
                 (BytesInline, Bytes),
                 (BytesBuffer, Bytes)
             ])]
-            DynFieldValueRangeIter::REPR(it) => {
+            DynFieldValueRangeIter::REP(it) => {
                 let (v, rl) = it.peek()?;
                 Some((FieldValueRef::KIND(v), rl))
             }
 
-            #[expand(REPR in [
+            #[expand(REP in [
                 Int, BigInt, Float, BigRational,
                 Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
-            DynFieldValueRangeIter::REPR(it) => {
+            DynFieldValueRangeIter::REP(it) => {
                 let (v, rl) = it.peek()?;
-                Some((FieldValueRef::REPR(v), rl))
+                Some((FieldValueRef::REP(v), rl))
             }
         })
     }
@@ -132,36 +132,36 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 *count = 0;
                 res
             }
-            #[expand(REPR in [
+            #[expand(REP in [
                 Int, BigInt,Float, BigRational, TextInline, TextBuffer,
                 BytesInline, BytesBuffer, Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
-            DynFieldValueRangeIter::REPR(it) => {
+            DynFieldValueRangeIter::REP(it) => {
                 it.next_n_fields(n)
             }
         })
     }
     pub fn next_block(&mut self) -> Option<DynFieldValueBlock> {
         metamatch!(match self {
-            #[expand(REPR in [Null, Undefined])]
-            DynFieldValueRangeIter::REPR(it) => {
+            #[expand(REP in [Null, Undefined])]
+            DynFieldValueRangeIter::REP(it) => {
                 if *it == 0 {
                     None
                 } else {
                     let rl = (*it).min(RunLength::MAX as usize);
                     *it -= rl;
-                    Some(DynFieldValueBlock::Plain(FieldValueSlice::REPR(rl)))
+                    Some(DynFieldValueBlock::Plain(FieldValueSlice::REP(rl)))
                 }
             }
-            #[expand((REPR, KIND)  in [
+            #[expand((REP, KIND)  in [
                 (TextInline, Text),
                 (BytesInline, Bytes)
             ])]
-            DynFieldValueRangeIter::REPR(it) => {
+            DynFieldValueRangeIter::REP(it) => {
                 let (v, rl) = it.next()?;
                 Some(if rl == 1 {
-                    DynFieldValueBlock::Plain(FieldValueSlice::REPR(v))
+                    DynFieldValueBlock::Plain(FieldValueSlice::REP(v))
                 } else {
                     DynFieldValueBlock::WithRunLength(
                         FieldValueRef::KIND(v),
@@ -170,14 +170,14 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 })
             }
 
-            #[expand((REPR, KIND)  in [
+            #[expand((REP, KIND)  in [
                 (TextBuffer, Text),
                 (BytesBuffer, Bytes)
             ])]
-            DynFieldValueRangeIter::REPR(it) => {
+            DynFieldValueRangeIter::REP(it) => {
                 Some(match it.next_block()? {
                     FieldValueBlock::Plain(v) => {
-                        DynFieldValueBlock::Plain(FieldValueSlice::REPR(v))
+                        DynFieldValueBlock::Plain(FieldValueSlice::REP(v))
                     }
                     FieldValueBlock::WithRunLength(v, rl) => {
                         DynFieldValueBlock::WithRunLength(
@@ -188,19 +188,19 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 })
             }
 
-            #[expand(REPR in [
+            #[expand(REP in [
                 Int, BigInt, Float, BigRational,
                 Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
-            DynFieldValueRangeIter::REPR(it) => {
+            DynFieldValueRangeIter::REP(it) => {
                 Some(match it.next_block()? {
                     FieldValueBlock::Plain(v) => {
-                        DynFieldValueBlock::Plain(FieldValueSlice::REPR(v))
+                        DynFieldValueBlock::Plain(FieldValueSlice::REP(v))
                     }
                     FieldValueBlock::WithRunLength(v, rl) => {
                         DynFieldValueBlock::WithRunLength(
-                            FieldValueRef::REPR(v),
+                            FieldValueRef::REP(v),
                             rl,
                         )
                     }
@@ -214,17 +214,17 @@ impl<'a> Iterator for DynFieldValueRangeIter<'a> {
     type Item = (FieldValueRef<'a>, RunLength);
     fn next(&mut self) -> Option<(FieldValueRef<'a>, RunLength)> {
         metamatch!(match self {
-            #[expand(T in [Null, Undefined])]
-            DynFieldValueRangeIter::T(it) => {
+            #[expand(REP in [Null, Undefined])]
+            DynFieldValueRangeIter::REP(it) => {
                 if *it == 0 {
                     None
                 } else {
                     let rl = (*it).min(RunLength::MAX as usize);
                     *it -= rl;
-                    Some((FieldValueRef::T, rl as RunLength))
+                    Some((FieldValueRef::REP, rl as RunLength))
                 }
             }
-            #[expand((ITER, T) in [
+            #[expand((ITER, REP) in [
                 (TextInline, Text),
                 (TextBuffer, Text),
                 (BytesInline, Bytes),
@@ -232,17 +232,17 @@ impl<'a> Iterator for DynFieldValueRangeIter<'a> {
             ])]
             DynFieldValueRangeIter::ITER(it) => {
                 let (v, rl) = it.next()?;
-                Some((FieldValueRef::T(v), rl))
+                Some((FieldValueRef::REP(v), rl))
             }
 
-            #[expand(T in [
+            #[expand(REP in [
                 Int, BigInt, Float, BigRational,
                 Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
-            DynFieldValueRangeIter::T(it) => {
+            DynFieldValueRangeIter::REP(it) => {
                 let (v, rl) = it.next()?;
-                Some((FieldValueRef::T(v), rl))
+                Some((FieldValueRef::REP(v), rl))
             }
         })
     }
@@ -343,19 +343,19 @@ impl<'a> Iterator for FieldValueSliceIter<'a> {
                     Some(FieldValueRef::Null)
                 }
             }
-            #[expand((REPR, KIND) in [
+            #[expand((REP, KIND) in [
                 (TextInline, Text), (BytesInline, Bytes)]
             )]
-            FieldValueSlice::REPR(val) => {
+            FieldValueSlice::REP(val) => {
                 let res = FieldValueRef::KIND(val);
                 self.slice = FieldValueSlice::Null(0);
                 Some(res)
             }
-            #[expand((REPR, KIND) in [
+            #[expand((REP, KIND) in [
                 (TextBuffer, Text),
                 (BytesBuffer, Bytes),
             ])]
-            FieldValueSlice::REPR(v) => {
+            FieldValueSlice::REP(v) => {
                 if v.is_empty() {
                     None
                 } else {
@@ -364,18 +364,18 @@ impl<'a> Iterator for FieldValueSliceIter<'a> {
                     Some(FieldValueRef::KIND(res))
                 }
             }
-            #[expand(REPR in [
+            #[expand(REP in [
                 Int, BigInt, Float, BigRational,
                 Object, Array, Argument, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference
             ])]
-            FieldValueSlice::REPR(v) => {
+            FieldValueSlice::REP(v) => {
                 if v.is_empty() {
                     None
                 } else {
                     let res = &v[0];
                     *v = &v[1..];
-                    Some(FieldValueRef::REPR(res))
+                    Some(FieldValueRef::REP(res))
                 }
             }
         })
