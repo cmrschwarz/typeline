@@ -10,12 +10,13 @@ members = [
 [package]
 name = "scr"
 version = "0.1.0"
-
 edition = "2021"
 rust-version = "1.70"
 
 license = "MIT"
 repository = "https://github.com/cmrschwarz/scr"
+authors = ["Christian Schwarz <cmrs@cmrs.io>"]
+description = "High performance pipeline processor"
 
 [lib]
 name = "scr"
@@ -36,12 +37,14 @@ scr_ext_utils = { path = "./extensions/utils" }
 
 
 [dependencies]
+once_cell = "1.19.0"
+
 scr_core = { path = "./core", default-features = false }
+
 scr_ext_sqlite = { path = "./extensions/sqlite", optional = true }
 scr_ext_python = { path = "./extensions/python", optional = true }
 scr_ext_http = { path = "./extensions/http", optional = true }
 scr_ext_utils = { path = "./extensions/utils", optional = true }
-once_cell = "1.19.0"
 
 
 [profile.release]
@@ -59,12 +62,19 @@ debug = true
 repl = ["scr_core/repl"]
 debug_log = ["scr_core/debug_log"]
 
-unstable = []
-
-sqlite = ["dep:scr_ext_sqlite"]
-python = ["dep:scr_ext_python"]
-http = ["dep:scr_ext_http"]
 utils = ["dep:scr_ext_utils"]
+http = ["dep:scr_ext_http"]
+python = ["dep:scr_ext_python"]
+sqlite = ["dep:scr_ext_sqlite"]
+all_exts = ["utils", "http", "python", "sqlite"]
 
+full = ["all_exts", "repl", "debug_log"]
 default = ["utils"]
-full = ["scr_core/full", "sqlite", "http", "utils", "python"]
+
+[package.metadata.deb]
+features = ["full"]
+license-file = ["LICENSE", "4"]
+extended-description = "High performance pipeline processor."
+section = "utility"
+priority = "optional"
+assets = [["target/release/scr", "usr/bin/", "755"]]

@@ -12,7 +12,10 @@ use crate::{
         match_set::MatchSetId,
         stream_value::{StreamValueId, StreamValueUpdate},
     },
-    utils::{debuggable_nonmax::DebuggableNonMaxUsize, small_box::SmallBox},
+    utils::{
+        debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
+        small_box::SmallBox,
+    },
 };
 
 use super::{
@@ -72,7 +75,7 @@ use super::{
 pub type DefaultTransformName = SmallString<[u8; 32]>;
 
 index_newtype! {
-    pub struct TransformId(DebuggableNonMaxUsize);
+    pub struct TransformId(DebuggableNonMaxU32);
     pub struct StreamProducerIndex(DebuggableNonMaxUsize);
 }
 

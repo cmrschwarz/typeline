@@ -7,6 +7,7 @@ rust-version = "1.70"
 
 license = "MIT"
 repository = "https://github.com/cmrschwarz/scrr/tree/main/extensions/sqlite"
+authors = ["Christian Schwarz <cmrs@cmrs.io>"]
 
 [lib]
 name = "scr_ext_sqlite"
