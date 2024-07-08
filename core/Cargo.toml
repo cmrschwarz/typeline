@@ -45,7 +45,7 @@ unicode-ident = "1.0.12"
 # for debug_log
 serde_derive = { version = "1.0.203", optional = true }
 serde_json = { version = "1.0.120", optional = true }
-handlebars = { git = "https://github.com/cmrschwarz/handlebars-rust.git", branch = "master", optional = true }
+handlebars = { git = "https://github.com/sunng87/handlebars-rust.git", branch = "master", optional = true }
 
 # deps for repl mode:
 [dependencies.reedline]

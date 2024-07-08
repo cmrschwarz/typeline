@@ -623,7 +623,7 @@ dependencies = [
 [[package]]
 name = "handlebars"
 version = "5.1.2"
-source = "git+https://github.com/cmrschwarz/handlebars-rust.git?branch=master#159b4eeb3d63f8303e7b4619a1b0a661c20e71f4"
+source = "git+https://github.com/sunng87/handlebars-rust.git?branch=master#dcb70c1ca83fd673c1be04051ba2464039983494"
 dependencies = [
  "log",
  "pest",
