@@ -72,7 +72,7 @@ use super::{
     success_updater::{build_tf_success_updator, OpSuccessUpdator},
     to_str::{build_tf_to_str, OpToStr},
     transform::{TransformData, TransformId, TransformState},
-    transparent::{setup_op_transparent, OpTransparent},
+    transparent::{build_tf_transparent, setup_op_transparent, OpTransparent},
 };
 
 index_newtype! {
@@ -445,13 +445,15 @@ impl OperatorData {
                 let &NestedOp::SetUp(op_id) = nested else {
                     unreachable!()
                 };
-                self.output_count(sess, op_id)
+                sess.operator_data[sess.op_data_id(op_id)]
+                    .output_count(sess, op_id)
             }
             OperatorData::Transparent(op) => {
                 let NestedOp::SetUp(op_id) = op.nested_op else {
                     unreachable!()
                 };
-                self.output_count(sess, op_id)
+                sess.operator_data[sess.op_data_id(op_id)]
+                    .output_count(sess, op_id)
             }
             OperatorData::Select(_) => 0,
             OperatorData::Regex(re) => {
@@ -579,13 +581,15 @@ impl OperatorData {
                 let &NestedOp::SetUp(op_id) = nested else {
                     unreachable!()
                 };
-                self.output_field_kind(sess, op_id)
+                sess.operator_data[sess.op_data_id(op_id)]
+                    .output_field_kind(sess, op_id)
             }
             OperatorData::Transparent(op) => {
                 let NestedOp::SetUp(op_id) = op.nested_op else {
                     unreachable!()
                 };
-                self.output_field_kind(sess, op_id)
+                sess.operator_data[sess.op_data_id(op_id)]
+                    .output_field_kind(sess, op_id)
             }
             OperatorData::Custom(op) => {
                 Operator::output_field_kind(&**op, sess, op_id)
@@ -613,14 +617,16 @@ impl OperatorData {
             OperatorData::Key(k) => {
                 ld.add_var_name(k.key_interned.unwrap());
                 if let Some(NestedOp::SetUp(op_id)) = k.nested_op {
-                    self.register_output_var_names(ld, sess, op_id);
+                    sess.operator_data[sess.op_data_id(op_id)]
+                        .register_output_var_names(ld, sess, op_id);
                 }
             }
             OperatorData::Transparent(k) => {
                 let NestedOp::SetUp(op_id) = k.nested_op else {
                     unreachable!()
                 };
-                self.register_output_var_names(ld, sess, op_id);
+                sess.operator_data[sess.op_data_id(op_id)]
+                    .register_output_var_names(ld, sess, op_id);
             }
             OperatorData::Select(s) => {
                 ld.add_var_name(s.key_interned.unwrap());
@@ -695,13 +701,16 @@ impl OperatorData {
                 {
                     ld.apply_var_remapping(var_id, prev_tgt);
                 }
+                // TODO: handle nested op!
                 return (input_field, OperatorCallEffect::NoCall);
             }
             OperatorData::Transparent(op) => {
                 let NestedOp::SetUp(nested_op_id) = op.nested_op else {
                     unreachable!()
                 };
-                let (_field, effect) = self.update_liveness_for_op(
+                let (_field, effect) = sess.operator_data
+                    [sess.op_data_id(op_id)]
+                .update_liveness_for_op(
                     sess,
                     ld,
                     flags,
@@ -912,12 +921,20 @@ impl OperatorData {
             }
             OperatorData::Key(op) => {
                 if let Some(NestedOp::SetUp(op_id)) = op.nested_op {
-                    self.on_liveness_computed(sess, ld, op_id)
+                    let op_data_id = sess.op_data_id(op_id);
+                    let mut op_data =
+                        std::mem::take(&mut sess.operator_data[op_data_id]);
+                    op_data.on_liveness_computed(sess, ld, op_id);
+                    sess.operator_data[op_data_id] = op_data;
                 }
             }
             OperatorData::Transparent(op) => {
                 if let NestedOp::SetUp(op_id) = op.nested_op {
-                    self.on_liveness_computed(sess, ld, op_id)
+                    let op_data_id = sess.op_data_id(op_id);
+                    let mut op_data =
+                        std::mem::take(&mut sess.operator_data[op_data_id]);
+                    op_data.on_liveness_computed(sess, ld, op_id);
+                    sess.operator_data[op_data_id] = op_data;
                 }
             }
             OperatorData::ToStr(_)
@@ -949,12 +966,19 @@ impl OperatorData {
         let jd = &mut job.job_data;
         let op_base = &jd.session_data.operator_bases[op_id];
         let data: TransformData<'a> = match self {
-            OperatorData::Key(_)
-            | OperatorData::MacroDef(_)
-            | OperatorData::Transparent(_) => unreachable!(),
+            OperatorData::Key(_) | OperatorData::MacroDef(_) => unreachable!(),
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::SuccessUpdator(op) => {
                 build_tf_success_updator(jd, op, tfs)
+            }
+            OperatorData::Transparent(op) => {
+                return build_tf_transparent(
+                    op,
+                    job,
+                    tf_state,
+                    op_id,
+                    prebound_outputs,
+                );
             }
             OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
             OperatorData::ToStr(op) => build_tf_to_str(jd, op_base, op, tfs),
@@ -1052,11 +1076,7 @@ impl OperatorData {
             }
         };
 
-        let next_input_field = if tf_state.is_transparent {
-            tf_state.input_field
-        } else {
-            tf_state.output_field
-        };
+        let next_input_field = tf_state.output_field;
         let next_group_track = tf_state.output_group_track_id;
         let next_match_set = tf_state.match_set_id;
         let tf_id = add_transform_to_job(

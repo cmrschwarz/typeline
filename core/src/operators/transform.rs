@@ -213,7 +213,6 @@ pub struct TransformState {
     pub op_id: Option<OperatorId>,
     pub is_stream_producer: bool,
     pub is_ready: bool,
-    pub is_transparent: bool,
     // means that the a transform that has us as it's successor indicated to
     // us that it will not produce any more records
     pub predecessor_done: bool,
@@ -244,7 +243,6 @@ impl TransformState {
             op_id,
             is_ready: false,
             is_stream_producer: false,
-            is_transparent: false,
             predecessor_done: false,
             done: false,
             mark_for_removal: false,

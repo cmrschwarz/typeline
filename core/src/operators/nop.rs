@@ -45,9 +45,8 @@ pub fn setup_op_nop(
 
 pub fn build_tf_nop<'a>(
     _op: &OpNop,
-    tf_state: &TransformState,
+    _tf_state: &TransformState,
 ) -> TransformData<'a> {
-    debug_assert!(tf_state.is_transparent);
     create_tf_nop()
 }
 

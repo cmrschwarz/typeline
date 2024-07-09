@@ -93,16 +93,15 @@ pub fn setup_op_key(
         panic!("operator was already set up");
     };
     let (sub_op, span) = *std::mem::take(op_span);
-    let sub_op_data_id = sess.add_op_data(sub_op);
-    let sub_op_id = sess.add_op(
-        sub_op_data_id,
+    let sub_op_id = sess.setup_op_from_data(
+        sub_op,
         sess.curr_chain,
         OperatorOffsetInChain::AggregationMember(
             op_id,
             OffsetInAggregation::ZERO,
         ),
         span,
-    );
+    )?;
     op.nested_op = Some(NestedOp::SetUp(sub_op_id));
 
     Ok(op_id)

@@ -357,15 +357,10 @@ impl<'a> JobData<'a> {
         tf.mark_for_removal = true;
         let successor = tf.successor;
         let input_is_done = tf.predecessor_done;
-        let available_batch_size = tf.available_batch_size;
-        let is_transparent = tf.is_transparent;
         if let Some(succ_id) = successor {
             let succ = &mut self.tf_mgr.transforms[succ_id];
             succ.predecessor_done = input_is_done;
-            let mut bs = available_batch_for_successor;
-            if is_transparent {
-                bs += available_batch_size;
-            }
+            let bs = available_batch_for_successor;
             succ.available_batch_size += bs;
             if input_is_done || succ.available_batch_size > 0 {
                 self.tf_mgr.push_tf_in_ready_stack(succ_id);
@@ -381,7 +376,7 @@ impl<'a> Job<'a> {
             for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
                 let name = self.transform_data[i].display_name();
                 eprintln!(
-                    "tf {:02} -> {} [fields {} {} {}] (ms {}): {}",
+                    "tf {:02} -> {} [fields {} -> {}] (ms {}): {}",
                     i,
                     if let Some(s) = tf.successor {
                         format!("{s}")
@@ -389,7 +384,6 @@ impl<'a> Job<'a> {
                         "_".to_string()
                     },
                     tf.input_field,
-                    if tf.is_transparent { "_>" } else { "->" },
                     tf.output_field,
                     tf.match_set_id,
                     name

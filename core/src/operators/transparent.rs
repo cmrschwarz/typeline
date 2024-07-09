@@ -4,6 +4,7 @@ use crate::{
         call_expr::{Argument, CallExpr, Span},
         parse_operator_data,
     },
+    job::Job,
     options::session_setup::SessionSetupData,
     scr_error::ScrError,
     utils::indexing_type::IndexingType,
@@ -14,8 +15,9 @@ use super::{
     key::NestedOp,
     operator::{
         OffsetInAggregation, OperatorData, OperatorDataId, OperatorId,
-        OperatorOffsetInChain,
+        OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
     },
+    transform::TransformState,
 };
 
 pub struct OpTransparent {
@@ -48,6 +50,39 @@ pub fn setup_op_transparent(
     );
     op.nested_op = NestedOp::SetUp(nested_op_id);
     Ok(op_id)
+}
+
+pub fn build_tf_transparent(
+    op: &OpTransparent,
+    job: &mut Job,
+    tf_state: TransformState,
+    _op_id: OperatorId,
+    prebound_outputs: &PreboundOutputsMap,
+) -> OperatorInstantiation {
+    let NestedOp::SetUp(nested_op_id) = op.nested_op else {
+        unreachable!()
+    };
+    let field_before = tf_state.input_field;
+    let ms_id_before = tf_state.match_set_id;
+
+    job.job_data.field_mgr.bump_field_refcount(field_before);
+
+    let sess = &job.job_data.session_data;
+    let mut instantiation = sess.operator_data[sess.op_data_id(nested_op_id)]
+        .operator_build_transforms(
+            job,
+            tf_state,
+            nested_op_id,
+            prebound_outputs,
+        );
+
+    assert!(
+        instantiation.next_match_set == ms_id_before,
+        "transparent does not support cross ms yet"
+    );
+    instantiation.next_input_field = field_before;
+    instantiation.next_match_set = ms_id_before;
+    instantiation
 }
 
 pub fn create_op_transparent_with_span(
