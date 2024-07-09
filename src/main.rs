@@ -6,7 +6,7 @@ use scr::{
     record_data::record_set::RecordSet,
     scr_error::ScrError,
     utils::index_vec::IndexSlice,
-    CliOptionsWithDefaultExtensions,
+    DEFAULT_EXTENSION_REGISTRY,
 };
 use std::{process::ExitCode, sync::Arc};
 
@@ -16,7 +16,11 @@ fn run() -> Result<bool, String> {
     let cli_opts = ScrSetupOptions {
         allow_repl: repl,
         skip_first_cli_arg: true,
-        ..ScrSetupOptions::with_default_extensions()
+        print_output: true,
+        add_success_updator: true,
+        deny_threading: false,
+        start_with_stdin: true,
+        extensions: DEFAULT_EXTENSION_REGISTRY.clone(),
     };
 
     let args = collect_env_args().map_err(|e| {

@@ -691,6 +691,20 @@ impl OperatorData {
                 return (output_field, OperatorCallEffect::Diverge);
             }
             OperatorData::Key(key) => {
+                if let Some(NestedOp::SetUp(nested_op_id)) = key.nested_op {
+                    sess.operator_data[sess.op_data_id(nested_op_id)]
+                        .update_liveness_for_op(
+                            sess,
+                            ld,
+                            flags,
+                            op_offset_after_last_write,
+                            nested_op_id,
+                            bb_id,
+                            input_field,
+                            outputs_offset,
+                        );
+                }
+
                 let var_id = ld.var_names[&key.key_interned.unwrap()];
                 ld.vars_to_op_outputs_map[var_id] = output_field;
                 ld.op_outputs[output_field]
@@ -701,7 +715,7 @@ impl OperatorData {
                 {
                     ld.apply_var_remapping(var_id, prev_tgt);
                 }
-                // TODO: handle nested op!
+
                 return (input_field, OperatorCallEffect::NoCall);
             }
             OperatorData::Transparent(op) => {

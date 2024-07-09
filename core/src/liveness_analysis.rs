@@ -907,15 +907,13 @@ impl LivenessData {
                 op_offset_after_last_write =
                     op_n + OffsetInChain::from_usize(1);
             }
-            // TODO: do this for op key
-            // let var_id = self.var_names[&label];
-            // self.vars_to_op_outputs_map[var_id] =
-            // sess.operator_bases[op_id].outputs_start;
 
-            // TODO: disable this for transparent mode
-            input_field = output_field;
-            self.vars_to_op_outputs_map[BB_INPUT_VAR_ID] =
-                sess.operator_bases[op_id].outputs_start;
+            let op_base = &sess.operator_bases[op_id];
+            if op_base.outputs_start != op_base.outputs_end {
+                input_field = output_field;
+                self.vars_to_op_outputs_map[BB_INPUT_VAR_ID] =
+                    sess.operator_bases[op_id].outputs_start;
+            }
         }
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
