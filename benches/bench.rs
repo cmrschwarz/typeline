@@ -1,6 +1,6 @@
-#![cfg(feature = "unstable")]
 #![feature(test)]
 #![feature(string_extend_from_within)]
+
 extern crate test;
 
 use scr_core::{

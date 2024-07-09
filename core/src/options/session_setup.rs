@@ -310,6 +310,13 @@ impl SessionSetupData {
     }
 
     pub fn validate_chains(&self) -> Result<(), ChainSetupError> {
+        if self.chains[ChainId::ZERO].operators.is_empty() {
+            return Err(ChainSetupError::new(
+                "main chain must contain at least one operator",
+                ChainId::ZERO,
+            ));
+        }
+
         for (chain_id, chain) in self.chains.iter_enumerated() {
             let mut message = "";
             // TODO: maybe insert a nop if the chain is empty?
