@@ -1,26 +1,22 @@
 use crate::{
     chain::ChainId,
-    context::{SessionData, SessionSetupData},
+    cli::call_expr::Span,
+    context::SessionData,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::LivenessData,
-    options::{
-        operator_base_options::{
-            OperatorBaseOptions, OperatorBaseOptionsInterned,
-        },
-        session_options::SessionOptions,
-    },
+    options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field_action::FieldActionKind,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
     },
+    scr_error::ScrError,
     utils::{index_vec::IndexVec, indexing_type::IndexingType},
 };
 
 use super::{
-    errors::OperatorSetupError,
-    nop_copy::create_op_nop_copy,
+    nop::create_op_nop,
     operator::{
         OffsetInAggregation, OperatorData, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
@@ -29,7 +25,7 @@ use super::{
 };
 
 pub struct OpAggregator {
-    pub sub_ops_from_user: Vec<(OperatorBaseOptions, OperatorData)>,
+    pub sub_ops_from_user: Vec<(OperatorData, Span)>,
     pub sub_ops: IndexVec<OffsetInAggregation, OperatorId>,
 }
 
@@ -65,89 +61,46 @@ pub struct TfAggregatorTrailer {
     header_tf_id: TransformId,
 }
 
-pub(crate) fn create_op_aggregate_raw(
-    sub_ops: Vec<OperatorId>,
-) -> OperatorData {
-    OperatorData::Aggregator(OpAggregator {
-        sub_ops_from_user: Vec::new(),
-        sub_ops: IndexVec::from(sub_ops),
-    })
-}
-
 pub fn create_op_aggregate(
     sub_ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
     OperatorData::Aggregator(OpAggregator {
         sub_ops_from_user: sub_ops
             .into_iter()
-            .map(|op_data| {
-                (
-                    OperatorBaseOptions::from_name(op_data.default_op_name()),
-                    op_data,
-                )
-            })
+            .map(|v| (v, Span::Generated))
             .collect(),
         sub_ops: IndexVec::new(),
     })
 }
 
-pub fn create_op_aggregate_with_opts(
-    sub_ops: Vec<(OperatorBaseOptions, OperatorData)>,
+pub fn create_op_aggregate_appending(
+    sub_ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    OperatorData::Aggregator(OpAggregator {
-        sub_ops_from_user: sub_ops,
-        sub_ops: IndexVec::new(),
-    })
-}
-
-pub fn create_op_aggregator_append_leader(
-    _ctx_opts: &mut SessionOptions,
-) -> (OperatorBaseOptions, OperatorData) {
-    let op_data = create_op_nop_copy();
-    let op_base_opts =
-        OperatorBaseOptions::from_name(op_data.default_op_name());
-    (op_base_opts, op_data)
+    create_op_aggregate(std::iter::once(create_op_nop()).chain(sub_ops))
 }
 
 pub fn setup_op_aggregator(
     agg: &mut OpAggregator,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     operator_offset_in_chain: OperatorOffsetInChain,
-    op_base_opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
-    let op_id = sess.add_op_from_offset_in_chain(
-        chain_id,
-        operator_offset_in_chain,
-        op_base_opts_interned,
-        op_data_id,
-    );
+    span: Span,
+) -> Result<OperatorId, ScrError> {
+    let op_id =
+        sess.add_op(op_data_id, chain_id, operator_offset_in_chain, span);
 
-    for (op_base, op_data) in std::mem::take(&mut agg.sub_ops_from_user) {
-        let op_base = op_base.intern(Some(&op_data), &mut sess.string_store);
-
-        let err_msg = op_base.append_mode.then(|| {
-            format!(
-                "aggregation member `{}` cannot be in append mode (`+`)",
-                op_data.default_op_name()
-            )
-        });
-
-        let op_id = sess.setup_for_op_data(
+    for (op_data, span) in std::mem::take(&mut agg.sub_ops_from_user) {
+        let op_id = sess.setup_op_from_data(
+            op_data,
             chain_id,
             OperatorOffsetInChain::AggregationMember(
                 op_id,
                 agg.sub_ops.next_idx(),
             ),
-            op_base,
-            op_data,
+            span,
         )?;
         agg.sub_ops.push(op_id);
-
-        if let Some(err_msg) = err_msg {
-            return Err(OperatorSetupError::new_s(err_msg, op_id));
-        }
     }
 
     Ok(op_id)

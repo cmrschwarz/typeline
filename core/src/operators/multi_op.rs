@@ -1,19 +1,18 @@
 use crate::{
     chain::{ChainId, SubchainIndex},
-    context::{SessionData, SessionSetupData},
+    cli::call_expr::Span,
+    context::SessionData,
     job::Job,
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
         OperatorCallEffect,
     },
-    options::operator_base_options::{
-        OperatorBaseOptions, OperatorBaseOptionsInterned,
-    },
+    options::session_setup::SessionSetupData,
+    scr_error::ScrError,
     utils::index_vec::IndexVec,
 };
 
 use super::{
-    errors::OperatorSetupError,
     operator::{
         OffsetInAggregation, OffsetInChain, Operator, OperatorData,
         OperatorDataId, OperatorId, OperatorName, OperatorOffsetInChain,
@@ -23,7 +22,7 @@ use super::{
 };
 
 pub struct OpMultiOp {
-    pub operations: Vec<(OperatorBaseOptions, OperatorData)>,
+    pub operations: Vec<(OperatorData, Span)>,
     pub sub_op_ids: IndexVec<OffsetInAggregation, OperatorId>,
 }
 
@@ -33,7 +32,7 @@ impl Operator for OpMultiOp {
     }
     fn debug_op_name(&self) -> super::operator::OperatorName {
         let mut res = String::from("multi-op<");
-        for (i, (_op_opts, op)) in self.operations.iter().enumerate() {
+        for (i, (op, _span)) in self.operations.iter().enumerate() {
             if i > 0 {
                 res.push_str(", ");
             }
@@ -162,28 +161,21 @@ impl Operator for OpMultiOp {
     fn setup(
         &mut self,
         sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
-        op_base_opts_interned: OperatorBaseOptionsInterned,
-        op_data_id: OperatorDataId,
-    ) -> Result<OperatorId, OperatorSetupError> {
-        let op_id = sess.add_op_from_offset_in_chain(
-            chain_id,
-            offset_in_chain,
-            op_base_opts_interned,
-            op_data_id,
-        );
-        for (op_opts, op_data) in std::mem::take(&mut self.operations) {
-            let op_opts =
-                op_opts.intern(Some(&op_data), &mut sess.string_store);
-            self.sub_op_ids.push(sess.setup_for_op_data(
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+        for (op_data, span) in std::mem::take(&mut self.operations) {
+            self.sub_op_ids.push(sess.setup_op_from_data(
+                op_data,
                 chain_id,
                 OperatorOffsetInChain::AggregationMember(
                     op_id,
                     self.sub_op_ids.next_idx(),
                 ),
-                op_opts,
-                op_data,
+                span,
             )?);
         }
         Ok(op_id)
@@ -203,8 +195,8 @@ impl Operator for OpMultiOp {
     }
 }
 
-pub fn create_multi_op_with_opts(
-    ops: impl IntoIterator<Item = (OperatorBaseOptions, OperatorData)>,
+pub fn create_multi_op_with_span(
+    ops: impl IntoIterator<Item = (OperatorData, Span)>,
 ) -> OperatorData {
     OperatorData::MultiOp(OpMultiOp {
         operations: ops.into_iter().collect(),
@@ -215,8 +207,5 @@ pub fn create_multi_op_with_opts(
 pub fn create_multi_op(
     ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    create_multi_op_with_opts(
-        ops.into_iter()
-            .map(|op| (OperatorBaseOptions::default(), op)),
-    )
+    create_multi_op_with_span(ops.into_iter().map(|op| (op, Span::Generated)))
 }

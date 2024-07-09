@@ -90,7 +90,7 @@ fn get_delay() -> Result<(), ScrError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/delay/0.0{{}}", server.url());
     let res = ContextBuilder::without_exts()
-        .add_op_with_label(create_op_seqn(1, 3, 1).unwrap(), "a".into())
+        .add_op_with_key("a", create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_format(&fmt).unwrap())
         .add_op(create_op_GET())
         .add_op(create_op_regex(".*").unwrap())

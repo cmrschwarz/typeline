@@ -1,0 +1,535 @@
+use std::{
+    collections::HashMap,
+    num::NonZeroUsize,
+    path::PathBuf,
+    str::FromStr,
+    sync::{atomic::AtomicBool, Arc, RwLock},
+};
+
+use crate::{
+    chain::{Chain, ChainId},
+    cli::{
+        call_expr::{Argument, Span},
+        cli_args_into_arguments_iter, parse_cli_raw, parse_operator_data,
+        CliArgumentError,
+    },
+    context::{SessionData, SessionSettings},
+    extension::ExtensionRegistry,
+    liveness_analysis::OpOutputIdx,
+    operators::{
+        file_reader::create_op_stdin,
+        operator::{
+            OperatorBase, OperatorData, OperatorDataId, OperatorId,
+            OperatorOffsetInChain,
+        },
+        print::{create_op_print_with_opts, PrintOptions},
+        success_updater::create_op_success_updator,
+        utils::writable::WritableTarget,
+    },
+    record_data::scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
+    scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
+    utils::{
+        identity_hasher::BuildIdentityHasher,
+        index_vec::IndexVec,
+        indexing_type::IndexingType,
+        string_store::{StringStore, StringStoreEntry},
+    },
+};
+
+use super::{
+    chain_options::DEFAULT_CHAIN_OPTIONS,
+    setting::{CliArgIdx, Setting},
+};
+
+#[derive(Clone)]
+pub struct ScrSetupOptions {
+    pub extensions: Arc<ExtensionRegistry>,
+
+    pub deny_threading: bool,
+    pub allow_repl: bool,
+    pub start_with_stdin: bool,
+    pub print_output: bool,
+    pub add_success_updator: bool,
+
+    // useful if this comes from the cli, not the repl,
+    // in which case this is the executable name
+    pub skip_first_cli_arg: bool,
+}
+
+impl ScrSetupOptions {
+    pub fn with_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
+        ScrSetupOptions {
+            extensions,
+            allow_repl: false,
+            deny_threading: false,
+            skip_first_cli_arg: false,
+            start_with_stdin: false,
+            print_output: false,
+            add_success_updator: false,
+        }
+    }
+    pub fn without_extensions() -> Self {
+        ScrSetupOptions::with_extensions(
+            Arc::new(ExtensionRegistry::default()),
+        )
+    }
+}
+
+#[derive(Default)]
+pub struct SessionSetupSettings {
+    pub deny_threading: bool,
+    pub allow_repl: bool,
+    pub start_with_stdin: bool,
+    pub print_output: bool,
+    pub add_success_updator: bool,
+    pub skipped_first_cli_arg: bool,
+
+    // TODO: kill these
+    pub max_threads: Setting<usize>,
+    pub repl: Setting<bool>,
+    pub debug_log_path: Setting<PathBuf>,
+    pub exit_repl: Setting<bool>,
+}
+
+pub struct SessionSetupData {
+    pub setup_settings: SessionSetupSettings,
+    pub scope_mgr: ScopeManager,
+    pub curr_chain: ChainId,
+    pub chains: IndexVec<ChainId, Chain>,
+    pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
+    pub operator_bases: IndexVec<OperatorId, OperatorBase>,
+    pub operator_data: IndexVec<OperatorDataId, OperatorData>,
+    pub string_store: StringStore,
+    pub cli_args: Option<IndexVec<CliArgIdx, Vec<u8>>>,
+    pub extensions: Arc<ExtensionRegistry>,
+}
+
+macro_rules! DEBUG_LOG_ENV_VAR_CONST {
+    () => {
+        "SCR_DEBUG_LOG_PATH"
+    };
+}
+static DEBUG_LOG_ENV_VAR: &str = DEBUG_LOG_ENV_VAR_CONST!();
+
+impl SessionSetupSettings {
+    pub fn new(opts: &ScrSetupOptions) -> Self {
+        Self {
+            deny_threading: opts.deny_threading,
+            allow_repl: opts.allow_repl,
+            start_with_stdin: opts.start_with_stdin,
+            print_output: opts.print_output,
+            add_success_updator: opts.add_success_updator,
+            skipped_first_cli_arg: opts.skip_first_cli_arg,
+            max_threads: Setting::default(),
+            repl: Setting::default(),
+            debug_log_path: Setting::default(),
+            exit_repl: Setting::default(),
+        }
+    }
+}
+
+impl SessionSetupData {
+    pub fn new(opts: ScrSetupOptions) -> Self {
+        let mut res = Self {
+            setup_settings: SessionSetupSettings::new(&opts),
+            scope_mgr: ScopeManager::default(),
+            curr_chain: ChainId::ZERO,
+            chains: index_vec![Chain {
+                label: None,
+                settings: DEFAULT_CHAIN_OPTIONS.build_chain_settings(None),
+                operators: IndexVec::new(),
+                subchains: IndexVec::new(),
+                scope_id: DEFAULT_SCOPE_ID,
+                parent: None,
+                subchain_idx: None,
+            }],
+            chain_labels: HashMap::default(),
+            operator_bases: IndexVec::new(),
+            operator_data: IndexVec::new(),
+            string_store: StringStore::default(),
+            cli_args: None,
+            extensions: opts.extensions,
+        };
+        if opts.start_with_stdin {
+            let op_data = create_op_stdin(1);
+            res.setup_op_generated(op_data).unwrap();
+        }
+        res
+    }
+
+    pub fn from_arguments(
+        opts: ScrSetupOptions,
+        args: Vec<Argument>,
+    ) -> Result<Self, ScrError> {
+        let mut sess = Self::new(opts);
+        sess.process_arguments(args)?;
+        Ok(sess)
+    }
+
+    pub fn process_cli_args(
+        &mut self,
+        args: Vec<Vec<u8>>,
+    ) -> Result<(), ScrError> {
+        self.cli_args = Some(IndexVec::from(args));
+        let arguments = parse_cli_raw(&mut cli_args_into_arguments_iter(
+            self.cli_args.as_mut().unwrap().iter().map(|v| &**v),
+        ))?;
+        self.process_arguments(arguments)
+    }
+
+    pub fn process_arguments(
+        &mut self,
+        args: impl IntoIterator<Item = Argument>,
+    ) -> Result<(), ScrError> {
+        for arg in args {
+            let span = arg.span;
+            let op = parse_operator_data(self, arg)?;
+            self.setup_op_from_data(
+                op,
+                self.curr_chain,
+                self.direct_chain_offset(self.curr_chain),
+                span,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn get_current_chain(&mut self) -> ChainId {
+        self.curr_chain
+    }
+
+    fn build_debug_log_path(
+        &self,
+    ) -> Result<Option<PathBuf>, CliArgumentError> {
+        let mut debug_log_path =
+            if self.setup_settings.debug_log_path.is_some() {
+                self.setup_settings.debug_log_path.clone()
+            } else if let Some(path) = std::env::var_os(DEBUG_LOG_ENV_VAR) {
+                Setting::new(
+                    Some(PathBuf::from(path)),
+                    Span::EnvVar {
+                        compile_time: false,
+                        var_name: DEBUG_LOG_ENV_VAR,
+                    },
+                )
+            } else {
+                Setting::new(
+                    option_env!(DEBUG_LOG_ENV_VAR_CONST!()).map(|p| {
+                        PathBuf::from_str(p).expect(
+                            "valid compile time specified debug log path",
+                        )
+                    }),
+                    Span::EnvVar {
+                        compile_time: true,
+                        var_name: DEBUG_LOG_ENV_VAR,
+                    },
+                )
+            };
+        if let Some(path) = debug_log_path.get_ref() {
+            if path.as_os_str().is_empty() {
+                debug_log_path.reset_value();
+            }
+        }
+
+        if debug_log_path.is_some() && !cfg!(feature = "debug_log") {
+            return Err(CliArgumentError::new(
+                "Debug log not supported. Please compile with --features=debug_log",
+                debug_log_path.span,
+            ));
+        }
+
+        Ok(debug_log_path.value)
+    }
+
+    fn build_session_settings(
+        &self,
+    ) -> Result<SessionSettings, CliArgumentError> {
+        let debug_log_path = self.build_debug_log_path()?;
+
+        let max_threads = if self.setup_settings.deny_threading {
+            1
+        } else {
+            let mt_setting =
+                self.setup_settings.max_threads.value.unwrap_or(0);
+            if mt_setting == 0 {
+                std::thread::available_parallelism()
+                    .unwrap_or(NonZeroUsize::new(1).unwrap())
+                    .get()
+            } else {
+                mt_setting
+            }
+        };
+
+        Ok(SessionSettings {
+            max_threads,
+            debug_log_path,
+            repl: self.setup_settings.repl.unwrap_or(false),
+            skipped_first_cli_arg: self.setup_settings.skipped_first_cli_arg,
+        })
+    }
+
+    pub fn contextualize_error(&self, e: ScrError) -> ContextualizedScrError {
+        ContextualizedScrError::from_scr_error(e, None, None, Some(self), None)
+    }
+
+    pub fn build_session_take(&mut self) -> Result<SessionData, ScrError> {
+        let settings = self.build_session_settings()?;
+
+        if self.setup_settings.print_output {
+            let op_data = create_op_print_with_opts(
+                WritableTarget::Stdout,
+                PrintOptions {
+                    ignore_nulls: true,
+                    propagate_errors: true,
+                },
+            );
+            self.setup_op_generated(op_data)?;
+        }
+        if self.setup_settings.add_success_updator {
+            let op_data = create_op_success_updator();
+            self.setup_op_generated(op_data)?;
+        }
+
+        self.validate_chains()?;
+
+        use std::mem::take;
+        let mut sess = SessionData {
+            chains: take(&mut self.chains),
+            scope_mgr: take(&mut self.scope_mgr),
+            settings,
+            operator_data: take(&mut self.operator_data),
+            operator_bases: take(&mut self.operator_bases),
+            chain_labels: take(&mut self.chain_labels),
+            extensions: take(&mut self.extensions),
+            string_store: RwLock::new(take(&mut self.string_store)),
+            cli_args: take(&mut self.cli_args),
+            success: AtomicBool::new(true),
+        };
+        sess.compute_liveness();
+        Ok(sess)
+    }
+
+    pub fn validate_chains(&self) -> Result<(), ChainSetupError> {
+        for (chain_id, chain) in self.chains.iter_enumerated() {
+            let mut message = "";
+            // TODO: maybe insert a nop if the chain is empty?
+            if chain.settings.default_batch_size == 0 {
+                message = "default batch size cannot be zero";
+            } else if chain.settings.stream_buffer_size == 0 {
+                message = "stream buffer size cannot be zero";
+            }
+            if !message.is_empty() {
+                return Err(ChainSetupError::new(message, chain_id));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn add_op_data(&mut self, op_data: OperatorData) -> OperatorDataId {
+        self.operator_data.push_get_id(op_data)
+    }
+
+    pub fn add_op(
+        &mut self,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> OperatorId {
+        let op_id = self.operator_bases.push_get_id(OperatorBase {
+            op_data_id,
+            chain_id,
+            offset_in_chain,
+            desired_batch_size: self.chains[chain_id]
+                .settings
+                .default_batch_size,
+            span,
+            outputs_start: OpOutputIdx::MAX_VALUE,
+            outputs_end: OpOutputIdx::MAX_VALUE,
+        });
+        match offset_in_chain {
+            OperatorOffsetInChain::Direct(offset) => {
+                debug_assert_eq!(
+                    offset,
+                    self.chains[chain_id].operators.next_idx()
+                );
+                self.chains[chain_id].operators.push(op_id);
+            }
+            OperatorOffsetInChain::AggregationMember(_, _) => (),
+        }
+        op_id
+    }
+
+    pub fn add_op_direct(
+        &mut self,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        span: Span,
+    ) -> OperatorId {
+        let offset_in_chain = OperatorOffsetInChain::Direct(
+            self.chains[chain_id].operators.next_idx(),
+        );
+        self.add_op(op_data_id, chain_id, offset_in_chain, span)
+    }
+
+    pub fn setup_op(
+        &mut self,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let mut op_data = std::mem::take(&mut self.operator_data[op_data_id]);
+        op_data.setup(self, op_data_id, chain_id, offset_in_chain, span)?;
+        let op_id = op_data.setup(
+            self,
+            op_data_id,
+            chain_id,
+            offset_in_chain,
+            span,
+        )?;
+        self.operator_data[op_data_id] = op_data;
+        Ok(op_id)
+    }
+
+    pub fn setup_op_from_data(
+        &mut self,
+        mut op_data: OperatorData,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let op_data_id =
+            self.operator_data.push_get_id(OperatorData::default());
+        let op_id = op_data.setup(
+            self,
+            op_data_id,
+            chain_id,
+            offset_in_chain,
+            span,
+        )?;
+        self.operator_data[op_data_id] = op_data;
+        Ok(op_id)
+    }
+
+    pub fn direct_chain_offset(
+        &self,
+        chain_id: ChainId,
+    ) -> OperatorOffsetInChain {
+        OperatorOffsetInChain::Direct(
+            self.chains[chain_id].operators.next_idx(),
+        )
+    }
+
+    pub fn setup_op_generated(
+        &mut self,
+        op_data: OperatorData,
+    ) -> Result<OperatorId, ScrError> {
+        let offset_in_chain = self.direct_chain_offset(self.curr_chain);
+        self.setup_op_from_data(
+            op_data,
+            self.curr_chain,
+            offset_in_chain,
+            Span::Generated,
+        )
+    }
+
+    pub fn setup_ops_with_spans(
+        &mut self,
+        operations: impl IntoIterator<Item = (OperatorData, Span)>,
+    ) -> Result<(), ScrError> {
+        for (op_data, span) in operations {
+            self.setup_op_from_data(
+                op_data,
+                self.curr_chain,
+                self.direct_chain_offset(self.curr_chain),
+                span,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn add_subchain(
+        &mut self,
+        parent_id: ChainId,
+        label: Option<String>,
+    ) -> ChainId {
+        let subchain_idx = self.chains[parent_id].subchains.next_idx();
+        let chain_name = label.map(|v| self.string_store.intern_moved(v));
+
+        let subchain_chain_id = self.chains.push_get_id(Chain {
+            parent: Some(parent_id),
+            subchain_idx: Some(subchain_idx),
+            label: chain_name,
+            settings: self.chains[parent_id].settings.clone(),
+            operators: IndexVec::new(),
+            subchains: IndexVec::new(),
+            scope_id: self
+                .scope_mgr
+                .add_scope(Some(self.chains[parent_id].scope_id)),
+        });
+        self.chains[parent_id].subchains.push(subchain_chain_id);
+
+        if let Some(chain_name) = chain_name {
+            self.chain_labels.insert(chain_name, subchain_chain_id);
+        }
+
+        subchain_chain_id
+    }
+
+    pub fn setup_subchain(
+        &mut self,
+        chain_id: ChainId,
+        subchain_data: impl IntoIterator<Item = (OperatorData, Span)>,
+    ) -> Result<ChainId, ScrError> {
+        let subchain_id = self.add_subchain(chain_id, None);
+        for (op, span) in subchain_data {
+            self.setup_op_from_data(
+                op,
+                chain_id,
+                OperatorOffsetInChain::Direct(
+                    self.chains[chain_id].operators.next_idx(),
+                ),
+                span,
+            )?;
+        }
+        Ok(subchain_id)
+    }
+
+    pub fn setup_subchain_generated(
+        &mut self,
+        chain_id: ChainId,
+        subchain_data: impl IntoIterator<Item = OperatorData>,
+    ) -> Result<ChainId, ScrError> {
+        self.setup_subchain(
+            chain_id,
+            subchain_data.into_iter().map(|op| (op, Span::Generated)),
+        )
+    }
+
+    pub fn parse_argument(
+        &mut self,
+        arg: Argument,
+    ) -> Result<OperatorData, ScrError> {
+        parse_operator_data(self, arg)
+    }
+
+    pub fn setup_subchain_from_args(
+        &mut self,
+        chain_id: ChainId,
+        args: Vec<Argument>,
+    ) -> Result<ChainId, ScrError> {
+        let sc_id = self.add_subchain(chain_id, None);
+        for arg in args {
+            let span = arg.span;
+            let op = self.parse_argument(arg)?;
+            self.setup_op_from_data(
+                op,
+                sc_id,
+                self.direct_chain_offset(chain_id),
+                span,
+            )?;
+        }
+        Ok(sc_id)
+    }
+}

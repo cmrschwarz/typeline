@@ -323,15 +323,18 @@ impl Transform<'_> for TfExplode {
             .first_actor
             .get();
         let mut iter = std::mem::take(&mut self.pending_fields).into_iter();
+        let scope_id = jd.match_set_mgr.match_sets[match_set_id].active_scope;
         for (field, index) in &mut iter {
-            jd.field_mgr.add_field_with_data(
-                &mut jd.match_set_mgr,
-                &mut jd.scope_mgr,
+            let field_id = jd.field_mgr.add_field_with_data(
                 match_set_id,
-                *self.target_fields.get_index(index).unwrap().0,
                 first_actor,
                 field.take(),
             );
+            jd.scope_mgr.insert_field_name_opt(
+                scope_id,
+                *self.target_fields.get_index(index).unwrap().0,
+                field_id,
+            )
         }
         self.pending_fields = iter.into_empty_vec();
 

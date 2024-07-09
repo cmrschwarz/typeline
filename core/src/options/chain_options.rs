@@ -2,7 +2,7 @@ use crate::{
     chain::{
         BufferingMode, ChainId, ChainSettings, SubchainIndex, TextEncoding,
     },
-    operators::operator::{OffsetInChainOptions, OperatorDataId},
+    operators::operator::{OffsetInChainOptions, OperatorId},
     record_data::scope_manager::{ScopeId, DEFAULT_SCOPE_ID},
     utils::{index_vec::IndexVec, string_store::StringStoreEntry},
 };
@@ -24,7 +24,7 @@ pub struct ChainOptions {
     pub parent: ChainId,
     pub scope_id: ScopeId,
     pub subchain_count: SubchainIndex,
-    pub operators: IndexVec<OffsetInChainOptions, OperatorDataId>,
+    pub operators: IndexVec<OffsetInChainOptions, OperatorId>,
 }
 
 pub const DEFAULT_CHAIN_OPTIONS: ChainOptions = ChainOptions {

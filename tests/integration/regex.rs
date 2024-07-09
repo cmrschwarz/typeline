@@ -1,4 +1,5 @@
 use rstest::rstest;
+use scr::operators::transparent::create_op_transparent;
 use scr_core::{
     operators::{
         file_reader::create_op_file_reader_custom,
@@ -37,7 +38,7 @@ fn regex_drop() -> Result<(), ScrError> {
     ContextBuilder::without_exts()
         .push_str("foo\nbar\nbaz", 1)
         .add_op(create_op_regex_lines())
-        .add_op_transparent(create_op_string_sink(&ss1))
+        .add_op(create_op_transparent(create_op_string_sink(&ss1)))
         .add_op(create_op_regex(".*[^r]$").unwrap())
         .add_op(create_op_string_sink(&ss2))
         .run()?;
@@ -200,8 +201,10 @@ fn stream_into_regex() -> Result<(), ScrError> {
 fn optional_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .add_op(create_op_seq(9, 12, 1).unwrap())
-        .add_op_appending(create_op_seq(20, 22, 1).unwrap())
+        .add_op_aggregate([
+            create_op_seq(9, 12, 1).unwrap(),
+            create_op_seq(20, 22, 1).unwrap(),
+        ])
         .add_op(create_op_key("n".to_string()))
         .add_op(
             create_op_regex_with_opts(

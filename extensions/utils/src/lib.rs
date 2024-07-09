@@ -8,10 +8,10 @@ use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
 use head::parse_op_head;
 use scr_core::{
-    cli::call_expr::CallExpr,
+    cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::{errors::OperatorParsingError, operator::OperatorData},
-    options::session_options::SessionOptions,
+    operators::{errors::OperatorCreationError, operator::OperatorData},
+    options::session_setup::SessionSetupData,
 };
 use string_utils::{
     create_op_chars, create_op_lines, create_op_to_tyson, create_op_trim,
@@ -42,10 +42,11 @@ impl Extension for UtilsExtension {
     }
     fn parse_call_expr(
         &self,
-        _ctx_opts: &mut SessionOptions,
-        expr: CallExpr,
-    ) -> Result<OperatorData, OperatorParsingError> {
-        let ctor_with_arg: Option<fn(_) -> _> = match &*expr.op_name {
+        _ctx_opts: &mut SessionSetupData,
+        arg: &mut Argument,
+    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+        let expr = CallExpr::from_argument(arg)?;
+        let ctor_with_arg: Option<fn(_) -> _> = match expr.op_name {
             "head" => Some(parse_op_head),
             "tail" => Some(parse_op_tail),
             "dup" => Some(parse_op_dup),
@@ -55,10 +56,10 @@ impl Extension for UtilsExtension {
             _ => None,
         };
         if let Some(ctor) = ctor_with_arg {
-            return Ok(ctor(&expr)?);
+            return Ok(Some(ctor(&expr)?));
         }
 
-        let ctor_without_arg: Option<fn() -> _> = match &*expr.op_name {
+        let ctor_without_arg: Option<fn() -> _> = match expr.op_name {
             "sum" => Some(create_op_sum),
             "primes" => Some(create_op_primes),
             "lines" | "l" => Some(create_op_lines),
@@ -72,9 +73,9 @@ impl Extension for UtilsExtension {
         };
         if let Some(ctor) = ctor_without_arg {
             expr.reject_args()?;
-            return Ok(ctor());
+            return Ok(Some(ctor()));
         }
-        Err(OperatorParsingError::UnknownOperator(expr))
+        Ok(None)
     }
 
     fn setup(

@@ -15,6 +15,7 @@ index_newtype! {
 pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry =
     StringStoreEntry::MAX_VALUE;
 
+#[derive(Default)]
 pub struct StringStore {
     arena: Vec<Vec<u8>>,
     existing_strings: Vec<OwnedStrPtr>,
@@ -95,17 +96,6 @@ impl Eq for StrPtr {}
 impl Hash for StrPtr {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.as_str().hash(state)
-    }
-}
-
-impl Default for StringStore {
-    fn default() -> Self {
-        Self {
-            table_str_to_idx: HashMap::default(),
-            table_idx_to_str: IndexVec::new(),
-            arena: vec![Vec::with_capacity(1024)],
-            existing_strings: Vec::new(),
-        }
     }
 }
 

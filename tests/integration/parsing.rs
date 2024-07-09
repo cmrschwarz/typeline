@@ -1,7 +1,9 @@
 use scr::{
-    cli::{call_expr::Span, CliOptions},
+    cli::call_expr::Span,
     operators::errors::OperatorCreationError,
-    options::context_builder::ContextBuilder,
+    options::{
+        context_builder::ContextBuilder, session_setup::ScrSetupOptions,
+    },
     scr_error::{ContextualizedScrError, ScrError},
     CliOptionsWithDefaultExtensions,
 };
@@ -9,7 +11,7 @@ use scr::{
 #[test]
 fn seq_sum() -> Result<(), ContextualizedScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_extensions(),
+        ScrSetupOptions::with_default_extensions(),
         ["seq=10", "sum"],
     )?
     .run_collect_stringified()?;
@@ -20,7 +22,7 @@ fn seq_sum() -> Result<(), ContextualizedScrError> {
 #[test]
 fn empty_foreach_block() -> Result<(), ContextualizedScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_extensions(),
+        ScrSetupOptions::with_default_extensions(),
         ["seq=10", "fe:", "end", "sum"],
     )?
     .run_collect_stringified()?;
@@ -31,7 +33,7 @@ fn empty_foreach_block() -> Result<(), ContextualizedScrError> {
 #[test]
 fn foreach_block_no_colon() -> Result<(), ContextualizedScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_extensions(),
+        ScrSetupOptions::with_default_extensions(),
         ["seq=10", "fe", "end", "sum"],
     );
     assert_eq!(
@@ -50,7 +52,7 @@ fn foreach_block_no_colon() -> Result<(), ContextualizedScrError> {
 fn foreach_no_block() -> Result<(), ContextualizedScrError> {
     // TODO: probably emit an error for this
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_extensions(),
+        ScrSetupOptions::with_default_extensions(),
         ["seq=3", "fe", "sum"],
     )?
     .run_collect_stringified()?;
@@ -61,7 +63,7 @@ fn foreach_no_block() -> Result<(), ContextualizedScrError> {
 #[test]
 fn simple_forkcat_block() -> Result<(), ContextualizedScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_extensions(),
+        ScrSetupOptions::with_default_extensions(),
         ["str@foo=foo", "fc:", "nop", "next", "nop", "end"],
     )?
     .run_collect_stringified()?;

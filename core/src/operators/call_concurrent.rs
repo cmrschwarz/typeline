@@ -5,13 +5,13 @@ use std::{
 
 use crate::{
     chain::ChainId,
-    cli::call_expr::CallExpr,
-    context::{ContextData, SessionSetupData, VentureDescription},
+    cli::call_expr::{CallExpr, Span},
+    context::{ContextData, VentureDescription},
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
-    options::operator_base_options::OperatorBaseOptionsInterned,
+    options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager},
@@ -25,6 +25,7 @@ use crate::{
             RecordBufferFieldId,
         },
     },
+    scr_error::ScrError,
     utils::{
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
         string_store::StringStoreEntry,
@@ -97,17 +98,12 @@ pub fn parse_op_call_concurrent(
 pub fn setup_op_call_concurrent(
     op: &mut OpCallConcurrent,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    op_base_opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
-    let op_id = sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        op_base_opts_interned,
-        op_data_id,
-    );
+    span: Span,
+) -> Result<OperatorId, ScrError> {
+    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
     if let Some(target) = sess
         .string_store
@@ -119,14 +115,16 @@ pub fn setup_op_call_concurrent(
         return Err(OperatorSetupError::new_s(
             format!("unknown chain label '{}'", op.target_name),
             op_id,
-        ));
+        )
+        .into());
     }
 
-    if sess.settings.max_threads == 1 {
+    if sess.setup_settings.max_threads.get() == Some(1) {
         return Err(OperatorSetupError::new(
             "callcc cannot be used with a max thread count of 1, see `h=j`",
             op_id,
-        ));
+        )
+        .into());
     }
     Ok(op_id)
 }
@@ -428,14 +426,16 @@ pub fn setup_callee_concurrent(
         target_fields: Vec::new(),
         buffer,
     };
+    let tgt_scope_id =
+        job.job_data.match_set_mgr.match_sets[ms_id].active_scope;
     let mut buf_data = callee.buffer.fields.lock().unwrap();
     for field in &buf_data.fields {
-        let field_id = job.job_data.field_mgr.add_field(
-            &mut job.job_data.match_set_mgr,
-            &mut job.job_data.scope_mgr,
-            ms_id,
+        let field_id =
+            job.job_data.field_mgr.add_field(ms_id, ActorRef::default());
+        job.job_data.scope_mgr.insert_field_name_opt(
+            tgt_scope_id,
             field.name,
-            ActorRef::default(),
+            field_id,
         );
         callee.target_fields.push(Some(field_id));
     }

@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::{
     chain::ChainId,
     cli::{
-        call_expr::Span, CliArgumentError, CliOptions, MissingArgumentsError,
+        call_expr::Span, CliArgumentError, MissingArgumentsError,
         PrintInfoAndExitError,
     },
     context::SessionData,
@@ -17,7 +17,7 @@ use crate::{
         operator::OperatorId,
     },
     options::{
-        session_options::SessionOptions,
+        session_setup::{ScrSetupOptions, SessionSetupData},
         setting::{
             CliArgIdx, SettingReassignmentError,
             SETTING_REASSIGNMENT_ERROR_MESSAGE,
@@ -101,13 +101,13 @@ impl ContextualizedScrError {
     pub fn from_scr_error(
         err: ScrError,
         args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-        cli_opts: Option<&CliOptions>,
-        ctx_opts: Option<&SessionOptions>,
+        cli_opts: Option<&ScrSetupOptions>,
+        setup_data: Option<&SessionSetupData>,
         sess: Option<&SessionData>,
     ) -> Self {
         Self {
             contextualized_message: err
-                .contextualize_message(args, cli_opts, ctx_opts, sess),
+                .contextualize_message(args, cli_opts, setup_data, sess),
             err,
         }
     }
@@ -180,15 +180,17 @@ fn contextualize_span(
 }
 
 fn was_first_cli_arg_skipped(
-    cli_opts: Option<&CliOptions>,
-    ctx_opts: Option<&SessionOptions>,
+    cli_opts: Option<&ScrSetupOptions>,
+    setup_data: Option<&SessionSetupData>,
     sess: Option<&SessionData>,
 ) -> bool {
-    cli_opts.map(|o| o.skip_first_arg).unwrap_or(
-        ctx_opts.map(|o| o.skipped_first_cli_arg).unwrap_or(
-            sess.map(|s| s.settings.skipped_first_cli_arg)
-                .unwrap_or(true),
-        ),
+    cli_opts.map(|o| o.skip_first_cli_arg).unwrap_or(
+        setup_data
+            .map(|o| o.setup_settings.skipped_first_cli_arg)
+            .unwrap_or(
+                sess.map(|s| s.settings.skipped_first_cli_arg)
+                    .unwrap_or(true),
+            ),
     )
 }
 
@@ -196,23 +198,24 @@ fn contextualize_op_id(
     msg: &str,
     op_id: OperatorId,
     args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-    cli_opts: Option<&CliOptions>,
-    ctx_opts: Option<&SessionOptions>,
+    cli_opts: Option<&ScrSetupOptions>,
+    setup_data: Option<&SessionSetupData>,
     sess: Option<&SessionData>,
 ) -> String {
     let span = sess.map(|sess| sess.operator_bases[op_id].span);
     if let (Some(args), Some(span)) = (args, span) {
         let first_arg_skipped =
-            was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
+            was_first_cli_arg_skipped(cli_opts, setup_data, sess);
         contextualize_span(msg, Some(args), span, first_arg_skipped)
     } else if let Some(sess) = sess {
         let op_base = &sess.operator_bases[op_id];
+        let op_data = &sess.operator_data[op_base.op_data_id];
         // TODO: stringify chain id
         format!(
             "in op {} '{}' of chain {}: {}",
             // TODO: better message for aggregation members
             op_base.offset_in_chain.base_chain_offset(sess),
-            sess.string_store.read().unwrap().lookup(op_base.argname),
+            op_data.default_op_name(),
             op_base.chain_id,
             msg
         )
@@ -226,14 +229,14 @@ impl ScrError {
     pub fn contextualize_message(
         &self,
         args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-        cli_opts: Option<&CliOptions>,
-        ctx_opts: Option<&SessionOptions>,
+        cli_opts: Option<&ScrSetupOptions>,
+        setup_data: Option<&SessionSetupData>,
         sess: Option<&SessionData>,
     ) -> String {
         let first_arg_skipped =
-            was_first_cli_arg_skipped(cli_opts, ctx_opts, sess);
+            was_first_cli_arg_skipped(cli_opts, setup_data, sess);
         let args_gathered = args
-            .or_else(|| ctx_opts.and_then(|o| o.cli_args.as_deref()))
+            .or_else(|| setup_data.and_then(|o| o.cli_args.as_deref()))
             .or_else(|| sess.and_then(|sess| sess.cli_args.as_deref()));
         match self {
             ScrError::CliArgumentError(e) => contextualize_span(
@@ -261,7 +264,7 @@ impl ScrError {
                 e.op_id,
                 args_gathered,
                 cli_opts,
-                ctx_opts,
+                setup_data,
                 sess,
             ),
             ScrError::OperationApplicationError(e) => contextualize_op_id(
@@ -269,7 +272,7 @@ impl ScrError {
                 e.op_id(),
                 args_gathered,
                 cli_opts,
-                ctx_opts,
+                setup_data,
                 sess,
             ),
             ScrError::PrintInfoAndExitError(e) => e.to_string(),

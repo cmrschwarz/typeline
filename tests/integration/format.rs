@@ -27,8 +27,10 @@ fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op_appending(create_op_bytes(b"bar"))
-        .add_op_appending(create_op_error("baz"))
+        .add_op_aggregate_appending([
+            create_op_bytes(b"bar"),
+            create_op_error("baz"),
+        ])
         .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -44,8 +46,10 @@ fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op_appending(create_op_bytes(b"bar"))
-        .add_op_appending(create_op_error("baz"))
+        .add_op_aggregate_appending([
+            create_op_bytes(b"bar"),
+            create_op_error("baz"),
+        ])
         .add_op(create_op_format("{:??}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;

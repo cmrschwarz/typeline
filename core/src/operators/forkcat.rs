@@ -9,20 +9,16 @@ use bitvec::vec::BitVec;
 use crate::{
     chain::{ChainId, SubchainIndex},
     cli::{
-        call_expr::CallExpr, call_expr_iter::CallExprIter, parse_operator_data,
+        call_expr::{Argument, CallExpr, Span},
+        parse_operator_data,
     },
-    context::{SessionData, SessionSetupData},
+    context::SessionData,
     index_newtype,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
-    options::{
-        operator_base_options::{
-            OperatorBaseOptions, OperatorBaseOptionsInterned,
-        },
-        session_options::SessionOptions,
-    },
+    options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{CowFieldDataRef, FieldId, FieldIterRef, FieldRefOffset},
@@ -36,6 +32,7 @@ use crate::{
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
+    scr_error::ScrError,
     utils::{
         index_vec::{IndexSlice, IndexVec},
         indexing_type::{IndexingType, IndexingTypeRange},
@@ -46,7 +43,7 @@ use crate::{
 };
 
 use super::{
-    errors::{OperatorCreationError, OperatorSetupError},
+    errors::OperatorSetupError,
     nop::create_op_nop,
     operator::{
         OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
@@ -77,7 +74,7 @@ index_newtype! {
 }
 
 pub struct OpForkCat {
-    pub subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
+    pub subchains: Vec<Vec<(OperatorData, Span)>>,
 
     pub subchains_start: SubchainIndex,
     pub subchains_end: SubchainIndex,
@@ -183,17 +180,12 @@ impl FcContinuationState {
 pub fn setup_op_forkcat(
     op: &mut OpForkCat,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
-    let op_id = sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        opts_interned,
-        op_data_id,
-    );
+    span: Span,
+) -> Result<OperatorId, ScrError> {
+    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
     let OperatorOffsetInChain::Direct(direct_offset_in_chain) =
         offset_in_chain
@@ -201,14 +193,15 @@ pub fn setup_op_forkcat(
         return Err(OperatorSetupError::new(
             "operator `forkcat` cannot be part of an aggregation",
             op_id,
-        ));
+        )
+        .into());
     };
     op.direct_offset_in_chain = direct_offset_in_chain;
 
     op.subchains_start = sess.chains[chain_id].subchains.next_idx();
 
     for sc in std::mem::take(&mut op.subchains) {
-        sess.create_subchain(chain_id, sc)?;
+        sess.setup_subchain(chain_id, sc)?;
     }
 
     op.subchains_end = sess.chains[chain_id].subchains.next_idx();
@@ -295,12 +288,14 @@ pub fn insert_tf_forkcat<'a>(
         IndexVec::<ContinuationVarIdx, FieldId>::new();
 
     for cv in &op.continuation_vars {
-        let field_id = job.job_data.field_mgr.add_field(
-            &mut job.job_data.match_set_mgr,
-            &mut job.job_data.scope_mgr,
-            cont_ms_id,
+        let field_id = job
+            .job_data
+            .field_mgr
+            .add_field(cont_ms_id, ActorRef::default());
+        job.job_data.scope_mgr.insert_field_name_opt(
+            cont_scope_id,
             cv.get_name(),
-            ActorRef::default(),
+            field_id,
         );
         if cv == &Var::BBInput {
             cont_input_field = field_id;
@@ -966,12 +961,12 @@ pub fn handle_tf_forcat_subchain_trailer(
     }
 }
 
-pub fn create_op_forkcat_with_opts(
-    mut subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
+pub fn create_op_forkcat_with_spans(
+    mut subchains: Vec<Vec<(OperatorData, Span)>>,
 ) -> OperatorData {
     for sc in &mut subchains {
         if sc.is_empty() {
-            sc.push((OperatorBaseOptions::from_name("nop"), create_op_nop()));
+            sc.push((create_op_nop(), Span::Generated));
         }
     }
     OperatorData::ForkCat(OpForkCat {
@@ -991,38 +986,30 @@ pub fn create_op_forkcat(
         .into_iter()
         .map(|sc| {
             sc.into_iter()
-                .map(|op_data| {
-                    (
-                        OperatorBaseOptions::from_name(
-                            op_data.default_op_name(),
-                        ),
-                        op_data,
-                    )
-                })
+                .map(|op_data| (op_data, Span::Generated))
                 .collect::<Vec<_>>()
         })
         .collect();
-    create_op_forkcat_with_opts(subchains)
+    create_op_forkcat_with_spans(subchains)
 }
 
 pub fn parse_op_forkcat(
-    sess_opts: &mut SessionOptions,
-    expr: CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+    sess: &mut SessionSetupData,
+    mut arg: Argument,
+) -> Result<OperatorData, ScrError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
-    for expr in CallExprIter::from_args_iter(expr.args) {
-        let expr = expr?;
+    for arg in std::mem::take(arg.expect_arg_array_mut()?) {
+        let expr = CallExpr::from_argument(&arg)?;
         if expr.op_name == "next" {
             expr.reject_args()?;
             subchains.push(curr_subchain);
             curr_subchain = Vec::new();
             continue;
         };
-        let op_base = expr.op_base_options();
-        let op_data = parse_operator_data(sess_opts, expr)?;
-        curr_subchain.push((op_base, op_data));
+        let span = arg.span;
+        curr_subchain.push((parse_operator_data(sess, arg)?, span));
     }
     subchains.push(curr_subchain);
-    Ok(create_op_forkcat_with_opts(subchains))
+    Ok(create_op_forkcat_with_spans(subchains))
 }

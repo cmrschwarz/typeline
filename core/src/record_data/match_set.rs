@@ -56,13 +56,16 @@ impl MatchSetManager {
         let field = fm.fields[field_id].borrow();
         let (ms_id, first_actor, shadowed_by) =
             (field.match_set, field.first_actor.get(), field.shadowed_by);
+
+        let scope_id = self.match_sets[ms_id].active_scope;
         drop(field);
         debug_assert!(shadowed_by.is_none());
         fm.bump_field_refcount(field_id);
         // PERF: if the field has no name, and no actor was added
         // after between it's first_actor and the last,
         // we can just set it's name instead of adding an alias field
-        let alias_id = fm.add_field(self, sm, ms_id, Some(name), first_actor);
+        let alias_id = fm.add_field(ms_id, first_actor);
+        sm.insert_field_name(scope_id, name, alias_id);
         let mut field = fm.fields[field_id].borrow_mut();
         field.shadowed_by = Some(alias_id);
         field.shadowed_since = self.match_sets[field.match_set]
@@ -79,12 +82,11 @@ impl MatchSetManager {
     pub fn add_match_set(
         &mut self,
         fm: &mut FieldManager,
-        sm: &mut ScopeManager,
+        _sm: &mut ScopeManager,
         scope: ScopeId,
     ) -> MatchSetId {
         let ms_id = self.match_sets.peek_claim_id();
-        let dummy_field =
-            fm.add_field(self, sm, ms_id, None, ActorRef::Unconfirmed(0));
+        let dummy_field = fm.add_field(ms_id, ActorRef::Unconfirmed(0));
         let ms = MatchSet {
             dummy_field,
             active_scope: scope,

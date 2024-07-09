@@ -7,7 +7,7 @@ use crate::{
     cli::call_expr::{Argument, CallExpr, ParsedArgValue, Span},
     job::JobData,
     options::{
-        chain_options::DEFAULT_CHAIN_OPTIONS, session_options::SessionOptions,
+        chain_options::DEFAULT_CHAIN_OPTIONS, session_setup::SessionSetupData,
     },
     record_data::{
         array::Array,
@@ -276,9 +276,9 @@ pub fn parse_insert_count_reject_value(
     Ok(insert_count)
 }
 
-pub fn parse_insert_count_and_value_args(
-    expr: &CallExpr,
-) -> Result<(Option<usize>, &[u8], Span), OperatorCreationError> {
+pub fn parse_insert_count_and_value_args<'a>(
+    expr: &'a CallExpr<'a>,
+) -> Result<(Option<usize>, &'a [u8], Span), OperatorCreationError> {
     let mut insert_count = None;
     let mut value = None;
     for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
@@ -306,9 +306,9 @@ pub fn parse_insert_count_and_value_args(
     Ok((insert_count, value, value_span))
 }
 
-pub fn parse_insert_count_and_value_args_str(
-    expr: &CallExpr,
-) -> Result<(Option<usize>, &str, Span), OperatorCreationError> {
+pub fn parse_insert_count_and_value_args_str<'a>(
+    expr: &'a CallExpr<'a>,
+) -> Result<(Option<usize>, &'a str, Span), OperatorCreationError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;
 
@@ -336,11 +336,12 @@ pub fn parse_op_int(
     Ok(OperatorData::Literal(OpLiteral { data, insert_count }))
 }
 pub fn parse_op_bytes(
-    expr: &CallExpr,
+    arg: &mut Argument,
     stream: bool,
 ) -> Result<OperatorData, OperatorCreationError> {
+    let call_expr = CallExpr::from_argument(arg)?;
     let (insert_count, value, _value_span) =
-        parse_insert_count_and_value_args(expr)?;
+        parse_insert_count_and_value_args(&call_expr)?;
     Ok(OperatorData::Literal(OpLiteral {
         data: if stream {
             Literal::StreamBytes(Arc::new(value.to_owned()))
@@ -370,9 +371,9 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
     })
 }
 pub fn parse_op_tyson(
+    sess: &SessionSetupData,
     expr: &CallExpr,
     affinity: FieldValueKind,
-    sess: &SessionOptions,
 ) -> Result<OperatorData, OperatorCreationError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;
@@ -400,22 +401,17 @@ pub fn parse_op_tyson(
     }))
 }
 
-pub fn use_fpm(sess: Option<&SessionOptions>) -> bool {
+pub fn use_fpm(sess: Option<&SessionSetupData>) -> bool {
     let fpm_default = DEFAULT_CHAIN_OPTIONS.floating_point_math.get().unwrap();
-    sess.map(|sess| {
-        sess.chains[sess.curr_chain]
-            .floating_point_math
-            .get()
-            .unwrap_or(fpm_default)
-    })
-    .unwrap_or(fpm_default)
+    sess.map(|sess| sess.chains[sess.curr_chain].settings.floating_point_math)
+        .unwrap_or(fpm_default)
 }
 
 pub fn build_op_tyson_value(
     value: &[u8],
     value_span: Span,
     insert_count: Option<usize>,
-    sess: Option<&SessionOptions>,
+    sess: Option<&SessionSetupData>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let value =
         parse_tyson(value, use_fpm(sess), sess.map(|sess| &*sess.extensions))
@@ -434,7 +430,7 @@ pub fn build_op_tyson_value(
 
 pub fn parse_op_tyson_value(
     expr: &CallExpr,
-    sess: Option<&SessionOptions>,
+    sess: Option<&SessionSetupData>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;

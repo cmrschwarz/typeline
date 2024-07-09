@@ -9,9 +9,10 @@
 
 use std::sync::Arc;
 
-use cli::CliOptions;
 use once_cell::sync::Lazy;
-use options::context_builder::ContextBuilder;
+use options::{
+    context_builder::ContextBuilder, session_setup::ScrSetupOptions,
+};
 // we reexport the scr_core interface from this lib
 pub use scr_core::*;
 
@@ -62,7 +63,7 @@ pub trait CliOptionsWithDefaultExtensions {
     fn with_default_extensions() -> Self;
 }
 
-impl CliOptionsWithDefaultExtensions for CliOptions {
+impl CliOptionsWithDefaultExtensions for ScrSetupOptions {
     fn with_default_extensions() -> Self {
         Self::with_extensions(DEFAULT_EXTENSION_REGISTRY.clone())
     }

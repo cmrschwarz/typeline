@@ -7,9 +7,7 @@ use unicode_ident::is_xid_start;
 use smallstr::SmallString;
 
 use super::{
-    errors::{
-        OperatorApplicationError, OperatorCreationError, OperatorSetupError,
-    },
+    errors::{OperatorApplicationError, OperatorCreationError},
     operator::{
         OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
         OperatorOffsetInChain,
@@ -19,10 +17,10 @@ use super::{
 use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
-    context::{SessionData, SessionSetupData},
+    context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
-    options::operator_base_options::OperatorBaseOptionsInterned,
+    options::session_setup::SessionSetupData,
     record_data::{
         field::{Field, FieldIterRef, FieldManager},
         field_data::{
@@ -52,6 +50,7 @@ use crate::{
             StreamValueUpdate,
         },
     },
+    scr_error::ScrError,
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         divide_by_char_len,
@@ -235,21 +234,16 @@ unsafe impl<'a> Send for TfFormat<'a> {}
 pub fn setup_op_format(
     op: &mut OpFormat,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    op_base_opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
+    span: Span,
+) -> Result<OperatorId, ScrError> {
     for r in std::mem::take(&mut op.refs_str) {
         op.refs_idx
             .push(r.map(|r| sess.string_store.intern_moved(r)));
     }
-    Ok(sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        op_base_opts_interned,
-        op_data_id,
-    ))
+    Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
 }
 
 pub fn build_tf_format<'a>(
@@ -277,13 +271,17 @@ pub fn build_tf_format<'a>(
                     f.ref_count += 1;
                     id
                 } else {
-                    jd.field_mgr.add_field(
-                        &mut jd.match_set_mgr,
-                        &mut jd.scope_mgr,
+                    let field_id = jd.field_mgr.add_field(
                         tf_state.match_set_id,
-                        Some(*name),
                         jd.field_mgr.get_first_actor(tf_state.input_field),
-                    )
+                    );
+                    jd.scope_mgr.insert_field_name(
+                        jd.match_set_mgr.match_sets[tf_state.match_set_id]
+                            .active_scope,
+                        *name,
+                        field_id,
+                    );
+                    field_id
                 }
             } else {
                 let mut f =

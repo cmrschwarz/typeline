@@ -1,8 +1,8 @@
 use scr_core::{
-    cli::call_expr::CallExpr,
+    cli::call_expr::Argument,
     extension::Extension,
-    operators::{errors::OperatorParsingError, operator::OperatorData},
-    options::session_options::SessionOptions,
+    operators::{errors::OperatorCreationError, operator::OperatorData},
+    options::session_setup::SessionSetupData,
 };
 
 #[derive(Default)]
@@ -14,9 +14,9 @@ impl Extension for SqliteExtension {
     }
     fn parse_call_expr(
         &self,
-        _ctx_opts: &mut SessionOptions,
-        expr: CallExpr,
-    ) -> Result<OperatorData, OperatorParsingError> {
-        Err(OperatorParsingError::UnknownOperator(expr))
+        _ctx_opts: &mut SessionSetupData,
+        _arg: &mut Argument,
+    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+        Ok(None)
     }
 }

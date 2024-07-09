@@ -1,9 +1,9 @@
 use py::build_op_py;
 use scr_core::{
-    cli::call_expr::CallExpr,
+    cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::{errors::OperatorParsingError, operator::OperatorData},
-    options::session_options::SessionOptions,
+    operators::{errors::OperatorCreationError, operator::OperatorData},
+    options::session_setup::SessionSetupData,
 };
 
 pub mod py;
@@ -17,17 +17,18 @@ impl Extension for PythonExtension {
     }
     fn parse_call_expr(
         &self,
-        _ctx_opts: &mut SessionOptions,
-        expr: CallExpr,
-    ) -> Result<OperatorData, OperatorParsingError> {
+        _ctx_opts: &mut SessionSetupData,
+        arg: &mut Argument,
+    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+        let expr = CallExpr::from_argument(arg)?;
         if expr.op_name == "py" {
             let val = expr.require_single_string_arg()?;
-            return Ok(build_op_py(val.to_owned(), expr.span)?);
+            return Ok(Some(build_op_py(val.to_owned(), expr.span)?));
         }
         if expr.op_name == "to_int" {
             expr.reject_args()?;
-            return Ok(build_op_py("int(_)".to_string(), expr.span)?);
+            return Ok(Some(build_op_py("int(_)".to_string(), expr.span)?));
         }
-        Err(OperatorParsingError::UnknownOperator(expr))
+        Ok(None)
     }
 }

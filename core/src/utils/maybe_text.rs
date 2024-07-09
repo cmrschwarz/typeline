@@ -381,6 +381,12 @@ impl<'a> MaybeTextRef<'a> {
             MaybeTextRef::Bytes(b) => MaybeText::Bytes(b.to_vec()),
         }
     }
+    pub fn from_bytes_try_str(bytes: &'a [u8]) -> Self {
+        match bytes.to_str() {
+            Ok(s) => MaybeTextRef::Text(s),
+            Err(_) => MaybeTextRef::Bytes(bytes),
+        }
+    }
 }
 impl<'a> MaybeTextRefMut<'a> {
     pub fn as_str(&self) -> Option<&str> {

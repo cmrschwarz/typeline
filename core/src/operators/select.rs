@@ -1,15 +1,15 @@
 use crate::{
     chain::ChainId,
-    cli::call_expr::CallExpr,
-    context::SessionSetupData,
+    cli::call_expr::{CallExpr, Span},
     job::JobData,
     liveness_analysis::{LivenessData, VarLivenessSlotKind},
-    options::operator_base_options::OperatorBaseOptionsInterned,
+    options::session_setup::SessionSetupData,
+    scr_error::ScrError,
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
 
 use super::{
-    errors::{OperatorCreationError, OperatorSetupError},
+    errors::OperatorCreationError,
     operator::{
         OperatorBase, OperatorData, OperatorDataId, OperatorId,
         OperatorOffsetInChain,
@@ -39,19 +39,14 @@ pub fn parse_op_select(
 pub fn setup_op_select(
     op: &mut OpSelect,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    op_base_opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
+    span: Span,
+) -> Result<OperatorId, ScrError> {
     op.key_interned =
         Some(sess.string_store.intern_moved(std::mem::take(&mut op.key)));
-    Ok(sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        op_base_opts_interned,
-        op_data_id,
-    ))
+    Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
 }
 
 pub fn setup_op_select_liveness_data(

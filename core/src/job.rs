@@ -418,13 +418,13 @@ impl<'a> Job<'a> {
                 fd.data.push_null(1, true);
             }
             let field_id = self.job_data.field_mgr.add_field_with_data(
-                &mut self.job_data.match_set_mgr,
-                &mut self.job_data.scope_mgr,
                 ms_id,
-                fd.name,
                 ActorRef::default(),
                 fd.data,
             );
+            self.job_data
+                .scope_mgr
+                .insert_field_name_opt(scope_id, fd.name, field_id);
             input_data_fields.push(field_id);
             if input_field.is_none() {
                 input_field = Some(field_id);
@@ -508,16 +508,10 @@ impl<'a> Job<'a> {
         {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             let name: String = if let Some(op_id) = tf.op_id {
-                self.job_data
-                    .session_data
-                    .string_store
-                    .read()
-                    .unwrap()
-                    .lookup(
-                        self.job_data.session_data.operator_bases[op_id]
-                            .argname,
-                    )
-                    .into()
+                self.job_data.session_data.operator_data
+                    [self.job_data.session_data.op_data_id(op_id)]
+                .debug_op_name()
+                .to_string()
             } else {
                 self.transform_data[tf_id].display_name().to_string()
             };
@@ -627,18 +621,17 @@ impl<'a> Job<'a> {
                     {
                         input_field = field_id;
                     } else {
+                        let ms =
+                            &self.job_data.match_set_mgr.match_sets[ms_id];
                         let actor = ActorRef::Unconfirmed(
-                            self.job_data.match_set_mgr.match_sets[ms_id]
-                                .action_buffer
-                                .borrow()
-                                .peek_next_actor_id(),
+                            ms.action_buffer.borrow().peek_next_actor_id(),
                         );
-                        input_field = self.job_data.field_mgr.add_field(
-                            &mut self.job_data.match_set_mgr,
-                            &mut self.job_data.scope_mgr,
-                            ms_id,
-                            Some(op.key_interned.unwrap()),
-                            actor,
+                        input_field =
+                            self.job_data.field_mgr.add_field(ms_id, actor);
+                        self.job_data.scope_mgr.insert_field_name(
+                            ms.active_scope,
+                            op.key_interned.unwrap(),
+                            input_field,
                         );
                     }
                     if !op.field_is_read {
@@ -646,14 +639,6 @@ impl<'a> Job<'a> {
                     }
                 }
                 OperatorData::Key(k) => {
-                    if let Some(name) = op_base.label {
-                        self.job_data.match_set_mgr.add_field_alias(
-                            &mut self.job_data.field_mgr,
-                            &mut self.job_data.scope_mgr,
-                            input_field,
-                            name,
-                        );
-                    }
                     let output_field =
                         self.job_data.match_set_mgr.add_field_alias(
                             &mut self.job_data.field_mgr,
@@ -661,9 +646,7 @@ impl<'a> Job<'a> {
                             input_field,
                             k.key_interned.unwrap(),
                         );
-                    if !op_base.transparent_mode {
-                        input_field = output_field;
-                    }
+                    input_field = output_field;
                     continue;
                 }
                 OperatorData::MacroDef(op) => {
@@ -680,7 +663,6 @@ impl<'a> Job<'a> {
                 }
                 _ => (),
             }
-            let mut label_added = false;
             let output_field_kind =
                 op_data.output_field_kind(self.job_data.session_data, op_id);
             let output_field = match output_field_kind {
@@ -709,37 +691,18 @@ impl<'a> Job<'a> {
                             .bump_field_refcount(*field_idx);
                         let mut f = self.job_data.field_mgr.fields[*field_idx]
                             .borrow_mut();
-                        debug_assert!(f.name == op_base.label);
-                        label_added = true;
                         f.first_actor.set(first_actor);
                         f.snapshot.set(SnapshotRef::default());
                         f.match_set = ms_id;
                         *field_idx
                     } else {
-                        label_added = true;
-                        self.job_data.field_mgr.add_field(
-                            &mut self.job_data.match_set_mgr,
-                            &mut self.job_data.scope_mgr,
-                            ms_id,
-                            op_base.label,
-                            first_actor,
-                        )
+                        self.job_data.field_mgr.add_field(ms_id, first_actor)
                     }
                 }
                 OutputFieldKind::Unconfigured => {
                     self.job_data.match_set_mgr.get_dummy_field(ms_id)
                 }
             };
-            if !label_added {
-                if let Some(name) = op_base.label {
-                    self.job_data.match_set_mgr.add_field_alias(
-                        &mut self.job_data.field_mgr,
-                        &mut self.job_data.scope_mgr,
-                        output_field,
-                        name,
-                    );
-                }
-            }
             self.job_data.field_mgr.setup_field_refs(
                 &mut self.job_data.match_set_mgr,
                 &mut self.job_data.scope_mgr,
@@ -747,7 +710,7 @@ impl<'a> Job<'a> {
             );
             self.job_data.field_mgr.bump_field_refcount(input_field);
 
-            let mut tf_state = TransformState::new(
+            let tf_state = TransformState::new(
                 input_field,
                 output_field,
                 ms_id,
@@ -755,7 +718,6 @@ impl<'a> Job<'a> {
                 Some(op_id),
                 input_group_track,
             );
-            tf_state.is_transparent = op_base.transparent_mode;
 
             #[cfg(feature = "debug_logging")]
             if output_field_kind == OutputFieldKind::Unique {

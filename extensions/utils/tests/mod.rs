@@ -1,8 +1,8 @@
 use rstest::rstest;
 use scr::{
-    cli::CliOptions, operators::sequence::create_op_enum,
-    options::operator_base_options::OperatorBaseOptions,
-    record_data::array::Array, CliOptionsWithDefaultExtensions,
+    operators::sequence::create_op_enum,
+    options::session_setup::ScrSetupOptions, record_data::array::Array,
+    CliOptionsWithDefaultExtensions,
 };
 use scr_core::{
     operators::{
@@ -24,13 +24,7 @@ use scr_ext_utils::{
 fn primes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .add_op_with_opts(
-            OperatorBaseOptions {
-                label: Some("p".into()),
-                ..Default::default()
-            },
-            create_op_primes(),
-        )
+        .add_op_with_key("p", create_op_primes())
         .add_op(create_op_enum(0, 3, 1).unwrap())
         .add_op(create_op_select("p".into()))
         .add_op(create_op_string_sink(&ss))
@@ -79,7 +73,7 @@ fn primes_head_tail_add() -> Result<(), ScrError> {
 #[test]
 fn head_tail_cli() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_extensions(),
+        ScrSetupOptions::with_default_extensions(),
         ["scr", "primes", "tail=+3", "head=5"],
     )?
     .run_collect_as::<i64>()?;

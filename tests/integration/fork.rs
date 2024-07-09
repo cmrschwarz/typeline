@@ -1,8 +1,5 @@
 use rstest::rstest;
-use scr::{
-    operators::fork::create_op_fork_with_opts,
-    options::operator_base_options::OperatorBaseOptions,
-};
+use scr::operators::aggregator::create_op_aggregate_appending;
 use scr_core::{
     operators::{
         fork::create_op_fork,
@@ -25,22 +22,12 @@ fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), ScrError> {
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .add_op(create_op_seq(0, 2, 1).unwrap())
-        .add_op(create_op_fork_with_opts(vec![vec![
-            (
-                OperatorBaseOptions {
-                    append_mode: true,
-                    ..Default::default()
-                },
+        .add_op(create_op_fork(vec![vec![
+            create_op_aggregate_appending([
                 create_op_int(2),
-            ),
-            (
-                OperatorBaseOptions {
-                    append_mode: true,
-                    ..Default::default()
-                },
                 create_op_int(3),
-            ),
-            (OperatorBaseOptions::default(), create_op_string_sink(&ss)),
+            ]),
+            create_op_string_sink(&ss),
         ]])?)
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1", "2", "3"]);

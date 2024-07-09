@@ -22,6 +22,7 @@ use crate::{
         foreach::OpForeach,
         fork::OpFork,
         forkcat::OpForkCat,
+        key::NestedOp,
         operator::{OffsetInChain, OperatorData, OperatorId},
     },
     utils::{
@@ -421,10 +422,10 @@ impl VarId {
 }
 
 impl OpOutputIdx {
-    fn is_var(self, var_count: usize) -> bool {
+    pub fn is_var(self, var_count: usize) -> bool {
         self.into_usize() < var_count
     }
-    fn into_var_id(self, var_count: usize) -> Option<VarId> {
+    pub fn into_var_id(self, var_count: usize) -> Option<VarId> {
         if self.into_usize() >= var_count {
             return None;
         }
@@ -454,10 +455,6 @@ impl LivenessData {
             let op_output_count =
                 sess.operator_data[op_data_id].output_count(sess, op_id);
             let op_base = &mut sess.operator_bases[op_id];
-
-            if op_output_count == 0 {
-                op_base.transparent_mode = true;
-            }
 
             op_base.outputs_start =
                 OpOutputIdx::from_usize(total_outputs_count);
@@ -496,10 +493,7 @@ impl LivenessData {
         }
     }
     pub fn setup_op_vars(&mut self, sess: &SessionData, op_id: OperatorId) {
-        let op_base = &sess.operator_bases[op_id];
-        let op_data_id = op_base.op_data_id;
-        self.add_var_name_opt(op_base.label);
-        sess.operator_data[op_data_id]
+        sess.operator_data[sess.op_data_id(op_id)]
             .register_output_var_names(self, sess, op_id);
     }
     pub fn setup_vars(&mut self, sess: &SessionData) {
@@ -591,14 +585,29 @@ impl LivenessData {
                 bb.calls.push(cn.subchains[*subchain_idx].into_bb_id());
                 self.split_bb_at_call(sess, bb_id, op_n);
             }
-
+            OperatorData::Key(op) => {
+                let Some(nested_op) = &op.nested_op else {
+                    return false;
+                };
+                let &NestedOp::SetUp(sub_op_id) = nested_op else {
+                    unreachable!()
+                };
+                return self
+                    .update_bb_for_op(sess, sub_op_id, op_n, cn, bb_id);
+            }
+            OperatorData::Transparent(op) => {
+                let NestedOp::SetUp(sub_op_id) = op.nested_op else {
+                    unreachable!()
+                };
+                return self
+                    .update_bb_for_op(sess, sub_op_id, op_n, cn, bb_id);
+            }
             OperatorData::ToStr(_)
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Count(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
-            | OperatorData::Key(_)
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
@@ -898,16 +907,15 @@ impl LivenessData {
                 op_offset_after_last_write =
                     op_n + OffsetInChain::from_usize(1);
             }
-            if let Some(label) = sess.operator_bases[op_id].label {
-                let var_id = self.var_names[&label];
-                self.vars_to_op_outputs_map[var_id] =
-                    sess.operator_bases[op_id].outputs_start;
-            }
-            if !op_base.transparent_mode {
-                input_field = output_field;
-                self.vars_to_op_outputs_map[BB_INPUT_VAR_ID] =
-                    sess.operator_bases[op_id].outputs_start;
-            }
+            // TODO: do this for op key
+            // let var_id = self.var_names[&label];
+            // self.vars_to_op_outputs_map[var_id] =
+            // sess.operator_bases[op_id].outputs_start;
+
+            // TODO: disable this for transparent mode
+            input_field = output_field;
+            self.vars_to_op_outputs_map[BB_INPUT_VAR_ID] =
+                sess.operator_bases[op_id].outputs_start;
         }
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();

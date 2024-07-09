@@ -4,10 +4,10 @@ pub mod url;
 
 use http::create_op_GET;
 use scr_core::{
-    cli::call_expr::CallExpr,
+    cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::{errors::OperatorParsingError, operator::OperatorData},
-    options::session_options::SessionOptions,
+    operators::{errors::OperatorCreationError, operator::OperatorData},
+    options::session_setup::SessionSetupData,
 };
 
 #[derive(Default)]
@@ -16,14 +16,15 @@ pub struct HttpExtension {}
 impl Extension for HttpExtension {
     fn parse_call_expr(
         &self,
-        _ctx_opts: &mut SessionOptions,
-        expr: CallExpr,
-    ) -> Result<OperatorData, OperatorParsingError> {
+        _ctx_opts: &mut SessionSetupData,
+        arg: &mut Argument,
+    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+        let expr = CallExpr::from_argument(arg)?;
         if expr.op_name == "GET" || expr.op_name == "http-get" {
             expr.reject_args()?;
-            return Ok(create_op_GET());
+            return Ok(Some(create_op_GET()));
         }
-        Err(OperatorParsingError::UnknownOperator(expr))
+        Ok(None)
     }
 
     fn setup(

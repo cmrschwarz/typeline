@@ -10,9 +10,8 @@ use bstr::ByteSlice;
 use crate::{
     chain::{BufferingMode, ChainId},
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
-    context::SessionSetupData,
     job::JobData,
-    options::operator_base_options::OperatorBaseOptionsInterned,
+    options::session_setup::SessionSetupData,
     record_data::{
         field_data::INLINE_STR_MAX_LEN,
         iter_hall::IterId,
@@ -22,12 +21,11 @@ use crate::{
             StreamValueDataType, StreamValueId,
         },
     },
+    scr_error::ScrError,
 };
 
 use super::{
-    errors::{
-        io_error_to_op_error, OperatorCreationError, OperatorSetupError,
-    },
+    errors::{io_error_to_op_error, OperatorCreationError},
     multi_op::create_multi_op,
     operator::{
         OperatorBase, OperatorData, OperatorDataId, OperatorId, OperatorName,
@@ -596,11 +594,11 @@ pub fn create_op_file_reader_custom_not_cloneable(
 pub fn setup_op_file_reader(
     op: &mut OpFileReader,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    op_base_opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
+    span: Span,
+) -> Result<OperatorId, ScrError> {
     op.line_buffered = match sess.chains[chain_id].settings.buffering_mode {
         BufferingMode::BlockBuffer => LineBufferedSetting::No,
         BufferingMode::LineBuffer => LineBufferedSetting::Yes,
@@ -614,12 +612,7 @@ pub fn setup_op_file_reader(
             _ => LineBufferedSetting::No,
         },
     };
-    Ok(sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        op_base_opts_interned,
-        op_data_id,
-    ))
+    Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
 }
 
 #[derive(Clone)]

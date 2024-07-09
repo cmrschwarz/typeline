@@ -71,6 +71,24 @@ impl ScopeManager {
     ) {
         self.scopes[scope_id].insert_symbol(name, symbol);
     }
+    pub fn insert_field_name(
+        &mut self,
+        scope_id: ScopeId,
+        name: StringStoreEntry,
+        field_id: FieldId,
+    ) {
+        self.scopes[scope_id].insert_symbol(name, Symbol::Field(field_id));
+    }
+    pub fn insert_field_name_opt(
+        &mut self,
+        scope_id: ScopeId,
+        name: Option<StringStoreEntry>,
+        field_id: FieldId,
+    ) {
+        if let Some(name) = name {
+            self.insert_field_name(scope_id, name, field_id)
+        }
+    }
     pub fn add_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
         self.scopes.claim_with_value(Scope {
             parent,

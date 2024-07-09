@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use crate::{
     chain::ChainId,
-    cli::call_expr::CallExpr,
-    context::SessionSetupData,
+    cli::call_expr::{CallExpr, Span},
     job::{Job, JobData},
-    options::operator_base_options::OperatorBaseOptionsInterned,
+    options::session_setup::SessionSetupData,
     record_data::{
         field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
     },
+    scr_error::ScrError,
     utils::indexing_type::IndexingType,
 };
 
@@ -45,17 +45,12 @@ pub fn parse_op_call(
 pub fn setup_op_call(
     op: &mut OpCall,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     curr_chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    op_opts: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
-    let op_id = sess.add_op_from_offset_in_chain(
-        curr_chain_id,
-        offset_in_chain,
-        op_opts,
-        op_data_id,
-    );
+    span: Span,
+) -> Result<OperatorId, ScrError> {
+    let op_id = sess.add_op(op_data_id, curr_chain_id, offset_in_chain, span);
 
     if op.target_resolved.is_some() {
         // this happens in case of call targets caused by labels ending the
@@ -71,7 +66,8 @@ pub fn setup_op_call(
         return Err(OperatorSetupError::new_s(
             format!("unknown chain label '{}'", op.target_name),
             op_id,
-        ));
+        )
+        .into());
     }
 
     Ok(op_id)

@@ -12,17 +12,14 @@ use pyo3::{
 use scr_core::{
     chain::ChainId,
     cli::call_expr::Span,
-    context::{SessionData, SessionSetupData},
+    context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
         OperatorCallEffect,
     },
     operators::{
-        errors::{
-            OperatorApplicationError, OperatorCreationError,
-            OperatorSetupError,
-        },
+        errors::{OperatorApplicationError, OperatorCreationError},
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
@@ -32,7 +29,7 @@ use scr_core::{
             TransformState,
         },
     },
-    options::operator_base_options::OperatorBaseOptionsInterned,
+    options::session_setup::SessionSetupData,
     record_data::{
         array::Array,
         field::{CowFieldDataRef, FieldIterRef},
@@ -43,6 +40,7 @@ use scr_core::{
         push_interface::PushInterface,
         ref_iter::AutoDerefIter,
     },
+    scr_error::ScrError,
     smallbox,
     utils::{
         phantom_slot::PhantomSlot,
@@ -114,11 +112,11 @@ impl Operator for OpPy {
     fn setup(
         &mut self,
         sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
         chain_id: ChainId,
         operator_offset_in_chain: OperatorOffsetInChain,
-        op_base_opts_interned: OperatorBaseOptionsInterned,
-        op_data_id: OperatorDataId,
-    ) -> Result<OperatorId, OperatorSetupError> {
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
         for fvs in &self.free_vars_str {
             if fvs == "_" {
                 self.free_vars_sse.push(None);
@@ -127,12 +125,7 @@ impl Operator for OpPy {
                     .push(Some(sess.string_store.intern_cloned(fvs)));
             }
         }
-        Ok(sess.add_op_from_offset_in_chain(
-            chain_id,
-            operator_offset_in_chain,
-            op_base_opts_interned,
-            op_data_id,
-        ))
+        Ok(sess.add_op(op_data_id, chain_id, operator_offset_in_chain, span))
     }
 
     fn has_dynamic_outputs(
@@ -180,6 +173,8 @@ impl Operator for OpPy {
     ) -> TransformInstatiation<'a> {
         let mut input_fields = Vec::new();
         let jd = &mut job.job_data;
+        let scope_id =
+            jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
         for fv in &self.free_vars_sse {
             let field_id = if let Some(name) = fv {
                 if let Some(id) = jd.scope_mgr.lookup_field(
@@ -196,13 +191,12 @@ impl Operator for OpPy {
                     f.ref_count += 1;
                     id
                 } else {
-                    jd.field_mgr.add_field(
-                        &mut jd.match_set_mgr,
-                        &mut jd.scope_mgr,
+                    let field_id = jd.field_mgr.add_field(
                         tf_state.match_set_id,
-                        Some(*name),
                         jd.field_mgr.get_first_actor(tf_state.input_field),
-                    )
+                    );
+                    jd.scope_mgr.insert_field_name(scope_id, *name, field_id);
+                    field_id
                 }
             } else {
                 let mut f =

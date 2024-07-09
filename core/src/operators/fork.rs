@@ -7,25 +7,19 @@ use smallvec::SmallVec;
 
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::{
-        call_expr::CallExpr, call_expr_iter::CallExprIter, parse_operator_data,
-    },
-    context::{ContextData, SessionSetupData},
+    cli::call_expr::{Argument, CallExpr, Span},
+    context::ContextData,
     job::{Job, JobData},
     liveness_analysis::{
         LivenessData, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
     operators::operator::OffsetInChain,
-    options::{
-        operator_base_options::{
-            OperatorBaseOptions, OperatorBaseOptionsInterned,
-        },
-        session_options::SessionOptions,
-    },
+    options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::ActorRef, field::FieldId, group_track::GroupTrackId,
         iter_hall::IterId, match_set::MatchSetId,
     },
+    scr_error::ScrError,
     utils::{
         index_vec::IndexVec,
         indexing_type::{IndexingType, IndexingTypeRange},
@@ -44,7 +38,8 @@ use super::{
 };
 
 pub struct OpFork {
-    pub subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
+    pub prebound_ops: Vec<Vec<(OperatorData, Span)>>,
+    pub arguments: Vec<Vec<Argument>>,
 
     pub subchains_start: SubchainIndex,
     pub subchains_end: SubchainIndex,
@@ -74,29 +69,31 @@ pub struct TfFork<'a> {
 pub fn setup_op_fork(
     op: &mut OpFork,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    op_base_opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
-    let op_id = sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        op_base_opts_interned,
-        op_data_id,
-    );
+    span: Span,
+) -> Result<OperatorId, ScrError> {
+    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
     if !matches!(offset_in_chain, OperatorOffsetInChain::Direct(_)) {
         return Err(OperatorSetupError::new(
             "operator `fork` cannot be part of an aggregation",
             op_id,
-        ));
+        )
+        .into());
     };
 
     op.subchains_start = sess.chains[chain_id].subchains.next_idx();
 
-    for sc in std::mem::take(&mut op.subchains) {
-        sess.create_subchain(chain_id, sc)?;
+    debug_assert!(op.prebound_ops.is_empty() || op.arguments.is_empty());
+
+    for sc in std::mem::take(&mut op.prebound_ops) {
+        sess.setup_subchain(chain_id, sc)?;
+    }
+
+    for args in std::mem::take(&mut op.arguments) {
+        sess.setup_subchain_from_args(chain_id, args)?;
     }
 
     op.subchains_end = sess.chains[chain_id].subchains.next_idx();
@@ -319,14 +316,15 @@ fn setup_fork_subchain(
     }
 }
 
-pub fn create_op_fork_with_opts(
-    subchains: Vec<Vec<(OperatorBaseOptions, OperatorData)>>,
+pub fn create_op_fork_with_spans(
+    subchains: Vec<Vec<(OperatorData, Span)>>,
 ) -> Result<OperatorData, OperatorCreationError> {
     Ok(OperatorData::Fork(OpFork {
         subchains_start: SubchainIndex::MAX_VALUE,
         subchains_end: SubchainIndex::MAX_VALUE,
         accessed_fields_per_subchain: IndexVec::new(),
-        subchains,
+        prebound_ops: subchains,
+        arguments: Vec::new(),
     }))
 }
 
@@ -335,40 +333,34 @@ pub fn create_op_fork(
 ) -> Result<OperatorData, OperatorCreationError> {
     let subchains = subchains
         .into_iter()
-        .map(|sc| {
-            sc.into_iter()
-                .map(|op_data| {
-                    (
-                        OperatorBaseOptions::from_name(
-                            op_data.default_op_name(),
-                        ),
-                        op_data,
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
+        .map(|it| it.into_iter().map(|v| (v, Span::Generated)).collect())
         .collect();
-    create_op_fork_with_opts(subchains)
+    create_op_fork_with_spans(subchains)
 }
 
-pub fn parse_op_fork(
-    sess_opts: &mut SessionOptions,
-    expr: CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn parse_op_fork(mut arg: Argument) -> Result<OperatorData, ScrError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
-    for expr in CallExprIter::from_args_iter(expr.args) {
-        let expr = expr?;
+
+    let sub_args = arg.expect_arg_array_mut()?;
+
+    for arg in sub_args.drain(1..) {
+        let expr = CallExpr::from_argument(&arg)?;
         if expr.op_name == "next" {
             expr.reject_args()?;
             subchains.push(curr_subchain);
             curr_subchain = Vec::new();
             continue;
         };
-        let op_base = expr.op_base_options();
-        let op_data = parse_operator_data(sess_opts, expr)?;
-        curr_subchain.push((op_base, op_data));
+        curr_subchain.push(arg);
     }
+
     subchains.push(curr_subchain);
-    create_op_fork_with_opts(subchains)
+    Ok(OperatorData::Fork(OpFork {
+        subchains_start: SubchainIndex::MAX_VALUE,
+        subchains_end: SubchainIndex::MAX_VALUE,
+        accessed_fields_per_subchain: IndexVec::new(),
+        prebound_ops: Vec::new(),
+        arguments: subchains,
+    }))
 }

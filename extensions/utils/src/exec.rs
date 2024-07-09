@@ -11,17 +11,14 @@ use metamatch::metamatch;
 use scr_core::{
     chain::ChainId,
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
-    context::{SessionData, SessionSetupData},
+    context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
         OperatorCallEffect,
     },
     operators::{
-        errors::{
-            OperatorApplicationError, OperatorCreationError,
-            OperatorSetupError,
-        },
+        errors::{OperatorApplicationError, OperatorCreationError},
         format::{
             parse_format_string, FormatKey, FormatPart, FormatWidthSpec,
         },
@@ -34,7 +31,7 @@ use scr_core::{
             TransformState,
         },
     },
-    options::operator_base_options::OperatorBaseOptionsInterned,
+    options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, FieldIterRef},
@@ -57,6 +54,7 @@ use scr_core::{
             StreamValueId,
         },
     },
+    scr_error::ScrError,
     smallbox,
     utils::{
         int_string_conversions::{f64_to_str, i64_to_str},
@@ -117,11 +115,11 @@ impl Operator for OpExec {
     fn setup(
         &mut self,
         sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
-        op_base_opts_interned: OperatorBaseOptionsInterned,
-        op_data_id: OperatorDataId,
-    ) -> Result<OperatorId, OperatorSetupError> {
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
         for r in std::mem::take(&mut self.refs_str) {
             self.refs_idx
                 .push(r.map(|r| sess.string_store.intern_moved(r)));
@@ -129,12 +127,7 @@ impl Operator for OpExec {
         self.stderr_field_name = sess.string_store.intern_cloned("stderr");
         self.exit_code_field_name =
             sess.string_store.intern_cloned("exit_code");
-        Ok(sess.add_op_from_offset_in_chain(
-            chain_id,
-            offset_in_chain,
-            op_base_opts_interned,
-            op_data_id,
-        ))
+        Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
     }
 
     fn has_dynamic_outputs(
@@ -211,9 +204,9 @@ impl Operator for OpExec {
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         let jd = &mut job.job_data;
-        let ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer
-            .borrow();
+        let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
+        let scope_id = ms.active_scope;
+        let ab = ms.action_buffer.borrow();
 
         let actor_ref = ActorRef::Unconfirmed(ab.peek_next_actor_id());
         jd.field_mgr.fields[tf_state.output_field]
@@ -240,19 +233,19 @@ impl Operator for OpExec {
         }
 
         drop(ab);
-        let stderr_field = jd.field_mgr.add_field(
-            &mut jd.match_set_mgr,
-            &mut jd.scope_mgr,
-            tf_state.match_set_id,
-            Some(self.stderr_field_name),
-            actor_ref,
+        let stderr_field =
+            jd.field_mgr.add_field(tf_state.match_set_id, actor_ref);
+        jd.scope_mgr.insert_field_name(
+            scope_id,
+            self.stderr_field_name,
+            stderr_field,
         );
-        let exit_code_field = jd.field_mgr.add_field(
-            &mut jd.match_set_mgr,
-            &mut jd.scope_mgr,
-            tf_state.match_set_id,
-            Some(self.exit_code_field_name),
-            actor_ref,
+        let exit_code_field =
+            jd.field_mgr.add_field(tf_state.match_set_id, actor_ref);
+        jd.scope_mgr.insert_field_name(
+            scope_id,
+            self.exit_code_field_name,
+            exit_code_field,
         );
 
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(

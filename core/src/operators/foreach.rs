@@ -2,26 +2,19 @@ use std::iter;
 
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::{
-        call_expr::CallExpr, call_expr_iter::CallExprIter, parse_operator_data,
-    },
-    context::SessionSetupData,
+    cli::call_expr::{Argument, Span},
     job::{add_transform_to_job, Job, JobData},
-    options::{
-        operator_base_options::{
-            OperatorBaseOptions, OperatorBaseOptionsInterned,
-        },
-        session_options::SessionOptions,
-    },
+    options::session_setup::SessionSetupData,
     record_data::{
         group_track::{GroupTrackIterId, GroupTrackIterRef},
         iter_hall::IterKind,
     },
+    scr_error::ScrError,
     utils::indexing_type::IndexingType,
 };
 
 use super::{
-    errors::{OperatorCreationError, OperatorSetupError},
+    errors::OperatorCreationError,
     nop::create_op_nop,
     operator::{
         OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
@@ -31,7 +24,8 @@ use super::{
 };
 
 pub struct OpForeach {
-    pub subchain: Vec<(OperatorBaseOptions, OperatorData)>,
+    pub subchain_generated: Vec<OperatorData>,
+    pub subchain_args: Vec<Argument>,
     pub subchain_idx: SubchainIndex,
 }
 pub struct TfForeachHeader {
@@ -42,19 +36,28 @@ pub struct TfForeachTrailer {}
 pub fn setup_op_foreach(
     op: &mut OpForeach,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
-    let op_id = sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        opts_interned,
-        op_data_id,
-    );
+    span: Span,
+) -> Result<OperatorId, ScrError> {
+    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
     op.subchain_idx = sess.chains[chain_id].subchains.next_idx();
-    sess.create_subchain(chain_id, std::mem::take(&mut op.subchain))?;
+    assert!(op.subchain_generated.is_empty() || op.subchain_args.is_empty());
+
+    if !op.subchain_generated.is_empty() {
+        assert!(op.subchain_args.is_empty());
+        sess.setup_subchain_generated(
+            chain_id,
+            std::mem::take(&mut op.subchain_generated),
+        )?;
+        return Ok(op_id);
+    }
+
+    sess.setup_subchain_from_args(
+        chain_id,
+        std::mem::take(&mut op.subchain_args),
+    )?;
     Ok(op_id)
 }
 
@@ -263,41 +266,28 @@ pub fn handle_tf_foreach_trailer(
 }
 
 pub fn parse_op_foreach(
-    sess_opts: &mut SessionOptions,
-    expr: CallExpr,
+    mut arg: Argument,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let mut subchain = Vec::new();
-    for expr in CallExprIter::from_args_iter(expr.args) {
-        let expr = expr?;
-        let op_base = expr.op_base_options();
-        let op_data = parse_operator_data(sess_opts, expr)?;
-        subchain.push((op_base, op_data));
-    }
-    Ok(create_op_foreach_with_opts(subchain))
-}
-pub fn create_op_foreach_with_opts(
-    mut subchain: Vec<(OperatorBaseOptions, OperatorData)>,
-) -> OperatorData {
-    if subchain.is_empty() {
-        subchain
-            .push((OperatorBaseOptions::from_name("nop"), create_op_nop()));
-    }
-    OperatorData::Foreach(OpForeach {
-        subchain,
+    let mut sub_args = std::mem::take(arg.expect_arg_array_mut()?);
+    sub_args.drain(0..1);
+
+    Ok(OperatorData::Foreach(OpForeach {
+        subchain_generated: Vec::new(),
+        subchain_args: sub_args,
         subchain_idx: SubchainIndex::MAX_VALUE,
-    })
+    }))
 }
+
 pub fn create_op_foreach(
     subchain: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    let subchain_with_opts = subchain
-        .into_iter()
-        .map(|op_data| {
-            (
-                OperatorBaseOptions::from_name(op_data.default_op_name()),
-                op_data,
-            )
-        })
-        .collect();
-    create_op_foreach_with_opts(subchain_with_opts)
+    let mut subchain = subchain.into_iter().collect::<Vec<_>>();
+    if subchain.is_empty() {
+        subchain.push(create_op_nop());
+    }
+    OperatorData::Foreach(OpForeach {
+        subchain_generated: subchain,
+        subchain_args: Vec::new(),
+        subchain_idx: SubchainIndex::MAX_VALUE,
+    })
 }

@@ -8,10 +8,9 @@ use std::{borrow::Cow, cell::RefMut};
 use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
-    context::SessionSetupData,
     job::JobData,
     liveness_analysis::OpOutputIdx,
-    options::operator_base_options::OperatorBaseOptionsInterned,
+    options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::{ActionBuffer, ActorId, ActorRef},
         field::{Field, FieldId, FieldRefOffset},
@@ -34,6 +33,7 @@ use crate::{
         stream_value::{StorageAgnosticStreamValueDataRef, StreamValueId},
         varying_type_inserter::VaryingTypeInserter,
     },
+    scr_error::ScrError,
     utils::{
         indexing_type::IndexingType,
         int_string_conversions::{
@@ -45,9 +45,7 @@ use crate::{
 };
 
 use super::{
-    errors::{
-        OperatorApplicationError, OperatorCreationError, OperatorSetupError,
-    },
+    errors::{OperatorApplicationError, OperatorCreationError},
     operator::{
         OperatorBase, OperatorData, OperatorDataId, OperatorId, OperatorName,
         OperatorOffsetInChain, PreboundOutputsMap,
@@ -453,11 +451,11 @@ pub fn create_op_regex_trim_trailing_newline() -> OperatorData {
 pub fn setup_op_regex(
     op: &mut OpRegex,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    op_base_opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
+    span: Span,
+) -> Result<OperatorId, ScrError> {
     let mut unnamed_capture_groups: usize = 0;
 
     op.capture_group_names
@@ -481,12 +479,7 @@ pub fn setup_op_regex(
             }
         }));
 
-    Ok(sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        op_base_opts_interned,
-        op_data_id,
-    ))
+    Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
 }
 
 pub fn build_tf_regex<'a>(
@@ -496,9 +489,9 @@ pub fn build_tf_regex<'a>(
     tf_state: &mut TransformState,
     prebound_outputs: &PreboundOutputsMap,
 ) -> TransformData<'a> {
-    let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
-        .action_buffer
-        .borrow_mut();
+    let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
+    let active_scope = ms.active_scope;
+    let mut ab = ms.action_buffer.borrow_mut();
     let actor_id = ab.add_actor();
     let next_actor_id = ActorRef::Unconfirmed(ab.peek_next_actor_id());
     drop(ab);
@@ -525,13 +518,15 @@ pub fn build_tf_regex<'a>(
                     );
                     *field_id
                 } else {
-                    jd.field_mgr.add_field(
-                        &mut jd.match_set_mgr,
-                        &mut jd.scope_mgr,
-                        tf_state.match_set_id,
-                        Some(*name),
-                        next_actor_id,
-                    )
+                    let field_id = jd
+                        .field_mgr
+                        .add_field(tf_state.match_set_id, next_actor_id);
+                    jd.scope_mgr.insert_field_name(
+                        active_scope,
+                        *name,
+                        field_id,
+                    );
+                    field_id
                 };
                 Some(field_id)
             } else {

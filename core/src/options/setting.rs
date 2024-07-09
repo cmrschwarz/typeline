@@ -67,12 +67,18 @@ impl<T: Clone> Setting<T> {
         self.span = span;
         Ok(())
     }
+    pub fn reset_value(&mut self) {
+        self.value = None;
+    }
     pub fn force_set(&mut self, value: T, span: Span) {
         self.value = Some(value);
         self.span = span;
     }
     pub fn get(&self) -> Option<T> {
         self.value.clone()
+    }
+    pub fn get_ref(&self) -> Option<&T> {
+        self.value.as_ref()
     }
     pub fn unwrap(&self) -> T {
         self.value.as_ref().unwrap().clone()

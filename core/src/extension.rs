@@ -1,9 +1,9 @@
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use crate::{
-    cli::call_expr::CallExpr,
-    operators::{errors::OperatorParsingError, operator::OperatorData},
-    options::session_options::SessionOptions,
+    cli::call_expr::Argument,
+    operators::{errors::OperatorCreationError, operator::OperatorData},
+    options::session_setup::SessionSetupData,
     record_data::field_value::FieldValue,
     tyson::TysonParseError,
 };
@@ -24,10 +24,11 @@ impl ExtensionRegistry {
         impl Extension for DummyExt {
             fn parse_call_expr(
                 &self,
-                _sess_opts: &mut SessionOptions,
-                expr: CallExpr,
-            ) -> Result<OperatorData, OperatorParsingError> {
-                Err(OperatorParsingError::UnknownOperator(expr))
+                _sess_opts: &mut SessionSetupData,
+                _arg: &mut Argument,
+            ) -> Result<Option<OperatorData>, OperatorCreationError>
+            {
+                Ok(None)
             }
 
             fn name(&self) -> Cow<'static, str> {
@@ -49,9 +50,9 @@ pub trait Extension: Send + Sync {
     fn setup(&mut self, _registry: &mut ExtensionRegistry) {}
     fn parse_call_expr(
         &self,
-        sess_opts: &mut SessionOptions,
-        expr: CallExpr,
-    ) -> Result<OperatorData, OperatorParsingError>;
+        sess_opts: &mut SessionSetupData,
+        arg: &mut Argument,
+    ) -> Result<Option<OperatorData>, OperatorCreationError>;
 }
 
 pub fn build_empty_extension_registry() -> Arc<ExtensionRegistry> {

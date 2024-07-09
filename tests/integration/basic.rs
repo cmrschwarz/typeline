@@ -4,11 +4,11 @@ use rstest::rstest;
 use scr::{
     chain::ChainId,
     operators::{
+        aggregator::{create_op_aggregate, create_op_aggregate_appending},
         foreach::create_op_foreach,
         print::{create_op_print_with_opts, PrintOptions},
         sequence::create_op_enum_unbounded,
     },
-    options::operator_base_options::OperatorBaseOptions,
     utils::{indexing_type::IndexingType, test_utils::DummyWritableTarget},
 };
 use scr_core::{
@@ -148,9 +148,9 @@ fn triple_sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "a".into())
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "b".into())
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "c".into())
+        .add_op_with_key("a", create_op_seq(0, 2, 1).unwrap())
+        .add_op_with_key("b", create_op_seq(0, 2, 1).unwrap())
+        .add_op_with_key("c", create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_format("{a}{b}{c}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -243,8 +243,10 @@ fn double_key() -> Result<(), ScrError> {
 fn chained_seq() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .add_op(create_op_seq(0, 6, 1).unwrap())
-        .add_op_appending(create_op_seq(6, 11, 1).unwrap())
+        .add_op(create_op_aggregate([
+            create_op_seq(0, 6, 1).unwrap(),
+            create_op_seq(6, 11, 1).unwrap(),
+        ]))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -259,8 +261,10 @@ fn chained_seq_with_input_data() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .push_int(0, 1)
-        .add_op_appending(create_op_seq(1, 6, 1).unwrap())
-        .add_op_appending(create_op_seq(6, 11, 1).unwrap())
+        .add_op(create_op_aggregate_appending([
+            create_op_seq(1, 6, 1).unwrap(),
+            create_op_seq(6, 11, 1).unwrap(),
+        ]))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(
@@ -297,8 +301,10 @@ fn unbounded_enum_backoff() -> Result<(), ScrError> {
     ContextBuilder::without_exts()
         .set_batch_size(2)
         .add_op(create_op_seq(0, 3, 1).unwrap())
-        .add_op(create_op_enum_unbounded(0, 1, 1).unwrap())
-        .add_op_appending(create_op_enum_unbounded(1, 3, 1).unwrap())
+        .add_op(create_op_aggregate([
+            create_op_enum_unbounded(0, 1, 1).unwrap(),
+            create_op_enum_unbounded(1, 3, 1).unwrap(),
+        ]))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["0", "1", "2"]);
@@ -309,7 +315,7 @@ fn unbounded_enum_backoff() -> Result<(), ScrError> {
 fn unset_field_value_in_forkeach() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "foo".into())
+        .add_op_with_key("foo", create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_foreach([
             create_op_enum_unbounded(0, 2, 1).unwrap(),
             create_op_format("{foo:?}: {}").unwrap(),
@@ -396,11 +402,8 @@ fn select() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(5)
-        .add_op_with_opts(
-            OperatorBaseOptions {
-                label: Some("a".into()),
-                ..Default::default()
-            },
+        .add_op_with_key(
+            "a",
             create_op_literal_n(Literal::Text("foo".to_owned()), 3),
         )
         .add_op(create_op_enum(0, 3, 1).unwrap())
@@ -488,10 +491,12 @@ fn chained_streams() -> Result<(), ScrError> {
             Box::new(SliceReader::new("foo".as_bytes())),
             0,
         ))
-        .add_op_appending(create_op_file_reader_custom(
-            Box::new(SliceReader::new("bar".as_bytes())),
-            0,
-        ))
+        .add_op(create_op_aggregate_appending([
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new("bar".as_bytes())),
+                0,
+            ),
+        ]))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().data.as_slice(), ["foo", "bar"]);
@@ -503,7 +508,7 @@ fn tf_literal_yields_to_cont() -> Result<(), ScrError> {
     ContextBuilder::without_exts()
         .add_op(create_op_int_n(1, 3))
         .add_op(create_op_str("foo"))
-        .add_op_appending(create_op_str("bar"))
+        .add_op(create_op_aggregate_appending([create_op_str("bar")]))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get().data.as_slice(), ["foo", "bar", "bar"]);
@@ -522,14 +527,16 @@ fn tf_file_yields_to_cont(
     ContextBuilder::without_exts()
         .set_stream_buffer_size(stream_buffer_size)
         .add_op(create_op_int_n(1, 3))
-        .add_op(create_op_file_reader_custom(
-            Box::new(SliceReader::new(b"foo")),
-            0,
-        ))
-        .add_op_appending(create_op_file_reader_custom(
-            Box::new(SliceReader::new(b"bar")),
-            0,
-        ))
+        .add_op(create_op_aggregate([
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new(b"foo")),
+                0,
+            ),
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new(b"bar")),
+                0,
+            ),
+        ]))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar", "bar"]);
@@ -562,7 +569,7 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
         .set_stream_buffer_size(2)
         .set_stream_size_threshold(3)
         .add_op(create_op_error("A"))
-        .add_op_appending(create_op_file_reader_custom(
+        .add_op(create_op_file_reader_custom(
             Box::new(ErroringStream::new(5, SliceReader::new(b"BBBBB"))),
             0,
         ))

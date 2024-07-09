@@ -3,22 +3,18 @@ use std::sync::Arc;
 use crate::{
     chain::ChainId,
     cli::{
-        call_expr::CallExpr, call_expr_iter::CallExprIter, parse_operator_data,
+        call_expr::{Argument, Span},
+        parse_operator_data,
     },
-    context::SessionSetupData,
     job::Job,
-    options::{
-        operator_base_options::{
-            OperatorBaseOptions, OperatorBaseOptionsInterned,
-        },
-        session_options::SessionOptions,
-    },
+    options::session_setup::SessionSetupData,
     record_data::scope_manager::Symbol,
+    scr_error::ScrError,
     utils::string_store::StringStoreEntry,
 };
 
 use super::{
-    errors::{OperatorCreationError, OperatorSetupError},
+    errors::OperatorCreationError,
     nop::create_op_nop,
     operator::{
         OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
@@ -28,29 +24,24 @@ use super::{
 
 pub struct Macro {
     pub name: StringStoreEntry,
-    pub operations: Vec<(OperatorBaseOptions, OperatorData)>,
+    pub operations: Vec<(OperatorData, Span)>,
 }
 
 pub struct OpMacroDef {
     pub name: String,
-    pub operations: Vec<(OperatorBaseOptions, OperatorData)>,
+    pub operations: Vec<(OperatorData, Span)>,
     pub macro_def: Option<Arc<Macro>>,
 }
 
 pub fn setup_op_macro_def(
     op: &mut OpMacroDef,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
-    let op_id = sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        opts_interned,
-        op_data_id,
-    );
+    span: Span,
+) -> Result<OperatorId, ScrError> {
+    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
     let macro_name =
         sess.string_store.intern_moved(std::mem::take(&mut op.name));
@@ -84,11 +75,10 @@ pub fn insert_tf_macro_def(
 
 pub fn create_op_macro_def_with_opts(
     name: String,
-    mut operations: Vec<(OperatorBaseOptions, OperatorData)>,
+    mut operations: Vec<(OperatorData, Span)>,
 ) -> OperatorData {
     if operations.is_empty() {
-        operations
-            .push((OperatorBaseOptions::from_name("nop"), create_op_nop()));
+        operations.push((create_op_nop(), Span::Generated));
     }
     OperatorData::MacroDef(OpMacroDef {
         name,
@@ -102,39 +92,33 @@ pub fn create_op_macro_def(
 ) -> OperatorData {
     let subchain_with_opts = operators
         .into_iter()
-        .map(|op_data| {
-            (
-                OperatorBaseOptions::from_name(op_data.default_op_name()),
-                op_data,
-            )
-        })
+        .map(|op_data| (op_data, Span::Generated))
         .collect();
     create_op_macro_def_with_opts(name, subchain_with_opts)
 }
 
 pub fn parse_op_macro_def(
-    sess_opts: &mut SessionOptions,
-    mut expr: CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+    sess_opts: &mut SessionSetupData,
+    mut arg: Argument,
+) -> Result<OperatorData, ScrError> {
     let mut operations = Vec::new();
 
-    let expr_span = expr.span;
-
-    let mut args_iter = expr.args.drain(0..);
+    let mut args_iter = arg.expect_arg_array_mut()?.drain(1..);
     let first_arg = args_iter.next();
     let Some(first_arg) = first_arg else {
+        drop(args_iter);
         return Err(OperatorCreationError::new(
             "missing name argument for macro definition",
-            expr_span,
-        ));
+            arg.span,
+        )
+        .into());
     };
-    let name = first_arg.expect_string(&expr.op_name)?;
+    let name = first_arg.expect_string("macro")?;
 
-    for expr in CallExprIter::from_args_iter(args_iter) {
-        let expr = expr?;
-        let op_base = expr.op_base_options();
-        let op_data = parse_operator_data(sess_opts, expr)?;
-        operations.push((op_base, op_data));
+    for arg in args_iter {
+        let span = arg.span;
+        let op_data = parse_operator_data(sess_opts, arg)?;
+        operations.push((op_data, span));
     }
 
     Ok(create_op_macro_def_with_opts(name.into(), operations))

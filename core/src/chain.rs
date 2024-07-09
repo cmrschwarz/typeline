@@ -12,11 +12,12 @@ index_newtype! {
     pub struct SubchainIndex(pub(crate) u32);
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub enum BufferingMode {
     BlockBuffer,
     LineBuffer,
     LineBufferStdin,
+    #[default]
     LineBufferIfTTY,
     LineBufferStdinIfTTY,
 }
@@ -30,7 +31,7 @@ pub enum TextEncoding {
     ASCII,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)] // TODO: kill these
 pub struct ChainSettings {
     pub default_text_encoding: TextEncoding,
     pub prefer_parent_text_encoding: bool,
@@ -50,4 +51,6 @@ pub struct Chain {
     pub operators: IndexVec<OffsetInChain, OperatorId>,
     pub subchains: IndexVec<SubchainIndex, ChainId>,
     pub scope_id: ScopeId,
+    pub parent: Option<ChainId>,
+    pub subchain_idx: Option<SubchainIndex>,
 }

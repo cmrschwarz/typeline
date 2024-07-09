@@ -124,7 +124,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             .first()
             .copied())
     }
-    fn void_byte_char(&mut self) {
+    pub fn void_byte_char(&mut self) {
         self.stream.consume(1);
         self.col += 1;
     }
@@ -422,7 +422,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             kind,
         }
     }
-    fn parse_number(
+    pub fn parse_number(
         &mut self,
         first: u8,
     ) -> Result<FieldValue, TysonParseError> {
@@ -656,15 +656,17 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     ) -> Result<FieldValue, TysonParseError> {
         todo!();
     }
+    pub fn is_number_start(first: u8) -> bool {
+        match first {
+            // int | float | Inf | NaN
+            b'0'..=b'9' | b'+' | b'-' | b'.' | b'i' | b'I' | b'N' => true,
+            _ => false,
+        }
+    }
     pub fn parse_value(&mut self) -> Result<FieldValue, TysonParseError> {
         let c = self.consume_char_eat_whitespace()?;
         match c {
             '{' => self.parse_object_after_brace(),
-            '0'..='9' | '+' | '-' | '.' => self.parse_number(c as u8),
-            'i' | 'I' | 'N' => {
-                // inf / NaN
-                self.parse_number(c as u8)
-            }
             '"' => self.parse_string_after_quote(b'"', false),
             '\'' => self.parse_string_after_quote(b'\'', false),
             'b' => self.parse_binary_string_after_b(),
@@ -701,6 +703,9 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     self.col += 1;
                 }
                 Ok(FieldValue::Undefined)
+            }
+            c if c.is_ascii() && Self::is_number_start(c as u8) => {
+                self.parse_number(c as u8)
             }
             other => {
                 self.col -= 1;

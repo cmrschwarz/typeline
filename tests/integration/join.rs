@@ -131,14 +131,16 @@ fn join_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_stream_buffer_size(2)
-        .add_op(create_op_file_reader_custom(
-            Box::new(SliceReader::new("abc".as_bytes())),
-            0,
-        ))
-        .add_op_appending(create_op_file_reader_custom(
-            Box::new(SliceReader::new("def".as_bytes())),
-            0,
-        ))
+        .add_op_aggregate([
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new("abc".as_bytes())),
+                0,
+            ),
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new("def".as_bytes())),
+                0,
+            ),
+        ])
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b", ")),
             None,
@@ -154,8 +156,7 @@ fn join_streams() -> Result<(), ScrError> {
 fn join_after_append() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .add_op(create_op_str("foo"))
-        .add_op_appending(create_op_str("bar"))
+        .add_op_aggregate([create_op_str("foo"), create_op_str("bar")])
         .add_op(create_op_join_str(", ", 0))
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -194,15 +195,17 @@ fn join_dropped_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_stream_buffer_size(2)
-        .add_op(create_op_file_reader_custom(
-            Box::new(SliceReader::new("foo".as_bytes())),
-            0,
-        ))
-        .add_op_appending(create_op_literal(Literal::Int(1)))
-        .add_op_appending(create_op_file_reader_custom(
-            Box::new(SliceReader::new("bar".as_bytes())),
-            0,
-        ))
+        .add_op_aggregate([
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new("foo".as_bytes())),
+                0,
+            ),
+            create_op_literal(Literal::Int(1)),
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new("bar".as_bytes())),
+                0,
+            ),
+        ])
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b", ")),
             Some(2),
@@ -219,18 +222,20 @@ fn stream_error_in_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_stream_buffer_size(2)
-        .add_op(create_op_file_reader_custom(
-            Box::new(SliceReader::new("foo".as_bytes())),
-            0,
-        ))
-        .add_op_appending(create_op_file_reader_custom(
-            Box::new(ErroringStream::new(
-                2,
-                SliceReader::new("bar".as_bytes()),
-            )),
-            0,
-        ))
-        .add_op_appending(create_op_literal(Literal::Int(1)))
+        .add_op_aggregate([
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new("foo".as_bytes())),
+                0,
+            ),
+            create_op_file_reader_custom(
+                Box::new(ErroringStream::new(
+                    2,
+                    SliceReader::new("bar".as_bytes()),
+                )),
+                0,
+            ),
+            create_op_literal(Literal::Int(1)),
+        ])
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b", ")),
             Some(3),
@@ -312,8 +317,7 @@ fn join_turns_into_stream(#[case] batch_size: usize) -> Result<(), ScrError> {
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .set_stream_size_threshold(2)
-        .add_op(create_op_str("foo"))
-        .add_op_appending(create_op_str("bar"))
+        .add_op_aggregate([create_op_str("foo"), create_op_str("bar")])
         .add_op(create_op_join_str(",", 2))
         .add_op(create_op_format("{:#??}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -332,8 +336,7 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .set_stream_size_threshold(2)
-        .add_op(create_op_str("foo"))
-        .add_op_appending(create_op_error("bar"))
+        .add_op_aggregate([create_op_str("foo"), create_op_error("bar")])
         .add_op(create_op_join_str(",", 2))
         .add_op(create_op_format("{:#??}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -348,9 +351,11 @@ fn join_as_stream_producer() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_stream_size_threshold(1)
-        .add_op(create_op_str("AAA"))
-        .add_op_appending(create_op_int(42))
-        .add_op_appending(create_op_str("BBB"))
+        .add_op_aggregate([
+            create_op_str("AAA"),
+            create_op_int(42),
+            create_op_str("BBB"),
+        ])
         .add_op(create_op_join_str(", ", 0))
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -364,15 +369,17 @@ fn join_with_value_between_streams() -> Result<(), ScrError> {
     ContextBuilder::without_exts()
         .set_stream_size_threshold(2)
         .set_stream_buffer_size(2)
-        .add_op(create_op_file_reader_custom(
-            Box::new(SliceReader::new(b"AAA")),
-            0,
-        ))
-        .add_op_appending(create_op_int(42))
-        .add_op_appending(create_op_file_reader_custom(
-            Box::new(SliceReader::new(b"BBB")),
-            0,
-        ))
+        .add_op_aggregate([
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new(b"AAA")),
+                0,
+            ),
+            create_op_int(42),
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new(b"BBB")),
+                0,
+            ),
+        ])
         .add_op(create_op_join_str(", ", 0))
         .add_op(create_op_string_sink(&ss))
         .run()?;

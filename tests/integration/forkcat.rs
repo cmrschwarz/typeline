@@ -1,9 +1,7 @@
 use rstest::rstest;
 use scr::{
-    cli::CliOptions,
-    operators::{
-        forkcat::create_op_forkcat_with_opts, nop_copy::create_op_nop_copy,
-    },
+    operators::nop_copy::create_op_nop_copy,
+    options::session_setup::ScrSetupOptions,
     utils::{maybe_text::MaybeText, test_utils::int_sequence_strings},
     CliOptionsWithDefaultExtensions,
 };
@@ -28,7 +26,7 @@ fn empty_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat_with_opts(vec![]))
+        .add_op(create_op_forkcat([[]]))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), [""; 0]);
@@ -40,7 +38,7 @@ fn nop_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat_with_opts(vec![vec![]]))
+        .add_op(create_op_forkcat([[]]))
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
@@ -172,7 +170,7 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
 fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .add_op_with_label(create_op_str("a"), "a".into())
+        .add_op_with_key("a", create_op_str("a"))
         .add_op(create_op_forkcat([
             [create_op_format("{a}").unwrap()],
             [create_op_nop()],
@@ -187,7 +185,7 @@ fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
 fn forkcat_surviving_vars() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .add_op_with_label(create_op_seq(0, 2, 1).unwrap(), "lbl".into())
+        .add_op_with_key("lbl", create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_forkcat([
             [create_op_str("a")],
             [create_op_str("b")],
@@ -275,7 +273,7 @@ fn forkcat_on_unapplied_commands(
 #[test]
 fn parse_forkcat() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_extensions(),
+        ScrSetupOptions::with_default_extensions(),
         ["scr", "seqn=10", "forkcat:", "r=.*", "next", "drop", "end"],
     )?
     .run_collect_stringified()?;
@@ -286,7 +284,7 @@ fn parse_forkcat() -> Result<(), ScrError> {
 #[test]
 fn parse_forkcat_2() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        &CliOptions::with_default_extensions(),
+        ScrSetupOptions::with_default_extensions(),
         [
             "seq=3", "fe:", "forkcat:", "seq=2", "next", "nop", "end", "end",
         ],

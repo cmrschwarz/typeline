@@ -22,7 +22,7 @@ use super::{
     match_set::{MatchSetId, MatchSetManager},
     record_buffer::RecordBufferField,
     ref_iter::AutoDerefIter,
-    scope_manager::{ScopeManager, Symbol},
+    scope_manager::ScopeManager,
     varying_type_inserter::VaryingTypeInserter,
 };
 
@@ -302,34 +302,23 @@ impl FieldManager {
         let field = self.fields[field_id].borrow();
         field.first_actor.get()
     }
+    // TODO: take the field name out here completely.
+    // only use scopes to give fields names
     pub fn add_field(
         &mut self,
-        msm: &mut MatchSetManager,
-        sm: &mut ScopeManager,
         ms_id: MatchSetId,
-        name: Option<StringStoreEntry>,
         first_actor: ActorRef,
     ) -> FieldId {
-        self.add_field_with_data(
-            msm,
-            sm,
-            ms_id,
-            name,
-            first_actor,
-            FieldData::default(),
-        )
+        self.add_field_with_data(ms_id, first_actor, FieldData::default())
     }
     pub fn add_field_with_data(
         &mut self,
-        msm: &mut MatchSetManager,
-        sm: &mut ScopeManager,
         ms_id: MatchSetId,
-        name: Option<StringStoreEntry>,
         first_actor: ActorRef,
         data: FieldData,
     ) -> FieldId {
         let mut field = Field {
-            name,
+            name: None, // TODO: remove in favor of scopes
             ref_count: 1,
             shadowed_since: ActionBuffer::MAX_ACTOR_ID,
             shadowed_by: None,
@@ -348,15 +337,7 @@ impl FieldManager {
             false,
             IterKind::RefLookup,
         );
-        let field_id = self.fields.claim_with_value(RefCell::new(field));
-        if let Some(name) = name {
-            sm.insert_symbol(
-                msm.match_sets[ms_id].active_scope,
-                name,
-                Symbol::Field(field_id),
-            );
-        }
-        field_id
+        self.fields.claim_with_value(RefCell::new(field))
     }
     pub fn update_data_cow(&self, field_id: FieldId) {
         let mut field = self.fields[field_id].borrow_mut();
@@ -477,8 +458,12 @@ impl FieldManager {
             return tgt_field_id;
         }
         let name = self.fields[src_field_id].borrow().name;
-        let tgt_field_id =
-            self.add_field(msm, sm, tgt_match_set, name, ActorRef::default());
+        let tgt_field_id = self.add_field(tgt_match_set, ActorRef::default());
+        sm.insert_field_name_opt(
+            msm.match_sets[tgt_match_set].active_scope,
+            name,
+            tgt_field_id,
+        );
         self.setup_cow_between_fields(msm, sm, src_field_id, tgt_field_id);
         tgt_field_id
     }
@@ -545,13 +530,11 @@ impl FieldManager {
         msm: &mut MatchSetManager,
         sm: &mut ScopeManager,
         src_field_id: FieldId,
-        tgt_name: Option<StringStoreEntry>,
     ) -> FieldId {
         let src_field = self.fields[src_field_id].borrow();
         let ms_id = src_field.match_set;
         drop(src_field);
-        let tgt_field_id =
-            self.add_field(msm, sm, ms_id, tgt_name, ActorRef::default());
+        let tgt_field_id = self.add_field(ms_id, ActorRef::default());
         self.setup_cow_between_fields(msm, sm, src_field_id, tgt_field_id);
         tgt_field_id
     }

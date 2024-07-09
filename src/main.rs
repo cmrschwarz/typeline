@@ -1,23 +1,22 @@
+use ref_cast::RefCast;
 use scr::{
-    build_extension_registry,
-    cli::{call_expr::Span, collect_env_args, parse_cli, CliOptions},
+    cli::{call_expr::Span, collect_env_args, parse_cli_args_form_vec},
     context::Context,
-    options::session_options::SessionOptions,
-    record_data::{record_set::RecordSet, scope_manager::DEFAULT_SCOPE_ID},
+    options::session_setup::{ScrSetupOptions, SessionSetupData},
+    record_data::record_set::RecordSet,
     scr_error::ScrError,
+    utils::index_vec::IndexSlice,
+    CliOptionsWithDefaultExtensions,
 };
 use std::{process::ExitCode, sync::Arc};
 
 fn run() -> Result<bool, String> {
     let repl = cfg!(feature = "repl");
-    let cli_opts = CliOptions {
+
+    let cli_opts = ScrSetupOptions {
         allow_repl: repl,
-        start_with_stdin: true,
-        skip_first_arg: true,
-        print_output: true,
-        add_success_updator: true,
-        extensions: build_extension_registry(),
-        default_scope_id: DEFAULT_SCOPE_ID,
+        skip_first_cli_arg: true,
+        ..ScrSetupOptions::with_default_extensions()
     };
 
     let args = collect_env_args().map_err(|e| {
@@ -29,26 +28,45 @@ fn run() -> Result<bool, String> {
         )
     })?;
 
-    let sess = match parse_cli(&cli_opts, args)
-        .and_then(|sess_opts| sess_opts.build_session())
-    {
-        Ok(sess) => sess,
-        Err(e) => match e.err {
+    let arguments =
+        parse_cli_args_form_vec(&args, cli_opts.skip_first_cli_arg).map_err(
+            |e| {
+                e.contextualize_message(
+                    Some(IndexSlice::ref_cast(&*args)),
+                    Some(&cli_opts),
+                    None,
+                    None,
+                )
+            },
+        )?;
+
+    let mut sess = SessionSetupData::new(cli_opts.clone());
+
+    match sess.process_arguments(arguments) {
+        Ok(()) => (),
+        Err(e) => match e {
             ScrError::MissingArgumentsError(_) if repl => {
-                let mut sess_opts = SessionOptions::default();
-                sess_opts.repl.set(true, Span::Builtin).unwrap();
-                sess_opts.build_session().unwrap()
+                sess.setup_settings.repl.set(true, Span::Builtin).unwrap();
             }
             ScrError::PrintInfoAndExitError(_) => {
-                println!("{}", e.contextualized_message);
+                println!(
+                    "{}",
+                    sess.contextualize_error(e).contextualized_message
+                );
                 return Ok(true);
             }
-            _ => return Err(e.contextualized_message),
+            _ => {
+                return Err(sess.contextualize_error(e).contextualized_message)
+            }
         },
     };
 
+    let sess = sess
+        .build_session_take()
+        .map_err(|e| sess.contextualize_error(e).contextualized_message)?;
+
     #[cfg(feature = "repl")]
-    if sess.repl_requested() {
+    if sess.settings.repl {
         let sess = Arc::new(sess);
         Context::new(sess.clone()).run_repl(cli_opts);
         return Ok(sess.get_success());

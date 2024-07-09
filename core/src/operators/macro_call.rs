@@ -4,25 +4,23 @@ use crate::{
     chain::ChainId,
     cli::{
         call_expr::{Argument, CallExpr, Span},
-        call_expr_iter::CallExprIter,
         parse_operator_data,
     },
-    context::{SessionData, SessionSetupData},
+    context::SessionData,
     job::Job,
+    operators::operator::OffsetInAggregation,
     options::{
-        context_builder::ContextBuilder,
-        operator_base_options::{
-            OperatorBaseOptions, OperatorBaseOptionsInterned,
-        },
-        session_options::SessionOptions,
+        context_builder::ContextBuilder, session_setup::SessionSetupData,
     },
     record_data::{field_value::FieldValue, scope_manager::Symbol},
+    scr_error::ScrError,
+    utils::indexing_type::IndexingType,
 };
 
 use super::{
-    errors::{OperatorCreationError, OperatorSetupError},
+    errors::OperatorSetupError,
     macro_def::{Macro, OpMacroDef},
-    multi_op::{create_multi_op_with_opts, OpMultiOp},
+    multi_op::{create_multi_op_with_span, OpMultiOp},
     operator::{
         Operator, OperatorData, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
@@ -39,22 +37,17 @@ pub struct OpMacroCall {
 pub fn setup_op_macro_call(
     op: &mut OpMacroCall,
     sess: &mut SessionSetupData,
+    op_data_id: OperatorDataId,
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
-    opts_interned: OperatorBaseOptionsInterned,
-    op_data_id: OperatorDataId,
-) -> Result<OperatorId, OperatorSetupError> {
+    span: Span,
+) -> Result<OperatorId, ScrError> {
     let parent_scope_id = sess.chains[chain_id].scope_id;
 
     let macro_instaniation_scope =
         sess.scope_mgr.add_scope(Some(parent_scope_id));
 
-    let op_id = sess.add_op_from_offset_in_chain(
-        chain_id,
-        offset_in_chain,
-        opts_interned,
-        op_data_id,
-    );
+    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
     let macro_name = sess.string_store.intern_cloned(&op.name);
 
@@ -69,21 +62,20 @@ pub fn setup_op_macro_call(
                         op.name
                     ),
                     op_id,
-                ));
+                )
+                .into());
             }
             None => {
                 return Err(OperatorSetupError::new_s(
                     format!("call to undeclared symbol '{}'", op.name),
                     op_id,
-                ));
+                )
+                .into());
             }
         };
 
-    let mut ctx = ContextBuilder::with_exts(sess.extensions.clone());
-
-    ctx.ref_add_ops_with_opts(std::mem::take(&mut op.op_multi_op.operations));
-
-    let result_args = ctx
+    let result_args = ContextBuilder::with_exts(sess.extensions.clone())
+        .add_ops_with_spans(std::mem::take(&mut op.op_multi_op.operations))
         .run_collect()
         .map_err(|e| {
             OperatorSetupError::new_s(
@@ -104,23 +96,23 @@ pub fn setup_op_macro_call(
                     value: val,
                     span: Span::MacroExpansion { op_id },
                     source_scope: macro_instaniation_scope,
+                    end_kind: None,
                 }
             }
         })
         .collect::<Vec<_>>();
 
-    for expr in CallExprIter::from_args_iter(result_args) {
-        let expr = expr.map_err(|e| {
-            OperatorSetupError::new_s(
-                format!(
-                    "error in expanded macro '{}': {}",
-                    op.name, e.message
-                ),
+    for (i, arg) in result_args.into_iter().enumerate() {
+        let op_data = sess.parse_argument(arg)?;
+        sess.setup_op_from_data(
+            op_data,
+            chain_id,
+            OperatorOffsetInChain::AggregationMember(
                 op_id,
-            )
-        })?;
-        let _op_base = expr.op_base_options();
-        todo!()
+                OffsetInAggregation::from_usize(i),
+            ),
+            span,
+        )?;
     }
 
     op.target = Some(macro_def);
@@ -147,25 +139,25 @@ pub fn macro_call_has_dynamic_outputs(
 
 pub fn create_op_macro_call_raw(
     name: String,
-    operations: Vec<(OperatorBaseOptions, OperatorData)>,
+    operations: Vec<(OperatorData, Span)>,
     span: Span,
 ) -> OpMacroCall {
     let OperatorData::MultiOp(op_multi_op) =
-        create_multi_op_with_opts(operations)
+        create_multi_op_with_span(operations)
     else {
         unreachable!()
     };
     OpMacroCall {
-        op_multi_op,
         name,
+        op_multi_op,
         target: None,
         span,
     }
 }
 
-pub fn create_op_macro_call_with_opts(
+pub fn create_op_macro_call_with_spans(
     name: String,
-    operations: Vec<(OperatorBaseOptions, OperatorData)>,
+    operations: Vec<(OperatorData, Span)>,
 ) -> OperatorData {
     OperatorData::MacroCall(create_op_macro_call_raw(
         name,
@@ -179,32 +171,28 @@ pub fn create_op_macro_call(
 ) -> OperatorData {
     let subchain_with_opts = operators
         .into_iter()
-        .map(|op_data| {
-            (
-                OperatorBaseOptions::from_name(op_data.default_op_name()),
-                op_data,
-            )
-        })
+        .map(|op_data| (op_data, Span::Generated))
         .collect();
-    create_op_macro_call_with_opts(name, subchain_with_opts)
+    create_op_macro_call_with_spans(name, subchain_with_opts)
 }
 
 pub fn parse_op_macro_call(
-    sess_opts: &mut SessionOptions,
-    expr: CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+    sess_opts: &mut SessionSetupData,
+    mut arg: Argument,
+) -> Result<OperatorData, ScrError> {
     let mut operations = Vec::new();
 
-    let name = expr.op_name;
+    let expr = CallExpr::from_argument_mut(&mut arg)?;
 
-    for expr in CallExprIter::from_args_iter(expr.args) {
-        let expr = expr?;
-        let op_base = expr.op_base_options();
-        let op_data = parse_operator_data(sess_opts, expr)?;
-        operations.push((op_base, op_data));
+    for arg in expr.args {
+        let span = arg.span;
+        let op_data = parse_operator_data(sess_opts, std::mem::take(arg))?;
+        operations.push((op_data, span));
     }
 
     Ok(OperatorData::MacroCall(create_op_macro_call_raw(
-        name, operations, expr.span,
+        expr.op_name.to_string(),
+        operations,
+        arg.span,
     )))
 }

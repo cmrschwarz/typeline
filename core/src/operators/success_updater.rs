@@ -13,11 +13,12 @@ use crate::{
         field_data::field_value_flags, field_value_ref::FieldValueSlice,
         iter_hall::IterId,
     },
+    scr_error::ScrError,
 };
 
 use super::{
-    errors::{OperatorCreationError, OperatorSetupError},
-    operator::{OperatorBase, OperatorData, OperatorId},
+    errors::OperatorCreationError,
+    operator::{OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -33,11 +34,9 @@ pub fn create_op_success_updator() -> OperatorData {
 
 pub fn setup_op_success_updator(
     _chain: &Chain,
-    op_base: &mut OperatorBase,
     _op: &mut OpSuccessUpdator,
     _op_id: OperatorId,
-) -> Result<(), OperatorSetupError> {
-    op_base.transparent_mode = true;
+) -> Result<(), ScrError> {
     Ok(())
 }
 
