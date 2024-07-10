@@ -1097,7 +1097,7 @@ mod test {
                     },
                     Argument {
                         value: FieldValue::Int(10),
-                        span: cli_arg.reoffset(5, 6),
+                        span: cli_arg.reoffset(4, 6),
                         source_scope: DEFAULT_SCOPE_ID,
                         end_kind: None
                     }

@@ -1,6 +1,5 @@
 use scr::{
-    cli::call_expr::Span,
-    operators::errors::OperatorCreationError,
+    cli::{call_expr::Span, CliArgumentError},
     options::{
         context_builder::ContextBuilder, session_setup::ScrSetupOptions,
     },
@@ -38,12 +37,10 @@ fn foreach_block_no_colon() -> Result<(), ContextualizedScrError> {
     );
     assert_eq!(
         res.err().map(|e| e.err),
-        Some(ScrError::OperationCreationError(
-            OperatorCreationError::new(
-                "unknown operator 'end'",
-                Span::from_cli_arg(2, 3, 0, 3)
-            )
-        ))
+        Some(ScrError::CliArgumentError(CliArgumentError::new(
+            "unknown operator 'end'",
+            Span::from_cli_arg(2, 3, 0, 3)
+        )))
     );
     Ok(())
 }

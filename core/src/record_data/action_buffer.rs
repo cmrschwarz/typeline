@@ -2291,4 +2291,40 @@ mod test_dead_data_drop {
 
         test_drop_dead_data(headers_in, headers_out, 6, 6, [], []);
     }
+
+    #[test]
+    fn correct_padding_between_same_type() {
+        test_drop_dead_data(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DELETED,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 2,
+                },
+            ],
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    flags: field_value_flags::padding(1),
+                    size: 1,
+                },
+                run_length: 2,
+            }],
+            3,
+            3,
+            [],
+            [],
+        );
+    }
 }

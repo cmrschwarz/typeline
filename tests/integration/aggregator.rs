@@ -1,5 +1,5 @@
 use scr::operators::{
-    aggregator::create_op_aggregate, fork::create_op_fork, nop::create_op_nop,
+    aggregator::create_op_aggregate_appending, fork::create_op_fork,
 };
 use scr_core::{
     operators::{
@@ -49,7 +49,7 @@ fn append_after_fork() -> Result<(), ScrError> {
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(
             create_op_fork(vec![vec![
-                create_op_aggregate([create_op_nop(), create_op_int(4)]),
+                create_op_aggregate_appending([create_op_int(4)]),
                 create_op_string_sink(&ss),
             ]])
             .unwrap(),
