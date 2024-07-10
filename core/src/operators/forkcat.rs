@@ -1008,7 +1008,10 @@ pub fn parse_op_forkcat(
 ) -> Result<OperatorData, ScrError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
-    for arg in std::mem::take(arg.expect_arg_array_mut()?) {
+    for arg in std::mem::take(arg.expect_arg_array_mut()?)
+        .into_iter()
+        .skip(1)
+    {
         let expr = CallExpr::from_argument(&arg)?;
         if expr.op_name == "next" {
             expr.reject_args()?;

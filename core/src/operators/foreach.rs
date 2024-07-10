@@ -14,7 +14,6 @@ use crate::{
 };
 
 use super::{
-    errors::OperatorCreationError,
     nop::create_op_nop,
     operator::{
         OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
@@ -24,8 +23,7 @@ use super::{
 };
 
 pub struct OpForeach {
-    pub subchain_generated: Vec<OperatorData>,
-    pub subchain_args: Vec<Argument>,
+    pub subchain: Vec<(OperatorData, Span)>,
     pub subchain_idx: SubchainIndex,
 }
 pub struct TfForeachHeader {
@@ -43,21 +41,7 @@ pub fn setup_op_foreach(
 ) -> Result<OperatorId, ScrError> {
     let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
     op.subchain_idx = sess.chains[chain_id].subchains.next_idx();
-    assert!(op.subchain_generated.is_empty() || op.subchain_args.is_empty());
-
-    if !op.subchain_generated.is_empty() {
-        assert!(op.subchain_args.is_empty());
-        sess.setup_subchain_generated(
-            chain_id,
-            std::mem::take(&mut op.subchain_generated),
-        )?;
-        return Ok(op_id);
-    }
-
-    sess.setup_subchain_from_args(
-        chain_id,
-        std::mem::take(&mut op.subchain_args),
-    )?;
+    sess.setup_subchain(chain_id, std::mem::take(&mut op.subchain))?;
     Ok(op_id)
 }
 
@@ -265,29 +249,40 @@ pub fn handle_tf_foreach_trailer(
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
-pub fn parse_op_foreach(
-    mut arg: Argument,
-) -> Result<OperatorData, OperatorCreationError> {
-    let mut sub_args = std::mem::take(arg.expect_arg_array_mut()?);
-    sub_args.drain(0..1);
-
-    Ok(OperatorData::Foreach(OpForeach {
-        subchain_generated: Vec::new(),
-        subchain_args: sub_args,
+pub fn create_op_foreach_with_spans(
+    subchain: impl IntoIterator<Item = (OperatorData, Span)>,
+) -> OperatorData {
+    let mut subchain = subchain.into_iter().collect::<Vec<_>>();
+    if subchain.is_empty() {
+        subchain.push((create_op_nop(), Span::Generated));
+    }
+    OperatorData::Foreach(OpForeach {
+        subchain,
         subchain_idx: SubchainIndex::MAX_VALUE,
-    }))
+    })
 }
 
 pub fn create_op_foreach(
     subchain: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    let mut subchain = subchain.into_iter().collect::<Vec<_>>();
-    if subchain.is_empty() {
-        subchain.push(create_op_nop());
+    create_op_foreach_with_spans(
+        subchain.into_iter().map(|v| (v, Span::Generated)),
+    )
+}
+
+pub fn parse_op_foreach(
+    sess: &mut SessionSetupData,
+    mut arg: Argument,
+) -> Result<OperatorData, ScrError> {
+    let mut subchain = Vec::new();
+    for arg in std::mem::take(arg.expect_arg_array_mut()?)
+        .into_iter()
+        .skip(1)
+    {
+        let span = arg.span;
+        let op = sess.parse_argument(arg)?;
+        subchain.push((op, span));
     }
-    OperatorData::Foreach(OpForeach {
-        subchain_generated: subchain,
-        subchain_args: Vec::new(),
-        subchain_idx: SubchainIndex::MAX_VALUE,
-    })
+
+    Ok(create_op_foreach_with_spans(subchain))
 }
