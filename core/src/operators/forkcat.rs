@@ -404,7 +404,6 @@ fn setup_subchain<'a>(
 
     job.job_data.field_mgr.setup_cow_between_fields(
         &mut job.job_data.match_set_mgr,
-        &mut job.job_data.scope_mgr,
         fc_dummy_field,
         sc_dummy_field,
     );
@@ -447,12 +446,15 @@ fn setup_subchain<'a>(
 
         let field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
-            &mut job.job_data.scope_mgr,
             sc_ms_id,
             src_field,
         );
         if var == Var::BBInput {
             sc_input_field = field_id;
+        } else if let Some(name) = var.get_name() {
+            job.job_data
+                .scope_mgr
+                .insert_field_name(sc_scope, name, field_id);
         }
     }
 
@@ -485,12 +487,16 @@ fn setup_subchain<'a>(
                     field_name,
                 )
             {
-                job.job_data.field_mgr.get_cross_ms_cow_field(
+                let field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
                     &mut job.job_data.match_set_mgr,
-                    &mut job.job_data.scope_mgr,
                     sc_ms_id,
                     fc_field_id,
-                )
+                );
+                // debatable whether we should give a name here?
+                job.job_data
+                    .scope_mgr
+                    .insert_field_name(sc_scope, field_name, field_id);
+                field_id
             } else {
                 // TODO: we should set up the field in fc for aliasing
                 sc_dummy_field
@@ -501,14 +507,17 @@ fn setup_subchain<'a>(
 
         let field_cow_tgt_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
-            &mut job.job_data.scope_mgr,
             cont_ms_id,
+            field_id,
+        );
+        job.job_data.scope_mgr.insert_field_name_opt(
+            sc_scope,
+            var.get_name(),
             field_id,
         );
 
         job.job_data.field_mgr.setup_field_refs(
             &mut job.job_data.match_set_mgr,
-            &mut job.job_data.scope_mgr,
             field_cow_tgt_id,
         );
 

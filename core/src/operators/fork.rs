@@ -230,11 +230,11 @@ fn setup_fork_subchain(
     let fork_ms_scope =
         job.job_data.match_set_mgr.match_sets[fork_ms_id].active_scope;
 
-    let scope_id = job.job_data.scope_mgr.add_scope(Some(fork_ms_scope));
+    let sc_scope_id = job.job_data.scope_mgr.add_scope(Some(fork_ms_scope));
     let target_ms_id = job.job_data.match_set_mgr.add_match_set(
         &mut job.job_data.field_mgr,
         &mut job.job_data.scope_mgr,
-        scope_id,
+        sc_scope_id,
     );
 
     let fork_chain_dummy_field =
@@ -244,7 +244,6 @@ fn setup_fork_subchain(
 
     job.job_data.field_mgr.setup_cow_between_fields(
         &mut job.job_data.match_set_mgr,
-        &mut job.job_data.scope_mgr,
         fork_chain_dummy_field,
         sc_dummy_field,
     );
@@ -287,9 +286,13 @@ fn setup_fork_subchain(
         drop(src_field);
         let target_field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
             &mut job.job_data.match_set_mgr,
-            &mut job.job_data.scope_mgr,
             target_ms_id,
             src_field_id,
+        );
+        job.job_data.scope_mgr.insert_field_name_opt(
+            sc_scope_id,
+            name,
+            target_field_id,
         );
         src_field = job.job_data.field_mgr.fields[src_field_id].borrow_mut();
 

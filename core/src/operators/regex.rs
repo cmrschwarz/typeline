@@ -512,9 +512,13 @@ pub fn build_tf_regex<'a>(
                     prebound_outputs.get(&OpOutputIdx::from_usize(
                         op_base.outputs_start.into_usize() + i,
                     )) {
-                    debug_assert!(
-                        jd.field_mgr.fields[*field_id].borrow().name
-                            == Some(*name)
+                    debug_assert_eq!(
+                        Some(*field_id),
+                        jd.scope_mgr.lookup_field(
+                            jd.match_set_mgr.match_sets[tf_state.match_set_id]
+                                .active_scope,
+                            *name
+                        )
                     );
                     *field_id
                 } else {

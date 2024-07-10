@@ -6,7 +6,7 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::utils::{string_store::StringStoreEntry, universe::Universe};
+use crate::utils::universe::Universe;
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
@@ -22,7 +22,6 @@ use super::{
     match_set::{MatchSetId, MatchSetManager},
     record_buffer::RecordBufferField,
     ref_iter::AutoDerefIter,
-    scope_manager::ScopeManager,
     varying_type_inserter::VaryingTypeInserter,
 };
 
@@ -51,7 +50,6 @@ pub struct Field {
 
     pub match_set: MatchSetId,
 
-    pub name: Option<StringStoreEntry>,
     pub ref_count: usize,
 
     #[cfg(feature = "debug_logging")]
@@ -318,7 +316,6 @@ impl FieldManager {
         data: FieldData,
     ) -> FieldId {
         let mut field = Field {
-            name: None, // TODO: remove in favor of scopes
             ref_count: 1,
             shadowed_since: ActionBuffer::MAX_ACTOR_ID,
             shadowed_by: None,
@@ -446,7 +443,6 @@ impl FieldManager {
     pub fn get_cross_ms_cow_field(
         &mut self,
         msm: &mut MatchSetManager,
-        sm: &mut ScopeManager,
         tgt_match_set: MatchSetId,
         src_field_id: FieldId,
     ) -> FieldId {
@@ -457,21 +453,14 @@ impl FieldManager {
             self.bump_field_refcount(tgt_field_id);
             return tgt_field_id;
         }
-        let name = self.fields[src_field_id].borrow().name;
         let tgt_field_id = self.add_field(tgt_match_set, ActorRef::default());
-        sm.insert_field_name_opt(
-            msm.match_sets[tgt_match_set].active_scope,
-            name,
-            tgt_field_id,
-        );
-        self.setup_cow_between_fields(msm, sm, src_field_id, tgt_field_id);
+        self.setup_cow_between_fields(msm, src_field_id, tgt_field_id);
         tgt_field_id
     }
 
     pub fn setup_cow_between_fields(
         &mut self,
         msm: &mut MatchSetManager,
-        sm: &mut ScopeManager,
         src_field_id: FieldId,
         tgt_field_id: FieldId,
     ) {
@@ -513,12 +502,8 @@ impl FieldManager {
             let ref_field_id = src_field.field_refs[i];
             drop(src_field);
             drop(tgt_field);
-            let cow_field_id = self.get_cross_ms_cow_field(
-                msm,
-                sm,
-                tgt_field_ms,
-                ref_field_id,
-            );
+            let cow_field_id =
+                self.get_cross_ms_cow_field(msm, tgt_field_ms, ref_field_id);
             tgt_field = self.fields[tgt_field_id].borrow_mut();
             src_field = self.fields[src_field_id].borrow_mut();
             tgt_field.field_refs.push(cow_field_id);
@@ -528,14 +513,13 @@ impl FieldManager {
     pub fn create_same_ms_cow_field(
         &mut self,
         msm: &mut MatchSetManager,
-        sm: &mut ScopeManager,
         src_field_id: FieldId,
     ) -> FieldId {
         let src_field = self.fields[src_field_id].borrow();
         let ms_id = src_field.match_set;
         drop(src_field);
         let tgt_field_id = self.add_field(ms_id, ActorRef::default());
-        self.setup_cow_between_fields(msm, sm, src_field_id, tgt_field_id);
+        self.setup_cow_between_fields(msm, src_field_id, tgt_field_id);
         tgt_field_id
     }
     pub fn append_to_buffer<'a>(
@@ -612,7 +596,6 @@ impl FieldManager {
     pub fn setup_field_refs(
         &mut self,
         msm: &mut MatchSetManager,
-        sm: &mut ScopeManager,
         field_id: FieldId,
     ) {
         let field = self.fields[field_id].borrow();
@@ -626,7 +609,7 @@ impl FieldManager {
             return;
         };
         drop(field);
-        self.setup_field_refs(msm, sm, cow_src_id);
+        self.setup_field_refs(msm, cow_src_id);
         let mut field = self.fields[field_id].borrow_mut();
         let cow_src = self.fields[cow_src_id].borrow();
         let field_ref_len = cow_src.field_refs.len();
@@ -642,8 +625,8 @@ impl FieldManager {
             {
                 id
             } else {
-                let id = self.get_cross_ms_cow_field(msm, sm, ms_id, fr_src);
-                self.setup_field_refs(msm, sm, id);
+                let id = self.get_cross_ms_cow_field(msm, ms_id, fr_src);
+                self.setup_field_refs(msm, id);
                 id
             };
             self.fields[field_id].borrow_mut().field_refs[i] = fr;

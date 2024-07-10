@@ -731,7 +731,6 @@ impl<'a> Job<'a> {
             }
             self.job_data.field_mgr.setup_field_refs(
                 &mut self.job_data.match_set_mgr,
-                &mut self.job_data.scope_mgr,
                 input_field,
             );
             self.job_data.field_mgr.bump_field_refcount(input_field);

@@ -1,6 +1,6 @@
 mod helpers;
 
-use std::{cell::Cell, collections::HashSet};
+use std::{cell::Cell, collections::HashSet, fmt::Write};
 
 use handlebars::{Handlebars, RenderError, RenderErrorReason};
 use once_cell::sync::Lazy;
@@ -26,6 +26,7 @@ use crate::{
         iter_hall::{CowVariant, IterKind, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
+        scope_manager::Symbol,
     },
     utils::{
         index_vec::IndexSlice, indexing_type::IndexingType,
@@ -55,7 +56,7 @@ struct TransformChain {
 #[derive(Clone, Debug)]
 pub struct FieldInfo {
     pub id: Option<FieldId>,
-    pub name: Option<String>,
+    pub name: String,
     pub producing_arg: Option<String>,
     pub cow_info: Option<CowInfo>,
 }
@@ -757,9 +758,31 @@ pub fn field_to_json(
         producing_arg = Some(field.producing_transform_arg.to_string());
     }
 
+    let mut field_name = String::new();
+
+    for (i, (&name, sym)) in jd.scope_mgr.scopes
+        [jd.match_set_mgr.match_sets[field.match_set].active_scope]
+        .symbols
+        .iter()
+        .enumerate()
+    {
+        let &Symbol::Field(sym_field_id) = sym else {
+            continue;
+        };
+        if sym_field_id != field_id {
+            continue;
+        }
+        if i > 0 {
+            field_name.push_str(" / ");
+        }
+        field_name
+            .write_fmt(format_args!("@{}", string_store.lookup(name)))
+            .unwrap();
+    }
+
     let field_info = FieldInfo {
         id: Some(field_id),
-        name: field.name.map(|id| string_store.lookup(id).to_string()),
+        name: field_name,
         producing_arg,
         cow_info,
     };

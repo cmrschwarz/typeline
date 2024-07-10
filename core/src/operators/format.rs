@@ -262,11 +262,7 @@ pub fn build_tf_format<'a>(
                         .active_scope,
                     *name,
                 ) {
-                    jd.field_mgr.setup_field_refs(
-                        &mut jd.match_set_mgr,
-                        &mut jd.scope_mgr,
-                        id,
-                    );
+                    jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
                     let mut f = jd.field_mgr.fields[id].borrow_mut();
                     f.ref_count += 1;
                     id
