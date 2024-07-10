@@ -9,6 +9,7 @@ use crate::{
     operators::{
         call::handle_eager_call_expansion,
         call_concurrent::setup_callee_concurrent,
+        key::NestedOp,
         operator::{
             OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
             OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
@@ -587,7 +588,8 @@ impl<'a> Job<'a> {
         prebound_outputs: &PreboundOutputsMap,
     ) -> OperatorInstantiation {
         let mut start_tf_id = None;
-        for (op_id, op_base, op_data) in ops {
+        for (mut op_id, mut op_base, mut op_data) in ops {
+            let mut label = None;
             match op_data {
                 OperatorData::Call(op) => {
                     if !op.lazy {
@@ -628,20 +630,28 @@ impl<'a> Job<'a> {
                             input_field,
                         );
                     }
-                    if !op.field_is_read {
-                        continue;
-                    }
+                    continue;
                 }
                 OperatorData::Key(k) => {
-                    let output_field =
-                        self.job_data.match_set_mgr.add_field_alias(
-                            &mut self.job_data.field_mgr,
-                            &mut self.job_data.scope_mgr,
-                            input_field,
-                            k.key_interned.unwrap(),
-                        );
-                    input_field = output_field;
-                    continue;
+                    let Some(NestedOp::SetUp(nested_op_id)) = k.nested_op
+                    else {
+                        debug_assert!(k.nested_op.is_none());
+                        let output_field =
+                            self.job_data.match_set_mgr.add_field_alias(
+                                &mut self.job_data.field_mgr,
+                                &mut self.job_data.scope_mgr,
+                                input_field,
+                                k.key_interned.unwrap(),
+                            );
+                        input_field = output_field;
+                        continue;
+                    };
+                    op_id = nested_op_id;
+                    op_base = &self.job_data.session_data.operator_bases
+                        [nested_op_id];
+                    op_data = &self.job_data.session_data.operator_data
+                        [op_base.op_data_id];
+                    label = k.key_interned;
                 }
                 OperatorData::MacroDef(op) => {
                     let active_scope = self.job_data.match_set_mgr.match_sets
@@ -697,6 +707,28 @@ impl<'a> Job<'a> {
                     self.job_data.match_set_mgr.get_dummy_field(ms_id)
                 }
             };
+            if let Some(label) = label {
+                match output_field_kind {
+                    OutputFieldKind::Unique => {
+                        self.job_data.scope_mgr.insert_field_name(
+                            self.job_data.match_set_mgr.match_sets[ms_id]
+                                .active_scope,
+                            label,
+                            output_field,
+                        );
+                    }
+                    OutputFieldKind::Dummy
+                    | OutputFieldKind::SameAsInput
+                    | OutputFieldKind::Unconfigured => {
+                        self.job_data.match_set_mgr.add_field_alias(
+                            &mut self.job_data.field_mgr,
+                            &mut self.job_data.scope_mgr,
+                            output_field,
+                            label,
+                        );
+                    }
+                }
+            }
             self.job_data.field_mgr.setup_field_refs(
                 &mut self.job_data.match_set_mgr,
                 &mut self.job_data.scope_mgr,

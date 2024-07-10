@@ -60,10 +60,7 @@ use super::{
     },
     print::{build_tf_print, OpPrint},
     regex::{build_tf_regex, setup_op_regex, OpRegex},
-    select::{
-        build_tf_select, setup_op_select, setup_op_select_liveness_data,
-        OpSelect,
-    },
+    select::{setup_op_select, OpSelect},
     sequence::{
         build_tf_sequence, setup_op_sequence_concurrent_liveness_data,
         update_op_sequence_variable_liveness, OpSequence,
@@ -915,9 +912,6 @@ impl OperatorData {
             OperatorData::ForkCat(op) => {
                 setup_op_forkcat_liveness_data(sess, op, op_id, ld)
             }
-            OperatorData::Select(op) => {
-                setup_op_select_liveness_data(op, op_id, ld)
-            }
             OperatorData::Sequence(op) => {
                 setup_op_sequence_concurrent_liveness_data(sess, op, op_id, ld)
             }
@@ -959,6 +953,7 @@ impl OperatorData {
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Foreach(_)
+            | OperatorData::Select(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
             | OperatorData::StringSink(_)
@@ -980,7 +975,9 @@ impl OperatorData {
         let jd = &mut job.job_data;
         let op_base = &jd.session_data.operator_bases[op_id];
         let data: TransformData<'a> = match self {
-            OperatorData::Key(_) | OperatorData::MacroDef(_) => unreachable!(),
+            OperatorData::Key(_)
+            | OperatorData::MacroDef(_)
+            | OperatorData::Select(_) => unreachable!(),
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::SuccessUpdator(op) => {
                 build_tf_success_updator(jd, op, tfs)
@@ -1032,7 +1029,6 @@ impl OperatorData {
             OperatorData::Sequence(op) => {
                 build_tf_sequence(jd, op_base, op, tfs)
             }
-            OperatorData::Select(op) => build_tf_select(jd, op_base, op, tfs),
             OperatorData::Call(op) => build_tf_call(jd, op_base, op, tfs),
             OperatorData::CallConcurrent(op) => {
                 build_tf_call_concurrent(jd, op_base, op, tfs)

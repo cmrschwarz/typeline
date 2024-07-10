@@ -59,7 +59,6 @@ use super::{
     operator::OperatorId,
     print::{handle_tf_print, handle_tf_print_stream_value_update, TfPrint},
     regex::{handle_tf_regex, handle_tf_regex_stream_value_update, TfRegex},
-    select::{handle_tf_select, TfSelect},
     sequence::{handle_tf_sequence, TfSequence},
     string_sink::{
         handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
@@ -91,7 +90,6 @@ pub enum TransformData<'a> {
     Count(TfCount),
     Print(TfPrint),
     Join(TfJoin<'a>),
-    Select(TfSelect),
     StringSink(TfStringSink<'a>),
     FieldValueSink(TfFieldValueSink<'a>),
     Fork(TfFork<'a>),
@@ -129,7 +127,6 @@ impl TransformData<'_> {
             TransformData::Count(_) => "count",
             TransformData::Print(_) => "print",
             TransformData::Join(_) => "join",
-            TransformData::Select(_) => "select",
             TransformData::StringSink(_) => "string_sink",
             TransformData::FieldValueSink(_) => "field_value_sink",
             TransformData::Fork(_) => "fork",
@@ -163,7 +160,6 @@ impl TransformData<'_> {
             | TransformData::Count(_)
             | TransformData::Print(_)
             | TransformData::Join(_)
-            | TransformData::Select(_)
             | TransformData::StringSink(_)
             | TransformData::Format(_)
             | TransformData::FileReader(_)
@@ -325,7 +321,6 @@ pub fn transform_pre_update(
         | TransformData::Count(_)
         | TransformData::Print(_)
         | TransformData::Join(_)
-        | TransformData::Select(_)
         | TransformData::StringSink(_)
         | TransformData::FieldValueSink(_)
         | TransformData::Regex(_)
@@ -385,7 +380,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
         TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
         TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
-        TransformData::Select(tf) => handle_tf_select(jd, tf_id, tf),
         TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
         TransformData::ToStr(tf) => handle_tf_to_str(jd, tf_id, tf),
         TransformData::CallConcurrent(tf) => {
@@ -427,7 +421,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::ToStr(_)
             | TransformData::Count(_)
             | TransformData::Print(_)
-            | TransformData::Select(_)
             | TransformData::StringSink(_)
             | TransformData::FieldValueSink(_)
             | TransformData::Fork(_)
@@ -509,7 +502,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::NopCopy(_) |
         TransformData::ForkCatSubchainTrailer(_) |
         TransformData::Count(_) |
-        TransformData::Select(_) |
         TransformData::FileReader(_) |
         TransformData::Sequence(_) |
         TransformData::Disabled |
