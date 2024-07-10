@@ -25,11 +25,10 @@ use scr_ext_utils::dup::create_op_dup;
 fn empty_forkcat() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([[]]))
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), [""; 0]);
+    assert_eq!(ss.get_data().unwrap().as_slice(), ["null"]);
     Ok(())
 }
 

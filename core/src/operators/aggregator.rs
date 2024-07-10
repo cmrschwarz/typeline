@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{
-    nop::create_op_nop,
+    nop_copy::create_op_nop_copy,
     operator::{
         OffsetInAggregation, OperatorData, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
@@ -76,7 +76,7 @@ pub fn create_op_aggregate(
 pub fn create_op_aggregate_appending(
     sub_ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    create_op_aggregate(std::iter::once(create_op_nop()).chain(sub_ops))
+    create_op_aggregate(std::iter::once(create_op_nop_copy()).chain(sub_ops))
 }
 
 pub fn setup_op_aggregator(
