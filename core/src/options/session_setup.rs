@@ -493,9 +493,9 @@ impl SessionSetupData {
         for (op, span) in subchain_data {
             self.setup_op_from_data(
                 op,
-                chain_id,
+                subchain_id,
                 OperatorOffsetInChain::Direct(
-                    self.chains[chain_id].operators.next_idx(),
+                    self.chains[subchain_id].operators.next_idx(),
                 ),
                 span,
             )?;
