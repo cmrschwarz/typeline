@@ -447,7 +447,7 @@ pub fn gobble_cli_args_while_dashed_or_eq<'a>(
         }
         args.push(Argument {
             value: FieldValue::from_maybe_text(MaybeText::from_bytes_try_str(
-                arg,
+                &arg[1..],
             )),
             span,
             source_scope,
@@ -651,7 +651,9 @@ pub fn parse_call_expr_head(
 
     if equals_found {
         equals_arg = Some(Argument {
-            value: FieldValue::Bytes(argv[i..].to_owned()),
+            value: FieldValue::from_maybe_text(MaybeText::from_bytes_try_str(
+                &argv[i..],
+            )),
             span: arg_span.subslice_offsets(i, argv.len()),
             source_scope,
             end_kind: None,
@@ -1246,8 +1248,8 @@ mod test {
                         value: FieldValue::Object(Object::KeysStored(
                             indexmap! {
                                 "-a".into() => FieldValue::Argument(Box::new(Argument {
-                                    value: FieldValue::Int(10),
-                                    span: Span::from_single_arg(4, 8),
+                                    value: FieldValue::Int(3),
+                                    span: Span::from_single_arg_with_offset(0, 4, 8),
                                     source_scope: DEFAULT_SCOPE_ID,
                                     end_kind: None
                                 })),
@@ -1259,39 +1261,46 @@ mod test {
                                 })),
                                 "-c".into() => FieldValue::Argument(Box::new(Argument {
                                     value: FieldValue::Int(5),
-                                    span: Span::from_single_arg(2, 2),
+                                    span: Span::from_single_arg(2, 4),
                                     source_scope: DEFAULT_SCOPE_ID,
                                     end_kind: None
                                 })),
                             }
                         )),
-                        span: Span::from_single_arg(1, 3),
+                        span: Span::Generated,
                         source_scope: DEFAULT_SCOPE_ID,
                         end_kind: None
                     },
                     Argument {
-                        value: FieldValue::Bytes(b"5".into()),
-                        span: Span::from_single_arg(1, 2),
+                        value: FieldValue::Text("5".into()),
+                        span: Span::from_single_arg_with_offset(0, 9, 10),
                         source_scope: DEFAULT_SCOPE_ID,
                         end_kind: None
                     },
                     Argument {
-                        value: FieldValue::Int(10),
+                        value: FieldValue::Text("10".into()),
                         span: Span::from_single_arg(3, 3),
                         source_scope: DEFAULT_SCOPE_ID,
                         end_kind: None
                     },
                     Argument {
-                        value: FieldValue::Text("asdf".into()),
+                        value: FieldValue::Array(Array::Argument(vec![
+                            Argument {
+                                value: FieldValue::Text("asdf".into()),
+                                span: Span::from_single_arg(4, 4),
+                                source_scope: DEFAULT_SCOPE_ID,
+                                end_kind: None
+                            }
+                        ])),
                         span: Span::from_single_arg(4, 4),
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: None
+                        end_kind: Some(CallExprEndKind::Inline),
                     }
                 ])),
-                span: Span::from_cli_arg(0, 4, 0, 1),
+                span: Span::from_cli_arg(0, 6, 0, 3),
                 source_scope: DEFAULT_SCOPE_ID,
                 end_kind: Some(CallExprEndKind::End(Span::from_single_arg(
-                    3, 1
+                    5, 3
                 )))
             },
         )
