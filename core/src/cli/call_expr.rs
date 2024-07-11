@@ -245,34 +245,27 @@ impl Span {
             env_var @ Span::EnvVar { .. } => *env_var,
         }
     }
-    pub fn subslice(
+    pub fn subslice_offsets(
         &self,
-        cli_arg_start: usize,
-        cli_arg_count: usize,
         cli_arg_offset_start: usize,
         cli_arg_offset_end: usize,
     ) -> Span {
-        match self {
+        match *self {
             Span::CliArg {
                 start,
+                end,
                 offset_start,
-                end: _,
                 offset_end: _,
             } => Span::CliArg {
-                start: *start + CliArgIdx::from_usize(cli_arg_start),
-                end: *start
-                    + CliArgIdx::from_usize(cli_arg_start + cli_arg_count),
-                offset_start: if cli_arg_start == 0 {
-                    offset_start + cli_arg_offset_start as u16
-                } else {
-                    cli_arg_offset_start as u16
-                },
-                offset_end: cli_arg_offset_end as u16,
+                start,
+                end,
+                offset_start: offset_start + cli_arg_offset_start as u16,
+                offset_end: offset_start + cli_arg_offset_end as u16,
             },
             Span::Generated => Span::Generated,
             Span::Builtin => Span::Builtin,
-            macro_exp @ Span::MacroExpansion { .. } => *macro_exp,
-            env_var @ Span::EnvVar { .. } => *env_var,
+            macro_exp @ Span::MacroExpansion { .. } => macro_exp,
+            env_var @ Span::EnvVar { .. } => env_var,
         }
     }
     pub fn span_until(&self, end: Span) -> Option<Span> {
@@ -688,7 +681,7 @@ impl<'a> Iterator for ParsedArgsIter<'a> {
                     end += flag_offset;
                     let res = Some(ParsedArg {
                         value: ParsedArgValue::Flag(&value[begin..end]),
-                        span: self.args[0].span.subslice(0, 1, begin, end),
+                        span: self.args[0].span.subslice_offsets(begin, end),
                     });
                     self.flag_offset = Some(end);
                     return res;
@@ -708,7 +701,7 @@ impl<'a> Iterator for ParsedArgsIter<'a> {
                     self.flag_offset = Some(end);
                     return Some(ParsedArg {
                         value: ParsedArgValue::Flag(&value[begin..end]),
-                        span: first.span.subslice(0, 1, 1, end),
+                        span: first.span.subslice_offsets(1, end),
                     });
                 }
             }

@@ -27,7 +27,7 @@ use crate::{
     options::session_setup::SessionSetupData,
     record_data::{
         array::Array,
-        field_value::{FieldValue, FieldValueKind},
+        field_value::{FieldValue, FieldValueKind, Object},
         scope_manager::{ScopeId, DEFAULT_SCOPE_ID},
     },
     scr_error::ScrError,
@@ -38,6 +38,7 @@ pub mod call_expr;
 use bstr::ByteSlice;
 
 use call_expr::{Argument, CallExpr, CallExprEndKind, Label, Span};
+use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use unicode_ident::{is_xid_continue, is_xid_start};
 
@@ -50,8 +51,8 @@ pub struct CallExprHead {
     op_name_span: Span,
     colon_found: bool,
     label: Option<Label>,
-    dashed_arg: Option<Argument>,
     equals_arg: Option<Argument>,
+    dashed_arg: Option<IndexMap<String, FieldValue>>,
 }
 
 #[must_use]
@@ -364,21 +365,6 @@ pub fn parse_operator_data(
     })
 }
 
-fn expect_equals_after_colon(
-    char: char,
-    start: usize,
-    end: usize,
-    span: Span,
-) -> Result<(), CliArgumentError> {
-    if char != '=' {
-        return Err(CliArgumentError::new(
-            "expected `=` or whitespace after `:`",
-            span.subslice(0, 1, start, end),
-        ));
-    }
-    Ok(())
-}
-
 fn require_list_start_as_separate_arg(
     arg: &[u8],
     i: usize,
@@ -387,7 +373,7 @@ fn require_list_start_as_separate_arg(
     if arg.len() > i + 1 {
         return Err(CliArgumentError::new(
             "list start `[` must be followed by whitespace",
-            arg_span.subslice(0, 1, i, arg.len()),
+            arg_span.subslice_offsets(i, arg.len()),
         ));
     }
     Ok(())
@@ -406,7 +392,7 @@ fn parse_list_end_with_label(
             arg_span,
         ));
     }
-    let label_span = arg_span.subslice(0, 1, 2, argv.len());
+    let label_span = arg_span.subslice_offsets(2, argv.len());
     let label = argv[2..]
         .to_str()
         .map_err(|_| {
@@ -417,7 +403,7 @@ fn parse_list_end_with_label(
     Ok(Some((label, label_span)))
 }
 
-pub fn complain_if_dashed_arg<'a>(
+pub fn complain_if_dashed_arg_after_block<'a>(
     src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
     because_block: bool,
 ) -> Result<(), CliArgumentError> {
@@ -435,18 +421,30 @@ pub fn complain_if_dashed_arg<'a>(
     Ok(())
 }
 
-pub fn gobble_cli_args_while_dashed<'a>(
+pub fn gobble_cli_args_while_dashed_or_eq<'a>(
     src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
     args: &mut Vec<Argument>,
     source_scope: ScopeId,
-) -> Option<Span> {
+    target: &mut Option<IndexMap<String, FieldValue>>,
+) -> Result<Option<Span>, CliArgumentError> {
     let mut final_span = None;
-    while let Some((arg, _)) = src.peek() {
-        if !arg.starts_with(b"-") {
+    while let Some((arg, _span)) = src.peek() {
+        let dash = arg.starts_with(b"-") && arg.len() > 1;
+        let eq = arg.starts_with(b"=");
+        if !dash && !eq {
             break;
         }
         let (arg, span) = src.next().unwrap();
         final_span = Some(span);
+        if dash {
+            parse_dashed_arg(
+                arg,
+                source_scope,
+                span,
+                target.get_or_insert_with(IndexMap::new),
+            )?;
+            continue;
+        }
         args.push(Argument {
             value: FieldValue::from_maybe_text(MaybeText::from_bytes_try_str(
                 arg,
@@ -456,7 +454,7 @@ pub fn gobble_cli_args_while_dashed<'a>(
             end_kind: None,
         });
     }
-    final_span
+    Ok(final_span)
 }
 
 pub fn parse_block_until_end<'a>(
@@ -514,7 +512,7 @@ pub fn parse_call_expr_head(
     argv: &[u8],
     offset: usize,
     arg_span: Span,
-    scope: ScopeId,
+    source_scope: ScopeId,
 ) -> Result<CallExprHead, CliArgumentError> {
     let mut i = offset;
     let op_start = i;
@@ -531,11 +529,6 @@ pub fn parse_call_expr_head(
         start += op_start;
         end += op_start;
         i = end;
-        if colon_found {
-            expect_equals_after_colon(char, start, end, arg_span)?;
-            equals_found = true;
-            break;
-        }
         match char {
             '@' => {
                 label_found = true;
@@ -566,14 +559,14 @@ pub fn parse_call_expr_head(
                     format!(
                     "invalid character '{char}' to start operator identifier"
                 ),
-                    arg_span.subslice(0, 1, start, end),
+                    arg_span.subslice_offsets(start, end),
                 ));
             }
             first_opname_char_found = true;
         } else if !is_xid_continue(char) {
             return Err(CliArgumentError::new_s(
                 format!("invalid character '{char}' in operator identifier"),
-                arg_span.subslice(0, 1, start, end),
+                arg_span.subslice_offsets(start, end),
             ));
         }
         op_end = end;
@@ -583,7 +576,7 @@ pub fn parse_call_expr_head(
         .expect("op_name was checked to be valid utf-8")
         .to_owned();
 
-    let op_name_span = arg_span.subslice(0, 1, op_start, op_end);
+    let op_name_span = arg_span.subslice_offsets(op_start, op_end);
 
     let mut label = None;
 
@@ -591,15 +584,9 @@ pub fn parse_call_expr_head(
     let mut label_end = i;
     if label_found {
         let label_start = i;
-        for (mut start, mut end, char) in argv[label_start..].char_indices() {
-            start += label_start;
+        for (_start, mut end, char) in argv[label_start..].char_indices() {
             end += label_start;
             i = end;
-            if colon_found {
-                expect_equals_after_colon(char, start, end, arg_span)?;
-                equals_found = true;
-                break;
-            }
             match char {
                 '=' => {
                     equals_found = true;
@@ -623,12 +610,12 @@ pub fn parse_call_expr_head(
                 .map_err(|_| {
                     CliArgumentError::new_s(
                         format!("{label_kind} must be valid utf-8"),
-                        arg_span.subslice(0, 1, label_start, label_end),
+                        arg_span.subslice_offsets(label_start, label_end),
                     )
                 })?
                 .to_owned(),
             is_atom: label_is_atom,
-            span: arg_span.subslice(0, 1, label_start, label_end),
+            span: arg_span.subslice_offsets(label_start, label_end),
         });
     }
 
@@ -636,42 +623,28 @@ pub fn parse_call_expr_head(
 
     if dash_found {
         let squished_arg_start = i;
-        let mut squished_arg_end = i;
-        for (mut start, mut end, char) in
+        let mut squished_arg_end = argv.len();
+        for (_start, mut end, char) in
             argv[squished_arg_start..].char_indices()
         {
-            start += squished_arg_start;
             end += squished_arg_start;
             i = end;
-            if colon_found {
-                expect_equals_after_colon(char, start, end, arg_span)?;
-                equals_found = true;
-                break;
-            }
-            if char == ':' {
-                colon_found = true;
-                continue;
-            }
             if char == '=' {
+                squished_arg_end = i - 1;
                 equals_found = true;
                 break;
             }
-            squished_arg_end = end;
         }
 
-        dashed_arg = Some(Argument {
-            value: FieldValue::Bytes(
-                argv[squished_arg_start..squished_arg_end].to_owned(),
-            ),
-            span: arg_span.subslice(
-                0,
-                1,
-                squished_arg_start,
-                squished_arg_end,
-            ),
-            source_scope: scope,
-            end_kind: None,
-        });
+        let mut target = IndexMap::new();
+        parse_dashed_arg(
+            &argv[squished_arg_start - 1..squished_arg_end],
+            source_scope,
+            arg_span.subslice_offsets(squished_arg_start - 1, 0),
+            &mut target,
+        )?;
+
+        dashed_arg = Some(target);
     }
 
     let mut equals_arg = None;
@@ -679,8 +652,8 @@ pub fn parse_call_expr_head(
     if equals_found {
         equals_arg = Some(Argument {
             value: FieldValue::Bytes(argv[i..].to_owned()),
-            span: arg_span.subslice(0, 1, i, argv.len()),
-            source_scope: scope,
+            span: arg_span.subslice_offsets(i, argv.len()),
+            source_scope,
             end_kind: None,
         })
     };
@@ -690,8 +663,8 @@ pub fn parse_call_expr_head(
         op_name_span,
         colon_found,
         label,
-        dashed_arg,
         equals_arg,
+        dashed_arg,
     })
 }
 
@@ -733,7 +706,7 @@ fn parse_modes(
     if !append_mode && transparent_mode && argv.get(i) == Some(&b'+') {
         return Err(CliArgumentError::new(
             "append mode `+` must be specified before transparent mode `_`",
-            span.subslice(0, 1, i, i + 1),
+            span.subslice_offsets(i, i + 1),
         ));
     }
 
@@ -803,7 +776,7 @@ pub fn parse_list_after_start<'a>(
                 value: FieldValue::Array(Array::Argument(args)),
                 span: start_span.span_until(span).unwrap(),
                 source_scope,
-                end_kind: None,
+                end_kind: Some(CallExprEndKind::End(span)),
             };
             let Some((label, label_span)) = label else {
                 return Ok(list);
@@ -873,6 +846,77 @@ pub struct ParsedExpr {
     pub append_mode: bool,
 }
 
+pub fn parse_dashed_arg(
+    argv: &[u8],
+    source_scope: ScopeId,
+    span: Span,
+    target: &mut IndexMap<String, FieldValue>,
+) -> Result<(), CliArgumentError> {
+    debug_assert_eq!(argv[0], b'-');
+    let mut i = 1;
+    let mut starts_with_dash = true;
+    loop {
+        if argv.len() == i {
+            return Err(CliArgumentError::new(
+                "leading dash in argument must be followed by flag",
+                span,
+            ));
+        }
+        let arg_start = i;
+        let mut key = argv;
+        let mut value = FieldValue::Null;
+        if argv[i] == b'-' {
+            if let Some(colon_idx) = argv[i + 1..].find_char(':') {
+                let colon_idx = i + 1 + colon_idx;
+                key = &argv[..colon_idx];
+                value = parse_single_arg_value(&argv[colon_idx + 1..]);
+                i = argv.len();
+            };
+        } else {
+            key = &argv[i..=i];
+            i += 1;
+            if let Some(b':') = argv.get(i) {
+                i += 1;
+                let v_start = i;
+                while i < argv.len() {
+                    if argv[i] == b'-' {
+                        break;
+                    }
+                    i += 1;
+                }
+                value = parse_single_arg_value(&argv[v_start..i]);
+            }
+        }
+        let Ok(key) = key.to_str() else {
+            return Err(CliArgumentError::new(
+                "double dash argument must be valid utf-8",
+                span.subslice_offsets(arg_start, arg_start + key.len()),
+            ));
+        };
+        let key = format!("-{key}");
+        let value = FieldValue::Argument(Box::new(Argument {
+            value,
+            span: span.subslice_offsets(
+                arg_start - usize::from(starts_with_dash),
+                i,
+            ),
+            source_scope,
+            end_kind: None,
+        }));
+        if let Some(_prev) = target.insert(key.to_string(), value) {
+            return Err(CliArgumentError::new_s(
+                format!("dashed argument name '{key}' specified twice"),
+                span.subslice_offsets(arg_start, arg_start + key.len()),
+            ));
+        }
+        if i == argv.len() {
+            return Ok(());
+        }
+        starts_with_dash = argv[i] == b'-';
+        i += usize::from(starts_with_dash);
+    }
+}
+
 pub fn parse_call_expr<'a>(
     src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
     source_scope: ScopeId,
@@ -899,7 +943,7 @@ pub fn parse_call_expr<'a>(
 
     let mut args = Vec::new();
 
-    let head =
+    let mut head =
         parse_call_expr_head(argv.as_bytes(), i, arg_span, source_scope)?;
 
     args.push(Argument {
@@ -908,18 +952,44 @@ pub fn parse_call_expr<'a>(
         source_scope,
         end_kind: None,
     });
-
-    if let Some(dash_arg) = &head.dashed_arg {
-        args.push(dash_arg.clone());
+    let dash_arg_pos = args.len();
+    let dash_arg_inserted = head.dashed_arg.is_some();
+    if dash_arg_inserted {
+        args.push(Argument {
+            value: FieldValue::Undefined,
+            span: Span::Generated,
+            source_scope,
+            end_kind: None,
+        });
     }
     if let Some(equals_arg) = &head.equals_arg {
         // TODO: dash dash arg
         args.push(equals_arg.clone());
     }
 
-    let mut end_span =
-        gobble_cli_args_while_dashed(src, &mut args, source_scope)
-            .unwrap_or(arg_span);
+    let mut end_span = gobble_cli_args_while_dashed_or_eq(
+        src,
+        &mut args,
+        source_scope,
+        &mut head.dashed_arg,
+    )?
+    .unwrap_or(arg_span);
+
+    if let Some(dashed) = head.dashed_arg {
+        if !dash_arg_inserted {
+            args.insert(
+                dash_arg_pos,
+                Argument {
+                    value: FieldValue::Undefined,
+                    span: Span::Generated,
+                    source_scope,
+                    end_kind: None,
+                },
+            )
+        }
+        args[dash_arg_pos].value =
+            FieldValue::Object(Object::KeysStored(dashed));
+    }
 
     let mut end_kind = CallExprEndKind::Inline;
 
@@ -927,7 +997,7 @@ pub fn parse_call_expr<'a>(
         let list_end_span =
             parse_block_until_end(src, &mut args, arg_span, source_scope)?;
 
-        complain_if_dashed_arg(src, true)?;
+        complain_if_dashed_arg_after_block(src, true)?;
 
         end_kind = CallExprEndKind::End(list_end_span);
 
@@ -1063,19 +1133,22 @@ pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {
 #[cfg(test)]
 mod test {
 
+    use indexmap::indexmap;
+
     use crate::{
         cli::{
             call_expr::{Argument, CallExprEndKind, Span},
             cli_args_into_arguments_iter, parse_call_expr,
         },
         record_data::{
-            array::Array, field_value::FieldValue,
+            array::Array,
+            field_value::{FieldValue, Object},
             scope_manager::DEFAULT_SCOPE_ID,
         },
     };
 
     #[test]
-    fn test_parse_call_expr() {
+    fn equals_parsed_as_str() {
         let src = ["seq=10".as_bytes().to_owned()];
         let expr = parse_call_expr(
             &mut cli_args_into_arguments_iter(src.iter().map(|v| &**v)),
@@ -1096,7 +1169,7 @@ mod test {
                         end_kind: None
                     },
                     Argument {
-                        value: FieldValue::Int(10),
+                        value: FieldValue::Bytes(b"10".into()),
                         span: cli_arg.reoffset(4, 6),
                         source_scope: DEFAULT_SCOPE_ID,
                         end_kind: None
@@ -1105,6 +1178,121 @@ mod test {
                 span: cli_arg,
                 source_scope: DEFAULT_SCOPE_ID,
                 end_kind: Some(CallExprEndKind::Inline)
+            },
+        )
+    }
+
+    #[test]
+    fn listified_value_parsed_as_int() {
+        let src = ["[", "seq", "10", "]"];
+        let expr = parse_call_expr(
+            &mut cli_args_into_arguments_iter(
+                src.into_iter().map(str::as_bytes),
+            ),
+            DEFAULT_SCOPE_ID,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!expr.append_mode);
+        assert_eq!(
+            expr.arg,
+            Argument {
+                value: FieldValue::Array(Array::Argument(vec![
+                    Argument {
+                        value: FieldValue::Text("seq".to_string()),
+                        span: Span::from_single_arg(1, 3),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        end_kind: None
+                    },
+                    Argument {
+                        value: FieldValue::Int(10),
+                        span: Span::from_single_arg(2, 2),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        end_kind: None
+                    }
+                ])),
+                span: Span::from_cli_arg(0, 4, 0, 1),
+                source_scope: DEFAULT_SCOPE_ID,
+                end_kind: Some(CallExprEndKind::End(Span::from_single_arg(
+                    3, 1
+                )))
+            },
+        )
+    }
+
+    #[test]
+    fn test_parse_call_expr_separate_args() {
+        let src = ["seq:-a:3=5", "-b", "-c:5", "=10", "asdf", "end"];
+        let expr = parse_call_expr(
+            &mut cli_args_into_arguments_iter(
+                src.into_iter().map(str::as_bytes),
+            ),
+            DEFAULT_SCOPE_ID,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!expr.append_mode);
+        assert_eq!(
+            expr.arg,
+            Argument {
+                value: FieldValue::Array(Array::Argument(vec![
+                    Argument {
+                        value: FieldValue::Text("seq".to_string()),
+                        span: Span::from_single_arg(0, 3),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        end_kind: None
+                    },
+                    Argument {
+                        value: FieldValue::Object(Object::KeysStored(
+                            indexmap! {
+                                "-a".into() => FieldValue::Argument(Box::new(Argument {
+                                    value: FieldValue::Int(10),
+                                    span: Span::from_single_arg(4, 8),
+                                    source_scope: DEFAULT_SCOPE_ID,
+                                    end_kind: None
+                                })),
+                                "-b".into() => FieldValue::Argument(Box::new(Argument {
+                                    value: FieldValue::Null,
+                                    span: Span::from_single_arg(1, 2),
+                                    source_scope: DEFAULT_SCOPE_ID,
+                                    end_kind: None
+                                })),
+                                "-c".into() => FieldValue::Argument(Box::new(Argument {
+                                    value: FieldValue::Int(5),
+                                    span: Span::from_single_arg(2, 2),
+                                    source_scope: DEFAULT_SCOPE_ID,
+                                    end_kind: None
+                                })),
+                            }
+                        )),
+                        span: Span::from_single_arg(1, 3),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        end_kind: None
+                    },
+                    Argument {
+                        value: FieldValue::Bytes(b"5".into()),
+                        span: Span::from_single_arg(1, 2),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        end_kind: None
+                    },
+                    Argument {
+                        value: FieldValue::Int(10),
+                        span: Span::from_single_arg(3, 3),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        end_kind: None
+                    },
+                    Argument {
+                        value: FieldValue::Text("asdf".into()),
+                        span: Span::from_single_arg(4, 4),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        end_kind: None
+                    }
+                ])),
+                span: Span::from_cli_arg(0, 4, 0, 1),
+                source_scope: DEFAULT_SCOPE_ID,
+                end_kind: Some(CallExprEndKind::End(Span::from_single_arg(
+                    3, 1
+                )))
             },
         )
     }
