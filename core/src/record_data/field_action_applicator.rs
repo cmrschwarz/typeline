@@ -319,16 +319,20 @@ impl FieldActionApplicator {
             as RunLength;
         let post = (header.run_length - pre).saturating_sub(1);
         self.push_copy_command(faas);
-        self.push_insert_command_if_rl_gt_0(faas, header.fmt, pre);
-        faas.field_pos += pre as usize;
-        let header_pos_bump =
-            usize::from(pre > 0) + mid_full_count + usize::from(mid_rem > 0);
 
-        let data_offset = FieldValueHeader {
+        let data_offset_iters = FieldValueHeader {
             fmt: header.fmt,
             run_length: pre + 1,
         }
         .total_size_unique();
+
+        if pre > 0 {
+            self.push_insert_command(faas, header.fmt, pre);
+            header.fmt.set_leading_padding(0);
+        }
+        faas.field_pos += pre as usize;
+        let header_pos_bump =
+            usize::from(pre > 0) + mid_full_count + usize::from(mid_rem > 0);
 
         for it in iterators {
             if it.header_rl_offset < pre {
@@ -341,7 +345,7 @@ impl FieldActionApplicator {
             }
             it.field_pos += dup_count;
             it.header_idx += header_pos_bump;
-            it.data += data_offset;
+            it.data += data_offset_iters;
             it.header_rl_offset -= pre + 1;
         }
 
@@ -356,6 +360,7 @@ impl FieldActionApplicator {
             for _ in 0..mid_full_count {
                 self.push_insert_command(faas, fmt_mid, RunLength::MAX);
                 fmt_mid.set_same_value_as_previous(true);
+                fmt_mid.set_leading_padding(0);
             }
         }
 
@@ -374,6 +379,7 @@ impl FieldActionApplicator {
         self.push_insert_command_if_rl_gt_0(faas, fmt_mid, mid_rem);
         faas.field_pos += mid_rem as usize;
         header.run_length = post;
+        header.set_leading_padding(0);
         header.set_shared_value_if_rl_1();
     }
     fn handle_drop(
@@ -1417,6 +1423,44 @@ mod test {
                         size: 1,
                     },
                     run_length: 2,
+                },
+            ],
+            [],
+            [],
+        );
+    }
+
+    #[test]
+    fn dup_clears_padding_for_next() {
+        test_actions_on_headers(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    size: 1,
+                    flags: field_value_flags::padding(1),
+                },
+                run_length: 2,
+            }],
+            [FieldAction::new(FieldActionKind::Dup, 0, 1)],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::padding(1)
+                            | field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        // TODO: get rid of this shared valule here
+                        flags: field_value_flags::DEFAULT
+                            | field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 1,
                 },
             ],
             [],
