@@ -118,16 +118,17 @@ impl SessionData {
     }
     pub fn with_mut_op_data<R>(
         &mut self,
-        op_data_id: OperatorDataId,
+        op_id: OperatorId,
         f: impl FnOnce(&mut Self, &mut OperatorData) -> R,
     ) -> R {
+        let op_data_id = self.op_data_id(op_id);
         let mut op_data = std::mem::take(&mut self.operator_data[op_data_id]);
         let res = f(self, &mut op_data);
         self.operator_data[op_data_id] = op_data;
         res
     }
     pub fn setup_op_liveness(&mut self, ld: &LivenessData, op_id: OperatorId) {
-        self.with_mut_op_data(self.op_data_id(op_id), |sess, op_data| {
+        self.with_mut_op_data(op_id, |sess, op_data| {
             op_data.on_liveness_computed(sess, ld, op_id)
         });
     }

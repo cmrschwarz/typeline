@@ -1,6 +1,4 @@
-use std::{
-    alloc::Layout, borrow::Cow, cmp::min, collections::HashMap, hash::Hash,
-};
+use std::{alloc::Layout, borrow::Cow, collections::HashMap, hash::Hash};
 
 use crate::index_newtype;
 
@@ -14,6 +12,8 @@ index_newtype! {
 }
 pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry =
     StringStoreEntry::MAX_VALUE;
+
+const MIN_BUCKET_CAP: usize = 64;
 
 #[derive(Default)]
 pub struct StringStore {
@@ -188,23 +188,31 @@ impl StringStore {
             return *key;
         }
         let len = entry.len();
-        let mut bucket = self.arena.last_mut().unwrap();
-        let mut bucket_cap = bucket.capacity();
-        let mut bucket_len = bucket.len();
-        if bucket_cap - bucket_len < len {
-            bucket_cap *= 2;
-            self.arena.push(Vec::with_capacity(min(
-                bucket_cap,
-                len.next_power_of_two(),
-            )));
-            bucket = self.arena.last_mut().unwrap();
-            bucket_len = 0;
-        }
+        let bucket = if let Some(bucket) = self.arena.last_mut() {
+            let mut bucket_cap = bucket.capacity();
+            let bucket_len = bucket.len();
+            if bucket_cap - bucket_len < len {
+                bucket_cap *= 2;
+                if entry.len() > bucket_cap {
+                    bucket_cap = entry.len().next_power_of_two();
+                }
+                self.arena.push(Vec::with_capacity(bucket_cap));
+                self.arena.last_mut().unwrap()
+            } else {
+                bucket
+            }
+        } else {
+            let mut bucket_cap = MIN_BUCKET_CAP;
+            if entry.len() > bucket_cap {
+                bucket_cap = entry.len().next_power_of_two();
+            }
+            self.arena.push(Vec::with_capacity(bucket_cap));
+            &mut self.arena[0]
+        };
+
         bucket.extend_from_slice(entry.as_bytes());
         let str_ptr = StrPtr::from_str(unsafe {
-            std::str::from_utf8_unchecked(
-                &bucket[bucket_len..bucket_len + len],
-            )
+            std::str::from_utf8_unchecked(&bucket[bucket.len() - len..])
         });
         self.claim_id_for_str_ptr(str_ptr)
     }

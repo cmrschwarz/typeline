@@ -188,7 +188,7 @@ impl Operator for OpMultiOp {
         _op_id: OperatorId,
     ) {
         for &op_id in &self.sub_op_ids {
-            sess.with_mut_op_data(sess.op_data_id(op_id), |sess, op_data| {
+            sess.with_mut_op_data(op_id, |sess, op_data| {
                 op_data.on_liveness_computed(sess, ld, op_id)
             });
         }

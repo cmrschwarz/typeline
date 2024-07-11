@@ -189,6 +189,7 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
             [create_op_str("a")],
             [create_op_str("b")],
         ]))
+        // despite the fork, we should preserve non string access semanticss
         .add_op(create_op_format("{lbl:?}: {}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;

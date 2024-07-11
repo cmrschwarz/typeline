@@ -47,7 +47,7 @@ use super::{
         update_op_format_variable_liveness, OpFormat,
     },
     join::{build_tf_join, OpJoin},
-    key::{setup_op_key, NestedOp, OpKey},
+    key::{setup_op_key, OpKey},
     literal::{build_tf_literal, OpLiteral},
     macro_call::{
         macro_call_has_dynamic_outputs, setup_op_macro_call, OpMacroCall,
@@ -70,6 +70,7 @@ use super::{
     to_str::{build_tf_to_str, OpToStr},
     transform::{TransformData, TransformId, TransformState},
     transparent::{build_tf_transparent, setup_op_transparent, OpTransparent},
+    utils::nested_op::{setup_op_outputs_for_nested_op, NestedOp},
 };
 
 index_newtype! {
@@ -490,6 +491,86 @@ impl OperatorData {
         }
     }
 
+    pub fn assign_op_outputs(
+        &mut self,
+        sess: &mut SessionData,
+        ld: &mut LivenessData,
+        op_id: OperatorId,
+        output_count: &mut OpOutputIdx,
+    ) {
+        match self {
+            OperatorData::Key(op) => {
+                if let Some(nested_op) = &op.nested_op {
+                    setup_op_outputs_for_nested_op(
+                        nested_op,
+                        sess,
+                        ld,
+                        op_id,
+                        output_count,
+                    );
+                    return;
+                }
+            }
+            OperatorData::Transparent(op) => {
+                setup_op_outputs_for_nested_op(
+                    &op.nested_op,
+                    sess,
+                    ld,
+                    op_id,
+                    output_count,
+                );
+                return;
+            }
+            OperatorData::Aggregator(op) => {
+                let outputs_before = *output_count;
+                // for the aggregation column
+                ld.append_op_outputs(1, op_id);
+                *output_count += OpOutputIdx::one();
+                for &op_id in &op.sub_ops {
+                    sess.with_mut_op_data(op_id, |sess, op| {
+                        op.assign_op_outputs(sess, ld, op_id, output_count)
+                    });
+                }
+                let outputs_after = *output_count;
+                let op_base = &mut sess.operator_bases[op_id];
+                op_base.outputs_start = outputs_before;
+                op_base.outputs_end = outputs_after;
+                return;
+            }
+            OperatorData::Nop(_)
+            | OperatorData::NopCopy(_)
+            | OperatorData::Call(_)
+            | OperatorData::CallConcurrent(_)
+            | OperatorData::ToStr(_)
+            | OperatorData::Count(_)
+            | OperatorData::Print(_)
+            | OperatorData::Join(_)
+            | OperatorData::Fork(_)
+            | OperatorData::ForkCat(_)
+            | OperatorData::Select(_)
+            | OperatorData::Regex(_)
+            | OperatorData::Format(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::FieldValueSink(_)
+            | OperatorData::FileReader(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Sequence(_)
+            | OperatorData::Foreach(_)
+            | OperatorData::MacroDef(_)
+            | OperatorData::MacroCall(_)
+            | OperatorData::SuccessUpdator(_)
+            | OperatorData::MultiOp(_)
+            | OperatorData::Custom(_) => (),
+        }
+
+        let op_output_count = self.output_count(sess, op_id);
+        let op_base = &mut sess.operator_bases[op_id];
+        op_base.outputs_start = *output_count;
+        *output_count += OpOutputIdx::from_usize(op_output_count);
+        op_base.outputs_end = *output_count;
+        ld.append_op_outputs(op_output_count, op_id);
+    }
+
     pub fn default_op_name(&self) -> OperatorName {
         match self {
             OperatorData::Print(_) => "p".into(),
@@ -527,6 +608,24 @@ impl OperatorData {
             OperatorData::Regex(op) => op.debug_op_name(),
             OperatorData::Join(op) => op.debug_op_name(),
             OperatorData::Sequence(op) => op.debug_op_name(),
+            OperatorData::Key(op) => {
+                let Some(nested) = &op.nested_op else {
+                    return self.default_op_name();
+                };
+                match nested {
+                    NestedOp::Operator(nested_op) => {
+                        format!(
+                            "[ key '{}' {} ]",
+                            op.key,
+                            nested_op.0.debug_op_name()
+                        )
+                    }
+                    NestedOp::SetUp(op_id) => {
+                        format!("[ key '{}' <op {op_id:02}> ]", op.key)
+                    }
+                }
+                .into()
+            }
             OperatorData::Aggregator(op) => {
                 let mut n = self.default_op_name().into_owned();
                 n.push('<');
@@ -674,7 +773,7 @@ impl OperatorData {
         input_field: OpOutputIdx,
         outputs_offset: usize,
     ) -> (OpOutputIdx, OperatorCallEffect) {
-        let output_field = OpOutputIdx::from_usize(
+        let primary_output_idx = OpOutputIdx::from_usize(
             sess.operator_bases[op_id].outputs_start.into_usize()
                 + outputs_offset,
         );
@@ -685,7 +784,7 @@ impl OperatorData {
             | OperatorData::Call(_)
             | OperatorData::MacroDef(_)
             | OperatorData::CallConcurrent(_) => {
-                return (output_field, OperatorCallEffect::Diverge);
+                return (primary_output_idx, OperatorCallEffect::Diverge);
             }
             OperatorData::Key(key) => {
                 if let Some(NestedOp::SetUp(nested_op_id)) = key.nested_op {
@@ -703,8 +802,8 @@ impl OperatorData {
                 }
 
                 let var_id = ld.var_names[&key.key_interned.unwrap()];
-                ld.vars_to_op_outputs_map[var_id] = output_field;
-                ld.op_outputs[output_field]
+                ld.vars_to_op_outputs_map[var_id] = primary_output_idx;
+                ld.op_outputs[primary_output_idx]
                     .field_references
                     .push(input_field);
                 if let Some(prev_tgt) =
@@ -756,7 +855,7 @@ impl OperatorData {
                 flags.non_stringified_input_access = false;
                 for i in 0..re.capture_group_names.len() {
                     ld.op_outputs[OpOutputIdx::from_usize(
-                        output_field.into_usize() + i,
+                        primary_output_idx.into_usize() + i,
                     )]
                     .field_references
                     .push(input_field);
@@ -780,7 +879,7 @@ impl OperatorData {
             OperatorData::NopCopy(_) => {
                 flags.may_dup_or_drop = false;
                 flags.non_stringified_input_access = false;
-                ld.op_outputs[output_field]
+                ld.op_outputs[primary_output_idx]
                     .field_references
                     .push(input_field);
             }
@@ -884,14 +983,14 @@ impl OperatorData {
                     *flags = flags.or(&sub_op_flags);
                     let sub_op = &sess.operator_bases[sub_op];
                     if sub_op.outputs_start != sub_op.outputs_end {
-                        ld.op_outputs[output_field]
+                        ld.op_outputs[primary_output_idx]
                             .field_references
                             .push(sub_op.outputs_start);
                     }
                 }
             }
         }
-        (output_field, OperatorCallEffect::Basic)
+        (primary_output_idx, OperatorCallEffect::Basic)
     }
     pub fn on_liveness_computed(
         &mut self,

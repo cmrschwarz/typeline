@@ -4,3 +4,4 @@ pub mod buffer_stream_values;
 pub mod generator_transform_update;
 pub mod maintain_single_value;
 pub mod writable;
+pub mod nested_op;

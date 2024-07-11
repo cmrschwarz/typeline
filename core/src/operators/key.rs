@@ -15,15 +15,11 @@ use super::{
         OffsetInAggregation, OperatorData, OperatorDataId, OperatorId,
         OperatorOffsetInChain,
     },
+    utils::nested_op::NestedOp,
 };
 
-pub enum NestedOp {
-    Operator(Box<(OperatorData, Span)>),
-    SetUp(OperatorId),
-}
-
 pub struct OpKey {
-    key: String,
+    pub key: String,
     pub key_interned: Option<StringStoreEntry>,
     pub nested_op: Option<NestedOp>,
 }
@@ -83,8 +79,7 @@ pub fn setup_op_key(
     offset_in_chain: OperatorOffsetInChain,
     span: Span,
 ) -> Result<OperatorId, ScrError> {
-    op.key_interned =
-        Some(sess.string_store.intern_moved(std::mem::take(&mut op.key)));
+    op.key_interned = Some(sess.string_store.intern_cloned(&op.key));
     let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
     let Some(nested_op) = &mut op.nested_op else {
         return Ok(op_id);

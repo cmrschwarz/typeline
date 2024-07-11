@@ -10,6 +10,7 @@ use std::{
 use ref_cast::RefCast;
 
 use super::{
+    get_two_distinct_mut,
     indexing_type::{IndexingType, IndexingTypeRange},
     range_bounds_to_range,
 };
@@ -202,6 +203,9 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
     }
     pub fn iter_mut(&mut self) -> std::slice::IterMut<T> {
         self.data.iter_mut()
+    }
+    pub fn two_distinct_mut(&mut self, a: I, b: I) -> (&mut T, &mut T) {
+        get_two_distinct_mut(&mut self.data, a.into_usize(), b.into_usize())
     }
 }
 

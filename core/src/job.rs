@@ -9,7 +9,6 @@ use crate::{
     operators::{
         call::handle_eager_call_expansion,
         call_concurrent::setup_callee_concurrent,
-        key::NestedOp,
         operator::{
             OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
             OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
@@ -20,6 +19,7 @@ use crate::{
             transform_stream_value_update, transform_update, TransformData,
             TransformId, TransformState,
         },
+        utils::nested_op::NestedOp,
     },
     record_data::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},

@@ -22,8 +22,8 @@ use crate::{
         foreach::OpForeach,
         fork::OpFork,
         forkcat::OpForkCat,
-        key::NestedOp,
         operator::{OffsetInChain, OperatorData, OperatorId},
+        utils::nested_op::NestedOp,
     },
     utils::{
         get_two_distinct_mut,
@@ -39,7 +39,7 @@ use derive_more::{Deref, DerefMut};
 index_newtype! {
     pub struct BasicBlockId(usize);
     pub struct VarId(u32);
-    #[derive(derive_more::Add, derive_more::Sub)]
+    #[derive(derive_more::Add, derive_more::Sub, derive_more::AddAssign)]
     pub struct OpOutputIdx(u32);
 }
 
@@ -434,12 +434,22 @@ impl OpOutputIdx {
 }
 
 impl LivenessData {
+    pub fn append_op_outputs(&mut self, count: usize, op_id: OperatorId) {
+        self.op_outputs.extend(
+            std::iter::repeat(OpOutput {
+                bound_vars: SmallVec::new(),
+                field_references: SmallVec::new(),
+                producing_op: Some(op_id),
+            })
+            .take(count),
+        );
+    }
     pub fn setup_operator_outputs(&mut self, sess: &mut SessionData) {
         self.operator_liveness_data.extend(
             iter::repeat(OperatorLivenessData::default())
                 .take(sess.operator_data.len()),
         );
-        let mut total_outputs_count = self.vars.len();
+        let mut total_outputs_count = OpOutputIdx::from_usize(self.vars.len());
         self.op_outputs.extend(
             iter::repeat(OpOutput {
                 bound_vars: SmallVec::new(),
@@ -448,28 +458,30 @@ impl LivenessData {
             })
             .take(self.vars.len()),
         );
-        for op_id in IndexingTypeRange::new(
-            OperatorId::zero()..sess.operator_bases.next_idx(),
-        ) {
-            let op_data_id = sess.operator_bases[op_id].op_data_id;
-            let op_output_count =
-                sess.operator_data[op_data_id].output_count(sess, op_id);
-            let op_base = &mut sess.operator_bases[op_id];
 
-            op_base.outputs_start =
-                OpOutputIdx::from_usize(total_outputs_count);
-            total_outputs_count += op_output_count;
-            op_base.outputs_end = OpOutputIdx::from_usize(total_outputs_count);
-            self.op_outputs.extend(
-                iter::repeat(OpOutput {
-                    bound_vars: SmallVec::new(),
-                    field_references: SmallVec::new(),
-                    producing_op: Some(op_id),
-                })
-                .take(op_output_count),
-            );
+        for bb_id in IndexingTypeRange::from_zero(self.basic_blocks.next_idx())
+        {
+            let bb = &self.basic_blocks[bb_id];
+            let chain_id = bb.chain_id;
+
+            for op_offset in
+                IndexingTypeRange::new(bb.operators_start..bb.operators_end)
+            {
+                let op_id = sess.chains[chain_id].operators[op_offset];
+                sess.with_mut_op_data(op_id, |sess, op_data| {
+                    op_data.assign_op_outputs(
+                        sess,
+                        self,
+                        op_id,
+                        &mut total_outputs_count,
+                    )
+                });
+            }
         }
-        debug_assert!(self.op_outputs.len() == total_outputs_count);
+
+        debug_assert!(
+            self.op_outputs.len() == total_outputs_count.into_usize()
+        );
         self.vars_to_op_outputs_map
             .extend((0..self.vars.len()).map(OpOutputIdx::from_usize));
 
@@ -1667,8 +1679,8 @@ impl LivenessData {
 pub fn compute_liveness_data(sess: &mut SessionData) -> LivenessData {
     let mut ld = LivenessData::default();
     ld.setup_vars(sess);
-    ld.setup_operator_outputs(sess);
     ld.setup_bbs(sess);
+    ld.setup_operator_outputs(sess);
     ld.setup_bb_linkage_data(sess);
     ld.compute_local_liveness(sess);
     ld.compute_global_liveness();

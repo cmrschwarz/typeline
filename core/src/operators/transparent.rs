@@ -12,12 +12,12 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    key::NestedOp,
     operator::{
         OffsetInAggregation, OperatorData, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
     },
     transform::TransformState,
+    utils::nested_op::NestedOp,
 };
 
 pub struct OpTransparent {
