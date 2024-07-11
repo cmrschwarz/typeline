@@ -1171,7 +1171,7 @@ mod test {
                         end_kind: None
                     },
                     Argument {
-                        value: FieldValue::Bytes(b"10".into()),
+                        value: FieldValue::Text("10".into()),
                         span: cli_arg.reoffset(4, 6),
                         source_scope: DEFAULT_SCOPE_ID,
                         end_kind: None
