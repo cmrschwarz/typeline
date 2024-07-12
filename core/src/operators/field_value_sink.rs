@@ -162,7 +162,7 @@ pub fn handle_tf_field_value_sink(
                 (BigRational, RefAwareFieldValueRangeIter, Box::new(v.clone())),
                 (Argument, RefAwareFieldValueRangeIter, Box::new(v.clone())),
                 (Array, RefAwareFieldValueRangeIter, v.clone()),
-                (Object, RefAwareFieldValueRangeIter, v.clone()),
+                (Object, RefAwareFieldValueRangeIter, Box::new(v.clone())),
                 (Custom, RefAwareFieldValueRangeIter, v.clone()),
             ])]
             FieldValueSlice::REP(text) => {

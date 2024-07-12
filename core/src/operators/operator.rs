@@ -26,6 +26,7 @@ use super::{
         insert_tf_aggregator, on_op_aggregator_liveness_computed,
         setup_op_aggregator, OpAggregator, AGGREGATOR_DEFAULT_NAME,
     },
+    atom::OpAtom,
     call::{build_tf_call, setup_op_call, OpCall},
     call_concurrent::{
         build_tf_call_concurrent, setup_op_call_concurrent,
@@ -104,6 +105,7 @@ pub enum OperatorData {
     Fork(OpFork),
     ForkCat(OpForkCat),
     Key(OpKey),
+    Atom(OpAtom),
     Transparent(OpTransparent),
     Select(OpSelect),
     Regex(OpRegex),
@@ -349,6 +351,7 @@ impl OperatorData {
                 span,
             ),
             OperatorData::ToStr(_)
+            | OperatorData::Atom(_)
             | OperatorData::Count(_)
             | OperatorData::Sequence(_)
             | OperatorData::Literal(_)
@@ -369,6 +372,7 @@ impl OperatorData {
     ) -> bool {
         match self {
             OperatorData::Nop(_)
+            | OperatorData::Atom(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
@@ -436,6 +440,7 @@ impl OperatorData {
             // technically this has output, but it always introduces a
             // separate BB so we don't want to allocate slots for that
             OperatorData::ForkCat(_) => 0,
+            OperatorData::Atom(_) => 0,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return 0;
@@ -538,6 +543,7 @@ impl OperatorData {
                 return;
             }
             OperatorData::Nop(_)
+            | OperatorData::Atom(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
@@ -573,6 +579,7 @@ impl OperatorData {
 
     pub fn default_op_name(&self) -> OperatorName {
         match self {
+            OperatorData::Atom(_) => "atom".into(),
             OperatorData::Print(_) => "p".into(),
             OperatorData::Sequence(op) => op.default_op_name(),
             OperatorData::Fork(_) => "fork".into(),
@@ -667,9 +674,9 @@ impl OperatorData {
             | OperatorData::SuccessUpdator(_)
             | OperatorData::Fork(_)
             | OperatorData::MacroDef(_) => OutputFieldKind::SameAsInput,
-            OperatorData::ForkCat(_) | OperatorData::Select(_) => {
-                OutputFieldKind::Unconfigured
-            }
+            OperatorData::ForkCat(_)
+            | OperatorData::Select(_)
+            | OperatorData::Atom(_) => OutputFieldKind::Unconfigured,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return OutputFieldKind::SameAsInput;
@@ -743,6 +750,7 @@ impl OperatorData {
                 op.op_multi_op.register_output_var_names(ld, sess, op_id)
             }
             OperatorData::Call(_)
+            | OperatorData::Atom(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::ToStr(_)
             | OperatorData::Count(_)
@@ -778,6 +786,19 @@ impl OperatorData {
                 + outputs_offset,
         );
         match &self {
+            OperatorData::Atom(_) => {
+                flags.may_dup_or_drop = false;
+                flags.non_stringified_input_access = false;
+                flags.input_accessed = false;
+            }
+            OperatorData::SuccessUpdator(_)
+            //TODO: this shouldn't access inputs. fix testcases
+            | OperatorData::Nop(_)
+            | OperatorData::StringSink(_)
+            | OperatorData::Print(_) => {
+                flags.may_dup_or_drop = false;
+                flags.non_stringified_input_access = false;
+            }
             OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Foreach(_)
@@ -908,13 +929,7 @@ impl OperatorData {
             OperatorData::Sequence(seq) => {
                 update_op_sequence_variable_liveness(flags, seq);
             }
-            OperatorData::Nop(_)
-            | OperatorData::SuccessUpdator(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::Print(_) => {
-                flags.may_dup_or_drop = false;
-                flags.non_stringified_input_access = false;
-            }
+
             OperatorData::FieldValueSink(_) | OperatorData::ToStr(_) => {
                 flags.may_dup_or_drop = false;
             }
@@ -1047,6 +1062,7 @@ impl OperatorData {
             OperatorData::ToStr(_)
             | OperatorData::Call(_)
             | OperatorData::Nop(_)
+            | OperatorData::Atom(_)
             | OperatorData::SuccessUpdator(_)
             | OperatorData::Count(_)
             | OperatorData::Print(_)
@@ -1076,6 +1092,7 @@ impl OperatorData {
         let data: TransformData<'a> = match self {
             OperatorData::Key(_)
             | OperatorData::MacroDef(_)
+            | OperatorData::Atom(_)
             | OperatorData::Select(_) => unreachable!(),
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::SuccessUpdator(op) => {
@@ -1231,6 +1248,7 @@ impl OperatorData {
             }
             OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
+            | OperatorData::Atom(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::ToStr(_)

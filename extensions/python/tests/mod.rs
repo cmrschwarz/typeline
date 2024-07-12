@@ -113,10 +113,10 @@ fn python_dict() -> Result<(), ScrError> {
         .run_collect()?;
     assert_eq!(
         res,
-        [FieldValue::Object(Object::from_iter([(
+        [FieldValue::Object(Box::new(Object::from_iter([(
             "asdf".to_string(),
             FieldValue::Int(3)
-        )]))]
+        )])))]
     );
     Ok(())
 }

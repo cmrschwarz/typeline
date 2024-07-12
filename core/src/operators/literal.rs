@@ -361,10 +361,10 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
         #[expand(REP in [Null, Undefined])]
         FieldValue::REP => Literal::REP,
 
-        #[expand(REP in [Int, Float, Bytes, Text, Array, Object, Custom])]
+        #[expand(REP in [Int, Float, Bytes, Text, Array,  Custom])]
         FieldValue::REP(v) => Literal::REP(v),
 
-        #[expand(REP in [BigInt, BigRational, Argument])]
+        #[expand(REP in [BigInt, BigRational, Argument, Object])]
         FieldValue::REP(v) => Literal::REP(*v),
 
         FieldValue::Error(v) => Literal::Error(v.message().to_owned()),

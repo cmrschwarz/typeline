@@ -618,7 +618,9 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         let mut c = self.consume_char_eat_whitespace()?;
         loop {
             if c == '}' {
-                return Ok(FieldValue::Object(Object::KeysStored(map)));
+                return Ok(FieldValue::Object(Box::new(Object::KeysStored(
+                    map,
+                ))));
             }
             let key = if c == '"' || c == '\'' {
                 let key = self.parse_string_token_after_quote(c as u8)?;
@@ -920,9 +922,9 @@ mod test {
 
         assert_eq!(
             parse(input),
-            Ok(FieldValue::Object(Object::KeysStored(indexmap![
+            Ok(FieldValue::Object(Box::new(Object::KeysStored(indexmap![
                 key_name.to_string() => FieldValue::Int(3)
-            ]))),
+            ])))),
         );
     }
 }

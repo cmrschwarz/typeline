@@ -525,7 +525,7 @@ pub unsafe trait PushInterface {
                 self.push_undefined(run_length, try_header_rle)
             }
             #[expand(REP in [
-                Float, Array, Object, Custom, Error,
+                Float, Array, Custom, Error,
                 FieldReference, SlicedFieldReference, StreamValueId,
                 Int,
             ])]
@@ -545,7 +545,7 @@ pub unsafe trait PushInterface {
                 self.PUSH_FN(v, run_length, try_header_rle, try_data_rle)
             }
 
-            #[expand(REP in [BigInt, BigRational, Argument])]
+            #[expand(REP in [BigInt, BigRational, Argument, Object])]
             FieldValue::REP(v) => {
                 self.push_fixed_size_type(
                     *v,

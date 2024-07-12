@@ -117,7 +117,7 @@ impl Array {
             Array::Mixed(v) => v,
 
             #[expand(REP in [
-                Int, Error, Array, Object,
+                Int, Error, Array,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
             ])]
@@ -129,7 +129,7 @@ impl Array {
             }
 
             #[expand(BOX_T in [
-                BigInt, BigRational, Argument
+                BigInt, BigRational, Argument, Object
             ])]
             Array::BOX_T(a) => {
                 a.into_iter()
@@ -150,7 +150,7 @@ impl Array {
             }
 
             #[expand(REP in [
-                Int, Error, Array, Object,
+                Int, Error, Array,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
             ])]
@@ -158,7 +158,7 @@ impl Array {
                 a.push(v);
             }
 
-            #[expand(BOX_T in [BigInt, BigRational, Argument])]
+            #[expand(BOX_T in [BigInt, BigRational, Argument, Object])]
             (Array::BOX_T(a), FieldValue::BOX_T(v)) => {
                 a.push(*v);
             }
@@ -297,13 +297,13 @@ impl Array {
             }
 
             #[expand(REP in [
-                Int, Error, Array, Object,
+                Int, Error, Array,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
             ])]
             Array::REP(v) => FieldValue::REP(v.pop()?),
 
-            #[expand(REP in [BigInt, BigRational, Argument])]
+            #[expand(REP in [BigInt, BigRational, Argument,  Object])]
             Array::REP(v) => FieldValue::REP(Box::new(v.pop()?)),
 
             Array::Mixed(v) => return v.pop(),

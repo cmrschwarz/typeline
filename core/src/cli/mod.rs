@@ -1,5 +1,6 @@
 use crate::{
     operators::{
+        atom::parse_op_atom,
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
         count::parse_op_count,
@@ -313,9 +314,10 @@ pub fn parse_operator_data(
     sess: &mut SessionSetupData,
     mut arg: Argument,
 ) -> Result<OperatorData, ScrError> {
-    let expr = CallExpr::from_argument_mut(&mut arg)?;
+    let mut expr = CallExpr::from_argument_mut(&mut arg)?;
 
     Ok(match expr.op_name {
+        "atom" => parse_op_atom(sess, &mut expr)?,
         "int" => parse_op_int(&expr)?,
         "bytes" => parse_op_bytes(&mut arg, false)?,
         "~bytes" => parse_op_bytes(&mut arg, true)?,
@@ -682,6 +684,7 @@ pub fn parse_single_arg_value(arg: &[u8]) -> FieldValue {
 }
 
 struct ExprModes {
+    setting: bool,
     append_mode: bool,
     transparent_mode: bool,
 }
@@ -694,6 +697,17 @@ fn parse_modes(
     let mut transparent_mode = false;
 
     let mut i = 0;
+
+    if argv.get(i) == Some(&b'%') {
+        return Ok((
+            ExprModes {
+                setting: true,
+                append_mode: false,
+                transparent_mode: false,
+            },
+            1,
+        ));
+    }
 
     if argv.get(i) == Some(&b'+') {
         append_mode = true;
@@ -716,6 +730,7 @@ fn parse_modes(
         ExprModes {
             append_mode,
             transparent_mode,
+            setting: false,
         },
         i,
     ))
@@ -945,6 +960,15 @@ pub fn parse_call_expr<'a>(
 
     let mut args = Vec::new();
 
+    if modes.setting {
+        args.push(Argument {
+            value: FieldValue::Text("atom".to_string()),
+            span: arg_span.subslice_offsets(0, 1),
+            source_scope,
+            end_kind: None,
+        })
+    }
+
     let mut head =
         parse_call_expr_head(argv.as_bytes(), i, arg_span, source_scope)?;
 
@@ -955,8 +979,9 @@ pub fn parse_call_expr<'a>(
         end_kind: None,
     });
     let dash_arg_pos = args.len();
-    let dash_arg_inserted = head.dashed_arg.is_some();
-    if dash_arg_inserted {
+    let dash_arg_found = head.dashed_arg.is_some();
+
+    if dash_arg_found {
         args.push(Argument {
             value: FieldValue::Undefined,
             span: Span::FlagsObject,
@@ -978,7 +1003,13 @@ pub fn parse_call_expr<'a>(
     .unwrap_or(arg_span);
 
     if let Some(dashed) = head.dashed_arg {
-        if !dash_arg_inserted {
+        if modes.setting {
+            return Err(CliArgumentError::new(
+                "dashed arguments not allowed in atom oerator",
+                arg_span,
+            ));
+        }
+        if !dash_arg_found {
             args.insert(
                 dash_arg_pos,
                 Argument {
@@ -990,7 +1021,7 @@ pub fn parse_call_expr<'a>(
             )
         }
         args[dash_arg_pos].value =
-            FieldValue::Object(Object::KeysStored(dashed));
+            FieldValue::Object(Box::new(Object::KeysStored(dashed)));
     }
 
     let mut end_kind = CallExprEndKind::Inline;
@@ -1245,8 +1276,8 @@ mod test {
                         end_kind: None
                     },
                     Argument {
-                        value: FieldValue::Object(Object::KeysStored(
-                            indexmap! {
+                        value: FieldValue::Object(Box::new(
+                            Object::KeysStored(indexmap! {
                                 "-a".into() => FieldValue::Argument(Box::new(Argument {
                                     value: FieldValue::Int(3),
                                     span: Span::from_single_arg_with_offset(0, 4, 8),
@@ -1265,7 +1296,7 @@ mod test {
                                     source_scope: DEFAULT_SCOPE_ID,
                                     end_kind: None
                                 })),
-                            }
+                            })
                         )),
                         span: Span::Generated,
                         source_scope: DEFAULT_SCOPE_ID,

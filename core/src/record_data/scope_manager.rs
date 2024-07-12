@@ -10,7 +10,7 @@ use crate::{
     },
 };
 
-use super::{field::FieldId, stream_value::StreamValueId};
+use super::{field::FieldId, field_value::FieldValue};
 
 index_newtype! {
     pub struct ScopeId(DebuggableNonMaxU32);
@@ -20,7 +20,7 @@ pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;
 
 #[derive(Clone)]
 pub enum Symbol {
-    Atom(StreamValueId),
+    Atom(FieldValue),
     Field(FieldId),
     Macro(Arc<Macro>),
 }

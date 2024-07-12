@@ -387,19 +387,17 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
         let FieldValue::Object(obj) = &mut arg.value else {
             unreachable!()
         };
-        let keys_stored = match obj {
-            Object::KeysStored(obj) => obj,
-            Object::KeysInterned(keys_interned) => {
-                let mut keys_stored = ObjectKeysStored::new();
-                for (k, v) in std::mem::take(keys_interned) {
-                    keys_stored.insert(string_store.lookup(k).to_string(), v);
-                }
-                *obj = Object::KeysStored(keys_stored);
-                let Object::KeysStored(obj) = obj else {
-                    unreachable!()
-                };
-                obj
+
+        if let Object::KeysInterned(keys_interned) = &mut **obj {
+            let mut keys_stored = ObjectKeysStored::new();
+            for (k, v) in std::mem::take(keys_interned) {
+                keys_stored.insert(string_store.lookup(k).to_string(), v);
             }
+            *obj = Box::new(Object::KeysStored(keys_stored));
+        };
+
+        let Object::KeysStored(keys_stored) = &mut **obj else {
+            unreachable!()
         };
         for v in keys_stored.values_mut() {
             if let FieldValue::Argument(_) = v {
@@ -460,8 +458,10 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
             return (None, self.args.as_ref());
         }
         let args = self.args.as_ref();
-        let FieldValue::Object(Object::KeysStored(obj)) = &args[0].value
-        else {
+        let FieldValue::Object(obj) = &args[0].value else {
+            return (None, args);
+        };
+        let Object::KeysStored(obj) = &**obj else {
             return (None, args);
         };
 

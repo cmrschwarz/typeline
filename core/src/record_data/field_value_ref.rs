@@ -179,7 +179,7 @@ impl<'a> FieldValueRef<'a> {
             ])]
             FieldValueRef::REP(v) => FieldValue::REP(*v),
 
-            #[expand(REP in [Error, Object, Array, Custom,])]
+            #[expand(REP in [Error, Array, Custom])]
             FieldValueRef::REP(v) => FieldValue::REP(v.clone()),
 
             #[expand((REP, CONV_FN) in [
@@ -188,7 +188,7 @@ impl<'a> FieldValueRef<'a> {
             ])]
             FieldValueRef::REP(v) => FieldValue::REP(v.CONV_FN()),
 
-            #[expand(REP in [BigInt, BigRational, Argument])]
+            #[expand(REP in [BigInt, BigRational, Argument, Object])]
             FieldValueRef::REP(v) => FieldValue::REP(Box::new(v.clone())),
         })
     }

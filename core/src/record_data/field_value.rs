@@ -69,7 +69,7 @@ pub enum FieldValue {
     // this still keeps FieldValue at 32 bytes due to Rust's
     // cool enum layout optimizations
     Array(Array),
-    Object(Object),
+    Object(Box<Object>),
     Custom(CustomDataBox),
     Error(OperatorApplicationError),
     Argument(Box<Argument>),

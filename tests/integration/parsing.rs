@@ -1,10 +1,11 @@
 use scr::{
+    chain::ChainId,
     cli::{call_expr::Span, CliArgumentError},
     options::{
         context_builder::ContextBuilder, session_setup::ScrSetupOptions,
     },
     scr_error::{ContextualizedScrError, ScrError},
-    utils::test_utils::int_sequence_strings,
+    utils::{indexing_type::IndexingType, test_utils::int_sequence_strings},
     CliOptionsWithDefaultExtensions,
 };
 
@@ -103,5 +104,21 @@ fn parse_regex_flag() -> Result<(), ScrError> {
     .run_collect_stringified()?;
 
     assert_eq!(res, ["a", "b", "c"]);
+    Ok(())
+}
+
+#[test]
+fn parse_setting_assignment() -> Result<(), ScrError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        ScrSetupOptions::with_default_extensions(),
+        ["%bs=42"],
+    )?;
+    assert_eq!(
+        res.setup_data.chains[ChainId::ZERO]
+            .settings
+            .default_batch_size,
+        42
+    );
+
     Ok(())
 }

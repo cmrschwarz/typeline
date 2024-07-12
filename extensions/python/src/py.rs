@@ -335,8 +335,8 @@ fn get_python_value<'a>(
             // PERF: this will potentially box and unbox BigInts.
             result.insert(key.to_string(), value);
         }
-        return PythonValue::Other(FieldValue::Object(Object::KeysStored(
-            result,
+        return PythonValue::Other(FieldValue::Object(Box::new(
+            Object::KeysStored(result),
         )));
     }
     if Some(type_ptr) == py_types.rational_type.as_ref().map(|v| v.as_ptr()) {

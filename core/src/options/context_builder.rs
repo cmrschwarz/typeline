@@ -25,8 +25,8 @@ use crate::{
 use super::session_setup::{ScrSetupOptions, SessionSetupData};
 
 pub struct ContextBuilder {
-    setup_data: SessionSetupData,
-    input_data: RecordSet,
+    pub setup_data: SessionSetupData,
+    pub input_data: RecordSet,
 }
 
 pub static EMPTY_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
