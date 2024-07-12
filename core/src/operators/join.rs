@@ -1,4 +1,3 @@
-use bstr::ByteSlice;
 use metamatch::metamatch;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -36,6 +35,7 @@ use crate::{
         },
         varying_type_inserter::VaryingTypeInserter,
     },
+    scr_error::ScrError,
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         int_string_conversions::{f64_to_str, i64_to_str, usize_to_str},
@@ -139,9 +139,7 @@ pub fn argument_matches_op_join(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)
 }
 
-pub fn parse_op_join(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn parse_op_join(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     let mut count = None;
     let mut drop_incomplete = false;
     let mut drop_incomplete_span = Span::Generated;
@@ -150,30 +148,37 @@ pub fn parse_op_join(
         let arg = arg?;
         match arg.value {
             ParsedArgValue::Flag(flag) => {
-                if flag == b"d" || flag == b"drop_incomplete" {
+                if flag == "d" || flag == "drop_incomplete" {
                     drop_incomplete = true;
                     drop_incomplete_span = arg.span;
                     continue;
                 }
-                return Err(expr.error_flag_value_unsupported(flag, arg.span));
+                return Err(expr
+                    .error_flag_unsupported(flag, arg.span)
+                    .into());
             }
             ParsedArgValue::NamedArg { key, value } => {
-                if key == b"n" || key == b"count" {
-                    let value = value.to_str().map_err(|_| {
-                        expr.error_arg_invalid_utf8(key, arg.span)
-                    })?;
+                if key == "n" || key == "count" {
+                    let value = value
+                        .as_maybe_text_ref()
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            expr.error_arg_invalid_utf8(key, arg.span)
+                        })?;
                     count = Some(value.parse::<usize>().map_err(|_| {
                         expr.error_arg_invalid_int(key, arg.span)
                     })?);
                     continue;
                 }
-                return Err(expr.error_named_arg_unsupported(key, arg.span));
+                return Err(expr
+                    .error_named_arg_unsupported(key, arg.span)
+                    .into());
             }
             ParsedArgValue::PositionalArg { value: v, .. } => {
                 let Some(argv) = v.text_or_bytes() else {
-                    return Err(
-                        expr.error_positional_arg_not_plaintext(arg.span)
-                    );
+                    return Err(expr
+                        .error_positional_arg_not_plaintext(arg.span)
+                        .into());
                 };
                 value = Some(argv);
             }
@@ -183,7 +188,7 @@ pub fn parse_op_join(
         return Err(OperatorCreationError::new(
             "drop incomplete (-d) is only available in combination with a fixed join count (-n)",
             drop_incomplete_span,
-        ));
+        ).into());
     }
     Ok(create_op_join(
         value.map(MaybeText::from_bytes_try_str),

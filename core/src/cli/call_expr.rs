@@ -7,12 +7,14 @@ use crate::{
     operators::{errors::OperatorCreationError, operator::OperatorId},
     options::setting::CliArgIdx,
     record_data::{
-        array::Array, field_value::FieldValue, field_value_ref::FieldValueRef,
+        array::Array,
+        field_value::{FieldValue, FieldValueKind, Object, ObjectKeysStored},
         scope_manager::ScopeId,
     },
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32, indexing_type::IndexingType,
         int_string_conversions::parse_int_with_units,
+        string_store::StringStore,
     },
 };
 
@@ -23,6 +25,7 @@ pub enum Span {
     #[default]
     Builtin,
     Generated,
+    FlagsObject,
     CliArg {
         start: CliArgIdx,
         end: CliArgIdx,
@@ -63,7 +66,7 @@ pub enum CallExprEndKind {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct CallExpr<'a, ARGS: AsRef<[Argument]> + 'a = &'a [Argument]> {
+pub struct CallExpr<'a, ARGS: AsRef<[Argument]> = &'a mut [Argument]> {
     pub op_name: &'a str,
     pub args: ARGS,
     pub end_kind: CallExprEndKind,
@@ -71,10 +74,9 @@ pub struct CallExpr<'a, ARGS: AsRef<[Argument]> + 'a = &'a [Argument]> {
 }
 
 pub struct ParsedArgsIter<'a> {
-    args: &'a [Argument],
-    flag_offset: Option<usize>,
-    flags_over: bool,
-    positional_arg_idx: usize,
+    flags: Option<indexmap::map::Iter<'a, String, FieldValue>>,
+    args: std::slice::Iter<'a, Argument>,
+    positional_idx: usize,
 }
 
 pub struct ParsedArgsIterWithBoundedPositionals<'a> {
@@ -86,15 +88,9 @@ pub struct ParsedArgsIterWithBoundedPositionals<'a> {
 }
 
 pub enum ParsedArgValue<'a> {
-    Flag(&'a [u8]),
-    NamedArg {
-        key: &'a [u8],
-        value: &'a [u8],
-    },
-    PositionalArg {
-        idx: usize,
-        value: FieldValueRef<'a>,
-    },
+    Flag(&'a str),
+    NamedArg { key: &'a str, value: &'a FieldValue },
+    PositionalArg { idx: usize, value: &'a FieldValue },
 }
 
 pub struct ParsedArg<'a> {
@@ -239,6 +235,7 @@ impl Span {
                 offset_start: cli_arg_offset_start as u16,
                 offset_end: cli_arg_offset_end as u16,
             },
+            Span::FlagsObject => Span::FlagsObject,
             Span::Generated => Span::Generated,
             Span::Builtin => Span::Builtin,
             macro_exp @ Span::MacroExpansion { .. } => *macro_exp,
@@ -263,6 +260,7 @@ impl Span {
                 offset_end: offset_start + cli_arg_offset_end as u16,
             },
             Span::Generated => Span::Generated,
+            Span::FlagsObject => Span::FlagsObject,
             Span::Builtin => Span::Builtin,
             macro_exp @ Span::MacroExpansion { .. } => macro_exp,
             env_var @ Span::EnvVar { .. } => env_var,
@@ -296,6 +294,7 @@ impl Span {
                 Some(Span::MacroExpansion { op_id: op_start })
             }
             (Span::Generated, Span::Generated) => Some(Span::Generated),
+            (Span::FlagsObject, Span::FlagsObject) => Some(Span::FlagsObject),
             (Span::Builtin, Span::Builtin) => Some(Span::Builtin),
             (_, _) => None,
         }
@@ -376,17 +375,108 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
             args: args_rest,
         })
     }
+    pub fn split_flags_arg_normalized<'b>(
+        &'b mut self,
+        string_store: &StringStore,
+        assume_flags_if_single_obj: bool,
+    ) -> (Option<&'b mut ObjectKeysStored>, &'b mut [Argument]) {
+        if !self.has_flags_arg(assume_flags_if_single_obj) {
+            return (None, self.args);
+        }
+        let (arg, rest) = self.args.split_first_mut().unwrap();
+        let FieldValue::Object(obj) = &mut arg.value else {
+            unreachable!()
+        };
+        let keys_stored = match obj {
+            Object::KeysStored(obj) => obj,
+            Object::KeysInterned(keys_interned) => {
+                let mut keys_stored = ObjectKeysStored::new();
+                for (k, v) in std::mem::take(keys_interned) {
+                    keys_stored.insert(string_store.lookup(k).to_string(), v);
+                }
+                *obj = Object::KeysStored(keys_stored);
+                let Object::KeysStored(obj) = obj else {
+                    unreachable!()
+                };
+                obj
+            }
+        };
+        for v in keys_stored.values_mut() {
+            if let FieldValue::Argument(_) = v {
+                continue;
+            }
+            let value = std::mem::take(v);
+            *v = FieldValue::Argument(Box::new(Argument {
+                value,
+                span: arg.span,
+                source_scope: arg.source_scope,
+                end_kind: None,
+            }));
+        }
+        (Some(keys_stored), rest)
+    }
 }
 
 impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
+    pub fn expect_flag(
+        &self,
+        key: &str,
+        value: &FieldValue,
+    ) -> Result<(), CliArgumentError> {
+        let FieldValue::Argument(arg) = &value else {
+            panic!("expected flags value to be an argument")
+        };
+
+        if arg.value != FieldValue::Undefined {
+            return Err(self.error_reject_flag_value(key, arg.span));
+        }
+        Ok(())
+    }
+    pub fn has_flags_arg(&self, assume_flags_if_single_obj: bool) -> bool {
+        let args = self.args.as_ref();
+
+        let Some(first) = args.first() else {
+            return false;
+        };
+        let FieldValue::Object(_) = &first.value else {
+            return false;
+        };
+        if assume_flags_if_single_obj || first.span == Span::FlagsObject {
+            return true;
+        }
+        let Some(second) = args.get(1) else {
+            return false;
+        };
+        if second.value.kind() == FieldValueKind::Object {
+            return true;
+        }
+        false
+    }
+    pub fn split_flags_arg(
+        &self,
+        assume_non_flags_if_single_obj: bool,
+    ) -> (Option<&ObjectKeysStored>, &[Argument]) {
+        if !self.has_flags_arg(assume_non_flags_if_single_obj) {
+            return (None, self.args.as_ref());
+        }
+        let args = self.args.as_ref();
+        let FieldValue::Object(Object::KeysStored(obj)) = &args[0].value
+        else {
+            return (None, args);
+        };
+
+        (Some(obj), &args[1..])
+    }
+
     pub fn error_named_args_unsupported(
         &self,
+        arg: &str,
         span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
-                "operator `{}` does not support named arguments",
-                self.op_name
+                "operator `{}` does not support named arguments, '{arg}' given",
+                self.op_name,
             ),
             span,
         )
@@ -394,8 +484,8 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
     pub fn error_positional_args_unsupported(
         &self,
         span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
                 "operator `{}` does not support positional arguments",
                 self.op_name
@@ -406,8 +496,8 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
     pub fn error_positional_arg_not_plaintext(
         &self,
         span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
                 "positional arguments for operator `{}` must be plaintext",
                 self.op_name
@@ -415,30 +505,41 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
             span,
         )
     }
-    pub fn error_flag_value_unsupported(
+    pub fn error_flag_unsupported(
         &self,
-        flag: &[u8],
+        flag: &str,
         span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
-                "operator `{}` does not support flag '{}'",
+                "operator `{}` does not support flag '{flag}'",
                 self.op_name,
-                flag.to_str_lossy()
+            ),
+            span,
+        )
+    }
+    pub fn error_reject_flag_value(
+        &self,
+        flag: &str,
+        span: Span,
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
+            format!(
+                "flag '{flag}' for operator `{}` does not accept a value",
+                self.op_name,
             ),
             span,
         )
     }
     pub fn error_named_arg_unsupported(
         &self,
-        key: &[u8],
+        key: &str,
         span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
-                "operator `{}` does not support argument '{}'",
+                "operator `{}` does not support argument '{key}'",
                 self.op_name,
-                key.to_str_lossy()
             ),
             span,
         )
@@ -446,8 +547,8 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
     pub fn error_positional_arg_invalid_utf8(
         &self,
         span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
                 "operator `{}` argument value must be valid utf-8",
                 self.op_name,
@@ -457,13 +558,12 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
     }
     pub fn error_arg_invalid_utf8(
         &self,
-        argname: &[u8],
+        argname: &str,
         span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
-                "operator `{}` argument value for '{}' must be valid utf-8",
-                argname.to_str_lossy(),
+                "operator `{}` argument value for '{argname}' must be valid utf-8",
                 self.op_name,
             ),
             span,
@@ -472,8 +572,8 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
     pub fn error_positional_arg_invalid_int(
         &self,
         span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
                 "operator `{}` argument value must be a valid integer",
                 self.op_name,
@@ -483,28 +583,53 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
     }
     pub fn error_arg_invalid_int(
         &self,
-        argname: &[u8],
+        argname: &str,
         span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
-                "operator `{}` argument value '{}' must be a valid integer",
-                argname.to_str_lossy(),
+                "operator `{}` argument value '{argname}' must be a valid integer",
                 self.op_name,
             ),
             span,
         )
     }
-    pub fn error_list_arg_unsupported(
-        &self,
-        span: Span,
-    ) -> OperatorCreationError {
-        OperatorCreationError::new_s(
+    pub fn error_list_arg_unsupported(&self, span: Span) -> CliArgumentError {
+        CliArgumentError::new_s(
             format!(
                 "operator `{}` does not accept list arguments",
                 self.op_name
             ),
             span,
+        )
+    }
+    pub fn error_positional_arg_count_exceeded(
+        &self,
+        count_max: usize,
+        span: Span,
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
+            format!(
+                "operator `{}` accepts at most {} positional arguments",
+                self.op_name, count_max
+            ),
+            span,
+        )
+    }
+    pub fn error_require_exact_positional_count(
+        &self,
+        count_max: usize,
+    ) -> CliArgumentError {
+        CliArgumentError::new_s(
+            format!(
+                "operator `{}` requires exactly {} positional arguments",
+                self.op_name, count_max
+            ),
+            self.args
+                .as_ref()
+                .get(count_max)
+                .map(|a| a.span)
+                .unwrap_or(self.span),
         )
     }
     pub fn error_invalid_operator(&self) -> CliArgumentError {
@@ -514,11 +639,11 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
         )
     }
     pub fn parsed_args_iter(&self) -> ParsedArgsIter {
+        let (flags, args) = self.split_flags_arg(true);
         ParsedArgsIter {
-            args: self.args.as_ref(),
-            flag_offset: None,
-            flags_over: false,
-            positional_arg_idx: 0,
+            flags: flags.map(|f| f.iter()),
+            args: args.iter(),
+            positional_idx: 0,
         }
     }
     pub fn parsed_args_iter_with_bounded_positionals(
@@ -671,51 +796,30 @@ impl<'a> Iterator for ParsedArgsIter<'a> {
     type Item = ParsedArg<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let first = self.args.first()?;
-        if let Some(value) = &first.value.text_or_bytes() {
-            if let Some(flag_offset) = self.flag_offset {
-                if let Some((mut begin, mut end, _char)) =
-                    value[flag_offset..].char_indices().next()
-                {
-                    begin += flag_offset;
-                    end += flag_offset;
-                    let res = Some(ParsedArg {
-                        value: ParsedArgValue::Flag(&value[begin..end]),
-                        span: self.args[0].span.subslice_offsets(begin, end),
-                    });
-                    self.flag_offset = Some(end);
-                    return res;
-                }
-                self.flag_offset = None;
-                self.args = &self.args[1..];
-                return self.next();
-            }
-            if !self.flags_over && &**value == b"--" {
-                self.flags_over = true;
-                self.args = &self.args[1..];
-                return self.next();
-            }
-            if !self.flags_over && value.starts_with(&[b'-']) {
-                if let Some((begin, end, _char)) = value.char_indices().nth(1)
-                {
-                    self.flag_offset = Some(end);
-                    return Some(ParsedArg {
-                        value: ParsedArgValue::Flag(&value[begin..end]),
-                        span: first.span.subslice_offsets(1, end),
-                    });
-                }
-            }
+        if let Some((key, v)) = self.flags.as_mut().and_then(Iterator::next) {
+            let mut span = Span::Generated;
+            let value = if let FieldValue::Argument(arg) = v {
+                span = arg.span;
+                &arg.value
+            } else {
+                v
+            };
+            let value = if value == &FieldValue::Undefined {
+                ParsedArgValue::NamedArg { key, value }
+            } else {
+                ParsedArgValue::Flag(key)
+            };
+            return Some(ParsedArg { value, span });
         }
-        self.flags_over = true;
-        let idx = self.positional_arg_idx;
-        self.args = &self.args[1..];
-        self.positional_arg_idx += 1;
+        let arg = self.args.next()?;
+        let idx = self.positional_idx;
+        self.positional_idx += 1;
         Some(ParsedArg {
             value: ParsedArgValue::PositionalArg {
                 idx,
-                value: first.value.as_ref(),
+                value: &arg.value,
             },
-            span: first.span,
+            span: arg.span,
         })
     }
 }
@@ -725,7 +829,7 @@ impl<'a> Iterator for ParsedArgsIterWithBoundedPositionals<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let Some(arg) = self.iter.next() else {
-            if self.iter.positional_arg_idx < self.pargs_min {
+            if self.iter.positional_idx < self.pargs_min {
                 return Some(Err(OperatorCreationError::new_s(
                     format!(
                         "operator `{}` needs at least {} positional argument{}",

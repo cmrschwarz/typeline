@@ -4,6 +4,7 @@ use scr::{
         context_builder::ContextBuilder, session_setup::ScrSetupOptions,
     },
     scr_error::{ContextualizedScrError, ScrError},
+    utils::test_utils::int_sequence_strings,
     CliOptionsWithDefaultExtensions,
 };
 
@@ -65,5 +66,42 @@ fn simple_forkcat_block() -> Result<(), ContextualizedScrError> {
     )?
     .run_collect_stringified()?;
     assert_eq!(res, ["foo", "foo"]);
+    Ok(())
+}
+
+#[test]
+fn parse_forkcat() -> Result<(), ScrError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        ScrSetupOptions::with_default_extensions(),
+        ["scr", "seqn=10", "forkcat:", "r=.*", "next", "drop", "end"],
+    )?
+    .run_collect_stringified()?;
+    assert_eq!(res, int_sequence_strings(1..11));
+    Ok(())
+}
+
+#[test]
+fn parse_forkcat_2() -> Result<(), ScrError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        ScrSetupOptions::with_default_extensions(),
+        [
+            "seq=3", "fe:", "forkcat:", "seq=2", "next", "nop", "end", "end",
+        ],
+    )?
+    .run_collect_stringified()?;
+
+    assert_eq!(res, ["0", "1", "0", "0", "1", "1", "0", "1", "2"]);
+    Ok(())
+}
+
+#[test]
+fn parse_regex_flag() -> Result<(), ScrError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        ScrSetupOptions::with_default_extensions(),
+        ["str=abc", "r-m=."],
+    )?
+    .run_collect_stringified()?;
+
+    assert_eq!(res, ["a", "b", "c"]);
     Ok(())
 }

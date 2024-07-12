@@ -2,13 +2,15 @@ use std::{any::Any, fmt::Display, mem::ManuallyDrop};
 
 use indexmap::IndexMap;
 use metamatch::metamatch;
-use num::{BigInt, BigRational};
+use num::{bigint::Sign, BigInt, BigRational};
 
 use crate::{
     cli::call_expr::Argument,
     operators::errors::OperatorApplicationError,
     utils::{
-        force_cast, maybe_text::MaybeText, string_store::StringStoreEntry,
+        force_cast,
+        maybe_text::{MaybeText, MaybeTextRef},
+        string_store::StringStoreEntry,
     },
 };
 
@@ -241,6 +243,20 @@ impl PartialEq for FieldValue {
     }
 }
 
+pub fn bigint_to_int(bi: &BigInt) -> Option<i64> {
+    let mut iter = bi.iter_u64_digits();
+    let first = iter.next().unwrap_or(0);
+    if iter.next().is_some() {
+        None
+    } else {
+        let mut first = TryInto::<i64>::try_into(first).ok()?;
+        if bi.sign() == Sign::Minus {
+            first = -first;
+        }
+        Some(first)
+    }
+}
+
 impl FieldValue {
     pub fn repr(&self) -> FieldValueRepr {
         metamatch!(match self {
@@ -296,11 +312,11 @@ impl FieldValue {
             }
         })
     }
-    pub fn text_or_bytes(&self) -> Option<&[u8]> {
+    pub fn as_maybe_text_ref(&self) -> Option<MaybeTextRef> {
         match self {
-            FieldValue::Text(v) => Some(v.as_bytes()),
-            FieldValue::Bytes(v) => Some(v),
-            FieldValue::Argument(v) => v.value.text_or_bytes(),
+            FieldValue::Text(v) => Some(MaybeTextRef::Text(v)),
+            FieldValue::Bytes(v) => Some(MaybeTextRef::Bytes(v)),
+            FieldValue::Argument(v) => v.value.as_maybe_text_ref(),
             FieldValue::Undefined
             | FieldValue::Null
             | FieldValue::Int(_)
@@ -315,6 +331,9 @@ impl FieldValue {
             | FieldValue::FieldReference(_)
             | FieldValue::SlicedFieldReference(_) => None,
         }
+    }
+    pub fn text_or_bytes(&self) -> Option<&[u8]> {
+        self.as_maybe_text_ref().map(|t| t.as_bytes())
     }
     pub fn downcast<R: FixedSizeFieldValueType>(self) -> Option<R> {
         let mut this = ManuallyDrop::new(self);
@@ -374,6 +393,7 @@ impl FieldValue {
         match self {
             FieldValue::Text(t) => Some(MaybeText::Text(t)),
             FieldValue::Bytes(b) => Some(MaybeText::Bytes(b)),
+            FieldValue::Argument(arg) => arg.value.into_maybe_text(),
             _ => None,
         }
     }
@@ -421,5 +441,37 @@ impl FieldValue {
     }
     pub fn is_valid_utf8(&self) -> bool {
         self.kind().is_valid_utf8()
+    }
+    pub fn try_cast_int(&self) -> Option<i64> {
+        match self {
+            &FieldValue::Int(v) => Some(v),
+            FieldValue::BigInt(v) => bigint_to_int(v),
+            #[allow(clippy::cast_precision_loss, clippy::float_cmp)]
+            &FieldValue::Float(f) => {
+                let int = f as i64;
+                if int as f64 == f {
+                    return Some(int);
+                }
+                None
+            }
+            FieldValue::Text(v) => v.parse().ok(),
+            FieldValue::Bytes(v) => std::str::from_utf8(v).ok()?.parse().ok(),
+            FieldValue::BigRational(v) => {
+                if !v.is_integer() {
+                    return None;
+                }
+                bigint_to_int(v.numer())
+            }
+            FieldValue::Argument(v) => v.value.try_cast_int(),
+            FieldValue::Undefined
+            | FieldValue::Null
+            | FieldValue::Array(_)
+            | FieldValue::Object(_)
+            | FieldValue::Custom(_)
+            | FieldValue::Error(_)
+            | FieldValue::StreamValueId(_)
+            | FieldValue::FieldReference(_)
+            | FieldValue::SlicedFieldReference(_) => None,
+        }
     }
 }

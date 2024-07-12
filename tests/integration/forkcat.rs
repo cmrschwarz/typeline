@@ -1,9 +1,6 @@
 use rstest::rstest;
 use scr::{
-    operators::nop_copy::create_op_nop_copy,
-    options::session_setup::ScrSetupOptions,
-    utils::{maybe_text::MaybeText, test_utils::int_sequence_strings},
-    CliOptionsWithDefaultExtensions,
+    operators::nop_copy::create_op_nop_copy, utils::maybe_text::MaybeText,
 };
 use scr_core::{
     operators::{
@@ -267,30 +264,5 @@ fn forkcat_on_unapplied_commands(
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["24"]);
-    Ok(())
-}
-
-#[test]
-fn parse_forkcat() -> Result<(), ScrError> {
-    let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
-        ["scr", "seqn=10", "forkcat:", "r=.*", "next", "drop", "end"],
-    )?
-    .run_collect_stringified()?;
-    assert_eq!(res, int_sequence_strings(1..11));
-    Ok(())
-}
-
-#[test]
-fn parse_forkcat_2() -> Result<(), ScrError> {
-    let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
-        [
-            "seq=3", "fe:", "forkcat:", "seq=2", "next", "nop", "end", "end",
-        ],
-    )?
-    .run_collect_stringified()?;
-
-    assert_eq!(res, ["0", "1", "0", "0", "1", "1", "0", "1", "2"]);
     Ok(())
 }

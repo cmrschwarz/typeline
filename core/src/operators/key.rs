@@ -45,9 +45,9 @@ pub fn parse_op_key(
         .into_maybe_text()
         .ok_or_else(|| expr.error_positional_arg_not_plaintext(key_span))?;
 
-    let key = key.into_text().ok_or_else(|| {
-        expr.error_arg_invalid_utf8(op_name.as_bytes(), key_span)
-    })?;
+    let key = key
+        .into_text()
+        .ok_or_else(|| expr.error_arg_invalid_utf8(op_name, key_span))?;
 
     let mut nested_op = None;
     if let Some(arg) = expr.args.get_mut(1) {

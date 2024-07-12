@@ -5,15 +5,17 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bstr::ByteSlice;
-
 use crate::{
     chain::{BufferingMode, ChainId},
-    cli::call_expr::{CallExpr, ParsedArgValue, Span},
+    cli::{
+        call_expr::{Argument, CallExpr, Span},
+        CliArgumentError,
+    },
     job::JobData,
     options::session_setup::SessionSetupData,
     record_data::{
         field_data::INLINE_STR_MAX_LEN,
+        field_value::ObjectKeysStored,
         iter_hall::IterId,
         push_interface::PushInterface,
         stream_value::{
@@ -401,91 +403,76 @@ pub fn handle_tf_file_reader(
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
 }
 
-fn parse_lines_flag(
-    expr: &CallExpr,
-    flag: &[u8],
-    span: Span,
-) -> Result<bool, OperatorCreationError> {
-    if flag == b"l" || flag == b"lines" {
-        return Ok(true);
-    }
-    Err(expr.error_flag_value_unsupported(flag, span))
+#[derive(Default, Clone, Copy)]
+struct FileReaderOptions {
+    lines: bool,
+    insert_count: Option<usize>,
 }
 
-fn parse_named_arg_count(
+fn parse_file_reader_flags(
     expr: &CallExpr,
-    key: &[u8],
-    value: &[u8],
-    span: Span,
-) -> Result<usize, OperatorCreationError> {
-    if key == b"n" || key == b"count" {
-        let value = value
-            .to_str()
-            .map_err(|_| expr.error_arg_invalid_utf8(key, span))?;
-        return value
-            .parse::<usize>()
-            .map_err(|_| expr.error_arg_invalid_int(key, span));
+    flags: Option<&ObjectKeysStored>,
+) -> Result<FileReaderOptions, CliArgumentError> {
+    let mut opts = FileReaderOptions::default();
+    let Some(flags) = flags else {
+        return Ok(opts);
+    };
+    for (k, v) in flags {
+        let arg = v.downcast_ref::<Argument>().unwrap();
+        if k == "l" || k == "lines" {
+            expr.expect_flag(k, v)?;
+            opts.lines = true;
+            continue;
+        }
+        if k == "n" || k == "count" {
+            let Some(value) = arg.value.try_cast_int() else {
+                return Err(expr.error_arg_invalid_int(k, arg.span));
+            };
+            opts.insert_count = Some(value as usize);
+            continue;
+        }
+        return Err(expr.error_flag_unsupported(k, arg.span));
     }
-    Err(expr.error_named_arg_unsupported(key, span))
+    Ok(opts)
 }
 
 pub fn parse_op_file_reader(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
-    let mut count = None;
-    let mut lines = false;
-    let mut value = None;
-    for arg in expr.parsed_args_iter_with_bounded_positionals(0, 1) {
-        let arg = arg?;
-        match arg.value {
-            ParsedArgValue::Flag(flag) => {
-                lines = parse_lines_flag(expr, flag, arg.span)?;
-            }
-            ParsedArgValue::NamedArg { key, value } => {
-                count =
-                    Some(parse_named_arg_count(expr, key, value, arg.span)?);
-            }
-            ParsedArgValue::PositionalArg { value: v, .. } => {
-                let Some(argv) = v.text_or_bytes() else {
-                    return Err(
-                        expr.error_positional_arg_not_plaintext(arg.span)
-                    );
-                };
-                value = Some(argv);
-            }
-        }
+    sess: &SessionSetupData,
+    mut expr: CallExpr,
+) -> Result<OperatorData, ScrError> {
+    expr.split_flags_arg_normalized(&sess.string_store, true);
+    let (flags, args) = expr.split_flags_arg(true);
+
+    let opts = parse_file_reader_flags(&expr, flags)?;
+
+    if args.len() != 1 {
+        return Err(expr.error_require_exact_positional_count(1).into());
     }
-    build_op_file(value.unwrap(), count, lines, expr.span)
+    let value = args[0].expect_plain(expr.op_name)?;
+    build_op_file(value, opts, expr.span)
 }
 
 pub fn parse_op_stdin(
-    expr: &CallExpr,
+    sess: &SessionSetupData,
+    mut expr: CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let mut count = None;
-    let mut lines = false;
-    for arg in expr.parsed_args_iter() {
-        match arg.value {
-            ParsedArgValue::Flag(flag) => {
-                lines = parse_lines_flag(expr, flag, arg.span)?;
-            }
-            ParsedArgValue::NamedArg { key, value } => {
-                count =
-                    Some(parse_named_arg_count(expr, key, value, arg.span)?);
-            }
-            ParsedArgValue::PositionalArg { .. } => {
-                return Err(expr.error_positional_args_unsupported(arg.span));
-            }
-        }
+    expr.split_flags_arg_normalized(&sess.string_store, true);
+    let (flags, args) = expr.split_flags_arg(true);
+    if !args.is_empty() {
+        return Err(expr
+            .error_positional_args_unsupported(args[0].span)
+            .into());
     }
-    Ok(build_op_stdin(count, lines))
+    let opts = parse_file_reader_flags(&expr, flags)?;
+    Ok(build_op_stdin(opts))
 }
 
-pub fn build_op_file(
+#[allow(clippy::unnecessary_wraps)]
+fn build_op_file(
     value: &[u8],
-    insert_count: Option<usize>,
-    lines: bool,
+    opts: FileReaderOptions,
     #[cfg_attr(unix, allow(unused))] span: Span,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     let path = {
         #[cfg(unix)]
         {
@@ -505,8 +492,8 @@ pub fn build_op_file(
             })?)
         }
     };
-    let op = create_op_file(path, insert_count.unwrap_or(0));
-    if lines {
+    let op = create_op_file(path, opts.insert_count.unwrap_or(0));
+    if opts.lines {
         // TODO: create optimized version of this
         return Ok(create_multi_op([
             op,
@@ -517,12 +504,9 @@ pub fn build_op_file(
     Ok(op)
 }
 
-pub fn build_op_stdin(
-    insert_count: Option<usize>,
-    lines: bool,
-) -> OperatorData {
-    let op = create_op_stdin(insert_count.unwrap_or(0));
-    if lines {
+fn build_op_stdin(opts: FileReaderOptions) -> OperatorData {
+    let op = create_op_stdin(opts.insert_count.unwrap_or(0));
+    if opts.lines {
         // TODO: create optimized version of this
         return create_multi_op([
             op,

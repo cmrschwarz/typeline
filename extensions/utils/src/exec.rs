@@ -10,7 +10,10 @@ use bstr::ByteSlice;
 use metamatch::metamatch;
 use scr_core::{
     chain::ChainId,
-    cli::call_expr::{CallExpr, ParsedArgValue, Span},
+    cli::{
+        call_expr::{CallExpr, ParsedArgValue, Span},
+        CliArgumentError,
+    },
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -791,10 +794,10 @@ fn append_exec_arg(
     refs: &mut Vec<Option<String>>,
     parts: &mut Vec<FormatPart>,
     fmt_arg_part_ends: &mut Vec<usize>,
-) -> Result<(), OperatorCreationError> {
+) -> Result<(), CliArgumentError> {
     parse_format_string(value.as_bytes(), refs, parts).map_err(
         |(i, msg)| {
-            OperatorCreationError::new_s(
+            CliArgumentError::new_s(
                 format!("exec format string arg {arg_idx} offset {i}: {msg}",),
                 span,
             )
@@ -806,17 +809,17 @@ fn append_exec_arg(
 
 pub fn parse_op_exec(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, CliArgumentError> {
     let mut parts = Vec::new();
     let mut refs = Vec::new();
     let mut fmt_arg_part_ends = Vec::new();
     for arg in expr.parsed_args_iter() {
         match arg.value {
             ParsedArgValue::Flag(flag) => {
-                return Err(expr.error_flag_value_unsupported(flag, arg.span));
+                return Err(expr.error_flag_unsupported(flag, arg.span));
             }
-            ParsedArgValue::NamedArg { .. } => {
-                return Err(expr.error_named_args_unsupported(arg.span));
+            ParsedArgValue::NamedArg { key, .. } => {
+                return Err(expr.error_named_args_unsupported(key, arg.span));
             }
             ParsedArgValue::PositionalArg { idx, value } => {
                 let Some(value) = value.text_or_bytes() else {

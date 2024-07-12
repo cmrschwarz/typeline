@@ -45,7 +45,7 @@ impl Extension for UtilsExtension {
         _ctx_opts: &mut SessionSetupData,
         arg: &mut Argument,
     ) -> Result<Option<OperatorData>, OperatorCreationError> {
-        let expr = CallExpr::from_argument(arg)?;
+        let expr = CallExpr::from_argument_mut(arg)?;
         let ctor_with_arg: Option<fn(_) -> _> = match expr.op_name {
             "head" => Some(parse_op_head),
             "tail" => Some(parse_op_tail),

@@ -363,7 +363,7 @@ impl MaybeTextBoxed {
 }
 
 impl<'a> MaybeTextRef<'a> {
-    pub fn as_str(&self) -> Option<&str> {
+    pub fn as_str(&self) -> Option<&'a str> {
         match self {
             MaybeTextRef::Text(s) => Some(s),
             MaybeTextRef::Bytes(_) => None,

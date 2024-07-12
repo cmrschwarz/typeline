@@ -18,6 +18,7 @@ use crate::{
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueData},
     },
+    scr_error::ScrError,
     tyson::{parse_tyson, TysonParseError},
 };
 
@@ -196,7 +197,7 @@ pub fn handle_tf_literal(
 pub fn parse_op_literal_zst(
     expr: &CallExpr,
     literal: Literal,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     let insert_count = parse_insert_count_reject_value(expr)?;
     Ok(OperatorData::Literal(OpLiteral {
         data: literal,
@@ -206,7 +207,7 @@ pub fn parse_op_literal_zst(
 pub fn parse_op_str(
     expr: &CallExpr,
     stream: bool,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(expr)?;
     let value_owned = value.to_owned();
@@ -223,7 +224,7 @@ pub fn parse_op_str(
 pub fn parse_op_error(
     expr: &CallExpr,
     stream: bool,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(expr)?;
     let value_owned = value.to_owned();
@@ -237,39 +238,33 @@ pub fn parse_op_error(
     }))
 }
 
-fn parse_named_arg_as_insert_count(
-    expr: &CallExpr,
-    key: &[u8],
-    value: &[u8],
-    span: Span,
-) -> Result<usize, OperatorCreationError> {
-    if key == b"i" || key == b"insert_count" {
-        let value = value
-            .to_str()
-            .map_err(|_| expr.error_arg_invalid_utf8(key, span))?;
-        return value
-            .parse::<usize>()
-            .map_err(|_| expr.error_arg_invalid_int(key, span));
-    }
-    Err(expr.error_named_arg_unsupported(key, span))
-}
-
 pub fn parse_insert_count_reject_value(
     expr: &CallExpr,
-) -> Result<Option<usize>, OperatorCreationError> {
+) -> Result<Option<usize>, ScrError> {
     let mut insert_count = None;
     for arg in expr.parsed_args_iter() {
         match arg.value {
             ParsedArgValue::NamedArg { key, value } => {
-                insert_count = Some(parse_named_arg_as_insert_count(
-                    expr, key, value, arg.span,
-                )?);
+                if key == "i" || key == "insert_count" {
+                    insert_count =
+                        Some(value.try_cast_int().ok_or_else(|| {
+                            expr.error_arg_invalid_int(key, arg.span)
+                        })? as usize);
+                    continue;
+                }
+                return Err(expr
+                    .error_named_arg_unsupported(key, arg.span)
+                    .into());
             }
             ParsedArgValue::Flag(flag) => {
-                return Err(expr.error_flag_value_unsupported(flag, arg.span));
+                return Err(expr
+                    .error_flag_unsupported(flag, arg.span)
+                    .into());
             }
             ParsedArgValue::PositionalArg { .. } => {
-                return Err(expr.error_positional_args_unsupported(arg.span))
+                return Err(expr
+                    .error_positional_args_unsupported(arg.span)
+                    .into())
             }
         }
     }
@@ -278,25 +273,35 @@ pub fn parse_insert_count_reject_value(
 
 pub fn parse_insert_count_and_value_args<'a>(
     expr: &'a CallExpr<'a>,
-) -> Result<(Option<usize>, &'a [u8], Span), OperatorCreationError> {
+) -> Result<(Option<usize>, &'a [u8], Span), ScrError> {
     let mut insert_count = None;
     let mut value = None;
     for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
         let arg = arg?;
         match arg.value {
             ParsedArgValue::Flag(flag) => {
-                return Err(expr.error_flag_value_unsupported(flag, arg.span));
+                return Err(expr
+                    .error_flag_unsupported(flag, arg.span)
+                    .into());
             }
             ParsedArgValue::NamedArg { key, value } => {
-                insert_count = Some(parse_named_arg_as_insert_count(
-                    expr, key, value, arg.span,
-                )?);
+                if key == "i" || key == "insert_count" {
+                    // TODO: error on negative
+                    insert_count =
+                        Some(value.try_cast_int().ok_or_else(|| {
+                            expr.error_arg_invalid_int(key, arg.span)
+                        })? as usize);
+                    continue;
+                }
+                return Err(expr
+                    .error_named_arg_unsupported(key, arg.span)
+                    .into());
             }
             ParsedArgValue::PositionalArg { value: v, .. } => {
                 let Some(argv) = v.text_or_bytes() else {
-                    return Err(
-                        expr.error_positional_arg_not_plaintext(arg.span)
-                    );
+                    return Err(expr
+                        .error_positional_arg_not_plaintext(arg.span)
+                        .into());
                 };
                 value = Some((argv, arg.span));
             }
@@ -308,7 +313,7 @@ pub fn parse_insert_count_and_value_args<'a>(
 
 pub fn parse_insert_count_and_value_args_str<'a>(
     expr: &'a CallExpr<'a>,
-) -> Result<(Option<usize>, &'a str, Span), OperatorCreationError> {
+) -> Result<(Option<usize>, &'a str, Span), ScrError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;
 
@@ -319,9 +324,7 @@ pub fn parse_insert_count_and_value_args_str<'a>(
     Ok((insert_count, value_str, value_span))
 }
 
-pub fn parse_op_int(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn parse_op_int(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args_str(expr)?;
 
@@ -329,7 +332,9 @@ pub fn parse_op_int(
         Literal::Int(i)
     } else {
         let Ok(big_int) = str::parse::<BigInt>(value) else {
-            return Err(expr.error_positional_arg_invalid_int(value_span));
+            return Err(expr
+                .error_positional_arg_invalid_int(value_span)
+                .into());
         };
         Literal::BigInt(big_int)
     };
@@ -338,8 +343,8 @@ pub fn parse_op_int(
 pub fn parse_op_bytes(
     arg: &mut Argument,
     stream: bool,
-) -> Result<OperatorData, OperatorCreationError> {
-    let call_expr = CallExpr::from_argument(arg)?;
+) -> Result<OperatorData, ScrError> {
+    let call_expr = CallExpr::from_argument_mut(arg)?;
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args(&call_expr)?;
     Ok(OperatorData::Literal(OpLiteral {
@@ -374,7 +379,7 @@ pub fn parse_op_tyson(
     sess: &SessionSetupData,
     expr: &CallExpr,
     affinity: FieldValueKind,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;
     let value =
@@ -412,7 +417,7 @@ pub fn build_op_tyson_value(
     value_span: Span,
     insert_count: Option<usize>,
     sess: Option<&SessionSetupData>,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     let value =
         parse_tyson(value, use_fpm(sess), sess.map(|sess| &*sess.extensions))
             .map_err(|e| {
@@ -431,7 +436,7 @@ pub fn build_op_tyson_value(
 pub fn parse_op_tyson_value(
     expr: &CallExpr,
     sess: Option<&SessionSetupData>,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;
     build_op_tyson_value(value, value_span, insert_count, sess)
@@ -484,7 +489,7 @@ pub fn create_op_null() -> OperatorData {
 pub fn create_op_undefined() -> OperatorData {
     create_op_literal(Literal::Undefined)
 }
-pub fn create_op_v(str: &str) -> Result<OperatorData, OperatorCreationError> {
+pub fn create_op_v(str: &str) -> Result<OperatorData, ScrError> {
     build_op_tyson_value(str.as_bytes(), Span::Generated, None, None)
 }
 
@@ -530,7 +535,7 @@ pub fn create_op_success_n(insert_count: usize) -> OperatorData {
 pub fn create_op_v_n(
     str: &str,
     insert_count: usize,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     build_op_tyson_value(
         str.as_bytes(),
         Span::Generated,

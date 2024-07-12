@@ -166,7 +166,7 @@ fn contextualize_span(
         Span::MacroExpansion { op_id } => {
             format!("in macro expansion of op {op_id}: {msg}")
         }
-        Span::Generated | Span::Builtin => msg.to_string(),
+        Span::Generated | Span::Builtin | Span::FlagsObject => msg.to_string(),
         Span::EnvVar {
             compile_time,
             var_name,

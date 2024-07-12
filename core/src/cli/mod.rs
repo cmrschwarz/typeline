@@ -313,7 +313,7 @@ pub fn parse_operator_data(
     sess: &mut SessionSetupData,
     mut arg: Argument,
 ) -> Result<OperatorData, ScrError> {
-    let expr = CallExpr::from_argument(&arg)?;
+    let expr = CallExpr::from_argument_mut(&mut arg)?;
 
     Ok(match expr.op_name {
         "int" => parse_op_int(&expr)?,
@@ -329,13 +329,13 @@ pub fn parse_operator_data(
         "~error" => parse_op_error(&expr, true)?,
         "null" => parse_op_literal_zst(&expr, Literal::Null)?,
         "undefined" => parse_op_literal_zst(&expr, Literal::Undefined)?,
-        "to_str" => parse_op_to_str(&expr)?,
+        "to_str" => parse_op_to_str(sess, expr)?,
         "join" | "j" => parse_op_join(&expr)?,
-        "r" | "regex" => parse_op_regex(&expr)?,
+        "r" | "regex" => parse_op_regex(sess, expr)?,
         "print" | "p" => parse_op_print(&expr)?,
         "format" | "f" => parse_op_format(&expr)?,
-        "file" => parse_op_file_reader(&expr)?,
-        "stdin" | "in" => parse_op_stdin(&expr)?,
+        "file" => parse_op_file_reader(sess, expr)?,
+        "stdin" | "in" => parse_op_stdin(sess, expr)?,
         "key" => parse_op_key(sess, arg)?,
         "select" => parse_op_select(&expr)?,
         "seq" => parse_op_seq(&expr, SequenceMode::Sequence, false)?,
@@ -959,7 +959,7 @@ pub fn parse_call_expr<'a>(
     if dash_arg_inserted {
         args.push(Argument {
             value: FieldValue::Undefined,
-            span: Span::Generated,
+            span: Span::FlagsObject,
             source_scope,
             end_kind: None,
         });
@@ -983,7 +983,7 @@ pub fn parse_call_expr<'a>(
                 dash_arg_pos,
                 Argument {
                     value: FieldValue::Undefined,
-                    span: Span::Generated,
+                    span: Span::FlagsObject,
                     source_scope,
                     end_kind: None,
                 },

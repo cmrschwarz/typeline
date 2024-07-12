@@ -3,9 +3,11 @@ use std::sync::Arc;
 use bstr::ByteSlice;
 
 use crate::{
-    cli::call_expr::{CallExpr, ParsedArgValue},
+    cli::{call_expr::CallExpr, CliArgumentError},
     job::JobData,
+    options::session_setup::SessionSetupData,
     record_data::{
+        field_value::FieldValue,
         field_value_ref::FieldValueSlice,
         iter_hall::{IterId, IterKind},
         iters::FieldIterator,
@@ -23,7 +25,7 @@ use crate::{
 };
 
 use super::{
-    errors::{OperatorApplicationError, OperatorCreationError},
+    errors::OperatorApplicationError,
     operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
 };
@@ -35,30 +37,34 @@ pub struct OpToStr {
 }
 
 pub fn parse_op_to_str(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+    sess: &SessionSetupData,
+    mut expr: CallExpr,
+) -> Result<OperatorData, CliArgumentError> {
     // this should not happen in the cli parser because it checks using
     // `argument_matches_data_inserter`
     let mut force = false;
 
-    for arg in expr.parsed_args_iter() {
-        match arg.value {
-            ParsedArgValue::Flag(flag) => {
-                if flag == b"f" || flag == b"force" {
-                    force = true;
-                } else {
-                    return Err(
-                        expr.error_flag_value_unsupported(flag, arg.span)
-                    );
-                }
+    expr.split_flags_arg_normalized(&sess.string_store, true);
+    let (flags, args) = expr.split_flags_arg(true);
+
+    if let Some(flags) = flags {
+        for (key, value) in flags {
+            let FieldValue::Argument(arg) = value else {
+                unreachable!()
+            };
+            if key == "f" || key == "force" {
+                force = true;
+            } else {
+                return Err(expr.error_flag_unsupported(key, arg.span));
             }
-            ParsedArgValue::NamedArg { .. } => {
-                return Err(expr.error_named_args_unsupported(arg.span))
-            }
-            ParsedArgValue::PositionalArg { .. } => {
-                return Err(expr.error_positional_args_unsupported(arg.span))
+            if arg.value != FieldValue::Undefined {
+                return Err(expr.error_reject_flag_value(key, arg.span));
             }
         }
+    }
+
+    if !args.is_empty() {
+        return Err(expr.error_positional_args_unsupported(args[0].span));
     }
 
     Ok(create_op_to_str(None, force))

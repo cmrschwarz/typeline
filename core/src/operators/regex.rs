@@ -1,5 +1,4 @@
 use arrayvec::ArrayString;
-use bstr::ByteSlice;
 use metamatch::metamatch;
 use regex::bytes;
 use smallvec::SmallVec;
@@ -7,7 +6,10 @@ use std::{borrow::Cow, cell::RefMut};
 
 use crate::{
     chain::ChainId,
-    cli::call_expr::{CallExpr, ParsedArgValue, Span},
+    cli::{
+        call_expr::{Argument, CallExpr, Span},
+        CliArgumentError,
+    },
     job::JobData,
     liveness_analysis::OpOutputIdx,
     options::session_setup::SessionSetupData,
@@ -18,7 +20,9 @@ use crate::{
         field_data::{
             field_value_flags, FieldData, FieldValueRepr, RunLength,
         },
-        field_value::{FieldReference, SlicedFieldReference},
+        field_value::{
+            FieldReference, FieldValue, ObjectKeysStored, SlicedFieldReference,
+        },
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         formattable::RealizedFormatKey,
@@ -263,7 +267,7 @@ pub fn build_op_regex(
     regex: &str,
     opts: RegexOptions,
     span: Span,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     let mut output_group_id = 0;
 
     let (re, empty_group_replacement) =
@@ -274,7 +278,8 @@ pub fn build_op_regex(
         return Err(OperatorCreationError::new(
             "-f is incompatible with an explicit output capture group",
             span,
-        ));
+        )
+        .into());
     }
 
     let regex = bytes::RegexBuilder::new(&re)
@@ -317,108 +322,110 @@ pub fn build_op_regex(
     }))
 }
 
-pub fn parse_op_regex(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn parse_regex_opts(
+    expr: &CallExpr<&mut [Argument]>,
+    flags: &ObjectKeysStored,
+) -> Result<RegexOptions, CliArgumentError> {
     let mut opts = RegexOptions::default();
     let mut unicode_mode = false;
     let mut ascii_or_unicode_span = Span::Builtin;
     let mut invert_or_multimatch_span = Span::Builtin;
-    let mut regex = None;
-    for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
-        let arg = arg?;
-        match arg.value {
-            ParsedArgValue::Flag(flag) => match flag {
-                b"a" => {
-                    opts.ascii_mode = true;
-                    ascii_or_unicode_span = arg.span;
-                }
-                b"b" => {
-                    opts.binary_mode = true;
-                }
-                b"d" => {
-                    opts.dotall = true;
-                }
-                b"f" => {
-                    opts.full = true;
-                }
-                b"i" => {
-                    opts.case_insensitive = true;
-                }
-                b"l" => {
-                    opts.line_based = true;
-                }
-                b"m" => {
-                    opts.multimatch = true;
-                    invert_or_multimatch_span = arg.span;
-                }
-                b"n" => {
-                    opts.non_mandatory = true;
-                }
-                b"o" => {
-                    opts.overlapping = true;
-                    opts.multimatch = true;
-                    invert_or_multimatch_span = arg.span;
-                }
-                b"u" => {
-                    unicode_mode = true;
-                    ascii_or_unicode_span = arg.span;
-                }
-                b"v" => {
-                    opts.invert_match = true;
-                    invert_or_multimatch_span = arg.span;
-                }
-                other => {
-                    return Err(
-                        expr.error_flag_value_unsupported(other, arg.span)
-                    );
-                }
-            },
-            ParsedArgValue::NamedArg { .. } => {
-                return Err(expr.error_named_args_unsupported(arg.span))
+
+    for (key, v) in flags {
+        let FieldValue::Argument(arg) = v else {
+            unreachable!()
+        };
+        match &**key {
+            "-a" => {
+                opts.ascii_mode = true;
+                ascii_or_unicode_span = arg.span;
             }
-            ParsedArgValue::PositionalArg { value, .. } => {
-                let Some(argv) = value.text_or_bytes() else {
-                    return Err(
-                        expr.error_positional_arg_not_plaintext(arg.span)
-                    );
-                };
-                regex = Some(argv.to_str().map_err(|_| {
-                    OperatorCreationError::new(
-                        "regex must be valid utf-8",
-                        arg.span,
-                    )
-                })?);
+            "-b" => {
+                opts.binary_mode = true;
+            }
+            "-d" => {
+                opts.dotall = true;
+            }
+            "-f" => {
+                opts.full = true;
+            }
+            "-i" => {
+                opts.case_insensitive = true;
+            }
+            "-l" => {
+                opts.line_based = true;
+            }
+            "-m" => {
+                opts.multimatch = true;
+                invert_or_multimatch_span = arg.span;
+            }
+            "-n" => {
+                opts.non_mandatory = true;
+            }
+            "-o" => {
+                opts.overlapping = true;
+                opts.multimatch = true;
+                invert_or_multimatch_span = arg.span;
+            }
+            "-u" => {
+                unicode_mode = true;
+                ascii_or_unicode_span = arg.span;
+            }
+            "-v" => {
+                opts.invert_match = true;
+                invert_or_multimatch_span = arg.span;
+            }
+            other => {
+                return Err(expr.error_flag_unsupported(other, arg.span));
             }
         }
-        if opts.ascii_mode && unicode_mode {
-            return Err(OperatorCreationError::new(
-                "[a]scii and [u]nicode are mutually exclusive",
-                ascii_or_unicode_span,
-            ));
-        }
-        if opts.invert_match && opts.multimatch {
-            return Err(OperatorCreationError::new(
-                "in[v]ert match and [m]ultimatch/[o]verlapping are mutually exclusive",
-                invert_or_multimatch_span,
-            ));
-        }
-        if opts.binary_mode && !unicode_mode {
-            opts.ascii_mode = true;
+        if arg.value != FieldValue::Null {
+            return Err(expr.error_reject_flag_value(key, arg.span));
         }
     }
-    build_op_regex(regex.unwrap(), opts, expr.span)
+    if opts.ascii_mode && unicode_mode {
+        return Err(CliArgumentError::new(
+            "[a]scii and [u]nicode are mutually exclusive",
+            ascii_or_unicode_span,
+        ));
+    }
+    if opts.invert_match && opts.multimatch {
+        return Err(CliArgumentError::new(
+            "in[v]ert match and [m]ultimatch/[o]verlapping are mutually exclusive",
+            invert_or_multimatch_span,
+        ));
+    }
+    if opts.binary_mode && !unicode_mode {
+        opts.ascii_mode = true;
+    }
+    Ok(opts)
+}
+
+pub fn parse_op_regex(
+    sess: &SessionSetupData,
+    mut expr: CallExpr,
+) -> Result<OperatorData, ScrError> {
+    expr.split_flags_arg_normalized(&sess.string_store, true);
+    let (flags, regex) = expr.split_flags_arg(true);
+    if regex.len() != 1 {
+        return Err(expr.error_require_exact_positional_count(1).into());
+    }
+    let opts = flags
+        .map(|f| parse_regex_opts(&expr, f))
+        .unwrap_or_else(|| Ok(RegexOptions::default()))?;
+
+    let regex = regex[0].expect_string(expr.op_name)?;
+
+    build_op_regex(regex, opts, expr.span)
 }
 
 pub fn create_op_regex_with_opts(
     regex: &str,
     opts: RegexOptions,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, ScrError> {
     build_op_regex(regex, opts, Span::Generated)
 }
-pub fn create_op_regex(
-    regex: &str,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn create_op_regex(regex: &str) -> Result<OperatorData, ScrError> {
     build_op_regex(regex, RegexOptions::default(), Span::Generated)
 }
 
@@ -1386,7 +1393,7 @@ mod test {
             build_op_regex("?(<>)(", RegexOptions::default(), Span::Generated);
         assert!(res.is_err_and(|e| {
             // ENHANCE: improve this error message
-            assert_eq!(e.message, "failed to compile regex: regex parse error:\n    ?(<>)(\n    ^\nerror: repetition operator missing expression");
+            assert_eq!(e.to_string(), "failed to compile regex: regex parse error:\n    ?(<>)(\n    ^\nerror: repetition operator missing expression");
             true
         }));
     }

@@ -3,13 +3,16 @@ use std::io::{IsTerminal, Write};
 use metamatch::metamatch;
 
 use super::{
-    errors::{OperatorApplicationError, OperatorCreationError},
+    errors::OperatorApplicationError,
     operator::{OperatorBase, OperatorData},
     transform::{TransformData, TransformId, TransformState},
     utils::writable::{AnyWriter, WritableTarget},
 };
 use crate::{
-    cli::call_expr::{CallExpr, ParsedArgValue},
+    cli::{
+        call_expr::{CallExpr, ParsedArgValue},
+        CliArgumentError,
+    },
     job::{JobData, TransformManager},
     operators::utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
@@ -84,21 +87,19 @@ pub struct TfPrint {
 
 pub fn parse_op_print(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<OperatorData, CliArgumentError> {
     let mut opts = PrintOptions::default();
     for arg in expr.parsed_args_iter() {
         match arg.value {
             ParsedArgValue::Flag(flag) => match flag {
-                b"n" => opts.ignore_nulls = true,
-                b"e" => opts.propagate_errors = true,
+                "n" => opts.ignore_nulls = true,
+                "e" => opts.propagate_errors = true,
                 _ => {
-                    return Err(
-                        expr.error_flag_value_unsupported(flag, arg.span)
-                    );
+                    return Err(expr.error_flag_unsupported(flag, arg.span));
                 }
             },
-            ParsedArgValue::NamedArg { .. } => {
-                return Err(expr.error_named_args_unsupported(arg.span));
+            ParsedArgValue::NamedArg { key, .. } => {
+                return Err(expr.error_named_args_unsupported(key, arg.span));
             }
             ParsedArgValue::PositionalArg { .. } => {
                 return Err(expr.error_positional_args_unsupported(arg.span));
