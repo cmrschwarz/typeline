@@ -12,7 +12,7 @@ use crate::{
     options::{
         context_builder::ContextBuilder, session_setup::SessionSetupData,
     },
-    record_data::{field_value::FieldValue, scope_manager::Symbol},
+    record_data::field_value::FieldValue,
     scr_error::ScrError,
     utils::indexing_type::IndexingType,
 };
@@ -51,28 +51,18 @@ pub fn setup_op_macro_call(
 
     let macro_name = sess.string_store.intern_cloned(&op.name);
 
-    let macro_def =
-        match sess.scope_mgr.lookup_symbol(parent_scope_id, macro_name) {
-            Some(Symbol::Macro(mac)) => mac.clone(),
-            Some(other) => {
-                return Err(OperatorSetupError::new_s(
-                    format!(
-                        "symbol of type `{}` is not callable: '{}'",
-                        other.kind_str(),
-                        op.name
-                    ),
-                    op_id,
-                )
-                .into());
-            }
-            None => {
-                return Err(OperatorSetupError::new_s(
-                    format!("call to undeclared symbol '{}'", op.name),
-                    op_id,
-                )
-                .into());
-            }
-        };
+    let Some(macro_def) =
+        sess.scope_mgr
+            .lookup_value_cell(parent_scope_id, macro_name, |v| {
+                v.macro_def.clone()
+            })
+    else {
+        return Err(OperatorSetupError::new_s(
+            format!("call to undeclared symbol '{}'", op.name),
+            op_id,
+        )
+        .into());
+    };
 
     let result_args = ContextBuilder::with_exts(sess.extensions.clone())
         .add_ops_with_spans(std::mem::take(&mut op.op_multi_op.operations))

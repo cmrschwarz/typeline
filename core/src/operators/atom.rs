@@ -1,14 +1,11 @@
-use std::collections::hash_map::Entry;
+use std::sync::{Arc, Mutex};
 
 use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
     job::JobData,
     options::session_setup::SessionSetupData,
-    record_data::{
-        field_value::FieldValue,
-        scope_manager::{ScopeId, Symbol},
-    },
+    record_data::{field_value::FieldValue, scope_manager::ScopeId},
     scr_error::ScrError,
     utils::string_store::StringStoreEntry,
 };
@@ -72,19 +69,9 @@ pub fn setup_op_atom(
     Ok(op_id)
 }
 pub fn assign_atom(atom: &OpAtom, jd: &mut JobData, scope: ScopeId) {
-    let symbols = &mut jd.scope_mgr.scopes[scope].symbols;
-
-    match symbols.entry(atom.key_interned.unwrap()) {
-        Entry::Occupied(mut v) => match v.get_mut() {
-            Symbol::Atom(value) => *value = atom.value.clone(),
-            Symbol::Field(_) | Symbol::Macro(_) => {
-                v.insert(Symbol::Atom(atom.value.clone()));
-            }
-        },
-        Entry::Vacant(v) => {
-            v.insert(Symbol::Atom(atom.value.clone()));
-        }
-    }
+    jd.scope_mgr
+        .insert_value_cell(scope, atom.key_interned.unwrap())
+        .atom = Some(Arc::new(Mutex::new(atom.value.clone())));
 }
 
 pub fn create_op_atom(key: String, value: FieldValue) -> OperatorData {

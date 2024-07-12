@@ -26,7 +26,6 @@ use crate::{
         iter_hall::{CowVariant, IterKind, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
-        scope_manager::Symbol,
     },
     utils::{
         index_vec::IndexSlice, indexing_type::IndexingType,
@@ -760,13 +759,13 @@ pub fn field_to_json(
 
     let mut field_name = String::new();
 
-    for (i, (&name, sym)) in jd.scope_mgr.scopes
+    for (i, (&name, value)) in jd.scope_mgr.scopes
         [jd.match_set_mgr.match_sets[field.match_set].active_scope]
-        .symbols
+        .values
         .iter()
         .enumerate()
     {
-        let &Symbol::Field(sym_field_id) = sym else {
+        let Some(sym_field_id) = value.field else {
             continue;
         };
         if sym_field_id != field_id {

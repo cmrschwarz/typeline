@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
     index_newtype,
@@ -18,22 +21,17 @@ index_newtype! {
 
 pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;
 
-#[derive(Clone)]
-pub enum Symbol {
-    Atom(FieldValue),
-    Field(FieldId),
-    Macro(Arc<Macro>),
+#[derive(Default, Clone)]
+pub struct ValueCell {
+    pub field: Option<FieldId>,
+    pub macro_def: Option<Arc<Macro>>,
+    pub atom: Option<Arc<Mutex<FieldValue>>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Scope {
     pub parent: Option<ScopeId>,
-    pub symbols: HashMap<StringStoreEntry, Symbol, BuildIdentityHasher>,
-}
-impl Scope {
-    pub fn insert_symbol(&mut self, name: StringStoreEntry, symbol: Symbol) {
-        self.symbols.insert(name, symbol);
-    }
+    pub values: HashMap<StringStoreEntry, ValueCell, BuildIdentityHasher>,
 }
 
 #[derive(Clone)]
@@ -44,40 +42,61 @@ pub struct ScopeManager {
 impl Default for ScopeManager {
     fn default() -> Self {
         let mut scopes = Universe::default();
-        scopes.claim_with_value(Scope {
-            parent: None,
-            symbols: HashMap::default(),
-        });
+        scopes.claim_with_value(Scope::default());
         Self { scopes }
     }
 }
 
-impl Symbol {
-    pub fn kind_str(&self) -> &'static str {
-        match self {
-            Symbol::Atom(_) => "atom",
-            Symbol::Field(_) => "field",
-            Symbol::Macro(_) => "macro",
+impl ScopeManager {
+    pub fn lookup_value_cell<T>(
+        &self,
+        mut scope_id: ScopeId,
+        name: StringStoreEntry,
+        mut val_access: impl FnMut(&ValueCell) -> Option<T>,
+    ) -> Option<T> {
+        loop {
+            let scope = &self.scopes[scope_id];
+            if let Some(value_cell) = scope.values.get(&name) {
+                if let Some(res) = val_access(value_cell) {
+                    return Some(res);
+                }
+            }
+            scope_id = scope.parent?;
         }
     }
-}
 
-impl ScopeManager {
-    pub fn insert_symbol(
+    pub fn lookup_value_cell_mut<T>(
+        &mut self,
+        mut scope_id: ScopeId,
+        name: StringStoreEntry,
+        mut val_access: impl FnMut(&mut ValueCell) -> Option<T>,
+    ) -> Option<T> {
+        loop {
+            let scope = &mut self.scopes[scope_id];
+            if let Some(value_cell) = scope.values.get_mut(&name) {
+                if let Some(res) = val_access(value_cell) {
+                    return Some(res);
+                }
+            }
+            scope_id = scope.parent?;
+        }
+    }
+
+    pub fn insert_value_cell(
         &mut self,
         scope_id: ScopeId,
         name: StringStoreEntry,
-        symbol: Symbol,
-    ) {
-        self.scopes[scope_id].insert_symbol(name, symbol);
+    ) -> &mut ValueCell {
+        self.scopes[scope_id].values.entry(name).or_default()
     }
+
     pub fn insert_field_name(
         &mut self,
         scope_id: ScopeId,
         name: StringStoreEntry,
         field_id: FieldId,
     ) {
-        self.scopes[scope_id].insert_symbol(name, Symbol::Field(field_id));
+        self.insert_value_cell(scope_id, name).field = Some(field_id);
     }
     pub fn insert_field_name_opt(
         &mut self,
@@ -89,25 +108,19 @@ impl ScopeManager {
             self.insert_field_name(scope_id, name, field_id)
         }
     }
+    pub fn insert_macro(
+        &mut self,
+        scope_id: ScopeId,
+        name: StringStoreEntry,
+        macro_def: Arc<Macro>,
+    ) {
+        self.insert_value_cell(scope_id, name).macro_def = Some(macro_def);
+    }
     pub fn add_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
         self.scopes.claim_with_value(Scope {
             parent,
-            symbols: HashMap::default(),
+            ..Scope::default()
         })
-    }
-
-    pub fn lookup_symbol(
-        &self,
-        mut scope_id: ScopeId,
-        name: StringStoreEntry,
-    ) -> Option<&Symbol> {
-        loop {
-            let scope = &self.scopes[scope_id];
-            if let Some(sym) = scope.symbols.get(&name) {
-                return Some(sym);
-            }
-            scope_id = scope.parent?;
-        }
     }
 
     pub fn lookup_field(
@@ -115,10 +128,6 @@ impl ScopeManager {
         scope_id: ScopeId,
         name: StringStoreEntry,
     ) -> Option<u32> {
-        let Some(Symbol::Field(field_id)) = self.lookup_symbol(scope_id, name)
-        else {
-            return None;
-        };
-        Some(*field_id)
+        self.lookup_value_cell(scope_id, name, |v| v.field)
     }
 }

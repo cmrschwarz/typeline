@@ -31,7 +31,7 @@ use crate::{
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         record_buffer::RecordBuffer,
-        scope_manager::{ScopeManager, Symbol},
+        scope_manager::ScopeManager,
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::{
@@ -659,11 +659,11 @@ impl<'a> Job<'a> {
                         [ms_id]
                         .active_scope;
                     let macro_def = op.macro_def.clone().unwrap();
-                    self.job_data.scope_mgr.scopes[active_scope]
-                        .insert_symbol(
-                            macro_def.name,
-                            Symbol::Macro(macro_def),
-                        );
+                    self.job_data.scope_mgr.insert_macro(
+                        active_scope,
+                        macro_def.name,
+                        macro_def,
+                    );
                     continue;
                 }
                 OperatorData::Atom(op) => {

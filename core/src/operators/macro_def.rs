@@ -8,7 +8,6 @@ use crate::{
     },
     job::Job,
     options::session_setup::SessionSetupData,
-    record_data::scope_manager::Symbol,
     scr_error::ScrError,
     utils::string_store::StringStoreEntry,
 };
@@ -55,11 +54,7 @@ pub fn setup_op_macro_def(
 
     let scope_id = sess.chains[chain_id].scope_id;
 
-    sess.scope_mgr.insert_symbol(
-        scope_id,
-        macro_name,
-        Symbol::Macro(macro_def),
-    );
+    sess.scope_mgr.insert_macro(scope_id, macro_name, macro_def);
 
     Ok(op_id)
 }

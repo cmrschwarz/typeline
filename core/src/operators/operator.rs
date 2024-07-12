@@ -26,7 +26,7 @@ use super::{
         insert_tf_aggregator, on_op_aggregator_liveness_computed,
         setup_op_aggregator, OpAggregator, AGGREGATOR_DEFAULT_NAME,
     },
-    atom::OpAtom,
+    atom::{setup_op_atom, OpAtom},
     call::{build_tf_call, setup_op_call, OpCall},
     call_concurrent::{
         build_tf_call_concurrent, setup_op_call_concurrent,
@@ -350,8 +350,15 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
+            OperatorData::Atom(op) => setup_op_atom(
+                op,
+                sess,
+                op_data_id,
+                chain_id,
+                offset_in_chain,
+                span,
+            ),
             OperatorData::ToStr(_)
-            | OperatorData::Atom(_)
             | OperatorData::Count(_)
             | OperatorData::Sequence(_)
             | OperatorData::Literal(_)
@@ -792,7 +799,7 @@ impl OperatorData {
                 flags.input_accessed = false;
             }
             OperatorData::SuccessUpdator(_)
-            //TODO: this shouldn't access inputs. fix testcases
+            // TODO: this shouldn't access inputs. fix testcases
             | OperatorData::Nop(_)
             | OperatorData::StringSink(_)
             | OperatorData::Print(_) => {
