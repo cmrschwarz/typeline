@@ -18,6 +18,7 @@ use crate::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
     },
+    options::chain_settings::SettingPrintRationalsRaw,
     record_data::{
         field::{Field, FieldManager},
         field_data::{field_value_flags, FieldValueType},
@@ -123,9 +124,7 @@ pub fn build_tf_print<'a>(
         flush_on_every_print: matches!(op.target, WritableTarget::Stdout)
             && std::io::stdout().is_terminal(),
         print_rationals_raw: jd
-            .get_transform_chain_from_tf_state(tf_state)
-            .settings
-            .print_rationals_raw,
+            .get_setting_from_tf_state::<SettingPrintRationalsRaw>(tf_state),
         current_stream_val: None,
         streams_kept_alive: 0,
         iter_id: jd.add_iter_for_tf_state(tf_state),

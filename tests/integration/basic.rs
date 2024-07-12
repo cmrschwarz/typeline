@@ -28,7 +28,10 @@ use scr_core::{
         sequence::{create_op_enum, create_op_seq, create_op_seqn},
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
-    options::context_builder::ContextBuilder,
+    options::{
+        chain_settings::{ChainSetting, SettingBatchSize},
+        context_builder::ContextBuilder,
+    },
     scr_error::{ChainSetupError, ScrError},
     utils::test_utils::{ErroringStream, SliceReader, TricklingStream},
 };
@@ -453,7 +456,7 @@ fn basic_cow() -> Result<(), ScrError> {
 #[case(1)]
 #[case(2)]
 #[case(3)]
-#[case(scr_core::options::chain_options::DEFAULT_CHAIN_OPTIONS.default_batch_size.unwrap())]
+#[case(<SettingBatchSize as ChainSetting>::DEFAULT)]
 fn cow_not_affecting_original(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {

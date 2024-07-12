@@ -18,7 +18,9 @@ use crate::{
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
-    options::session_setup::SessionSetupData,
+    options::{
+        chain_settings::SettingBatchSize, session_setup::SessionSetupData,
+    },
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{CowFieldDataRef, FieldId, FieldIterRef, FieldRefOffset},
@@ -552,10 +554,9 @@ fn setup_subchain<'a>(
         });
     }
 
-    let desired_batch_size = job.job_data.session_data.chains
-        [op_base.chain_id]
-        .settings
-        .default_batch_size;
+    let desired_batch_size = job
+        .job_data
+        .get_scope_setting_or_default::<SettingBatchSize>(fc_ms_scope);
 
     let actor_id = job.job_data.match_set_mgr.match_sets[sc_ms_id]
         .action_buffer

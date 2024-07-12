@@ -20,7 +20,10 @@ use crate::{
     context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
-    options::session_setup::SessionSetupData,
+    options::{
+        chain_settings::{SettingPrintRationalsRaw, SettingStreamBufferSize},
+        session_setup::SessionSetupData,
+    },
     record_data::{
         field::{Field, FieldIterRef, FieldManager},
         field_data::{
@@ -298,16 +301,19 @@ pub fn build_tf_format<'a>(
         })
         .collect();
 
-    let settings = &jd.get_transform_chain_from_tf_state(tf_state).settings;
+    let print_rationals_raw =
+        jd.get_setting_from_tf_state::<SettingPrintRationalsRaw>(tf_state);
+    let stream_buffer_size =
+        jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
     let tf = TfFormat {
         op,
         refs,
         output_states: Vec::new(),
         output_targets: Vec::new(),
         stream_value_handles: CountedUniverse::default(),
-        print_rationals_raw: settings.print_rationals_raw,
         contains_raw_bytes: op.contains_raw_bytes,
-        stream_buffer_size: settings.stream_buffer_size,
+        print_rationals_raw,
+        stream_buffer_size,
     };
     TransformData::Format(tf)
 }
@@ -1821,10 +1827,7 @@ pub fn handle_tf_format_stream_value_update<'a>(
     let handle_id = TfFormatStreamValueHandleId::new(update.custom).unwrap();
     let handle = &mut fmt.stream_value_handles[handle_id];
     let tf_id = update.tf_id;
-    let stream_buffer_size = jd
-        .get_transform_chain(update.tf_id)
-        .settings
-        .stream_buffer_size;
+
     let (in_sv_id, out_sv_id) = (update.sv_id, handle.target_sv_id);
     let (sv, out_sv) = jd
         .sv_mgr
@@ -1856,7 +1859,7 @@ pub fn handle_tf_format_stream_value_update<'a>(
     }
 
     let mut inserter =
-        out_sv.data_inserter(out_sv_id, stream_buffer_size, true);
+        out_sv.data_inserter(out_sv_id, fmt.stream_buffer_size, true);
 
     if handle.buffering_needed {
         debug_assert!(in_sv.is_buffered() && in_sv.done);

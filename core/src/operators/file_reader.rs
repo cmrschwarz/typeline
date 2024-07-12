@@ -12,7 +12,13 @@ use crate::{
         CliArgumentError,
     },
     job::JobData,
-    options::session_setup::SessionSetupData,
+    options::{
+        chain_settings::{
+            SettingBufferingMode, SettingStreamBufferSize,
+            SettingStreamSizeThreshold,
+        },
+        session_setup::SessionSetupData,
+    },
     record_data::{
         field_data::INLINE_STR_MAX_LEN,
         field_value::ObjectKeysStored,
@@ -132,14 +138,17 @@ pub fn build_tf_file_reader<'a>(
                 .expect("attempted to create two transforms from a single custom FileKind"))
         }
     };
-    let chain_settings =
-        &jd.get_transform_chain_from_tf_state(tf_state).settings;
+    let stream_size_threshold =
+        jd.get_setting_from_tf_state::<SettingStreamSizeThreshold>(tf_state);
+    let stream_buffer_size =
+        jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
+
     TransformData::FileReader(TfFileReader {
         file: Some(file),
         stream_value: None,
         line_buffered,
-        stream_size_threshold: chain_settings.stream_size_threshold,
-        stream_buffer_size: chain_settings.stream_buffer_size,
+        stream_size_threshold,
+        stream_buffer_size,
         explicit_count: op.insert_count.map(|count| ExplicitCount {
             count,
             actor_id: jd.add_actor_for_tf_state(tf_state),
@@ -583,7 +592,9 @@ pub fn setup_op_file_reader(
     offset_in_chain: OperatorOffsetInChain,
     span: Span,
 ) -> Result<OperatorId, ScrError> {
-    op.line_buffered = match sess.chains[chain_id].settings.buffering_mode {
+    let buffering_mode =
+        sess.get_chain_setting::<SettingBufferingMode>(chain_id);
+    op.line_buffered = match buffering_mode {
         BufferingMode::BlockBuffer => LineBufferedSetting::No,
         BufferingMode::LineBuffer => LineBufferedSetting::Yes,
         BufferingMode::LineBufferStdin => match op.file_kind {

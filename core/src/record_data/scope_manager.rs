@@ -25,13 +25,17 @@ pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;
 pub struct ValueCell {
     pub field: Option<FieldId>,
     pub macro_def: Option<Arc<Macro>>,
-    pub atom: Option<Arc<Mutex<FieldValue>>>,
+    pub atom: Option<Arc<Atom>>,
 }
 
 #[derive(Clone, Default)]
 pub struct Scope {
     pub parent: Option<ScopeId>,
     pub values: HashMap<StringStoreEntry, ValueCell, BuildIdentityHasher>,
+}
+
+pub struct Atom {
+    pub value: Mutex<FieldValue>,
 }
 
 #[derive(Clone)]
@@ -47,12 +51,20 @@ impl Default for ScopeManager {
     }
 }
 
+impl Atom {
+    pub fn new(value: FieldValue) -> Self {
+        Atom {
+            value: Mutex::new(value),
+        }
+    }
+}
+
 impl ScopeManager {
-    pub fn lookup_value_cell<T>(
-        &self,
+    pub fn lookup_value_cell<'a, T: 'a>(
+        &'a self,
         mut scope_id: ScopeId,
         name: StringStoreEntry,
-        mut val_access: impl FnMut(&ValueCell) -> Option<T>,
+        mut val_access: impl FnMut(&'a ValueCell) -> Option<T>,
     ) -> Option<T> {
         loop {
             let scope = &self.scopes[scope_id];
@@ -129,5 +141,13 @@ impl ScopeManager {
         name: StringStoreEntry,
     ) -> Option<u32> {
         self.lookup_value_cell(scope_id, name, |v| v.field)
+    }
+
+    pub fn lookup_atom(
+        &self,
+        scope_id: ScopeId,
+        name: StringStoreEntry,
+    ) -> Option<&Atom> {
+        self.lookup_value_cell(scope_id, name, |v| v.atom.as_deref())
     }
 }

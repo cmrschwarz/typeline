@@ -5,7 +5,10 @@ use bstr::ByteSlice;
 use crate::{
     cli::{call_expr::CallExpr, CliArgumentError},
     job::JobData,
-    options::session_setup::SessionSetupData,
+    options::{
+        chain_settings::SettingStreamBufferSize,
+        session_setup::SessionSetupData,
+    },
     record_data::{
         field_value::FieldValue,
         field_value_ref::FieldValueSlice,
@@ -117,6 +120,7 @@ pub struct TfToStr {
     pending_streams: usize,
     invalid_unicode_handler: Box<dyn InvalidUnicodeHandlerFn>,
     convert_errors: bool,
+    stream_buffer_size: usize,
 }
 
 pub fn build_tf_to_str<'a>(
@@ -154,6 +158,10 @@ pub fn build_tf_to_str<'a>(
          -> Result<(), String> { Err(String::new()) } // TODO:?
         .clone_dyn(),
     };
+
+    let stream_buffer_size =
+        jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
+
     TransformData::ToStr(TfToStr {
         batch_iter: jd.field_mgr.claim_iter_non_cow(
             tf_state.input_field,
@@ -162,6 +170,7 @@ pub fn build_tf_to_str<'a>(
         pending_streams: 0,
         invalid_unicode_handler: replacement_fn,
         convert_errors: op.convert_errors,
+        stream_buffer_size,
     })
 }
 
@@ -222,10 +231,7 @@ pub fn handle_tf_to_str_stream_value_update(
     update: StreamValueUpdate,
 ) {
     let op_id = jd.tf_mgr.transforms[update.tf_id].op_id.unwrap();
-    let stream_buffer_size = jd
-        .get_transform_chain(update.tf_id)
-        .settings
-        .stream_buffer_size;
+
     let sv_in_id = update.sv_id;
     let sv_out_id = StreamValueId::from_usize(update.custom);
     let (sv_in, sv_out) = jd
@@ -242,7 +248,7 @@ pub fn handle_tf_to_str_stream_value_update(
     let input_done = sv_in.done;
     let mut iter = sv_in.data_cursor_from_update(&update);
     let mut inserter =
-        sv_out.data_inserter(sv_out_id, stream_buffer_size, true);
+        sv_out.data_inserter(sv_out_id, tf.stream_buffer_size, true);
 
     while let Some(mut data) = iter.next_steal(inserter.may_append_buffer()) {
         let input_data = match &mut data {

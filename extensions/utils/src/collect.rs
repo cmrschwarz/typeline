@@ -17,6 +17,7 @@ use scr_core::{
             basic_transform_update_claim_all, BasicUpdateData,
         },
     },
+    options::chain_settings::SettingUseFloatingPointMath,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         array::Array,
@@ -78,21 +79,23 @@ impl Operator for OpCollect {
         &'a self,
         job: &mut Job,
         tf_state: &mut TransformState,
-        op_id: OperatorId,
+        _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         let jd = &mut job.job_data;
+
+        let floating_point_math = jd
+            .get_setting_from_tf_state::<SettingUseFloatingPointMath>(
+                tf_state,
+            );
+
         let ms = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id];
-        let op_base = &jd.session_data.operator_bases[op_id];
         let mut ab = ms.action_buffer.borrow_mut();
         let actor_id = ab.add_actor();
         jd.field_mgr.fields[tf_state.output_field]
             .borrow_mut()
             .first_actor
             .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
-        let floating_point_math = jd.session_data.chains[op_base.chain_id]
-            .settings
-            .floating_point_math;
 
         let iter_kind =
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());

@@ -11,7 +11,9 @@ use crate::{
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
-    options::session_setup::SessionSetupData,
+    options::{
+        chain_settings::SettingBatchSize, session_setup::SessionSetupData,
+    },
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldManager},
@@ -407,17 +409,21 @@ pub fn setup_callee_concurrent(
     buffer: Arc<RecordBuffer>,
     start_op_id: OperatorId,
 ) -> OperatorInstantiation {
-    let chain_id =
-        job.job_data.session_data.operator_bases[start_op_id].chain_id;
-    let chain = &job.job_data.session_data.chains[chain_id];
     // TODO //HACK: this is busted
     let group_track = VOID_GROUP_TRACK_ID;
     let dummy_field = job.job_data.match_set_mgr.get_dummy_field(ms_id);
+    let ms_scope_id =
+        job.job_data.match_set_mgr.match_sets[ms_id].active_scope;
+
+    let default_batch_size = job
+        .job_data
+        .get_scope_setting_or_default::<SettingBatchSize>(ms_scope_id);
+
     let tf_state = TransformState::new(
         dummy_field,
         dummy_field,
         ms_id,
-        chain.settings.default_batch_size,
+        default_batch_size,
         None,
         group_track,
     );

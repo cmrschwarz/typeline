@@ -10,6 +10,7 @@ use metamatch::metamatch;
 use crate::{
     job::JobData,
     operators::print::error_to_string,
+    options::chain_settings::SettingPrintRationalsRaw,
     record_data::{
         field::Field,
         field_data::field_value_flags,
@@ -143,6 +144,7 @@ pub struct TfStringSink<'a> {
     handle: &'a Mutex<StringSink>,
     iter_id: IterId,
     stream_value_handles: CountedUniverse<usize, StreamValueHandle>,
+    print_rationals_raw: bool,
 }
 
 pub fn build_tf_string_sink<'a>(
@@ -155,6 +157,8 @@ pub fn build_tf_string_sink<'a>(
         handle: &ss.handle.data,
         iter_id: jd.add_iter_for_tf_state(tf_state),
         stream_value_handles: CountedUniverse::default(),
+        print_rationals_raw: jd
+            .get_setting_from_tf_state::<SettingPrintRationalsRaw>(tf_state),
     })
 }
 fn push_string(out: &mut StringSink, string: String, run_len: usize) {
@@ -287,8 +291,6 @@ pub fn handle_tf_string_sink(
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
     // interruption meaning error or group separator
     let mut last_interruption_end = field_pos;
-    let print_rationals_raw =
-        jd.get_transform_chain(tf_id).settings.print_rationals_raw;
     while let Some(range) = iter.typed_range_fwd(
         &jd.match_set_mgr,
         usize::MAX,
@@ -362,7 +364,7 @@ pub fn handle_tf_string_sink(
                     ss: &mut string_store,
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
-                    print_rationals_raw,
+                    print_rationals_raw: ss.print_rationals_raw,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::with_type_repr(
                         TypeReprFormat::Typed,

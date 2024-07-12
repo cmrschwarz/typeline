@@ -28,6 +28,7 @@ use scr_core::{
             basic_transform_update, BasicUpdateData,
         },
     },
+    options::chain_settings::SettingStreamBufferSize,
     record_data::{
         field_data::{FieldData, RunLength},
         field_value_ref::FieldValueRef,
@@ -115,6 +116,7 @@ pub struct TfHttpRequest {
     tls_config: Arc<rustls::ClientConfig>,
     poll: Poll,
     events: Events,
+    stream_buffer_size: usize,
 }
 
 impl Operator for OpHttpRequest {
@@ -168,6 +170,11 @@ impl Operator for OpHttpRequest {
                 ),
             ),
             tls_config: self.client_config.clone(),
+            stream_buffer_size: job
+                .job_data
+                .get_setting_from_tf_state::<SettingStreamBufferSize>(
+                    tf_state,
+                ),
         };
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(tf)))
     }
@@ -623,8 +630,6 @@ impl Transform<'_> for TfHttpRequest {
         jd: &mut JobData,
         tf_id: TransformId,
     ) {
-        let stream_batch_size =
-            jd.get_transform_chain(tf_id).settings.stream_buffer_size;
         let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
         if let Err(e) = self
             .poll
@@ -652,10 +657,10 @@ impl Transform<'_> for TfHttpRequest {
             let sv_id = req.stream_value.unwrap();
             let sv = &mut jd.sv_mgr.stream_values[sv_id];
 
-            let mut inserter =
-                sv.data_inserter(sv_id, stream_batch_size, req.header_parsed);
+            let sbs = self.stream_buffer_size;
+            let mut inserter = sv.data_inserter(sv_id, sbs, req.header_parsed);
             let res = inserter.with_bytes_buffer(|buf| {
-                Self::handle_event(req, op_id, event, buf, stream_batch_size)
+                Self::handle_event(req, op_id, event, buf, sbs)
             });
             drop(inserter);
             match res {

@@ -7,7 +7,8 @@ use crate::{
     cli::call_expr::{Argument, CallExpr, ParsedArgValue, Span},
     job::JobData,
     options::{
-        chain_options::DEFAULT_CHAIN_OPTIONS, session_setup::SessionSetupData,
+        chain_settings::{ChainSetting, SettingUseFloatingPointMath},
+        session_setup::SessionSetupData,
     },
     record_data::{
         array::Array,
@@ -376,29 +377,28 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
     })
 }
 pub fn parse_op_tyson(
-    sess: &SessionSetupData,
+    sess: &mut SessionSetupData,
     expr: &CallExpr,
     affinity: FieldValueKind,
 ) -> Result<OperatorData, ScrError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;
     let value =
-        parse_tyson(value, use_fpm(Some(sess)), Some(&sess.extensions))
+        parse_tyson(value, use_fpm(&mut Some(sess)), Some(&sess.extensions))
             .map_err(|e| {
-                OperatorCreationError::new_s(
-                    format!(
-                        "failed to parse value as {}: {}",
-                        affinity.to_str(),
-                        match e {
-                            TysonParseError::Io(e) => e.to_string(),
-                            TysonParseError::InvalidSyntax {
-                                kind, ..
-                            } => kind.to_string(),
-                        }
-                    ),
-                    value_span,
-                )
-            })?;
+            OperatorCreationError::new_s(
+                format!(
+                    "failed to parse value as {}: {}",
+                    affinity.to_str(),
+                    match e {
+                        TysonParseError::Io(e) => e.to_string(),
+                        TysonParseError::InvalidSyntax { kind, .. } =>
+                            kind.to_string(),
+                    }
+                ),
+                value_span,
+            )
+        })?;
     let lit = field_value_to_literal(value);
     Ok(OperatorData::Literal(OpLiteral {
         data: lit,
@@ -406,26 +406,30 @@ pub fn parse_op_tyson(
     }))
 }
 
-pub fn use_fpm(sess: Option<&SessionSetupData>) -> bool {
-    let fpm_default = DEFAULT_CHAIN_OPTIONS.floating_point_math.get().unwrap();
-    sess.map(|sess| sess.chains[sess.curr_chain].settings.floating_point_math)
-        .unwrap_or(fpm_default)
+pub fn use_fpm(sess: &mut Option<&mut SessionSetupData>) -> bool {
+    sess.as_deref_mut()
+        .map(|sess| {
+            sess.get_chain_setting::<SettingUseFloatingPointMath>(
+                sess.curr_chain,
+            )
+        })
+        .unwrap_or(SettingUseFloatingPointMath::DEFAULT)
 }
 
 pub fn build_op_tyson_value(
     value: &[u8],
     value_span: Span,
     insert_count: Option<usize>,
-    sess: Option<&SessionSetupData>,
+    mut sess: Option<&mut SessionSetupData>,
 ) -> Result<OperatorData, ScrError> {
-    let value =
-        parse_tyson(value, use_fpm(sess), sess.map(|sess| &*sess.extensions))
-            .map_err(|e| {
-                OperatorCreationError::new_s(
-                    format!("invalid tyson: {e}"),
-                    value_span,
-                )
-            })?;
+    let value = parse_tyson(
+        value,
+        use_fpm(&mut sess),
+        sess.as_ref().map(|sess| &*sess.extensions),
+    )
+    .map_err(|e| {
+        OperatorCreationError::new_s(format!("invalid tyson: {e}"), value_span)
+    })?;
     let lit = field_value_to_literal(value);
     Ok(OperatorData::Literal(OpLiteral {
         data: lit,
@@ -435,7 +439,7 @@ pub fn build_op_tyson_value(
 
 pub fn parse_op_tyson_value(
     expr: &CallExpr,
-    sess: Option<&SessionSetupData>,
+    sess: Option<&mut SessionSetupData>,
 ) -> Result<OperatorData, ScrError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(expr)?;

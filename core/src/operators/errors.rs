@@ -96,6 +96,16 @@ impl OperatorApplicationError {
             OperatorApplicationError::Owned { message, .. } => message,
         }
     }
+    pub fn into_message_cow(self) -> Cow<'static, str> {
+        match self {
+            OperatorApplicationError::Borrowed { message, .. } => {
+                Cow::Borrowed(message)
+            }
+            OperatorApplicationError::Owned { message, .. } => {
+                Cow::from(message.into_string())
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for OperatorApplicationError {

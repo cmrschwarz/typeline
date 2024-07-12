@@ -22,7 +22,13 @@ use crate::{
     utils::index_vec::IndexVec,
 };
 
-use super::session_setup::{ScrSetupOptions, SessionSetupData};
+use super::{
+    chain_settings::{
+        ChainSetting, SettingBatchSize, SettingStreamBufferSize,
+        SettingStreamSizeThreshold,
+    },
+    session_setup::{ScrSetupOptions, SessionSetupData},
+};
 
 pub struct ContextBuilder {
     pub setup_data: SessionSetupData,
@@ -311,22 +317,25 @@ impl ContextBuilder {
             .force_set(j, Span::Generated);
         self
     }
+    pub fn set_chain_setting<S: ChainSetting>(&mut self, value: S::Type) {
+        S::assign(
+            &mut self.setup_data.string_store,
+            &mut self.setup_data.scope_mgr,
+            self.setup_data.chains[self.setup_data.curr_chain].scope_id,
+            value,
+        )
+        .unwrap();
+    }
     pub fn set_batch_size(mut self, bs: usize) -> Self {
-        self.setup_data.chains[self.setup_data.curr_chain]
-            .settings
-            .default_batch_size = bs;
+        self.set_chain_setting::<SettingBatchSize>(bs);
         self
     }
     pub fn set_stream_buffer_size(mut self, sbs: usize) -> Self {
-        self.setup_data.chains[self.setup_data.curr_chain]
-            .settings
-            .stream_buffer_size = sbs;
+        self.set_chain_setting::<SettingStreamBufferSize>(sbs);
         self
     }
-    pub fn set_stream_size_threshold(mut self, sbs: usize) -> Self {
-        self.setup_data.chains[self.setup_data.curr_chain]
-            .settings
-            .stream_size_threshold = sbs;
+    pub fn set_stream_size_threshold(mut self, sst: usize) -> Self {
+        self.set_chain_setting::<SettingStreamSizeThreshold>(sst);
         self
     }
 }

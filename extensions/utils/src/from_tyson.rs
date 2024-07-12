@@ -21,6 +21,7 @@ use scr_core::{
             basic_transform_update, BasicUpdateData,
         },
     },
+    options::chain_settings::SettingUseFloatingPointMath,
     record_data::{
         action_buffer::ActorRef,
         field_data::{FieldData, RunLength},
@@ -50,6 +51,7 @@ pub struct OpFromTyson {}
 
 pub struct TfFromTyson {
     input_iter_id: IterId,
+    use_floating_point_math: bool,
 }
 
 impl Operator for OpFromTyson {
@@ -94,6 +96,11 @@ impl Operator for OpFromTyson {
             .action_buffer
             .borrow();
 
+        let use_floating_point_math = jd
+            .get_setting_from_tf_state::<SettingUseFloatingPointMath>(
+                tf_state,
+            );
+
         jd.field_mgr.fields[tf_state.output_field]
             .borrow()
             .first_actor
@@ -104,6 +111,7 @@ impl Operator for OpFromTyson {
                     tf_state.input_field,
                     IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
                 ),
+                use_floating_point_math
             }
         )))
     }
@@ -136,10 +144,7 @@ impl TfFromTyson {
         let mut output_field =
             bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = output_field.iter_hall.varying_type_inserter();
-        let fpm = bud.session_data.chains
-            [bud.session_data.operator_bases[op_id].chain_id]
-            .settings
-            .floating_point_math;
+        let fpm = self.use_floating_point_math;
         let exts = Some(&*bud.session_data.extensions);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             metamatch!(match range.base.data {

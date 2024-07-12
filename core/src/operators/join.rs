@@ -6,6 +6,10 @@ use std::{collections::VecDeque, sync::Arc};
 use crate::{
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
     job::{JobData, TransformManager},
+    options::chain_settings::{
+        SettingPrintRationalsRaw, SettingStreamBufferSize,
+        SettingStreamSizeThreshold,
+    },
     record_data::{
         action_buffer::ActorId,
         field::FieldRefOffset,
@@ -102,8 +106,9 @@ pub struct TfJoin<'a> {
     separator: Option<MaybeTextRef<'a>>,
     group_capacity: Option<usize>,
     drop_incomplete: bool,
-    stream_len_threshold: usize,
+    stream_size_threshold: usize,
     stream_buffer_size: usize,
+    print_rationals_raw: bool,
     input_field_ref_offset: FieldRefOffset,
 
     group_track_iter_ref: GroupTrackIterRef,
@@ -207,14 +212,20 @@ pub fn build_tf_join<'a>(
         .field_mgr
         .register_field_reference(tf_state.output_field, tf_state.input_field);
 
-    let settings = &jd.get_transform_chain_from_tf_state(tf_state).settings;
+    let stream_buffer_size =
+        jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
+    let stream_size_threshold =
+        jd.get_setting_from_tf_state::<SettingStreamSizeThreshold>(tf_state);
+    let print_rationals_raw =
+        jd.get_setting_from_tf_state::<SettingPrintRationalsRaw>(tf_state);
     let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
     TransformData::Join(TfJoin {
         separator: op.separator.as_ref().map(|s| s.as_ref()),
         group_capacity: op.join_count,
         drop_incomplete: op.drop_incomplete,
-        stream_len_threshold: settings.stream_size_threshold,
-        stream_buffer_size: settings.stream_buffer_size,
+        stream_size_threshold,
+        stream_buffer_size,
+        print_rationals_raw,
         input_field_ref_offset,
         group_track_iter_ref: jd
             .group_track_manager
@@ -394,7 +405,7 @@ fn push_join_data<'a>(
         if rl > 1 {
             insert_size += (rl as usize - 1) * (data_size + sep_size);
         }
-        if join.buffer.len() + insert_size > join.stream_len_threshold {
+        if join.buffer.len() + insert_size > join.stream_size_threshold {
             claim_stream_value(join, sv_mgr);
         }
     }
@@ -774,10 +785,7 @@ pub fn handle_tf_join<'a>(
             FieldValueSlice::REP(v) => {
                 let mut fc = FormattingContext {
                     ss: &mut string_store,
-                    print_rationals_raw: jd
-                        .get_transform_chain(tf_id)
-                        .settings
-                        .print_rationals_raw,
+                    print_rationals_raw: join.print_rationals_raw,
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     is_stream_value: false,
@@ -971,11 +979,6 @@ pub fn handle_tf_join_stream_value_update(
     let gb = &mut join.group_batches[group_batch_id];
     let out_sv_id = gb.output_stream_value;
 
-    let stream_buffer_size = jd
-        .get_transform_chain(update.tf_id)
-        .settings
-        .stream_buffer_size;
-
     let (in_sv, out_sv) = jd
         .sv_mgr
         .stream_values
@@ -1024,7 +1027,7 @@ pub fn handle_tf_join_stream_value_update(
         debug_assert!(!out_sv.done);
 
         let mut inserter =
-            out_sv.data_inserter(out_sv_id, stream_buffer_size, true);
+            out_sv.data_inserter(out_sv_id, join.stream_buffer_size, true);
         inserter.extend_from_cursor(&mut in_sv.data_cursor(
             update.data_offset,
             update.may_consume_data && *group_batch_run_len == 1,

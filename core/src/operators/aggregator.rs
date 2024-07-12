@@ -46,7 +46,6 @@ pub const AGGREGATOR_DEFAULT_NAME: &str = "aggregator";
 //   hand it out to the current subchain.
 // - Once `input_done` is received, hand out the last record but `dup` it
 //   beforehand for any following subchains in case it is consumed.
-
 pub struct TfAggregatorHeader {
     pub curr_sub_tf_idx: usize,
     pub sub_tfs: Vec<TransformId>,

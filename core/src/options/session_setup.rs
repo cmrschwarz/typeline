@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     num::NonZeroUsize,
     path::PathBuf,
@@ -26,6 +27,9 @@ use crate::{
         success_updater::create_op_success_updator,
         utils::writable::WritableTarget,
     },
+    options::chain_settings::{
+        SettingStreamBufferSize, SettingStreamSizeThreshold,
+    },
     record_data::scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
     scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
     utils::{
@@ -37,7 +41,7 @@ use crate::{
 };
 
 use super::{
-    chain_options::DEFAULT_CHAIN_OPTIONS,
+    chain_settings::{ChainSetting, SettingBatchSize},
     setting::{CliArgIdx, Setting},
 };
 
@@ -136,7 +140,6 @@ impl SessionSetupData {
             curr_chain: ChainId::ZERO,
             chains: index_vec![Chain {
                 label: None,
-                settings: DEFAULT_CHAIN_OPTIONS.build_chain_settings(None),
                 operators: IndexVec::new(),
                 subchains: IndexVec::new(),
                 scope_id: DEFAULT_SCOPE_ID,
@@ -309,7 +312,7 @@ impl SessionSetupData {
         Ok(sess)
     }
 
-    pub fn validate_chains(&self) -> Result<(), ChainSetupError> {
+    pub fn validate_chains(&mut self) -> Result<(), ChainSetupError> {
         if self.chains[ChainId::ZERO].operators.is_empty() {
             return Err(ChainSetupError::new(
                 "main chain must contain at least one operator",
@@ -317,23 +320,54 @@ impl SessionSetupData {
             ));
         }
 
+        fn validate_setting<S: ChainSetting>(
+            ss: &mut StringStore,
+            sm: &mut ScopeManager,
+            chain: &Chain,
+            chain_id: ChainId,
+        ) -> Result<(), ChainSetupError> {
+            S::lookup(ss, sm, chain.scope_id).map(|_| ()).map_err(|e| {
+                ChainSetupError {
+                    message: Cow::Owned(e.message),
+                    chain_id,
+                }
+            })
+        }
+
         for (chain_id, chain) in self.chains.iter_enumerated() {
-            let mut message = "";
-            // TODO: maybe insert a nop if the chain is empty?
-            if chain.settings.default_batch_size == 0 {
-                message = "default batch size cannot be zero";
-            } else if chain.settings.stream_buffer_size == 0 {
-                message = "stream buffer size cannot be zero";
-            }
-            if !message.is_empty() {
-                return Err(ChainSetupError::new(message, chain_id));
-            }
+            validate_setting::<SettingBatchSize>(
+                &mut self.string_store,
+                &mut self.scope_mgr,
+                chain,
+                chain_id,
+            )?;
+            validate_setting::<SettingStreamBufferSize>(
+                &mut self.string_store,
+                &mut self.scope_mgr,
+                chain,
+                chain_id,
+            )?;
+            validate_setting::<SettingStreamSizeThreshold>(
+                &mut self.string_store,
+                &mut self.scope_mgr,
+                chain,
+                chain_id,
+            )?;
         }
         Ok(())
     }
 
     pub fn add_op_data(&mut self, op_data: OperatorData) -> OperatorDataId {
         self.operator_data.push_get_id(op_data)
+    }
+
+    pub fn lookup_initial_chain_setting<S: ChainSetting>(
+        &mut self,
+        chain_id: ChainId,
+    ) -> S::Type {
+        let scope_id = self.chains[chain_id].scope_id;
+        S::lookup(&mut self.string_store, &self.scope_mgr, scope_id)
+            .unwrap_or(S::DEFAULT)
     }
 
     pub fn add_op(
@@ -343,13 +377,13 @@ impl SessionSetupData {
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
     ) -> OperatorId {
+        let batch_size =
+            self.lookup_initial_chain_setting::<SettingBatchSize>(chain_id);
         let op_id = self.operator_bases.push_get_id(OperatorBase {
             op_data_id,
             chain_id,
             offset_in_chain,
-            desired_batch_size: self.chains[chain_id]
-                .settings
-                .default_batch_size,
+            desired_batch_size: batch_size,
             span,
             outputs_start: OpOutputIdx::MAX_VALUE,
             outputs_end: OpOutputIdx::MAX_VALUE,
@@ -468,7 +502,6 @@ impl SessionSetupData {
             parent: Some(parent_id),
             subchain_idx: Some(subchain_idx),
             label: chain_name,
-            settings: self.chains[parent_id].settings.clone(),
             operators: IndexVec::new(),
             subchains: IndexVec::new(),
             scope_id: self
@@ -538,5 +571,17 @@ impl SessionSetupData {
             )?;
         }
         Ok(sc_id)
+    }
+
+    pub fn get_chain_setting<S: ChainSetting>(
+        &mut self,
+        chain_id: ChainId,
+    ) -> S::Type {
+        S::lookup(
+            &mut self.string_store,
+            &self.scope_mgr,
+            self.chains[chain_id].scope_id,
+        )
+        .unwrap_or(S::DEFAULT)
     }
 }

@@ -22,6 +22,7 @@ use crate::{
         },
         utils::nested_op::NestedOp,
     },
+    options::chain_settings::ChainSetting,
     record_data::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager},
@@ -31,7 +32,7 @@ use crate::{
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         record_buffer::RecordBuffer,
-        scope_manager::ScopeManager,
+        scope_manager::{ScopeId, ScopeManager},
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::{
@@ -1013,6 +1014,25 @@ impl<'a> Job<'a> {
     }
 }
 impl JobData<'_> {
+    pub fn get_scope_setting_or_default<S: ChainSetting>(
+        &self,
+        scope_id: ScopeId,
+    ) -> S::Type {
+        S::lookup(
+            &mut self.session_data.string_store.write().unwrap(),
+            &self.scope_mgr,
+            scope_id,
+        )
+        .unwrap_or(S::DEFAULT)
+    }
+    pub fn get_setting_from_tf_state<S: ChainSetting>(
+        &self,
+        tf_state: &TransformState,
+    ) -> S::Type {
+        self.get_scope_setting_or_default::<S>(
+            self.match_set_mgr.match_sets[tf_state.match_set_id].active_scope,
+        )
+    }
     pub fn get_transform_chain_from_tf_state(
         &self,
         tf_state: &TransformState,

@@ -1,11 +1,14 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
     job::JobData,
     options::session_setup::SessionSetupData,
-    record_data::{field_value::FieldValue, scope_manager::ScopeId},
+    record_data::{
+        field_value::FieldValue,
+        scope_manager::{Atom, ScopeId},
+    },
     scr_error::ScrError,
     utils::string_store::StringStoreEntry,
 };
@@ -71,7 +74,7 @@ pub fn setup_op_atom(
 pub fn assign_atom(atom: &OpAtom, jd: &mut JobData, scope: ScopeId) {
     jd.scope_mgr
         .insert_value_cell(scope, atom.key_interned.unwrap())
-        .atom = Some(Arc::new(Mutex::new(atom.value.clone())));
+        .atom = Some(Arc::new(Atom::new(atom.value.clone())));
 }
 
 pub fn create_op_atom(key: String, value: FieldValue) -> OperatorData {

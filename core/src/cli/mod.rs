@@ -122,7 +122,7 @@ impl Display for MissingArgumentsError {
     }
 }
 
-fn try_parse_bool(val: &[u8]) -> Option<bool> {
+pub fn try_parse_bool(val: &[u8]) -> Option<bool> {
     if TRUTHY_REGEX.is_match(val) {
         return Some(true);
     }
