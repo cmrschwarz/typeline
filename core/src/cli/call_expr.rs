@@ -1,4 +1,7 @@
-use std::{fmt::Display, str::FromStr};
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+};
 
 use bstr::ByteSlice;
 use num::{FromPrimitive, PrimInt};
@@ -688,9 +691,9 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
         }
         self.args.as_ref()[0].expect_plain(self.op_name).map(Some)
     }
-    pub fn require_single_plaintext_arg(
+    pub fn require_single_arg(
         &self,
-    ) -> Result<&[u8], OperatorCreationError> {
+    ) -> Result<&Argument, OperatorCreationError> {
         if self.args.as_ref().len() != 1 {
             return Err(OperatorCreationError::new_s(
                 format!(
@@ -700,7 +703,12 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
                 self.span,
             ));
         }
-        self.args.as_ref()[0].expect_plain(self.op_name)
+        Ok(&self.args.as_ref()[0])
+    }
+    pub fn require_single_plaintext_arg(
+        &self,
+    ) -> Result<&[u8], OperatorCreationError> {
+        self.require_single_arg()?.expect_plain(self.op_name)
     }
     pub fn require_single_string_arg(
         &self,

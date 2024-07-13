@@ -12,7 +12,8 @@ use crate::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
     },
     options::{
-        chain_settings::SettingBatchSize, session_setup::SessionSetupData,
+        chain_settings::{SettingBatchSize, SettingMaxThreads},
+        session_setup::SessionSetupData,
     },
     record_data::{
         action_buffer::{ActorId, ActorRef},
@@ -121,7 +122,7 @@ pub fn setup_op_call_concurrent(
         .into());
     }
 
-    if sess.setup_settings.max_threads.get() == Some(1) {
+    if sess.get_chain_setting::<SettingMaxThreads>(chain_id) == 1 {
         return Err(OperatorSetupError::new(
             "callcc cannot be used with a max thread count of 1, see `h=j`",
             op_id,

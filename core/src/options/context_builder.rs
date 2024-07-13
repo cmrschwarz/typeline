@@ -24,8 +24,8 @@ use crate::{
 
 use super::{
     chain_settings::{
-        ChainSetting, SettingBatchSize, SettingStreamBufferSize,
-        SettingStreamSizeThreshold,
+        ChainSetting, SettingBatchSize, SettingMaxThreads,
+        SettingStreamBufferSize, SettingStreamSizeThreshold,
     },
     session_setup::{ScrSetupOptions, SessionSetupData},
 };
@@ -310,21 +310,19 @@ impl ContextBuilder {
 }
 
 impl ContextBuilder {
-    pub fn set_max_thread_count(mut self, j: usize) -> Self {
-        self.setup_data
-            .setup_settings
-            .max_threads
-            .force_set(j, Span::Generated);
-        self
-    }
     pub fn set_chain_setting<S: ChainSetting>(&mut self, value: S::Type) {
         S::assign(
             &mut self.setup_data.string_store,
             &mut self.setup_data.scope_mgr,
             self.setup_data.chains[self.setup_data.curr_chain].scope_id,
             value,
+            Span::Generated,
         )
         .unwrap();
+    }
+    pub fn set_max_thread_count(mut self, j: usize) -> Self {
+        self.set_chain_setting::<SettingMaxThreads>(j);
+        self
     }
     pub fn set_batch_size(mut self, bs: usize) -> Self {
         self.set_chain_setting::<SettingBatchSize>(bs);

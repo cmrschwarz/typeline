@@ -8,6 +8,7 @@ pub enum LazyRwLockReadGuard<'a, T> {
 pub enum LazyRwLockWriteGuard<'a, T> {
     Unlocked(&'a RwLock<T>),
     Write(RwLockWriteGuard<'a, T>),
+    Plain(&'a mut T),
 }
 
 pub enum LazyRwLockGuard<'a, T> {
@@ -48,6 +49,7 @@ impl<'a, T> LazyRwLockWriteGuard<'a, T> {
                 self.get()
             }
             LazyRwLockWriteGuard::Write(w) => w,
+            LazyRwLockWriteGuard::Plain(v) => v,
         }
     }
     pub fn get_mut(&mut self) -> &mut T {
@@ -57,6 +59,7 @@ impl<'a, T> LazyRwLockWriteGuard<'a, T> {
                 self.get_mut()
             }
             LazyRwLockWriteGuard::Write(w) => w,
+            LazyRwLockWriteGuard::Plain(v) => v,
         }
     }
 }
@@ -76,6 +79,7 @@ impl<'a, T> LazyRwLockGuard<'a, T> {
             }
             LazyRwLockGuard::Read { guard, .. } => guard,
             LazyRwLockGuard::NonRead(LazyRwLockWriteGuard::Write(w)) => w,
+            LazyRwLockGuard::NonRead(LazyRwLockWriteGuard::Plain(v)) => v,
         }
     }
     pub fn get_mut(&mut self) -> &mut T {

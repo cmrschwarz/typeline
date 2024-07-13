@@ -448,9 +448,7 @@ pub fn gobble_cli_args_while_dashed_or_eq<'a>(
             continue;
         }
         args.push(Argument {
-            value: FieldValue::from_maybe_text(MaybeText::from_bytes_try_str(
-                &arg[1..],
-            )),
+            value: parse_single_arg_value(&arg[1..]),
             span,
             source_scope,
             end_kind: None,
@@ -653,9 +651,7 @@ pub fn parse_call_expr_head(
 
     if equals_found {
         equals_arg = Some(Argument {
-            value: FieldValue::from_maybe_text(MaybeText::from_bytes_try_str(
-                &argv[i..],
-            )),
+            value: parse_single_arg_value(&argv[i..]),
             span: arg_span.subslice_offsets(i, argv.len()),
             source_scope,
             end_kind: None,
@@ -673,6 +669,12 @@ pub fn parse_call_expr_head(
 }
 
 pub fn parse_single_arg_value(arg: &[u8]) -> FieldValue {
+    if arg[0] == b':' {
+        return FieldValue::from_maybe_text(MaybeText::from_bytes_try_str(
+            &arg[1..],
+        ));
+    }
+
     if TysonParser::<&'static [u8]>::is_number_start(arg[0]) {
         let mut tp = TysonParser::new(&arg[1..], true, None);
         if let Ok(number) = tp.parse_number(arg[0]) {

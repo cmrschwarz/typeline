@@ -38,7 +38,8 @@ use std::{
 
 use super::{
     chain_settings::{
-        chain_settings_list, ChainSetting, ChainSettingNames, SettingBatchSize,
+        chain_settings_list, ChainSetting, ChainSettingNames,
+        SettingBatchSize, SettingDebugLog, SettingMaxThreads,
     },
     setting::{CliArgIdx, Setting},
 };
@@ -86,10 +87,7 @@ pub struct SessionSetupSettings {
     pub add_success_updator: bool,
     pub skipped_first_cli_arg: bool,
 
-    // TODO: kill these
-    pub max_threads: Setting<usize>,
     pub repl: Setting<bool>,
-    pub debug_log_path: Setting<PathBuf>,
     pub exit_repl: Setting<bool>,
 }
 
@@ -123,9 +121,7 @@ impl SessionSetupSettings {
             print_output: opts.print_output,
             add_success_updator: opts.add_success_updator,
             skipped_first_cli_arg: opts.skip_first_cli_arg,
-            max_threads: Setting::default(),
             repl: Setting::default(),
-            debug_log_path: Setting::default(),
             exit_repl: Setting::default(),
         }
     }
@@ -218,9 +214,16 @@ impl SessionSetupData {
     fn build_debug_log_path(
         &self,
     ) -> Result<Option<PathBuf>, CliArgumentError> {
-        let mut debug_log_path =
-            if self.setup_settings.debug_log_path.is_some() {
-                self.setup_settings.debug_log_path.clone()
+        let mut debug_log_path = {
+            if let Some((res, span)) = SettingDebugLog::lookup(
+                &self.scope_mgr,
+                &self.chain_setting_names,
+                self.chains[ChainId::ZERO].scope_id,
+            ) {
+                Setting::new(
+                    res.map_err(|e| CliArgumentError::new_s(e.message, span))?,
+                    span,
+                )
             } else if let Some(path) = std::env::var_os(DEBUG_LOG_ENV_VAR) {
                 Setting::new(
                     Some(PathBuf::from(path)),
@@ -241,8 +244,9 @@ impl SessionSetupData {
                         var_name: DEBUG_LOG_ENV_VAR,
                     },
                 )
-            };
-        if let Some(path) = debug_log_path.get_ref() {
+            }
+        };
+        if let Some(path) = debug_log_path.as_ref() {
             if path.as_os_str().is_empty() {
                 debug_log_path.reset_value();
             }
@@ -266,8 +270,10 @@ impl SessionSetupData {
         let max_threads = if self.setup_settings.deny_threading {
             1
         } else {
-            let mt_setting =
-                self.setup_settings.max_threads.value.unwrap_or(0);
+            let mt_setting = self
+                .lookup_initial_chain_setting::<SettingMaxThreads>(
+                    ChainId::ZERO,
+                );
             if mt_setting == 0 {
                 std::thread::available_parallelism()
                     .unwrap_or(NonZeroUsize::new(1).unwrap())
@@ -291,8 +297,6 @@ impl SessionSetupData {
     }
 
     pub fn build_session_take(&mut self) -> Result<SessionData, ScrError> {
-        let settings = self.build_session_settings()?;
-
         if self.setup_settings.print_output {
             let op_data = create_op_print_with_opts(
                 WritableTarget::Stdout,
@@ -308,6 +312,7 @@ impl SessionSetupData {
             self.setup_op_generated(op_data)?;
         }
 
+        let settings = self.build_session_settings()?;
         self.validate_chains()?;
 
         use std::mem::take;
@@ -350,12 +355,16 @@ impl SessionSetupData {
                 &mut self,
                 _value: Self::Value,
             ) -> Result<Self::Value, Self::Error> {
-                S::lookup(self.sm, self.csn, self.chain.scope_id)
-                    .map(|_| ())
-                    .map_err(|e| ChainSetupError {
+                if let Some((Err(e), _span)) =
+                    S::lookup(self.sm, self.csn, self.chain.scope_id)
+                {
+                    Err(ChainSetupError {
                         message: Cow::Owned(e.message),
                         chain_id: self.chain_id,
                     })
+                } else {
+                    Ok(())
+                }
             }
         }
 
@@ -383,6 +392,7 @@ impl SessionSetupData {
     ) -> S::Type {
         let scope_id = self.chains[chain_id].scope_id;
         S::lookup(&self.scope_mgr, &self.chain_setting_names, scope_id)
+            .and_then(|(v, _span)| v.ok())
             .unwrap_or(S::DEFAULT)
     }
 
@@ -598,6 +608,7 @@ impl SessionSetupData {
             &self.chain_setting_names,
             self.chains[chain_id].scope_id,
         )
+        .and_then(|(res, _span)| res.ok())
         .unwrap_or(S::DEFAULT)
     }
 }

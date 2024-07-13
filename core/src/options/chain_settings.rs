@@ -1,6 +1,9 @@
 use crate::{
     chain::BufferingMode,
-    cli::try_parse_bool,
+    cli::{
+        call_expr::{Argument, Span},
+        try_parse_bool,
+    },
     record_data::{
         field_value::FieldValue,
         scope_manager::{Atom, ScopeId, ScopeManager},
@@ -41,41 +44,23 @@ pub trait ChainSetting: chain_settings_list::TypeList {
     type Type;
     type Converter: SettingTypeConverter<Self::Type>;
 
-    fn lookup_ref<R>(
-        sm: &ScopeManager,
-        names: &ChainSettingNames,
-        scope_id: ScopeId,
-        mut accessor: impl FnMut(&FieldValue) -> R,
-    ) -> Option<R> {
-        sm.lookup_value_cell(scope_id, names[Self::INDEX], |v| {
-            v.atom
-                .as_ref()
-                .map(|v| accessor(&mut v.value.read().unwrap()))
-        })
-    }
-
-    fn lookup_ref_mut<R>(
-        sm: &ScopeManager,
-        names: &ChainSettingNames,
-        scope_id: ScopeId,
-        mut accessor: impl FnMut(&mut FieldValue) -> R,
-    ) -> Option<R> {
-        sm.lookup_value_cell(scope_id, names[Self::INDEX], |v| {
-            v.atom
-                .as_ref()
-                .map(|v| accessor(&mut v.value.write().unwrap()))
-        })
-    }
-
     fn lookup(
         sm: &ScopeManager,
         names: &ChainSettingNames,
         scope_id: ScopeId,
-    ) -> Result<Self::Type, SettingConversionError> {
-        Self::lookup_ref(sm, names, scope_id, |v| {
-            Self::Converter::convert_to_type(v)
+    ) -> Option<(Result<Self::Type, SettingConversionError>, Span)> {
+        sm.lookup_value_cell(scope_id, names[Self::INDEX], |v| {
+            let atom = v.atom.as_ref()?;
+            let value = atom.value.read().unwrap();
+            if let FieldValue::Argument(arg) = &*value {
+                Some((Self::Converter::convert_to_type(&arg.value), arg.span))
+            } else {
+                Some((
+                    Self::Converter::convert_to_type(&value),
+                    Span::Generated,
+                ))
+            }
         })
-        .unwrap_or(Ok(Self::DEFAULT))
     }
 
     fn assign_raw(
@@ -95,18 +80,21 @@ pub trait ChainSetting: chain_settings_list::TypeList {
             cell @ None => *cell = Some(Arc::new(Atom::new(value))),
         }
     }
+
     fn assign(
         string_store: &mut StringStore,
         sm: &mut ScopeManager,
         scope_id: ScopeId,
         value: Self::Type,
+        span: Span,
     ) -> Result<(), SettingConversionError> {
-        Self::assign_raw(
-            string_store,
-            sm,
-            scope_id,
-            Self::Converter::convert_from_type(value)?,
-        );
+        let value = FieldValue::Argument(Box::new(Argument {
+            value: Self::Converter::convert_from_type(value)?,
+            span,
+            source_scope: scope_id,
+            end_kind: None,
+        }));
+        Self::assign_raw(string_store, sm, scope_id, value);
         Ok(())
     }
 }
@@ -367,6 +355,14 @@ impl ChainSetting for SettingDebugLog {
     type Converter = SettingConverterOptionalPath<Self>;
 }
 
+pub struct SettingMaxThreads;
+impl ChainSetting for SettingMaxThreads {
+    type Type = usize;
+    const NAME: &'static str = "j";
+    const DEFAULT: usize = 0;
+    type Converter = SettingConverterUsize<Self, true>;
+}
+
 typelist! {
     pub mod chain_settings_list: (ChainSetting) = [
         SettingBatchSize,
@@ -375,6 +371,7 @@ typelist! {
         SettingPrintRationalsRaw,
         SettingUseFloatingPointMath,
         SettingBufferingMode,
-        SettingDebugLog
+        SettingDebugLog,
+        SettingMaxThreads
     ]{}
 }

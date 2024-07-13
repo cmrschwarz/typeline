@@ -128,6 +128,14 @@ impl ScopeManager {
     ) {
         self.insert_value_cell(scope_id, name).macro_def = Some(macro_def);
     }
+    pub fn insert_atom(
+        &mut self,
+        scope_id: ScopeId,
+        name: StringStoreEntry,
+        atom: Arc<Atom>,
+    ) {
+        self.insert_value_cell(scope_id, name).atom = Some(atom);
+    }
     pub fn add_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
         self.scopes.claim_with_value(Scope {
             parent,

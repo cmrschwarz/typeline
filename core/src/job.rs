@@ -1023,6 +1023,7 @@ impl JobData<'_> {
             &self.session_data.settings.chain_setting_names,
             scope_id,
         )
+        .and_then(|(v, _span)| v.ok())
         .unwrap_or(S::DEFAULT)
     }
     pub fn get_setting_from_tf_state<S: ChainSetting>(
