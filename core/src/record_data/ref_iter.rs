@@ -302,7 +302,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
                     ..header_idx - h_s1.len() + header_count]
             };
             Some((
-                ValidTypedRange::new(TypedRange {
+                ValidTypedRange::new_unchecked(TypedRange {
                     headers,
                     data: FieldValueSlice::new(
                         self.data_iter.field_data_ref(),

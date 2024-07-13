@@ -35,6 +35,23 @@ pub trait ChainSetting {
         string_store: &mut StringStore,
         sm: &ScopeManager,
         scope_id: ScopeId,
+        mut accessor: impl FnMut(&FieldValue) -> R,
+    ) -> Option<R> {
+        sm.lookup_value_cell(
+            scope_id,
+            string_store.intern_static(Self::NAME),
+            |v| {
+                v.atom
+                    .as_ref()
+                    .map(|v| accessor(&mut v.value.read().unwrap()))
+            },
+        )
+    }
+
+    fn lookup_ref_mut<R>(
+        string_store: &mut StringStore,
+        sm: &ScopeManager,
+        scope_id: ScopeId,
         mut accessor: impl FnMut(&mut FieldValue) -> R,
     ) -> Option<R> {
         sm.lookup_value_cell(
@@ -43,7 +60,7 @@ pub trait ChainSetting {
             |v| {
                 v.atom
                     .as_ref()
-                    .map(|v| accessor(&mut v.value.lock().unwrap()))
+                    .map(|v| accessor(&mut v.value.write().unwrap()))
             },
         )
     }
@@ -72,7 +89,7 @@ pub trait ChainSetting {
             )
             .atom
         {
-            Some(v) => *v.value.lock().unwrap() = value,
+            Some(v) => *v.value.write().unwrap() = value,
             cell @ None => *cell = Some(Arc::new(Atom::new(value))),
         }
     }

@@ -25,3 +25,4 @@ pub mod spot_value;
 pub mod stream_value;
 pub mod variable_sized_type_inserter;
 pub mod varying_type_inserter;
+pub mod atom_iter_abstraction;

@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
 };
 
 use crate::{
@@ -35,7 +35,7 @@ pub struct Scope {
 }
 
 pub struct Atom {
-    pub value: Mutex<FieldValue>,
+    pub value: RwLock<FieldValue>,
 }
 
 #[derive(Clone)]
@@ -54,7 +54,7 @@ impl Default for ScopeManager {
 impl Atom {
     pub fn new(value: FieldValue) -> Self {
         Atom {
-            value: Mutex::new(value),
+            value: RwLock::new(value),
         }
     }
 }
@@ -147,7 +147,7 @@ impl ScopeManager {
         &self,
         scope_id: ScopeId,
         name: StringStoreEntry,
-    ) -> Option<&Atom> {
-        self.lookup_value_cell(scope_id, name, |v| v.atom.as_deref())
+    ) -> Option<Arc<Atom>> {
+        self.lookup_value_cell(scope_id, name, |v| v.atom.clone())
     }
 }

@@ -101,13 +101,7 @@ pub struct TypedRange<'a> {
 // ValidTypedRange. We can therefore assume all instances to be valid (header
 // matches data)
 #[derive(Default, derive_more::Deref)]
-pub struct ValidTypedRange<'a>(pub(super) TypedRange<'a>);
-
-impl<'a> ValidTypedRange<'a> {
-    pub unsafe fn new_unchecked(range: TypedRange<'a>) -> Self {
-        ValidTypedRange(range)
-    }
-}
+pub struct ValidTypedRange<'a>(TypedRange<'a>);
 
 impl<'a> FieldValueRef<'a> {
     pub unsafe fn new<R: FieldDataRef<'a>>(
@@ -432,7 +426,7 @@ impl<'a> IntoIterator for FieldValueSlice<'a> {
 }
 
 impl<'a> TypedRange<'a> {
-    pub unsafe fn new<R: FieldDataRef<'a>>(
+    pub fn new<R: FieldDataRef<'a>>(
         fdr: R,
         fmt: FieldValueFormat,
         data_begin: usize,
@@ -463,7 +457,7 @@ impl<'a> TypedRange<'a> {
 }
 
 impl<'a> ValidTypedRange<'a> {
-    pub unsafe fn new(range: TypedRange<'a>) -> Self {
+    pub unsafe fn new_unchecked(range: TypedRange<'a>) -> Self {
         Self(range)
     }
 }

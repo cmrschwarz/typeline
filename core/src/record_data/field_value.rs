@@ -7,6 +7,7 @@ use num::{bigint::Sign, BigInt, BigRational};
 use crate::{
     cli::call_expr::Argument,
     operators::errors::OperatorApplicationError,
+    record_data::field_value_ref::FieldValueSlice,
     utils::{
         force_cast,
         maybe_text::{MaybeText, MaybeTextRef},
@@ -362,6 +363,30 @@ impl FieldValue {
                 StreamValueId, BigInt, BigRational, Argument
             ])]
             FieldValue::REP(v) => FieldValueRef::REP(v),
+        })
+    }
+    // This is different from `.as_ref().as_slice()` as it is able to use
+    // `TextBuffer`/`BytesBuffer`, which get lost in translation when using
+    // `as_ref()`
+    pub fn as_slice(&self) -> FieldValueSlice {
+        metamatch!(match self {
+            #[expand(REP in [Null, Undefined])]
+            FieldValue::REP => FieldValueSlice::REP(1),
+
+            #[expand(REP in [
+                Int, Error, Array, Object,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            FieldValue::REP(v) =>
+                FieldValueSlice::REP(std::slice::from_ref(v)),
+
+            #[expand((REP, TGT) in [
+                (Text, TextBuffer),
+                (Bytes, BytesBuffer)])
+            ]
+            FieldValue::REP(v) =>
+                FieldValueSlice::TGT(std::slice::from_ref(v)),
         })
     }
     pub fn as_ref_mut(&mut self) -> FieldValueRefMut {

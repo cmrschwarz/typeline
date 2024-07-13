@@ -1,7 +1,7 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use metamatch::metamatch;
-use std::{borrow::Cow, cell::RefMut, ptr::NonNull};
+use std::{borrow::Cow, cell::RefMut, ptr::NonNull, sync::Arc};
 use unicode_ident::is_xid_start;
 
 use smallstr::SmallString;
@@ -25,11 +25,12 @@ use crate::{
         session_setup::SessionSetupData,
     },
     record_data::{
+        atom_iter_abstraction::{AtomIter, AutoDerefIterOrAtom},
         field::{Field, FieldIterRef, FieldManager},
         field_data::{
             field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
-        field_value::{Null, Undefined},
+        field_value::{FieldValue, Null, Undefined},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         formattable::{
@@ -47,6 +48,7 @@ use crate::{
             RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareTextBufferIter,
         },
+        scope_manager::Atom,
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
             StreamValueDataType, StreamValueId, StreamValueManager,
@@ -88,9 +90,17 @@ impl Default for FormatWidthSpec {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FormatKeyRefType {
+    #[default]
+    Field,
+    Atom,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FormatKey {
     pub ref_idx: FormatKeyRefId,
+    pub ref_type: FormatKeyRefType,
     pub min_char_count: Option<FormatWidthSpec>,
     pub float_precision: Option<FormatWidthSpec>,
     pub opts: FormatOptions,
@@ -107,10 +117,16 @@ type FormatKeyRefId = u32;
 type FormatPartIndex = u32;
 
 #[derive(Clone)]
+struct KeyRefData {
+    ref_type: FormatKeyRefType,
+    name: Option<String>,
+    name_interned: Option<StringStoreEntry>,
+}
+
+#[derive(Clone)]
 pub struct OpFormat {
     parts: Vec<FormatPart>,
-    refs_str: Vec<Option<String>>,
-    refs_idx: Vec<Option<StringStoreEntry>>,
+    refs: Vec<KeyRefData>,
     contains_raw_bytes: bool,
 }
 
@@ -152,9 +168,15 @@ struct OutputTarget {
     remaining_len: usize,
 }
 
+#[derive(Clone)]
+pub enum FormatKeyRef {
+    Atom(Arc<Atom>),
+    Field(FieldIterRef),
+}
+
 pub struct TfFormat<'a> {
     op: &'a OpFormat,
-    refs: Vec<FieldIterRef>,
+    refs: Vec<FormatKeyRef>,
     output_states: Vec<OutputState>,
     output_targets: Vec<OutputTarget>,
     stream_value_handles: CountedUniverse<
@@ -242,9 +264,10 @@ pub fn setup_op_format(
     offset_in_chain: OperatorOffsetInChain,
     span: Span,
 ) -> Result<OperatorId, ScrError> {
-    for r in std::mem::take(&mut op.refs_str) {
-        op.refs_idx
-            .push(r.map(|r| sess.string_store.intern_moved(r)));
+    for r in &mut op.refs {
+        if let Some(name) = r.name.take() {
+            r.name_interned = Some(sess.string_store.intern_moved(name));
+        }
     }
     Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
 }
@@ -255,51 +278,57 @@ pub fn build_tf_format<'a>(
     op: &'a OpFormat,
     tf_state: &TransformState,
 ) -> TransformData<'a> {
-    let refs: Vec<_> = op
-        .refs_idx
-        .iter()
-        .map(|name| {
-            let field_id = if let Some(name) = name {
-                if let Some(id) = jd.scope_mgr.lookup_field(
-                    jd.match_set_mgr.match_sets[tf_state.match_set_id]
-                        .active_scope,
-                    *name,
-                ) {
-                    jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
-                    let mut f = jd.field_mgr.fields[id].borrow_mut();
-                    f.ref_count += 1;
-                    id
-                } else {
-                    let field_id = jd.field_mgr.add_field(
-                        tf_state.match_set_id,
-                        jd.field_mgr.get_first_actor(tf_state.input_field),
-                    );
-                    jd.scope_mgr.insert_field_name(
-                        jd.match_set_mgr.match_sets[tf_state.match_set_id]
-                            .active_scope,
-                        *name,
-                        field_id,
-                    );
-                    field_id
-                }
-            } else {
-                let mut f =
-                    jd.field_mgr.fields[tf_state.input_field].borrow_mut();
-                // while the ref count was already bumped by the transform
-                // creation cleaning up this transform is
-                // simpler this way
-                f.ref_count += 1;
-                tf_state.input_field
-            };
-            FieldIterRef {
-                field_id,
-                iter_id: jd.field_mgr.claim_iter_non_cow(
-                    field_id,
-                    IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-                ),
+    let mut refs = Vec::new();
+
+    let scope_id =
+        jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
+
+    for key_ref in &op.refs {
+        match key_ref.ref_type {
+            FormatKeyRefType::Atom => {
+                let atom = jd
+                    .scope_mgr
+                    .lookup_atom(scope_id, key_ref.name_interned.unwrap());
+                let atom = match atom {
+                    Some(v) => v.clone(),
+                    None => todo!(),
+                };
+                refs.push(FormatKeyRef::Atom(atom));
+                continue;
             }
-        })
-        .collect();
+            FormatKeyRefType::Field => (),
+        };
+
+        let field_id = if let Some(name) = key_ref.name_interned {
+            if let Some(id) = jd.scope_mgr.lookup_field(scope_id, name) {
+                jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
+                let mut f = jd.field_mgr.fields[id].borrow_mut();
+                f.ref_count += 1;
+                id
+            } else {
+                let field_id = jd.field_mgr.add_field(
+                    tf_state.match_set_id,
+                    jd.field_mgr.get_first_actor(tf_state.input_field),
+                );
+                jd.scope_mgr.insert_field_name(scope_id, name, field_id);
+                field_id
+            }
+        } else {
+            let mut f = jd.field_mgr.fields[tf_state.input_field].borrow_mut();
+            // while the ref count was already bumped by the transform
+            // creation cleaning up this transform is
+            // simpler this way
+            f.ref_count += 1;
+            tf_state.input_field
+        };
+        refs.push(FormatKeyRef::Field(FieldIterRef {
+            field_id,
+            iter_id: jd.field_mgr.claim_iter_non_cow(
+                field_id,
+                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+            ),
+        }))
+    }
 
     let print_rationals_raw =
         jd.get_setting_from_tf_state::<SettingPrintRationalsRaw>(tf_state);
@@ -339,7 +368,8 @@ pub fn update_op_format_variable_liveness(
                     || fk.opts.number_format != NumberFormat::Default
                     || fk.opts.zero_pad_numbers
                     || fk.opts.type_repr != TypeReprFormat::Regular;
-                if let Some(name) = fmt.refs_idx[fk.ref_idx as usize] {
+                if let Some(name) = fmt.refs[fk.ref_idx as usize].name_interned
+                {
                     ld.access_var(
                         sess,
                         op_id,
@@ -353,7 +383,8 @@ pub fn update_op_format_variable_liveness(
                         non_stringified;
                 }
                 if let Some(FormatWidthSpec::Ref(ws_ref)) = fk.min_char_count {
-                    if let Some(name) = fmt.refs_idx[ws_ref as usize] {
+                    if let Some(name) = fmt.refs[ws_ref as usize].name_interned
+                    {
                         ld.access_var(
                             sess,
                             op_id,
@@ -634,6 +665,17 @@ pub fn parse_format_key(
     if let Some(mut end) = &fmt[i..].find_byteset("}:") {
         end += i;
         let c0 = fmt[end] as char;
+        key.ref_type = match fmt[i] {
+            b'%' => {
+                i += 1;
+                FormatKeyRefType::Atom
+            }
+            b'@' => {
+                i += 1;
+                FormatKeyRefType::Field
+            }
+            _ => FormatKeyRefType::Field,
+        };
         let ref_val = if end > i {
             Some(
                 fmt[i..end]
@@ -719,17 +761,26 @@ pub fn build_op_format(
             span,
         },
     )?;
-    let refs_idx = Vec::with_capacity(refs_str.len());
+    let mut refs = Vec::with_capacity(refs_str.len());
 
-    let contains_raw_bytes = parts.iter().any(|p| match p {
-        FormatPart::ByteLiteral(_) => true,
-        FormatPart::TextLiteral(_) | FormatPart::Key(_) => false,
-    });
+    let mut contains_raw_bytes = false;
+    for part in &parts {
+        match part {
+            FormatPart::ByteLiteral(_) => contains_raw_bytes = true,
+            FormatPart::TextLiteral(_) => (),
+            FormatPart::Key(key) => {
+                refs.push(KeyRefData {
+                    ref_type: key.ref_type,
+                    name: refs_str[key.ref_idx as usize].take(),
+                    name_interned: None,
+                });
+            }
+        }
+    }
 
     Ok(OperatorData::Format(OpFormat {
         parts,
-        refs_str,
-        refs_idx,
+        refs,
         contains_raw_bytes,
     }))
 }
@@ -839,7 +890,6 @@ pub fn lookup_width_spec(
     msm: &mut MatchSetManager,
     fmt: &mut TfFormat,
     k: &FormatKey,
-    part_idx: FormatPartIndex,
     batch_size: usize,
     update_iter: bool,
     // fmt, output idx, width, run length
@@ -849,17 +899,35 @@ pub fn lookup_width_spec(
 ) {
     let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.min_char_count
     {
-        fmt.refs[ident as usize]
+        fmt.refs[ident as usize].clone()
     } else {
         return;
     };
+
+    let mut output_index = 0;
+    let mut handled_fields = 0;
+
+    let ident_ref = match ident_ref {
+        FormatKeyRef::Atom(atom) => {
+            let value = &*atom.value.read().unwrap();
+            if let &FieldValue::Int(v) = value {
+                if let Ok(v) = usize::try_from(v) {
+                    succ_func(fmt, &mut output_index, v, batch_size);
+                    return;
+                }
+            }
+            err_func(fmt, &mut output_index, value.repr(), batch_size);
+            return;
+        }
+        FormatKeyRef::Field(r) => r,
+    };
+
     let field = fm.get_cow_field_ref(msm, ident_ref.field_id);
     let iter = fm
         .lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
         .bounded(0, batch_size);
     let mut iter = AutoDerefIter::new(fm, ident_ref.field_id, iter);
-    let mut output_index = 0;
-    let mut handled_fields = 0;
+
     while let Some(range) = iter.typed_range_fwd(msm, usize::MAX, 0) {
         match range.base.data {
             FieldValueSlice::Int(ints) => {
@@ -877,18 +945,7 @@ pub fn lookup_width_spec(
         }
         handled_fields += range.base.field_count;
     }
-    iter_output_states_advanced(
-        &mut fmt.output_states,
-        &mut output_index,
-        batch_size - handled_fields,
-        |os| {
-            os.contained_error = Some(FormatError {
-                error_in_width: true,
-                part_idx,
-                kind: FieldValueRepr::Undefined,
-            })
-        },
-    );
+    debug_assert_eq!(batch_size, handled_fields);
     if update_iter {
         fm.store_iter(ident_ref.field_id, ident_ref.iter_id, iter);
     }
@@ -909,7 +966,6 @@ pub fn setup_key_output_state(
         msm,
         fmt,
         k,
-        part_idx,
         batch_size,
         true,
         |fmt, output_idx, width, run_len| {
@@ -935,15 +991,24 @@ pub fn setup_key_output_state(
             )
         },
     );
-    let ident_ref = fmt.refs[k.ref_idx as usize];
+    let field;
+    let ident_ref = fmt.refs[k.ref_idx as usize].clone();
 
-    let field = fm.get_cow_field_ref(msm, ident_ref.field_id);
-    let mut iter = AutoDerefIter::new(
-        fm,
-        ident_ref.field_id,
-        fm.lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
-            .bounded(0, batch_size),
-    );
+    let mut iter = match &ident_ref {
+        FormatKeyRef::Atom(atom) => {
+            AutoDerefIterOrAtom::Atom(AtomIter::new(atom, batch_size))
+        }
+        FormatKeyRef::Field(ident_ref) => {
+            field = fm.get_cow_field_ref(msm, ident_ref.field_id);
+            let iter = AutoDerefIter::new(
+                fm,
+                ident_ref.field_id,
+                fm.lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
+                    .bounded(0, batch_size),
+            );
+            AutoDerefIterOrAtom::Iter(iter)
+        }
+    };
 
     let mut output_index = 0;
     let mut handled_fields = 0;
@@ -1315,26 +1380,27 @@ unsafe fn insert_output_target(
         };
         let mut id_str =
             ArrayString::<{ USIZE_MAX_DECIMAL_DIGITS + 1 }>::default();
-        let (key_str, key_quote) =
-            if let Some(part) = fmt.op.refs_idx[k.ref_idx as usize] {
-                (ss.lookup(part), "'")
-            } else {
-                let key_index = fmt
-                    .op
-                    .parts
-                    .iter()
-                    .take(ex.part_idx as usize)
-                    .filter(|p| matches!(p, FormatPart::Key(_)))
-                    .count()
-                    + 1;
-                id_str.push('#');
-                id_str.push_str(&usize_to_str(key_index));
-                (id_str.as_str(), "")
-            };
+        let (key_str, key_quote) = if let Some(name) =
+            fmt.op.refs[k.ref_idx as usize].name_interned
+        {
+            (ss.lookup(name), "'")
+        } else {
+            let key_index = fmt
+                .op
+                .parts
+                .iter()
+                .take(ex.part_idx as usize)
+                .filter(|p| matches!(p, FormatPart::Key(_)))
+                .count()
+                + 1;
+            id_str.push('#');
+            id_str.push_str(&usize_to_str(key_index));
+            (id_str.as_str(), "")
+        };
         let (width_ctx, width_label, width_ctx2) = if ex.error_in_width {
             if let Some(FormatWidthSpec::Ref(r)) = k.min_char_count {
-                if let Some(lbl) = fmt.op.refs_idx[r as usize] {
-                    (" width spec '", ss.lookup(lbl), "' of")
+                if let Some(name) = fmt.op.refs[r as usize].name_interned {
+                    (" width spec '", ss.lookup(name), "' of")
                 } else {
                     (" width spec of", "", "")
                 }
@@ -1466,7 +1532,6 @@ fn write_fmt_key(
     fmt: &mut TfFormat,
     batch_size: usize,
     k: &FormatKey,
-    part_idx: FormatPartIndex,
 ) {
     // any potential unconsumed input was already set during width calculation
     lookup_width_spec(
@@ -1474,7 +1539,6 @@ fn write_fmt_key(
         msm,
         fmt,
         k,
-        part_idx,
         batch_size,
         false,
         |fmt, output_idx, width, run_len| {
@@ -1484,14 +1548,29 @@ fn write_fmt_key(
         },
         |_fmt, _output_idx, _kind, _run_len| (),
     );
-    let ident_ref = fmt.refs[k.ref_idx as usize];
 
-    let field = fm.get_cow_field_ref(msm, ident_ref.field_id);
-    let base_iter = fm
-        .lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
-        .bounded(0, batch_size);
-    let field_pos_start = base_iter.get_next_field_pos();
-    let mut iter = AutoDerefIter::new(fm, ident_ref.field_id, base_iter);
+    let ident_ref = fmt.refs[k.ref_idx as usize].clone();
+    let field_pos_start;
+    let field;
+
+    let mut iter = match &ident_ref {
+        FormatKeyRef::Atom(atom) => {
+            field_pos_start = 0;
+            AutoDerefIterOrAtom::Atom(AtomIter::new(atom, batch_size))
+        }
+        FormatKeyRef::Field(ident_ref) => {
+            field = fm.get_cow_field_ref(msm, ident_ref.field_id);
+            let mut iter = AutoDerefIter::new(
+                fm,
+                ident_ref.field_id,
+                fm.lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
+                    .bounded(0, batch_size),
+            );
+            field_pos_start = iter.get_next_field_pos();
+            AutoDerefIterOrAtom::Iter(iter)
+        }
+    };
+
     let type_repr = [TypeReprFormat::Typed, TypeReprFormat::Debug]
         .contains(&k.opts.type_repr);
     let mut output_index = 0;
@@ -1691,9 +1770,20 @@ fn write_fmt_key(
             | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
         });
     }
-    let base_iter = iter.into_base_iter();
-    let field_pos_end = base_iter.get_next_field_pos();
-    fm.store_iter(ident_ref.field_id, ident_ref.iter_id, base_iter);
+
+    let field_pos_end = match iter {
+        AutoDerefIterOrAtom::Iter(iter) => {
+            let base_iter = iter.into_base_iter();
+            let field_pos_end = base_iter.get_next_field_pos();
+            let FormatKeyRef::Field(ident_ref) = ident_ref else {
+                unreachable!()
+            };
+            fm.store_iter(ident_ref.field_id, ident_ref.iter_id, base_iter);
+            field_pos_end
+        }
+        AutoDerefIterOrAtom::Atom(iter) => iter.fields_consumed(),
+    };
+
     if type_repr {
         let unconsumed_fields = batch_size - (field_pos_end - field_pos_start);
         iter_output_targets(
@@ -1706,8 +1796,12 @@ fn write_fmt_key(
 }
 fn drop_field_refs(jd: &mut JobData, fmt: &mut TfFormat) {
     for r in &fmt.refs {
-        jd.field_mgr
-            .drop_field_refcount(r.field_id, &mut jd.match_set_mgr);
+        match r {
+            FormatKeyRef::Atom(_) => (),
+            FormatKeyRef::Field(fr) => jd
+                .field_mgr
+                .drop_field_refcount(fr.field_id, &mut jd.match_set_mgr),
+        }
     }
 }
 
@@ -1715,8 +1809,8 @@ pub fn format_add_var_names(
     fmt: &crate::operators::format::OpFormat,
     ld: &mut LivenessData,
 ) {
-    for r in &fmt.refs_idx {
-        ld.add_var_name_opt(*r);
+    for r in &fmt.refs {
+        ld.add_var_name_opt(r.name_interned);
     }
 }
 
@@ -1780,7 +1874,7 @@ pub fn handle_tf_format(
         tf.op_id.unwrap(),
         &mut output_field,
     );
-    for (part_idx, part) in fmt.op.parts.iter().enumerate() {
+    for part in &fmt.op.parts {
         match part {
             FormatPart::ByteLiteral(v) => {
                 iter_output_targets(fmt, &mut 0, batch_size, |tgt| {
@@ -1800,7 +1894,6 @@ pub fn handle_tf_format(
                 fmt,
                 batch_size,
                 k,
-                part_idx as FormatPartIndex,
             ),
         }
     }

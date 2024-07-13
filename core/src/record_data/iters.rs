@@ -704,21 +704,18 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
                 }
             }
         }
-
-        unsafe {
-            ValidTypedRange(TypedRange::new(
-                &self.fdr,
-                fmt,
-                data_begin,
-                data_end,
-                field_count,
-                header_start,
-                header_end,
-                oversize_start,
-                oversize_end,
-            ))
-            .into()
-        }
+        let range = TypedRange::new(
+            &self.fdr,
+            fmt,
+            data_begin,
+            data_end,
+            field_count,
+            header_start,
+            header_end,
+            oversize_start,
+            oversize_end,
+        );
+        unsafe { ValidTypedRange::new_unchecked(range).into() }
     }
     fn typed_range_bwd(
         &mut self,
@@ -747,20 +744,18 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         ) + 1;
         let header_start = self.header_idx;
         let data_start = self.get_next_field_data();
-        unsafe {
-            ValidTypedRange(TypedRange::new(
-                &self.fdr,
-                fmt,
-                data_start,
-                data_end,
-                field_count,
-                header_start,
-                header_end,
-                self.header_rl_offset,
-                oversize_end,
-            ))
-        }
-        .into()
+        let range = TypedRange::new(
+            &self.fdr,
+            fmt,
+            data_start,
+            data_end,
+            field_count,
+            header_start,
+            header_end,
+            self.header_rl_offset,
+            oversize_end,
+        );
+        unsafe { ValidTypedRange::new_unchecked(range) }.into()
     }
 
     fn into_base_iter(self) -> FieldIter<'a, R> {
