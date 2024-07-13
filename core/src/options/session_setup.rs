@@ -18,9 +18,6 @@ use crate::{
         success_updater::create_op_success_updator,
         utils::writable::WritableTarget,
     },
-    options::chain_settings::{
-        SettingDebugLog, SettingStreamBufferSize, SettingStreamSizeThreshold,
-    },
     record_data::scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
     scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
     utils::{
@@ -160,7 +157,7 @@ impl SessionSetupData {
 
         struct IndexInitializer<'a>(&'a mut SessionSetupData);
 
-        impl<'a> chain_settings_list::Apply for IndexInitializer<'a> {
+        impl<'a> chain_settings_list::ApplyForEach for IndexInitializer<'a> {
             fn apply<T: chain_settings_list::TypeList + ChainSetting>(
                 &mut self,
             ) {
@@ -168,7 +165,7 @@ impl SessionSetupData {
                     self.0.string_store.intern_static(T::NAME);
             }
         }
-        chain_settings_list::foreach(&mut IndexInitializer(&mut res));
+        chain_settings_list::for_each(&mut IndexInitializer(&mut res));
 
         if opts.start_with_stdin {
             let op_data = create_op_stdin(1);
@@ -338,44 +335,39 @@ impl SessionSetupData {
             ));
         }
 
-        fn validate_setting<S: ChainSetting>(
-            sm: &mut ScopeManager,
-            csn: &ChainSettingNames,
-            chain: &Chain,
+        struct SettingsValidator<'a> {
+            sm: &'a mut ScopeManager,
+            csn: &'a ChainSettingNames,
+            chain: &'a Chain,
             chain_id: ChainId,
-        ) -> Result<(), ChainSetupError> {
-            S::lookup(sm, csn, chain.scope_id).map(|_| ()).map_err(|e| {
-                ChainSetupError {
-                    message: Cow::Owned(e.message),
-                    chain_id,
-                }
-            })
+        }
+
+        impl<'a> chain_settings_list::ApplyTryFold for SettingsValidator<'a> {
+            type Value = ();
+            type Error = ChainSetupError;
+
+            fn apply<S: ChainSetting>(
+                &mut self,
+                _value: Self::Value,
+            ) -> Result<Self::Value, Self::Error> {
+                S::lookup(self.sm, self.csn, self.chain.scope_id)
+                    .map(|_| ())
+                    .map_err(|e| ChainSetupError {
+                        message: Cow::Owned(e.message),
+                        chain_id: self.chain_id,
+                    })
+            }
         }
 
         for (chain_id, chain) in self.chains.iter_enumerated() {
-            validate_setting::<SettingBatchSize>(
-                &mut self.scope_mgr,
-                &self.chain_setting_names,
-                chain,
-                chain_id,
-            )?;
-            validate_setting::<SettingStreamBufferSize>(
-                &mut self.scope_mgr,
-                &self.chain_setting_names,
-                chain,
-                chain_id,
-            )?;
-            validate_setting::<SettingStreamSizeThreshold>(
-                &mut self.scope_mgr,
-                &self.chain_setting_names,
-                chain,
-                chain_id,
-            )?;
-            validate_setting::<SettingDebugLog>(
-                &mut self.scope_mgr,
-                &self.chain_setting_names,
-                chain,
-                chain_id,
+            chain_settings_list::try_fold(
+                &mut SettingsValidator {
+                    sm: &mut self.scope_mgr,
+                    csn: &self.chain_setting_names,
+                    chain,
+                    chain_id,
+                },
+                (),
             )?;
         }
         Ok(())

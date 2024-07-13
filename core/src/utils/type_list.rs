@@ -48,22 +48,43 @@ macro_rules! typelist {
                     #[allow(unused)]
                     const INDEX: usize;
                     #[inline(always)]
-                    fn foreach<A: Apply>(applicator: &mut A) {
+                    fn for_each<A: ApplyForEach>(applicator: &mut A) {
                         applicator.apply::<<Self as TypeList>::Value>();
                         if Self::INDEX + 1 != COUNT {
-                            Self::Next::foreach(applicator);
+                            Self::Next::for_each(applicator);
                         }
+                    }
+                     #[inline(always)]
+                    fn try_fold<A: ApplyTryFold>(applicator: &mut A, value: A::Value) -> Result<A::Value, A::Error>{
+                        let value = applicator.apply::<<Self as TypeList>::Value>(value)?;
+                        if Self::INDEX + 1 == COUNT {
+                            return Ok(value);
+                        }
+                        Self::Next::try_fold(applicator, value)
                     }
                 }
 
                 #[allow(unused)]
-                pub trait Apply {
+                pub trait ApplyForEach {
                     fn apply<T: TypeList $(+ $($base_traits)+ )?>(&mut self);
                 }
 
+
                 #[allow(unused)]
-                pub fn foreach<A: Apply>(applicator: &mut A) {
-                    <$first as TypeList>::foreach(applicator)
+                pub trait ApplyTryFold {
+                    type Value;
+                    type Error;
+                    fn apply<T: TypeList $(+ $($base_traits)+ )?>(&mut self, value: Self::Value) -> Result<Self::Value, Self::Error>;
+                }
+
+                #[allow(unused)]
+                pub fn for_each<A: ApplyForEach>(applicator: &mut A) {
+                    <$first as TypeList>::for_each(applicator)
+                }
+
+                #[allow(unused)]
+                pub fn try_fold<A: ApplyTryFold>(applicator: &mut A, init: A::Value) -> Result<A::Value, A::Error>{
+                    <$first as TypeList>::try_fold(applicator, init)
                 }
 
                 #[allow(unused)]
@@ -108,13 +129,13 @@ mod test {
     #[test]
     fn indices() {
         struct Index(Vec<usize>);
-        impl random_list::Apply for Index {
+        impl random_list::ApplyForEach for Index {
             fn apply<T: random_list::TypeList>(&mut self) {
                 self.0.push(T::INDEX)
             }
         }
         let mut index = Index(Vec::new());
-        random_list::foreach(&mut index);
+        random_list::for_each(&mut index);
 
         assert_eq!(&index.0, &[0, 1, 2, 3]);
         assert_eq!(random_list::COUNT, 4);
@@ -123,14 +144,34 @@ mod test {
     #[test]
     fn multi_trait_test() {
         struct Bits(Vec<u32>);
-        impl unsized_list::Apply for Bits {
+        impl unsized_list::ApplyForEach for Bits {
             fn apply<T: Bounded + Into<u64>>(&mut self) {
                 self.0
                     .push(<T as Into<u64>>::into(T::max_value()).count_ones())
             }
         }
         let mut bits = Bits(Vec::new());
-        unsized_list::foreach(&mut bits);
+        unsized_list::for_each(&mut bits);
         assert_eq!(&bits.0, &[i8::BITS, i16::BITS, i32::BITS, i64::BITS]);
+    }
+
+    #[test]
+    fn try_fold() {
+        struct AbortOnThird;
+        impl unsized_list::ApplyTryFold for AbortOnThird {
+            type Value = usize;
+            type Error = usize;
+
+            fn apply<T: unsized_list::TypeList + Bounded + Into<u64>>(
+                &mut self,
+                value: Self::Value,
+            ) -> Result<Self::Value, Self::Error> {
+                if T::INDEX == 2 {
+                    return Err(value);
+                }
+                Ok(value + 1)
+            }
+        }
+        assert_eq!(unsized_list::try_fold(&mut AbortOnThird, 1), Err(3));
     }
 }
