@@ -1019,8 +1019,8 @@ impl JobData<'_> {
         scope_id: ScopeId,
     ) -> S::Type {
         S::lookup(
-            &mut self.session_data.string_store.write().unwrap(),
             &self.scope_mgr,
+            &self.session_data.settings.chain_setting_names,
             scope_id,
         )
         .unwrap_or(S::DEFAULT)

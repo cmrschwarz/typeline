@@ -5,11 +5,19 @@ use crate::{
         field_value::FieldValue,
         scope_manager::{Atom, ScopeId, ScopeManager},
     },
-    utils::string_store::StringStore,
+    typelist,
+    utils::string_store::{StringStore, StringStoreEntry},
 };
 use bstr::ByteSlice;
+
 use num::Zero;
-use std::{marker::PhantomData, sync::Arc};
+use std::{
+    ffi::OsString,
+    marker::PhantomData,
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    path::PathBuf,
+    sync::Arc,
+};
 
 pub trait SettingTypeConverter<T> {
     fn convert_to_type(
@@ -25,52 +33,46 @@ pub struct SettingConversionError {
     pub message: String,
 }
 
-pub trait ChainSetting {
+pub type ChainSettingNames = [StringStoreEntry; chain_settings_list::COUNT];
+
+pub trait ChainSetting: chain_settings_list::TypeList {
     const NAME: &'static str;
     const DEFAULT: Self::Type;
     type Type;
     type Converter: SettingTypeConverter<Self::Type>;
 
     fn lookup_ref<R>(
-        string_store: &mut StringStore,
         sm: &ScopeManager,
+        names: &ChainSettingNames,
         scope_id: ScopeId,
         mut accessor: impl FnMut(&FieldValue) -> R,
     ) -> Option<R> {
-        sm.lookup_value_cell(
-            scope_id,
-            string_store.intern_static(Self::NAME),
-            |v| {
-                v.atom
-                    .as_ref()
-                    .map(|v| accessor(&mut v.value.read().unwrap()))
-            },
-        )
+        sm.lookup_value_cell(scope_id, names[Self::INDEX], |v| {
+            v.atom
+                .as_ref()
+                .map(|v| accessor(&mut v.value.read().unwrap()))
+        })
     }
 
     fn lookup_ref_mut<R>(
-        string_store: &mut StringStore,
         sm: &ScopeManager,
+        names: &ChainSettingNames,
         scope_id: ScopeId,
         mut accessor: impl FnMut(&mut FieldValue) -> R,
     ) -> Option<R> {
-        sm.lookup_value_cell(
-            scope_id,
-            string_store.intern_static(Self::NAME),
-            |v| {
-                v.atom
-                    .as_ref()
-                    .map(|v| accessor(&mut v.value.write().unwrap()))
-            },
-        )
+        sm.lookup_value_cell(scope_id, names[Self::INDEX], |v| {
+            v.atom
+                .as_ref()
+                .map(|v| accessor(&mut v.value.write().unwrap()))
+        })
     }
 
     fn lookup(
-        string_store: &mut StringStore,
         sm: &ScopeManager,
+        names: &ChainSettingNames,
         scope_id: ScopeId,
     ) -> Result<Self::Type, SettingConversionError> {
-        Self::lookup_ref(string_store, sm, scope_id, |v| {
+        Self::lookup_ref(sm, names, scope_id, |v| {
             Self::Converter::convert_to_type(v)
         })
         .unwrap_or(Ok(Self::DEFAULT))
@@ -225,10 +227,10 @@ impl<S: ChainSetting> SettingTypeConverter<BufferingMode>
     ) -> Result<BufferingMode, SettingConversionError> {
         let FieldValue::Text(value) = value else {
             return Err(SettingConversionError::new(format!(
-            "value for setting %{} must be a valid line buffering condition, got type `{}`",
-            S::NAME,
-            value.kind().to_str()
-        )));
+                "value for setting %{} must be a valid line buffering condition, got type `{}`",
+                S::NAME,
+                value.kind().to_str()
+            )));
         };
         match &**value {
         "never" => Ok(BufferingMode::BlockBuffer),
@@ -255,6 +257,57 @@ impl<S: ChainSetting> SettingTypeConverter<BufferingMode>
             BufferingMode::LineBufferStdinIfTTY => "stdin-if-tty",
         };
         Ok(FieldValue::Text(v.to_string()))
+    }
+}
+
+pub struct SettingConverterOptionalPath<S: ChainSetting>(PhantomData<S>);
+impl<S: ChainSetting> SettingTypeConverter<Option<PathBuf>>
+    for SettingConverterOptionalPath<S>
+{
+    fn convert_to_type(
+        value: &FieldValue,
+    ) -> Result<Option<PathBuf>, SettingConversionError> {
+        match value {
+            FieldValue::Undefined | FieldValue::Null => Ok(None),
+            FieldValue::Text(v) => Ok(Some(PathBuf::from(v))),
+            FieldValue::Bytes(v) => {
+                Ok(Some(PathBuf::from(OsString::from_vec(v.clone()))))
+            }
+            FieldValue::Int(_)
+            | FieldValue::BigInt(_)
+            | FieldValue::Float(_)
+            | FieldValue::BigRational(_)
+            | FieldValue::Array(_)
+            | FieldValue::Object(_)
+            | FieldValue::Custom(_)
+            | FieldValue::Error(_)
+            | FieldValue::Argument(_)
+            | FieldValue::StreamValueId(_)
+            | FieldValue::FieldReference(_)
+            | FieldValue::SlicedFieldReference(_) => {
+                Err(SettingConversionError::new(format!(
+                    "invalid value for setting %{}, expected string, got type `{}`",
+                    S::NAME,
+                    value.kind().to_str()
+                )))
+            }
+        }
+    }
+
+    fn convert_from_type(
+        value: Option<PathBuf>,
+    ) -> Result<FieldValue, SettingConversionError> {
+        match value {
+            Some(v) => match v.into_os_string().into_string() {
+                Ok(v) => Ok(FieldValue::Text(v)),
+                // TODO: once we switch to msrv 1.74, use into_encoded_bytes
+                // instead
+                Err(v) => {
+                    Ok(FieldValue::Bytes(v.as_os_str().as_bytes().to_owned()))
+                }
+            },
+            None => Ok(FieldValue::Null),
+        }
     }
 }
 
@@ -304,4 +357,24 @@ impl ChainSetting for SettingBufferingMode {
     const NAME: &'static str = "lb";
     const DEFAULT: BufferingMode = BufferingMode::LineBufferIfTTY;
     type Converter = SettingConverterBufferingMode<Self>;
+}
+
+pub struct SettingDebugLog;
+impl ChainSetting for SettingDebugLog {
+    type Type = Option<PathBuf>;
+    const NAME: &'static str = "debug_log";
+    const DEFAULT: Option<PathBuf> = None;
+    type Converter = SettingConverterOptionalPath<Self>;
+}
+
+typelist! {
+    pub mod chain_settings_list: (ChainSetting) = [
+        SettingBatchSize,
+        SettingStreamSizeThreshold,
+        SettingStreamBufferSize,
+        SettingPrintRationalsRaw,
+        SettingUseFloatingPointMath,
+        SettingBufferingMode,
+        SettingDebugLog
+    ]{}
 }

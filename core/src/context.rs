@@ -28,6 +28,7 @@ use crate::{
         OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
     },
     options::{
+        chain_settings::chain_settings_list,
         session_setup::{ScrSetupOptions, SessionSetupData},
         setting::CliArgIdx,
     },
@@ -80,6 +81,7 @@ pub struct SessionSettings {
     pub repl: bool,
     pub skipped_first_cli_arg: bool,
     pub debug_log_path: Option<PathBuf>,
+    pub chain_setting_names: [StringStoreEntry; chain_settings_list::COUNT],
 }
 
 pub struct SessionData {

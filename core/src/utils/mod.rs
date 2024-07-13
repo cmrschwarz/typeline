@@ -37,6 +37,7 @@ pub mod temp_vec;
 pub mod test_utils;
 pub mod text_write;
 pub mod universe;
+pub mod type_list;
 
 pub const fn ilog2_usize(v: usize) -> usize {
     (std::mem::size_of::<usize>() * 8) - v.leading_zeros() as usize

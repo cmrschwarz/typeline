@@ -1,12 +1,3 @@
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    num::NonZeroUsize,
-    path::PathBuf,
-    str::FromStr,
-    sync::{atomic::AtomicBool, Arc, RwLock},
-};
-
 use crate::{
     chain::{Chain, ChainId},
     cli::{
@@ -28,7 +19,7 @@ use crate::{
         utils::writable::WritableTarget,
     },
     options::chain_settings::{
-        SettingStreamBufferSize, SettingStreamSizeThreshold,
+        SettingDebugLog, SettingStreamBufferSize, SettingStreamSizeThreshold,
     },
     record_data::scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
     scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
@@ -39,9 +30,19 @@ use crate::{
         string_store::{StringStore, StringStoreEntry},
     },
 };
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    num::NonZeroUsize,
+    path::PathBuf,
+    str::FromStr,
+    sync::{atomic::AtomicBool, Arc, RwLock},
+};
 
 use super::{
-    chain_settings::{ChainSetting, SettingBatchSize},
+    chain_settings::{
+        chain_settings_list, ChainSetting, ChainSettingNames, SettingBatchSize,
+    },
     setting::{CliArgIdx, Setting},
 };
 
@@ -105,6 +106,7 @@ pub struct SessionSetupData {
     pub operator_data: IndexVec<OperatorDataId, OperatorData>,
     pub string_store: StringStore,
     pub cli_args: Option<IndexVec<CliArgIdx, Vec<u8>>>,
+    pub chain_setting_names: ChainSettingNames,
     pub extensions: Arc<ExtensionRegistry>,
 }
 
@@ -152,7 +154,22 @@ impl SessionSetupData {
             string_store: StringStore::default(),
             cli_args: None,
             extensions: opts.extensions,
+            chain_setting_names: [StringStoreEntry::MAX_VALUE;
+                chain_settings_list::COUNT],
         };
+
+        struct IndexInitializer<'a>(&'a mut SessionSetupData);
+
+        impl<'a> chain_settings_list::Apply for IndexInitializer<'a> {
+            fn apply<T: chain_settings_list::TypeList + ChainSetting>(
+                &mut self,
+            ) {
+                self.0.chain_setting_names[T::INDEX] =
+                    self.0.string_store.intern_static(T::NAME);
+            }
+        }
+        chain_settings_list::foreach(&mut IndexInitializer(&mut res));
+
         if opts.start_with_stdin {
             let op_data = create_op_stdin(1);
             res.setup_op_generated(op_data).unwrap();
@@ -245,7 +262,7 @@ impl SessionSetupData {
     }
 
     fn build_session_settings(
-        &self,
+        &mut self,
     ) -> Result<SessionSettings, CliArgumentError> {
         let debug_log_path = self.build_debug_log_path()?;
 
@@ -264,6 +281,7 @@ impl SessionSetupData {
         };
 
         Ok(SessionSettings {
+            chain_setting_names: self.chain_setting_names,
             max_threads,
             debug_log_path,
             repl: self.setup_settings.repl.unwrap_or(false),
@@ -321,12 +339,12 @@ impl SessionSetupData {
         }
 
         fn validate_setting<S: ChainSetting>(
-            ss: &mut StringStore,
             sm: &mut ScopeManager,
+            csn: &ChainSettingNames,
             chain: &Chain,
             chain_id: ChainId,
         ) -> Result<(), ChainSetupError> {
-            S::lookup(ss, sm, chain.scope_id).map(|_| ()).map_err(|e| {
+            S::lookup(sm, csn, chain.scope_id).map(|_| ()).map_err(|e| {
                 ChainSetupError {
                     message: Cow::Owned(e.message),
                     chain_id,
@@ -336,20 +354,26 @@ impl SessionSetupData {
 
         for (chain_id, chain) in self.chains.iter_enumerated() {
             validate_setting::<SettingBatchSize>(
-                &mut self.string_store,
                 &mut self.scope_mgr,
+                &self.chain_setting_names,
                 chain,
                 chain_id,
             )?;
             validate_setting::<SettingStreamBufferSize>(
-                &mut self.string_store,
                 &mut self.scope_mgr,
+                &self.chain_setting_names,
                 chain,
                 chain_id,
             )?;
             validate_setting::<SettingStreamSizeThreshold>(
-                &mut self.string_store,
                 &mut self.scope_mgr,
+                &self.chain_setting_names,
+                chain,
+                chain_id,
+            )?;
+            validate_setting::<SettingDebugLog>(
+                &mut self.scope_mgr,
+                &self.chain_setting_names,
                 chain,
                 chain_id,
             )?;
@@ -366,7 +390,7 @@ impl SessionSetupData {
         chain_id: ChainId,
     ) -> S::Type {
         let scope_id = self.chains[chain_id].scope_id;
-        S::lookup(&mut self.string_store, &self.scope_mgr, scope_id)
+        S::lookup(&self.scope_mgr, &self.chain_setting_names, scope_id)
             .unwrap_or(S::DEFAULT)
     }
 
@@ -578,8 +602,8 @@ impl SessionSetupData {
         chain_id: ChainId,
     ) -> S::Type {
         S::lookup(
-            &mut self.string_store,
             &self.scope_mgr,
+            &self.chain_setting_names,
             self.chains[chain_id].scope_id,
         )
         .unwrap_or(S::DEFAULT)
