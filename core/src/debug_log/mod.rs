@@ -1,6 +1,6 @@
 mod helpers;
 
-use std::{cell::Cell, collections::HashSet, fmt::Write};
+use std::{cell::Cell, collections::HashSet, fmt::Write, io::BufWriter};
 
 use handlebars::{Handlebars, RenderError, RenderErrorReason};
 use once_cell::sync::Lazy;
@@ -939,7 +939,7 @@ pub fn write_debug_log_html_head(
             &json!({
                 "debug_style_sheet": cfg!(feature="debug_log_extern_style_sheet")
             }),
-            w,
+            BufWriter::new(w),
         )
         .map_err(unwrap_render_error)
 }
@@ -948,7 +948,7 @@ pub fn write_debug_log_html_tail(
     w: &mut impl std::io::Write,
 ) -> Result<(), std::io::Error> {
     TEMPLATES
-        .render_to_write("tail", &(), w)
+        .render_to_write("tail", &(), BufWriter::new(w))
         .map_err(unwrap_render_error)
 }
 
@@ -969,7 +969,7 @@ pub fn write_transform_update_to_html(
     });
 
     TEMPLATES
-        .render_to_write("transform_update", &update, w)
+        .render_to_write("transform_update", &update, BufWriter::new(w))
         .map_err(unwrap_render_error)
 }
 
@@ -987,6 +987,6 @@ pub fn write_initial_state_to_html(
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
     });
     TEMPLATES
-        .render_to_write("transform_update", &update, w)
+        .render_to_write("transform_update", &update, BufWriter::new(w))
         .map_err(unwrap_render_error)
 }
