@@ -116,13 +116,11 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             extension_registry: exts,
         }
     }
+    fn peek_byte_raw(&mut self) -> Result<Option<u8>, std::io::Error> {
+        Ok(self.stream.fill_buf()?.first().copied())
+    }
     fn peek_byte(&mut self) -> Result<Option<u8>, TysonParseError> {
-        Ok(self
-            .stream
-            .fill_buf()
-            .map_err(TysonParseError::Io)?
-            .first()
-            .copied())
+        self.peek_byte_raw().map_err(TysonParseError::Io)
     }
     pub fn void_byte_char(&mut self) {
         self.stream.consume(1);
@@ -724,6 +722,10 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             }) => Ok(()),
             Err(e) => Err(e),
         }
+    }
+
+    pub fn end_of_input(&mut self) -> Result<bool, std::io::Error> {
+        Ok(self.peek_byte_raw()?.is_none())
     }
 }
 

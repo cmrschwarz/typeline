@@ -568,7 +568,7 @@ impl Formattable<'_, '_> for f64 {
         if ctx.opts.zero_pad_numbers {
             return w.write_text_fmt(format_args!("{self:0char_count$}"));
         }
-        Ok(())
+        w.write_text_fmt(format_args!("{self}"))
     }
 }
 impl Formattable<'_, '_> for Null {

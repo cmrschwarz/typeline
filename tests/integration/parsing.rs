@@ -117,3 +117,18 @@ fn parse_setting_assignment() -> Result<(), ScrError> {
 
     Ok(())
 }
+
+#[test]
+fn print_dynamic_fraction() -> Result<(), ScrError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        ScrSetupOptions::with_default_extensions(),
+        [
+            "%rpm=dynamic",
+            "py=import fractions; fractions.Fraction(1,3)",
+        ],
+    )?
+    .run_collect_stringified()?;
+    assert_eq!(res, ["1/3"]);
+
+    Ok(())
+}

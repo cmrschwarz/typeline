@@ -682,7 +682,9 @@ pub fn parse_single_arg_value(arg: &[u8]) -> FieldValue {
     if TysonParser::<&'static [u8]>::is_number_start(arg[0]) {
         let mut tp = TysonParser::new(&arg[1..], true, None);
         if let Ok(number) = tp.parse_number(arg[0]) {
-            return number;
+            if tp.end_of_input().unwrap() {
+                return number;
+            }
         }
     };
 

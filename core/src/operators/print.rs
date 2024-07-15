@@ -296,6 +296,7 @@ pub fn handle_tf_print_raw(
                             v,
                             print.rationals_print_mode,
                         )?;
+                        stream.write_all(b"\n")?;
                         *handled_field_count += 1;
                     }
                 }
