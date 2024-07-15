@@ -8,7 +8,7 @@ use crate::{
         scope_manager::{Atom, ScopeId, ScopeManager},
     },
     typelist,
-    utils::string_store::{StringStore, StringStoreEntry},
+    utils::string_store::StringStoreEntry,
 };
 use bstr::ByteSlice;
 
@@ -83,26 +83,20 @@ pub trait ChainSetting: chain_settings_list::TypeList {
     }
 
     fn assign_raw(
-        string_store: &mut StringStore,
         sm: &mut ScopeManager,
+        names: &ChainSettingNames,
         scope_id: ScopeId,
         value: FieldValue,
     ) {
-        match &mut sm
-            .insert_value_cell(
-                scope_id,
-                string_store.intern_static(Self::NAME),
-            )
-            .atom
-        {
+        match &mut sm.insert_value_cell(scope_id, names[Self::INDEX]).atom {
             Some(v) => *v.value.write().unwrap() = value,
             cell @ None => *cell = Some(Arc::new(Atom::new(value))),
         }
     }
 
     fn assign(
-        string_store: &mut StringStore,
         sm: &mut ScopeManager,
+        chain_names: &ChainSettingNames,
         scope_id: ScopeId,
         value: Self::Type,
         span: Span,
@@ -113,7 +107,7 @@ pub trait ChainSetting: chain_settings_list::TypeList {
             source_scope: scope_id,
             meta_info: None,
         }));
-        Self::assign_raw(string_store, sm, scope_id, value);
+        Self::assign_raw(sm, chain_names, scope_id, value);
         Ok(())
     }
 }

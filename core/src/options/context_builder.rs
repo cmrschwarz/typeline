@@ -312,8 +312,8 @@ impl ContextBuilder {
 impl ContextBuilder {
     pub fn set_chain_setting<S: ChainSetting>(&mut self, value: S::Type) {
         S::assign(
-            &mut self.setup_data.string_store,
             &mut self.setup_data.scope_mgr,
+            &self.setup_data.chain_setting_names,
             self.setup_data.chains[self.setup_data.curr_chain].scope_id,
             value,
             Span::Generated,

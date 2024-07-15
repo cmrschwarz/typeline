@@ -400,7 +400,14 @@ impl<'a> Job<'a> {
         }
     }
     pub fn setup_job(&mut self, mut job_desc: JobDescription) {
-        let scope_id = self.job_data.scope_mgr.add_scope(None);
+        let root_chain_scope = self.job_data.session_data.chains[self
+            .job_data
+            .session_data
+            .operator_bases[job_desc.operator]
+            .chain_id]
+            .scope_id;
+        let scope_id =
+            self.job_data.scope_mgr.add_scope(Some(root_chain_scope));
         let ms_id = self.job_data.match_set_mgr.add_match_set(
             &mut self.job_data.field_mgr,
             &mut self.job_data.scope_mgr,
