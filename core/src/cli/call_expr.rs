@@ -1,11 +1,7 @@
-use std::{
-    borrow::Cow,
-    fmt::{Debug, Display},
-    str::FromStr,
-};
+use std::{borrow::Cow, fmt::Debug};
 
 use bstr::ByteSlice;
-use num::{FromPrimitive, PrimInt};
+use num::PrimInt;
 
 use crate::{
     operators::{errors::OperatorCreationError, operator::OperatorId},
@@ -26,7 +22,6 @@ use crate::{
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32,
         indexing_type::IndexingType,
-        int_string_conversions::parse_int_with_units,
         lazy_lock_guard::{LazyRwLockGuard, LazyRwLockWriteGuard},
         maybe_text::{MaybeText, MaybeTextCow},
         string_store::StringStore,
@@ -309,6 +304,28 @@ impl Argument {
                 ))
             }
         }
+    }
+
+    fn expect_int<I>(
+        &self,
+        op_name: &str,
+        fuzzy: bool,
+    ) -> Result<I, OperatorCreationError>
+    where
+        I: PrimInt + TryFrom<i64>,
+    {
+        if let Some(v) = self.value.try_cast_int(fuzzy) {
+            if let Ok(v) = I::try_from(v) {
+                return Ok(v);
+            }
+        }
+        Err(OperatorCreationError::new_s(
+            format!(
+                "operator `{op_name}` expected an integer, got `{}`",
+                self.value.kind()
+            ),
+            self.span,
+        ))
     }
 }
 
@@ -819,6 +836,20 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
         }
         self.args.as_ref()[0].expect_plain(self.op_name).map(Some)
     }
+    pub fn require_at_most_one_arg(
+        &self,
+    ) -> Result<Option<&Argument>, OperatorCreationError> {
+        if self.args.as_ref().len() > 1 {
+            return Err(OperatorCreationError::new_s(
+                format!(
+                    "operator `{}` requires at most one parameter",
+                    self.op_name
+                ),
+                self.span,
+            ));
+        }
+        Ok(self.args.as_ref().first())
+    }
     pub fn require_single_arg(
         &self,
     ) -> Result<&Argument, OperatorCreationError> {
@@ -874,40 +905,27 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
             )
         })
     }
-    pub fn require_single_number_param<I>(
+    pub fn require_single_int_param<I>(
         &self,
+        fuzzy: bool,
     ) -> Result<I, OperatorCreationError>
     where
-        I: PrimInt
-            + Display
-            + FromPrimitive
-            + FromStr<Err = std::num::ParseIntError>,
+        I: PrimInt + TryFrom<i64>,
     {
-        let value = self.require_single_string_arg()?;
-        parse_int_with_units::<I>(value).map_err(|msg| {
-            OperatorCreationError::new_s(
-                format!(
-                    "failed to parse `{}` parameter as an integer: {msg}",
-                    self.op_name
-                ),
-                self.span,
-            )
-        })
+        let arg = self.require_single_arg()?;
+        arg.expect_int(self.op_name, fuzzy)
     }
     pub fn require_at_most_one_number_arg<I>(
         &self,
+        fuzzy: bool,
     ) -> Result<Option<I>, OperatorCreationError>
     where
-        I: PrimInt
-            + Display
-            + FromPrimitive
-            + FromStr<Err = std::num::ParseIntError>,
+        I: PrimInt + TryFrom<i64>,
     {
-        let arg = self.require_at_most_one_plaintext_arg()?;
-        if arg.is_none() {
+        let Some(arg) = self.require_at_most_one_arg()? else {
             return Ok(None);
-        }
-        Ok(Some(self.require_single_number_param()?))
+        };
+        Ok(Some(arg.expect_int(self.op_name, fuzzy)?))
     }
     pub fn require_at_most_one_string_arg(
         &self,

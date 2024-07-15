@@ -250,7 +250,7 @@ pub fn parse_insert_count_reject_value(
             ParsedArgValue::NamedArg { key, value } => {
                 if key == "i" || key == "insert_count" {
                     insert_count =
-                        Some(value.try_cast_int().ok_or_else(|| {
+                        Some(value.try_cast_int(false).ok_or_else(|| {
                             expr.error_arg_invalid_int(key, arg.span)
                         })? as usize);
                     continue;
@@ -292,7 +292,7 @@ pub fn parse_insert_count_and_value_args<'a>(
                 if key == "i" || key == "insert_count" {
                     // TODO: error on negative
                     insert_count =
-                        Some(value.try_cast_int().ok_or_else(|| {
+                        Some(value.try_cast_int(false).ok_or_else(|| {
                             expr.error_arg_invalid_int(key, arg.span)
                         })? as usize);
                     continue;

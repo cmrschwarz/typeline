@@ -175,7 +175,7 @@ pub fn create_op_dup(count: usize) -> OperatorData {
 pub fn parse_op_dup(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let count = expr.require_at_most_one_number_arg()?.unwrap_or(2);
+    let count = expr.require_at_most_one_number_arg(false)?.unwrap_or(2);
     Ok(create_op_dup(count))
 }
 

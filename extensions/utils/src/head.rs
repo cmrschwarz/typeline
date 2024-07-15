@@ -208,6 +208,6 @@ pub fn create_op_head(count: isize) -> OperatorData {
 pub fn parse_op_head(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let count = expr.require_at_most_one_number_arg()?.unwrap_or(1);
+    let count = expr.require_at_most_one_number_arg(false)?.unwrap_or(1);
     Ok(create_op_head(count))
 }

@@ -434,7 +434,7 @@ fn parse_file_reader_flags(
             continue;
         }
         if k == "n" || k == "count" {
-            let Some(value) = arg.value.try_cast_int() else {
+            let Some(value) = arg.value.try_cast_int(true) else {
                 return Err(expr.error_arg_invalid_int(k, arg.span));
             };
             opts.insert_count = Some(value as usize);

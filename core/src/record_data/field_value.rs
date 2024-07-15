@@ -2,7 +2,7 @@ use std::{any::Any, fmt::Display, mem::ManuallyDrop};
 
 use indexmap::IndexMap;
 use metamatch::metamatch;
-use num::{bigint::Sign, BigInt, BigRational};
+use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
 
 use crate::{
     cli::call_expr::Argument,
@@ -244,20 +244,6 @@ impl PartialEq for FieldValue {
     }
 }
 
-pub fn bigint_to_int(bi: &BigInt) -> Option<i64> {
-    let mut iter = bi.iter_u64_digits();
-    let first = iter.next().unwrap_or(0);
-    if iter.next().is_some() {
-        None
-    } else {
-        let mut first = TryInto::<i64>::try_into(first).ok()?;
-        if bi.sign() == Sign::Minus {
-            first = -first;
-        }
-        Some(first)
-    }
-}
-
 impl FieldValue {
     pub fn repr(&self) -> FieldValueRepr {
         metamatch!(match self {
@@ -467,10 +453,19 @@ impl FieldValue {
     pub fn is_valid_utf8(&self) -> bool {
         self.kind().is_valid_utf8()
     }
-    pub fn try_cast_int(&self) -> Option<i64> {
+    pub fn try_cast_int(&self, fuzzy: bool) -> Option<i64> {
         match self {
-            &FieldValue::Int(v) => Some(v),
-            FieldValue::BigInt(v) => bigint_to_int(v),
+            FieldValue::Text(_)
+            | FieldValue::Bytes(_)
+            | FieldValue::Float(_)
+                if !fuzzy =>
+            {
+                None
+            }
+
+            FieldValue::Int(v) => Some(*v),
+            FieldValue::BigInt(v) => v.to_i64(),
+
             #[allow(clippy::cast_precision_loss, clippy::float_cmp)]
             &FieldValue::Float(f) => {
                 let int = f as i64;
@@ -479,15 +474,60 @@ impl FieldValue {
                 }
                 None
             }
+
             FieldValue::Text(v) => v.parse().ok(),
             FieldValue::Bytes(v) => std::str::from_utf8(v).ok()?.parse().ok(),
+
             FieldValue::BigRational(v) => {
                 if !v.is_integer() {
                     return None;
                 }
-                bigint_to_int(v.numer())
+                v.numer().to_i64()
             }
-            FieldValue::Argument(v) => v.value.try_cast_int(),
+
+            FieldValue::Argument(v) => v.value.try_cast_int(fuzzy),
+
+            FieldValue::Undefined
+            | FieldValue::Null
+            | FieldValue::Array(_)
+            | FieldValue::Object(_)
+            | FieldValue::Custom(_)
+            | FieldValue::Error(_)
+            | FieldValue::StreamValueId(_)
+            | FieldValue::FieldReference(_)
+            | FieldValue::SlicedFieldReference(_) => None,
+        }
+    }
+    pub fn try_into_bigint(self, fuzzy: bool) -> Option<BigInt> {
+        match self {
+            FieldValue::Text(_)
+            | FieldValue::Bytes(_)
+            | FieldValue::Float(_)
+                if !fuzzy =>
+            {
+                None
+            }
+
+            FieldValue::Int(v) => Some(BigInt::from(v)),
+            FieldValue::BigInt(v) => Some(*v),
+            FieldValue::Float(f) => {
+                if let Some(v) = BigInt::from_f64(f) {
+                    if v.to_f64() == Some(f) {
+                        return Some(v);
+                    }
+                }
+                None
+            }
+            FieldValue::Text(v) => v.parse().ok(),
+            FieldValue::Bytes(v) => std::str::from_utf8(&v).ok()?.parse().ok(),
+            FieldValue::BigRational(v) => {
+                if !v.is_integer() {
+                    return None;
+                }
+                let (numer, _) = v.into_raw();
+                Some(numer)
+            }
+            FieldValue::Argument(v) => v.value.try_into_bigint(fuzzy),
             FieldValue::Undefined
             | FieldValue::Null
             | FieldValue::Array(_)
