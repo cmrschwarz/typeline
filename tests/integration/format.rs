@@ -116,7 +116,7 @@ fn format_width_spec() -> Result<(), ScrError> {
 fn format_width_spec_over_stream() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(1)
+        .set_stream_buffer_size(1)?
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
                 data: "abc".as_bytes(),
@@ -189,6 +189,7 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
     const COUNT: i64 = 20;
     ContextBuilder::without_exts()
         .set_batch_size(3)
+        .unwrap()
         .add_op(create_op_seq(0, COUNT, 1).unwrap())
         .add_op(create_op_regex(".*[3].*").unwrap())
         .add_op(create_op_key("a".to_owned()))
@@ -214,7 +215,7 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
 #[test]
 fn stream_into_format() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
-        .set_stream_buffer_size(1)
+        .set_stream_buffer_size(1)?
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
                 data: "xyz".as_bytes(),
@@ -237,6 +238,7 @@ fn stream_into_multiple_different_formats(
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
+        .unwrap()
         .push_str("foo", 1)
         .push_str("bar", 1)
         .add_op(create_op_key("key".to_owned()))
@@ -258,6 +260,7 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(2)
+        .unwrap()
         .push_str("xxx", 1)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(
@@ -282,6 +285,7 @@ fn debug_string_escapes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(2)
+        .unwrap()
         .push_str("\n", 1)
         .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -295,6 +299,7 @@ fn debug_bytes_escapes() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(2)
+        .unwrap()
         .push_bytes(b"\n\x00", 1)
         .add_op(create_op_format("{:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -308,7 +313,8 @@ fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(2)
-        .set_stream_buffer_size(1)
+        .unwrap()
+        .set_stream_buffer_size(1)?
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
                 data: "\n".as_bytes(),

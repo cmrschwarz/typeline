@@ -130,7 +130,7 @@ fn join_no_sep() -> Result<(), ScrError> {
 fn join_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(2)
+        .set_stream_buffer_size(2)?
         .add_op_aggregate([
             create_op_file_reader_custom(
                 Box::new(SliceReader::new("abc".as_bytes())),
@@ -180,8 +180,8 @@ fn join_after_enum() -> Result<(), ScrError> {
 #[test]
 fn join_seq_into_stream() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
-        .set_stream_size_threshold(2)
-        .set_batch_size(2)
+        .set_stream_size_threshold(2)?
+        .set_batch_size(2)?
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_join_str(",", 0))
         .add_op(create_op_format("{:#??}").unwrap())
@@ -194,7 +194,7 @@ fn join_seq_into_stream() -> Result<(), ScrError> {
 fn join_dropped_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(2)
+        .set_stream_buffer_size(2)?
         .add_op_aggregate([
             create_op_file_reader_custom(
                 Box::new(SliceReader::new("foo".as_bytes())),
@@ -221,7 +221,7 @@ fn join_dropped_streams() -> Result<(), ScrError> {
 fn stream_error_in_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(2)
+        .set_stream_buffer_size(2)?
         .add_op_aggregate([
             create_op_file_reader_custom(
                 Box::new(SliceReader::new("foo".as_bytes())),
@@ -257,8 +257,8 @@ fn stream_error_in_join() -> Result<(), ScrError> {
 fn stream_into_dup_into_join_with_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(2)
-        .set_batch_size(2)
+        .set_stream_buffer_size(2)?
+        .set_batch_size(2)?
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader::new("foo".as_bytes())),
             0,
@@ -291,8 +291,8 @@ fn stream_into_dup_into_join_with_regex() -> Result<(), ScrError> {
 fn stream_into_dup_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(2)
-        .set_batch_size(2)
+        .set_stream_buffer_size(2)?
+        .set_batch_size(2)?
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader::new("foo".as_bytes())),
             0,
@@ -315,8 +315,8 @@ fn stream_into_dup_into_join() -> Result<(), ScrError> {
 fn join_turns_into_stream(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_batch_size(batch_size)
-        .set_stream_size_threshold(2)
+        .set_batch_size(batch_size)?
+        .set_stream_size_threshold(2)?
         .add_op_aggregate([create_op_str("foo"), create_op_str("bar")])
         .add_op(create_op_join_str(",", 2))
         .add_op(create_op_format("{:#??}").unwrap())
@@ -334,8 +334,8 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
     // 'lazy' fix that or add a second test
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_batch_size(batch_size)
-        .set_stream_size_threshold(2)
+        .set_batch_size(batch_size)?
+        .set_stream_size_threshold(2)?
         .add_op_aggregate([create_op_str("foo"), create_op_error("bar")])
         .add_op(create_op_join_str(",", 2))
         .add_op(create_op_format("{:#??}").unwrap())
@@ -350,7 +350,7 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
 fn join_as_stream_producer() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_size_threshold(1)
+        .set_stream_size_threshold(1)?
         .add_op_aggregate([
             create_op_str("AAA"),
             create_op_int(42),
@@ -367,8 +367,8 @@ fn join_as_stream_producer() -> Result<(), ScrError> {
 fn join_with_value_between_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_size_threshold(2)
-        .set_stream_buffer_size(2)
+        .set_stream_size_threshold(2)?
+        .set_stream_buffer_size(2)?
         .add_op_aggregate([
             create_op_file_reader_custom(
                 Box::new(SliceReader::new(b"AAA")),

@@ -85,6 +85,7 @@ fn head_tail_cli() -> Result<(), ScrError> {
 fn subtractive_head_multibatch() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
+        .unwrap()
         .add_op(create_op_seqn(1, 10, 1).unwrap())
         .add_op(create_op_head(-5))
         .run_collect_as::<i64>()?;

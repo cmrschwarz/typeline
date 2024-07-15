@@ -17,6 +17,7 @@ use crate::{
         operator::OperatorId,
     },
     options::{
+        chain_settings::SettingConversionError,
         session_setup::{ScrSetupOptions, SessionSetupData},
         setting::{
             CliArgIdx, SettingReassignmentError,
@@ -89,6 +90,9 @@ pub enum ScrError {
 
     #[error(transparent)]
     CollectTypeMissmatch(#[from] CollectTypeMissmatch),
+
+    #[error(transparent)]
+    SettingConversionError(#[from] SettingConversionError),
 }
 #[derive(Error, Debug, Clone)]
 #[error("{contextualized_message}")]
@@ -259,6 +263,7 @@ impl ScrError {
             ),
             ScrError::ChainSetupError(e) => e.to_string(),
             ScrError::OperationCreationError(e) => e.message.to_string(),
+            ScrError::SettingConversionError(e) => e.message.to_string(),
             ScrError::OperationSetupError(e) => contextualize_op_id(
                 &e.message,
                 e.op_id,

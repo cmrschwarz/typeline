@@ -28,6 +28,7 @@ fn batched_aggregate() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(2)
+        .unwrap()
         .add_op_aggregate([
             create_op_seqn(1, 10, 1).unwrap(),
             create_op_seqn(11, 15, 1).unwrap(),

@@ -218,6 +218,7 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(3)
+        .unwrap()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_forkcat([
             [create_op_regex("[24]").unwrap()],
@@ -234,6 +235,7 @@ fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(2)
+        .unwrap()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_forkcat([
             [create_op_regex("[24]").unwrap()],
@@ -257,6 +259,7 @@ fn forkcat_on_unapplied_commands(
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
+        .unwrap()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_regex("[24]").unwrap())
         .add_op(create_op_forkcat([[create_op_nop()], [create_op_dup(0)]]))

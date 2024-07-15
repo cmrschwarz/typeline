@@ -1,15 +1,13 @@
-use std::borrow::Cow;
-
 use rstest::rstest;
 use scr::{
-    chain::ChainId,
     operators::{
         aggregator::{create_op_aggregate, create_op_aggregate_appending},
         foreach::create_op_foreach,
         print::{create_op_print_with_opts, PrintOptions},
         sequence::create_op_enum_unbounded,
     },
-    utils::{indexing_type::IndexingType, test_utils::DummyWritableTarget},
+    options::chain_settings::SettingConversionError,
+    utils::test_utils::DummyWritableTarget,
 };
 use scr_core::{
     operators::{
@@ -32,7 +30,7 @@ use scr_core::{
         chain_settings::{ChainSetting, SettingBatchSize},
         context_builder::ContextBuilder,
     },
-    scr_error::{ChainSetupError, ScrError},
+    scr_error::ScrError,
     utils::test_utils::{ErroringStream, SliceReader, TricklingStream},
 };
 use scr_ext_utils::{
@@ -91,7 +89,7 @@ fn trickling_stream() -> Result<(), ScrError> {
 
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(3)
+        .set_stream_buffer_size(3)?
         .add_op(create_op_file_reader_custom(
             Box::new(TricklingStream::new("a".as_bytes(), SIZE)),
             0,
@@ -112,6 +110,7 @@ fn sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
+        .unwrap()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -133,8 +132,10 @@ fn double_sequence(
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size_1)
+        .unwrap()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .set_batch_size(batch_size_2)
+        .unwrap()
         .add_op(create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
@@ -151,6 +152,7 @@ fn triple_sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
+        .unwrap()
         .add_op_with_key("a", create_op_seq(0, 2, 1).unwrap())
         .add_op_with_key("b", create_op_seq(0, 2, 1).unwrap())
         .add_op_with_key("c", create_op_seq(0, 2, 1).unwrap())
@@ -206,6 +208,7 @@ fn basic_key_cow() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(1)
+        .unwrap()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_format("{:?}").unwrap())
@@ -220,6 +223,7 @@ fn batched_use_after_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(1)
+        .unwrap()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_string_sink(&ss))
@@ -303,6 +307,7 @@ fn unbounded_enum_backoff() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(2)
+        .unwrap()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_aggregate([
             create_op_enum_unbounded(0, 1, 1).unwrap(),
@@ -356,6 +361,7 @@ fn unset_field_value_does_not_trigger_underflow() -> Result<(), ScrError> {
         .push_str("x", 1)
         .add_op(create_op_key("x".to_owned()))
         .set_batch_size(1)
+        .unwrap()
         .add_op(create_op_enum_unbounded(0, 4, 1).unwrap())
         .add_op(create_op_format("{x:?}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -386,6 +392,7 @@ fn double_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(5)
+        .unwrap()
         .add_op(create_op_seq(0, 15, 1).unwrap())
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_regex("1.*").unwrap())
@@ -405,6 +412,7 @@ fn select() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(5)
+        .unwrap()
         .add_op_with_key(
             "a",
             create_op_literal_n(Literal::Text("foo".to_owned()), 3),
@@ -422,6 +430,7 @@ fn select_after_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(5)
+        .unwrap()
         .add_op(create_op_literal(Literal::Text("foo".to_owned())))
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_enum(0, 3, 1).unwrap())
@@ -464,6 +473,7 @@ fn cow_not_affecting_original(
     let ss2 = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
+        .unwrap()
         .push_str("123", 1)
         .add_op(create_op_fork([
             vec![
@@ -488,8 +498,8 @@ fn cow_not_affecting_original(
 fn chained_streams() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(2)
-        .set_batch_size(2)
+        .set_stream_buffer_size(2)?
+        .set_batch_size(2)?
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader::new("foo".as_bytes())),
             0,
@@ -530,7 +540,7 @@ fn tf_file_yields_to_cont(
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(stream_buffer_size)
+        .set_stream_buffer_size(stream_buffer_size)?
         .add_op(create_op_int_n(1, 3))
         .add_op(create_op_aggregate([
             create_op_file_reader_custom(
@@ -553,13 +563,11 @@ fn error_on_sbs_0() {
     assert_eq!(
         ContextBuilder::without_exts()
             .set_stream_buffer_size(0)
-            .add_op(create_op_int_n(1, 3))
-            .run()
-            .map_err(|e| e.err),
-        Err(ScrError::ChainSetupError(ChainSetupError {
-            message: Cow::Borrowed("stream buffer size cannot be zero"),
-            chain_id: ChainId::zero()
-        }))
+            .err()
+            .unwrap(),
+        SettingConversionError {
+            message: "value for setting %sbs cannot be zero".to_string(),
+        }
     );
 }
 
@@ -576,8 +584,8 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
     // was zero?
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(2)
-        .set_stream_size_threshold(3)
+        .set_stream_buffer_size(2)?
+        .set_stream_size_threshold(3)?
         .add_op(create_op_error("A"))
         .add_op(create_op_file_reader_custom(
             Box::new(ErroringStream::new(5, SliceReader::new(b"BBBBB"))),
@@ -679,6 +687,7 @@ fn basic_batching() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("1234"))
         .set_batch_size(2)
+        .unwrap()
         .add_op(create_op_chars())
         .run_collect_stringified()?;
     assert_eq!(res, ["1", "2", "3", "4"]);
@@ -707,6 +716,7 @@ fn dup_into_sum(
 ) -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
+        .unwrap()
         .add_op(create_op_seqn(1, seq_len, 1).unwrap())
         .add_op(create_op_dup(2))
         .add_op(create_op_sum())
@@ -723,8 +733,8 @@ fn stream_error_into_print() -> Result<(), ScrError> {
     let offfset = 0;
     let print_target = DummyWritableTarget::new();
     let res = ContextBuilder::without_exts()
-        .set_stream_buffer_size(1)
-        .set_stream_size_threshold(1)
+        .set_stream_buffer_size(1)?
+        .set_stream_size_threshold(1)?
         .add_op(create_op_file_reader_custom(
             Box::new(ErroringStream::new(
                 offfset,

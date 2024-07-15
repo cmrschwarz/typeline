@@ -58,6 +58,7 @@ fn multi_get_http_regex() -> Result<(), ScrError> {
 
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
+        .unwrap()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_format(&fmt).unwrap())
         .add_op(create_op_GET())

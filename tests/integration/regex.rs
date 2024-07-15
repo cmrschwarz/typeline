@@ -62,6 +62,7 @@ fn chained_multimatch_regex() -> Result<(), ScrError> {
     ContextBuilder::without_exts()
         .push_str(&number_string_joined, 1)
         .set_batch_size(10)
+        .unwrap()
         .add_op(create_op_regex_lines())
         .add_op(create_op_regex("^[0-6]$").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -80,7 +81,7 @@ fn chained_regex_over_input() -> Result<(), ScrError> {
         cb = cb.push_int(i, 1);
     }
     let ss = StringSinkHandle::default();
-    cb.set_batch_size(1)
+    cb.set_batch_size(1)?
         .add_op(create_op_regex(".*").unwrap())
         .add_op(create_op_regex("[02]").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -127,6 +128,7 @@ fn large_batch_seq(
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
+        .unwrap()
         .add_op(create_op_seq(0, count, 1).unwrap())
         .add_op(create_op_regex(r"\d{1,3}").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -151,6 +153,7 @@ fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
     const COUNT: usize = 6;
     ContextBuilder::without_exts()
         .set_batch_size(COUNT / 2)
+        .unwrap()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
         .add_op(create_op_regex("^\\d{1,2}$").unwrap())
         .add_op(create_op_string_sink(&ss))
@@ -183,7 +186,7 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
 fn stream_into_regex() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_stream_buffer_size(1)
+        .set_stream_buffer_size(1)?
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
                 data: "1\n2\n3\n".as_bytes(),
@@ -303,6 +306,7 @@ fn seq_into_regex_drop_unless_seven(
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
+        .unwrap()
         .add_op(create_op_seq(0, count as i64, 1).unwrap())
         .add_op(create_op_regex(".*7.*").unwrap())
         .add_op(create_op_string_sink(&ss))

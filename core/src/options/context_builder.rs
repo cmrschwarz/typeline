@@ -24,8 +24,9 @@ use crate::{
 
 use super::{
     chain_settings::{
-        ChainSetting, SettingBatchSize, SettingMaxThreads,
-        SettingStreamBufferSize, SettingStreamSizeThreshold,
+        ChainSetting, SettingBatchSize, SettingConversionError,
+        SettingMaxThreads, SettingStreamBufferSize,
+        SettingStreamSizeThreshold,
     },
     session_setup::{ScrSetupOptions, SessionSetupData},
 };
@@ -310,30 +311,41 @@ impl ContextBuilder {
 }
 
 impl ContextBuilder {
-    pub fn set_chain_setting<S: ChainSetting>(&mut self, value: S::Type) {
+    pub fn set_chain_setting<S: ChainSetting>(
+        mut self,
+        value: S::Type,
+    ) -> Result<Self, SettingConversionError> {
         S::assign(
             &mut self.setup_data.scope_mgr,
             &self.setup_data.chain_setting_names,
             self.setup_data.chains[self.setup_data.curr_chain].scope_id,
             value,
             Span::Generated,
-        )
-        .unwrap();
+        )?;
+        Ok(self)
     }
-    pub fn set_max_thread_count(mut self, j: usize) -> Self {
-        self.set_chain_setting::<SettingMaxThreads>(j);
-        self
+    pub fn set_max_thread_count(
+        self,
+        j: usize,
+    ) -> Result<Self, SettingConversionError> {
+        self.set_chain_setting::<SettingMaxThreads>(j)
     }
-    pub fn set_batch_size(mut self, bs: usize) -> Self {
-        self.set_chain_setting::<SettingBatchSize>(bs);
-        self
+    pub fn set_batch_size(
+        self,
+        bs: usize,
+    ) -> Result<Self, SettingConversionError> {
+        self.set_chain_setting::<SettingBatchSize>(bs)
     }
-    pub fn set_stream_buffer_size(mut self, sbs: usize) -> Self {
-        self.set_chain_setting::<SettingStreamBufferSize>(sbs);
-        self
+    pub fn set_stream_buffer_size(
+        self,
+        sbs: usize,
+    ) -> Result<Self, SettingConversionError> {
+        self.set_chain_setting::<SettingStreamBufferSize>(sbs)
     }
-    pub fn set_stream_size_threshold(mut self, sst: usize) -> Self {
-        self.set_chain_setting::<SettingStreamSizeThreshold>(sst);
-        self
+    pub fn set_stream_size_threshold(
+        self,
+        sst: usize,
+    ) -> Result<Self, SettingConversionError> {
+        self.set_chain_setting::<SettingStreamSizeThreshold>(sst)
     }
 }

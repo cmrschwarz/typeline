@@ -20,7 +20,7 @@ use scr_core::{
 fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_batch_size(batch_size)
+        .set_batch_size(batch_size).unwrap()
         .add_op(create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_fork(vec![vec![
             create_op_aggregate_appending([
@@ -46,7 +46,7 @@ fn unlink_without_append_after_fork(
 ) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_batch_size(batch_size)
+        .set_batch_size(batch_size).unwrap()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_fork_with_opts(vec![vec![
             (

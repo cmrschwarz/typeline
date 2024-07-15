@@ -20,6 +20,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
+use thiserror::Error;
 
 pub trait SettingTypeConverter<T> {
     fn convert_to_type(
@@ -30,7 +31,8 @@ pub trait SettingTypeConverter<T> {
     ) -> Result<FieldValue, SettingConversionError>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{message}")]
 pub struct SettingConversionError {
     pub message: String,
 }

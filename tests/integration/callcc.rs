@@ -38,7 +38,7 @@ fn basic_callcc() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_max_thread_count(2)
-        .set_batch_size(2)
+        .set_batch_size(2).unwrap()
         .add_op(create_op_seqn(1, 4, 1).unwrap())
         .add_op(create_op_callcc("foo".to_string()))
         .add_label("foo".to_string())
@@ -53,7 +53,7 @@ fn callcc_after_drop() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_max_thread_count(2)
-        .set_batch_size(7)
+        .set_batch_size(7).unwrap()
         .add_op(create_op_seqn(1, 30, 1).unwrap())
         .add_op(create_op_regex("7").unwrap())
         .add_op(create_op_callcc("foo".to_string()))
@@ -72,7 +72,7 @@ fn appending_callcc(#[case] batch_size: usize) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_max_thread_count(2)
-        .set_batch_size(batch_size)
+        .set_batch_size(batch_size).unwrap()
         .add_op(create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_callcc("foo".to_string()))
         .add_label("foo".to_string())
