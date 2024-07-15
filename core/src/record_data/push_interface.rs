@@ -29,6 +29,7 @@ use super::{
 };
 use crate::{
     operators::errors::OperatorApplicationError,
+    options::chain_settings::RationalsPrintMode,
     record_data::{
         field_data::{
             field_value_flags::{DELETED, SHARED_VALUE},
@@ -822,7 +823,7 @@ pub unsafe trait PushInterface {
         try_data_rle: bool,
         try_ref_data_rle: bool,
         input_field_ref_offset: FieldRefOffset,
-        print_rationals_raw: bool,
+        rationals_print_mode: RationalsPrintMode,
     ) {
         let field_count = range.base.field_count;
         metamatch!(match range.base.data {
@@ -879,7 +880,7 @@ pub unsafe trait PushInterface {
                     ss,
                     fm,
                     msm,
-                    print_rationals_raw,
+                    rationals_print_mode,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
@@ -897,7 +898,7 @@ pub unsafe trait PushInterface {
                     ss,
                     fm,
                     msm,
-                    print_rationals_raw,
+                    rationals_print_mode,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };

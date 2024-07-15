@@ -1,7 +1,6 @@
-use bstr::ByteSlice;
 use metamatch::metamatch;
 use num::{BigInt, BigRational};
-use std::sync::Arc;
+use std::{borrow::Cow, io::BufReader, sync::Arc};
 
 use crate::{
     cli::call_expr::{Argument, CallExpr, ParsedArgValue, Span},
@@ -21,6 +20,7 @@ use crate::{
     },
     scr_error::ScrError,
     tyson::{parse_tyson, TysonParseError},
+    utils::cow_to_str,
 };
 
 use super::{
@@ -206,12 +206,13 @@ pub fn parse_op_literal_zst(
     }))
 }
 pub fn parse_op_str(
+    sess: &mut SessionSetupData,
     expr: &CallExpr,
     stream: bool,
 ) -> Result<OperatorData, ScrError> {
     let (insert_count, value, _value_span) =
-        parse_insert_count_and_value_args_str(expr)?;
-    let value_owned = value.to_owned();
+        parse_insert_count_and_value_args_str(sess, expr)?;
+    let value_owned = value.into_owned();
     Ok(OperatorData::Literal(OpLiteral {
         data: if stream {
             Literal::StreamString(Arc::new(value_owned))
@@ -223,12 +224,13 @@ pub fn parse_op_str(
 }
 
 pub fn parse_op_error(
+    sess: &mut SessionSetupData,
     expr: &CallExpr,
     stream: bool,
 ) -> Result<OperatorData, ScrError> {
     let (insert_count, value, _value_span) =
-        parse_insert_count_and_value_args_str(expr)?;
-    let value_owned = value.to_owned();
+        parse_insert_count_and_value_args_str(sess, expr)?;
+    let value_owned = value.into_owned();
     Ok(OperatorData::Literal(OpLiteral {
         data: if stream {
             Literal::StreamError(value_owned)
@@ -273,8 +275,9 @@ pub fn parse_insert_count_reject_value(
 }
 
 pub fn parse_insert_count_and_value_args<'a>(
+    sess: &mut SessionSetupData,
     expr: &'a CallExpr<'a>,
-) -> Result<(Option<usize>, &'a [u8], Span), ScrError> {
+) -> Result<(Option<usize>, Cow<'a, [u8]>, Span), ScrError> {
     let mut insert_count = None;
     let mut value = None;
     for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
@@ -298,13 +301,9 @@ pub fn parse_insert_count_and_value_args<'a>(
                     .error_named_arg_unsupported(key, arg.span)
                     .into());
             }
-            ParsedArgValue::PositionalArg { value: v, .. } => {
-                let Some(argv) = v.text_or_bytes() else {
-                    return Err(expr
-                        .error_positional_arg_not_plaintext(arg.span)
-                        .into());
-                };
-                value = Some((argv, arg.span));
+            ParsedArgValue::PositionalArg { arg, .. } => {
+                // TODO: this is stupid
+                value = Some((arg.stringify(sess).into_bytes_cow(), arg.span));
             }
         }
     }
@@ -313,26 +312,28 @@ pub fn parse_insert_count_and_value_args<'a>(
 }
 
 pub fn parse_insert_count_and_value_args_str<'a>(
+    sess: &mut SessionSetupData,
     expr: &'a CallExpr<'a>,
-) -> Result<(Option<usize>, &'a str, Span), ScrError> {
+) -> Result<(Option<usize>, Cow<'a, str>, Span), ScrError> {
     let (insert_count, value, value_span) =
-        parse_insert_count_and_value_args(expr)?;
-
-    let value_str = value
-        .to_str()
+        parse_insert_count_and_value_args(sess, expr)?;
+    let value_str = cow_to_str(value)
         .map_err(|_| expr.error_positional_arg_invalid_utf8(value_span))?;
 
     Ok((insert_count, value_str, value_span))
 }
 
-pub fn parse_op_int(expr: &CallExpr) -> Result<OperatorData, ScrError> {
+pub fn parse_op_int(
+    sess: &mut SessionSetupData,
+    expr: &CallExpr,
+) -> Result<OperatorData, ScrError> {
     let (insert_count, value, value_span) =
-        parse_insert_count_and_value_args_str(expr)?;
+        parse_insert_count_and_value_args_str(sess, expr)?;
 
-    let data = if let Ok(i) = str::parse::<i64>(value) {
+    let data = if let Ok(i) = str::parse::<i64>(&value) {
         Literal::Int(i)
     } else {
-        let Ok(big_int) = str::parse::<BigInt>(value) else {
+        let Ok(big_int) = str::parse::<BigInt>(&value) else {
             return Err(expr
                 .error_positional_arg_invalid_int(value_span)
                 .into());
@@ -342,17 +343,18 @@ pub fn parse_op_int(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     Ok(OperatorData::Literal(OpLiteral { data, insert_count }))
 }
 pub fn parse_op_bytes(
+    sess: &mut SessionSetupData,
     arg: &mut Argument,
     stream: bool,
 ) -> Result<OperatorData, ScrError> {
     let call_expr = CallExpr::from_argument_mut(arg)?;
     let (insert_count, value, _value_span) =
-        parse_insert_count_and_value_args(&call_expr)?;
+        parse_insert_count_and_value_args(sess, &call_expr)?;
     Ok(OperatorData::Literal(OpLiteral {
         data: if stream {
-            Literal::StreamBytes(Arc::new(value.to_owned()))
+            Literal::StreamBytes(Arc::new(value.into_owned()))
         } else {
-            Literal::Bytes(value.to_owned())
+            Literal::Bytes(value.into_owned())
         },
         insert_count,
     }))
@@ -382,23 +384,26 @@ pub fn parse_op_tyson(
     affinity: FieldValueKind,
 ) -> Result<OperatorData, ScrError> {
     let (insert_count, value, value_span) =
-        parse_insert_count_and_value_args(expr)?;
-    let value =
-        parse_tyson(value, use_fpm(&mut Some(sess)), Some(&sess.extensions))
-            .map_err(|e| {
-            OperatorCreationError::new_s(
-                format!(
-                    "failed to parse value as {}: {}",
-                    affinity.to_str(),
-                    match e {
-                        TysonParseError::Io(e) => e.to_string(),
-                        TysonParseError::InvalidSyntax { kind, .. } =>
-                            kind.to_string(),
-                    }
-                ),
-                value_span,
-            )
-        })?;
+        parse_insert_count_and_value_args(sess, expr)?;
+    let value = parse_tyson(
+        BufReader::new(&*value),
+        use_fpm(&mut Some(sess)),
+        Some(&sess.extensions),
+    )
+    .map_err(|e| {
+        OperatorCreationError::new_s(
+            format!(
+                "failed to parse value as {}: {}",
+                affinity.to_str(),
+                match e {
+                    TysonParseError::Io(e) => e.to_string(),
+                    TysonParseError::InvalidSyntax { kind, .. } =>
+                        kind.to_string(),
+                }
+            ),
+            value_span,
+        )
+    })?;
     let lit = field_value_to_literal(value);
     Ok(OperatorData::Literal(OpLiteral {
         data: lit,
@@ -417,10 +422,10 @@ pub fn use_fpm(sess: &mut Option<&mut SessionSetupData>) -> bool {
 }
 
 pub fn build_op_tyson_value(
+    mut sess: Option<&mut SessionSetupData>,
     value: &[u8],
     value_span: Span,
     insert_count: Option<usize>,
-    mut sess: Option<&mut SessionSetupData>,
 ) -> Result<OperatorData, ScrError> {
     let value = parse_tyson(
         value,
@@ -438,12 +443,12 @@ pub fn build_op_tyson_value(
 }
 
 pub fn parse_op_tyson_value(
+    sess: &mut SessionSetupData,
     expr: &CallExpr,
-    sess: Option<&mut SessionSetupData>,
 ) -> Result<OperatorData, ScrError> {
     let (insert_count, value, value_span) =
-        parse_insert_count_and_value_args(expr)?;
-    build_op_tyson_value(value, value_span, insert_count, sess)
+        parse_insert_count_and_value_args(sess, expr)?;
+    build_op_tyson_value(Some(sess), &value, value_span, insert_count)
 }
 
 pub fn create_op_literal_with_insert_count(
@@ -494,7 +499,7 @@ pub fn create_op_undefined() -> OperatorData {
     create_op_literal(Literal::Undefined)
 }
 pub fn create_op_v(str: &str) -> Result<OperatorData, ScrError> {
-    build_op_tyson_value(str.as_bytes(), Span::Generated, None, None)
+    build_op_tyson_value(None, str.as_bytes(), Span::Generated, None)
 }
 
 pub fn create_op_error_n(str: &str, insert_count: usize) -> OperatorData {
@@ -541,9 +546,9 @@ pub fn create_op_v_n(
     insert_count: usize,
 ) -> Result<OperatorData, ScrError> {
     build_op_tyson_value(
+        None,
         str.as_bytes(),
         Span::Generated,
         Some(insert_count),
-        None,
     )
 }

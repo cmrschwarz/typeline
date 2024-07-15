@@ -821,7 +821,7 @@ pub fn parse_op_exec(
             ParsedArgValue::NamedArg { key, .. } => {
                 return Err(expr.error_named_args_unsupported(key, arg.span));
             }
-            ParsedArgValue::PositionalArg { idx, value } => {
+            ParsedArgValue::PositionalArg { idx, value, .. } => {
                 let Some(value) = value.text_or_bytes() else {
                     return Err(expr.error_list_arg_unsupported(arg.span));
                 };

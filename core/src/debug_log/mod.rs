@@ -14,6 +14,7 @@ use crate::{
         forkcat::{FcSubchainIdx, TfForkCat},
         transform::{TransformData, TransformId},
     },
+    options::chain_settings::RationalsPrintMode,
     record_data::{
         field::{Field, FieldId},
         field_action::FieldAction,
@@ -569,7 +570,7 @@ pub fn field_data_to_json<'a>(
         ss: &mut string_store,
         fm: &jd.field_mgr,
         msm: &jd.match_set_mgr,
-        print_rationals_raw: true,
+        rationals_print_mode: RationalsPrintMode::Dynamic,
         is_stream_value: false,
         rfk: RealizedFormatKey {
             opts: FormatOptions {

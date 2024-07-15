@@ -7,6 +7,7 @@ use crate::{
     context::SessionData,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData, VarLivenessSlotKind},
+    options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::ActorId,
         field::Field,
@@ -258,6 +259,7 @@ pub fn handle_tf_sequence(
 }
 
 pub fn parse_op_seq(
+    sess: &mut SessionSetupData,
     call: &CallExpr,
     mode: SequenceMode,
     natural_number_mode: bool,
@@ -273,7 +275,7 @@ pub fn parse_op_seq(
             call.span,
         );
     }
-    let value_str = call.require_single_string_arg()?;
+    let value_str = call.require_single_string_arg_autoconvert(sess)?;
     let parts: ArrayVec<&str, 4> = value_str.split(',').take(4).collect();
     if parts.len() == 4 {
         return Err(OperatorCreationError::new(

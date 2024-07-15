@@ -86,7 +86,7 @@ pub fn setup_op_macro_call(
                     value: val,
                     span: Span::MacroExpansion { op_id },
                     source_scope: macro_instaniation_scope,
-                    end_kind: None,
+                    meta_info: None,
                 }
             }
         })

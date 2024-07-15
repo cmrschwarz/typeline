@@ -12,16 +12,6 @@ index_newtype! {
     pub struct SubchainIndex(pub(crate) u32);
 }
 
-#[derive(Clone, Copy, Default)]
-pub enum BufferingMode {
-    BlockBuffer,
-    LineBuffer,
-    LineBufferStdin,
-    #[default]
-    LineBufferIfTTY,
-    LineBufferStdinIfTTY,
-}
-
 #[derive(Default, Clone, Copy)]
 pub enum TextEncoding {
     #[default]

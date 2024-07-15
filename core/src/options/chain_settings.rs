@@ -1,5 +1,4 @@
 use crate::{
-    chain::BufferingMode,
     cli::{
         call_expr::{Argument, Span},
         try_parse_bool,
@@ -34,6 +33,26 @@ pub trait SettingTypeConverter<T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingConversionError {
     pub message: String,
+}
+
+#[derive(Clone, Copy, Default)]
+pub enum BufferingMode {
+    BlockBuffer,
+    LineBuffer,
+    LineBufferStdin,
+    #[default]
+    LineBufferIfTTY,
+    LineBufferStdinIfTTY,
+}
+
+pub const RARTIONAL_DECIMALS_DEFAULT_CUTOFF: u32 = 40;
+
+#[derive(Clone, Copy)]
+pub enum RationalsPrintMode {
+    Cutoff(u32),
+    Raw,
+    // attempts to use plain if losslessly possible, otherwise uses raw
+    Dynamic,
 }
 
 pub type ChainSettingNames = [StringStoreEntry; chain_settings_list::COUNT];
@@ -92,7 +111,7 @@ pub trait ChainSetting: chain_settings_list::TypeList {
             value: Self::Converter::convert_from_type(value)?,
             span,
             source_scope: scope_id,
-            end_kind: None,
+            meta_info: None,
         }));
         Self::assign_raw(string_store, sm, scope_id, value);
         Ok(())
@@ -215,23 +234,23 @@ impl<S: ChainSetting> SettingTypeConverter<BufferingMode>
     ) -> Result<BufferingMode, SettingConversionError> {
         let FieldValue::Text(value) = value else {
             return Err(SettingConversionError::new(format!(
-                "value for setting %{} must be a valid line buffering condition, got type `{}`",
+                "invalid line buffering condition for %{}, got type `{}`",
                 S::NAME,
                 value.kind().to_str()
             )));
         };
         match &**value {
-        "never" => Ok(BufferingMode::BlockBuffer),
-        "always" => Ok(BufferingMode::LineBuffer),
-        "stdin" => Ok(BufferingMode::LineBufferStdin),
-        "tty" => Ok(BufferingMode::LineBufferIfTTY),
-        "stdin-if-tty" => Ok(BufferingMode::LineBufferStdinIfTTY),
-        other => Err(SettingConversionError::new(format!(
-            "invalid value for setting %{}, not a valid line buffering condition: '{}'",
-            S::NAME,
-            other,
-        ))),
-    }
+            "never" => Ok(BufferingMode::BlockBuffer),
+            "always" => Ok(BufferingMode::LineBuffer),
+            "stdin" => Ok(BufferingMode::LineBufferStdin),
+            "tty" => Ok(BufferingMode::LineBufferIfTTY),
+            "stdin-if-tty" => Ok(BufferingMode::LineBufferStdinIfTTY),
+            other => Err(SettingConversionError::new(format!(
+                "invalid line buffering condition for %{}, got '{}'",
+                S::NAME,
+                other,
+            ))),
+        }
     }
 
     fn convert_from_type(
@@ -245,6 +264,65 @@ impl<S: ChainSetting> SettingTypeConverter<BufferingMode>
             BufferingMode::LineBufferStdinIfTTY => "stdin-if-tty",
         };
         Ok(FieldValue::Text(v.to_string()))
+    }
+}
+
+pub struct SettingConverterRationalsPrintMode<S: ChainSetting>(PhantomData<S>);
+impl<S: ChainSetting> SettingTypeConverter<RationalsPrintMode>
+    for SettingConverterRationalsPrintMode<S>
+{
+    fn convert_to_type(
+        value: &FieldValue,
+    ) -> Result<RationalsPrintMode, SettingConversionError> {
+        let FieldValue::Text(value) = value else {
+            return Err(SettingConversionError::new(format!(
+                "invalid rational printing variant for %{}, got type `{}`",
+                S::NAME,
+                value.kind().to_str()
+            )));
+        };
+        match &**value {
+            "raw" => return Ok(RationalsPrintMode::Raw),
+            "dynamic" => return Ok(RationalsPrintMode::Dynamic),
+            "cutoff" => {
+                return Ok(RationalsPrintMode::Cutoff(
+                    RARTIONAL_DECIMALS_DEFAULT_CUTOFF,
+                ))
+            }
+            _ => (),
+        }
+        if let Some(amount) = value.strip_prefix("cutoff-") {
+            if let Ok(n) = amount.parse::<u32>() {
+                return Ok(RationalsPrintMode::Cutoff(n));
+            }
+            return Err(SettingConversionError::new(format!(
+                "cutoff amount for %{} must be a valid integer, got '{}'",
+                S::NAME,
+                amount,
+            )));
+        }
+        Err(SettingConversionError::new(format!(
+            "invalid rational printing variant for %{}, got '{}'",
+            S::NAME,
+            value,
+        )))
+    }
+
+    fn convert_from_type(
+        value: RationalsPrintMode,
+    ) -> Result<FieldValue, SettingConversionError> {
+        let v = match value {
+            RationalsPrintMode::Cutoff(v) => {
+                if v == RARTIONAL_DECIMALS_DEFAULT_CUTOFF {
+                    "cutoff".to_string()
+                } else {
+                    format!("cutoff-{v}")
+                }
+            }
+            RationalsPrintMode::Raw => "raw".to_string(),
+            RationalsPrintMode::Dynamic => "dynamic".to_string(),
+        };
+        Ok(FieldValue::Text(v))
     }
 }
 
@@ -323,12 +401,13 @@ impl ChainSetting for SettingStreamBufferSize {
     type Converter = SettingConverterUsize<Self, false>;
 }
 
-pub struct SettingPrintRationalsRaw;
-impl ChainSetting for SettingPrintRationalsRaw {
-    type Type = bool;
-    const NAME: &'static str = "prr";
-    const DEFAULT: bool = false;
-    type Converter = SettingConverterBool<Self>;
+pub struct SettingRationalsPrintMode;
+impl ChainSetting for SettingRationalsPrintMode {
+    type Type = RationalsPrintMode;
+    const NAME: &'static str = "rpm";
+    const DEFAULT: RationalsPrintMode =
+        RationalsPrintMode::Cutoff(RARTIONAL_DECIMALS_DEFAULT_CUTOFF);
+    type Converter = SettingConverterRationalsPrintMode<Self>;
 }
 
 pub struct SettingUseFloatingPointMath;
@@ -368,7 +447,7 @@ typelist! {
         SettingBatchSize,
         SettingStreamSizeThreshold,
         SettingStreamBufferSize,
-        SettingPrintRationalsRaw,
+        SettingRationalsPrintMode,
         SettingUseFloatingPointMath,
         SettingBufferingMode,
         SettingDebugLog,

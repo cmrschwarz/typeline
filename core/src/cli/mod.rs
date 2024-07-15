@@ -38,7 +38,7 @@ use crate::{
 pub mod call_expr;
 use bstr::ByteSlice;
 
-use call_expr::{Argument, CallExpr, CallExprEndKind, Label, Span};
+use call_expr::{Argument, CallExpr, CallExprEndKind, Label, MetaInfo, Span};
 use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use unicode_ident::{is_xid_continue, is_xid_start};
@@ -318,17 +318,17 @@ pub fn parse_operator_data(
 
     Ok(match expr.op_name {
         "atom" => parse_op_atom(sess, &mut expr)?,
-        "int" => parse_op_int(&expr)?,
-        "bytes" => parse_op_bytes(&mut arg, false)?,
-        "~bytes" => parse_op_bytes(&mut arg, true)?,
-        "str" => parse_op_str(&expr, false)?,
-        "~str" => parse_op_str(&expr, true)?,
+        "int" => parse_op_int(sess, &expr)?,
+        "bytes" => parse_op_bytes(sess, &mut arg, false)?,
+        "~bytes" => parse_op_bytes(sess, &mut arg, true)?,
+        "str" => parse_op_str(sess, &expr, false)?,
+        "~str" => parse_op_str(sess, &expr, true)?,
         "object" => parse_op_tyson(sess, &expr, FieldValueKind::Object)?,
         "array" => parse_op_tyson(sess, &expr, FieldValueKind::Array)?,
         "float" => parse_op_tyson(sess, &expr, FieldValueKind::Float)?,
-        "v" | "value" | "tyson" => parse_op_tyson_value(&expr, Some(sess))?,
-        "error" => parse_op_error(&expr, false)?,
-        "~error" => parse_op_error(&expr, true)?,
+        "v" | "value" | "tyson" => parse_op_tyson_value(sess, &expr)?,
+        "error" => parse_op_error(sess, &expr, false)?,
+        "~error" => parse_op_error(sess, &expr, true)?,
         "null" => parse_op_literal_zst(&expr, Literal::Null)?,
         "undefined" => parse_op_literal_zst(&expr, Literal::Undefined)?,
         "to_str" => parse_op_to_str(sess, expr)?,
@@ -340,12 +340,16 @@ pub fn parse_operator_data(
         "stdin" | "in" => parse_op_stdin(sess, expr)?,
         "key" => parse_op_key(sess, arg)?,
         "select" => parse_op_select(&expr)?,
-        "seq" => parse_op_seq(&expr, SequenceMode::Sequence, false)?,
-        "seqn" => parse_op_seq(&expr, SequenceMode::Sequence, true)?,
-        "enum" => parse_op_seq(&expr, SequenceMode::Enum, false)?,
-        "enumn" => parse_op_seq(&expr, SequenceMode::Enum, true)?,
-        "enum-u" => parse_op_seq(&expr, SequenceMode::EnumUnbounded, false)?,
-        "enumn-u" => parse_op_seq(&expr, SequenceMode::EnumUnbounded, true)?,
+        "seq" => parse_op_seq(sess, &expr, SequenceMode::Sequence, false)?,
+        "seqn" => parse_op_seq(sess, &expr, SequenceMode::Sequence, true)?,
+        "enum" => parse_op_seq(sess, &expr, SequenceMode::Enum, false)?,
+        "enumn" => parse_op_seq(sess, &expr, SequenceMode::Enum, true)?,
+        "enum-u" => {
+            parse_op_seq(sess, &expr, SequenceMode::EnumUnbounded, false)?
+        }
+        "enumn-u" => {
+            parse_op_seq(sess, &expr, SequenceMode::EnumUnbounded, true)?
+        }
         "count" => parse_op_count(&expr)?,
         "nop" | "scr" => parse_op_nop(&expr)?,
         "fork" => parse_op_fork(arg)?,
@@ -451,7 +455,7 @@ pub fn gobble_cli_args_while_dashed_or_eq<'a>(
             value: parse_single_arg_value(&arg[1..]),
             span,
             source_scope,
-            end_kind: None,
+            meta_info: None,
         });
     }
     Ok(final_span)
@@ -654,7 +658,7 @@ pub fn parse_call_expr_head(
             value: parse_single_arg_value(&argv[i..]),
             span: arg_span.subslice_offsets(i, argv.len()),
             source_scope,
-            end_kind: None,
+            meta_info: None,
         })
     };
 
@@ -742,7 +746,7 @@ pub fn wrap_expr_in_transparent(arg: Argument) -> Argument {
     Argument {
         span: arg.span,
         source_scope: arg.source_scope,
-        end_kind: Some(CallExprEndKind::SpecialBuiltin),
+        meta_info: Some(MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin)),
         value: FieldValue::Array(Array::Argument(vec![
             Argument::generated_from_name("transparent", arg.source_scope),
             arg,
@@ -759,7 +763,7 @@ pub fn wrap_expr_in_key(
     Argument {
         span: arg.span,
         source_scope,
-        end_kind: Some(CallExprEndKind::SpecialBuiltin),
+        meta_info: Some(MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin)),
         value: FieldValue::Array(Array::Argument(vec![
             Argument::generated_from_name("key", source_scope),
             Argument::from_field_value(
@@ -795,7 +799,7 @@ pub fn parse_list_after_start<'a>(
                 value: FieldValue::Array(Array::Argument(args)),
                 span: start_span.span_until(span).unwrap(),
                 source_scope,
-                end_kind: Some(CallExprEndKind::End(span)),
+                meta_info: Some(MetaInfo::EndKind(CallExprEndKind::End(span))),
             };
             let Some((label, label_span)) = label else {
                 return Ok(list);
@@ -807,7 +811,7 @@ pub fn parse_list_after_start<'a>(
                         value: FieldValue::Text(label),
                         span: label_span,
                         source_scope,
-                        end_kind: None,
+                        meta_info: None,
                     },
                     list,
                 ])),
@@ -825,7 +829,7 @@ pub fn parse_list_after_start<'a>(
                 value: parse_single_arg_value(&argv[i..]),
                 span,
                 source_scope,
-                end_kind: None,
+                meta_info: None,
             }
         };
 
@@ -920,7 +924,7 @@ pub fn parse_dashed_arg(
                 i,
             ),
             source_scope,
-            end_kind: None,
+            meta_info: None,
         }));
         if let Some(_prev) = target.insert(key.to_string(), value) {
             return Err(CliArgumentError::new_s(
@@ -967,7 +971,7 @@ pub fn parse_call_expr<'a>(
             value: FieldValue::Text("atom".to_string()),
             span: arg_span.subslice_offsets(0, 1),
             source_scope,
-            end_kind: None,
+            meta_info: None,
         })
     }
 
@@ -978,7 +982,7 @@ pub fn parse_call_expr<'a>(
         value: FieldValue::Text(head.op_name),
         span: head.op_name_span,
         source_scope,
-        end_kind: None,
+        meta_info: None,
     });
     let dash_arg_pos = args.len();
     let dash_arg_found = head.dashed_arg.is_some();
@@ -988,7 +992,7 @@ pub fn parse_call_expr<'a>(
             value: FieldValue::Undefined,
             span: Span::FlagsObject,
             source_scope,
-            end_kind: None,
+            meta_info: None,
         });
     }
     if let Some(equals_arg) = &head.equals_arg {
@@ -1018,7 +1022,7 @@ pub fn parse_call_expr<'a>(
                     value: FieldValue::Undefined,
                     span: Span::FlagsObject,
                     source_scope,
-                    end_kind: None,
+                    meta_info: None,
                 },
             )
         }
@@ -1044,7 +1048,7 @@ pub fn parse_call_expr<'a>(
     let mut arg = Argument {
         value: FieldValue::Array(Array::Argument(args)),
         span: expr_span,
-        end_kind: Some(end_kind),
+        meta_info: Some(MetaInfo::EndKind(end_kind)),
         source_scope,
     };
 
@@ -1172,7 +1176,7 @@ mod test {
 
     use crate::{
         cli::{
-            call_expr::{Argument, CallExprEndKind, Span},
+            call_expr::{Argument, CallExprEndKind, MetaInfo, Span},
             cli_args_into_arguments_iter, parse_call_expr,
         },
         record_data::{
@@ -1201,18 +1205,18 @@ mod test {
                         value: FieldValue::Text("seq".to_string()),
                         span: cli_arg.reoffset(0, 3),
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: None
+                        meta_info: None
                     },
                     Argument {
                         value: FieldValue::Text("10".into()),
                         span: cli_arg.reoffset(4, 6),
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: None
+                        meta_info: None
                     }
                 ])),
                 span: cli_arg,
                 source_scope: DEFAULT_SCOPE_ID,
-                end_kind: Some(CallExprEndKind::Inline)
+                meta_info: Some(MetaInfo::EndKind(CallExprEndKind::Inline))
             },
         )
     }
@@ -1237,19 +1241,19 @@ mod test {
                         value: FieldValue::Text("seq".to_string()),
                         span: Span::from_single_arg(1, 3),
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: None
+                        meta_info: None
                     },
                     Argument {
                         value: FieldValue::Int(10),
                         span: Span::from_single_arg(2, 2),
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: None
+                        meta_info: None
                     }
                 ])),
                 span: Span::from_cli_arg(0, 4, 0, 1),
                 source_scope: DEFAULT_SCOPE_ID,
-                end_kind: Some(CallExprEndKind::End(Span::from_single_arg(
-                    3, 1
+                meta_info: Some(MetaInfo::EndKind(CallExprEndKind::End(
+                    Span::from_single_arg(3, 1)
                 )))
             },
         )
@@ -1275,7 +1279,7 @@ mod test {
                         value: FieldValue::Text("seq".to_string()),
                         span: Span::from_single_arg(0, 3),
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: None
+                        meta_info: None
                     },
                     Argument {
                         value: FieldValue::Object(Box::new(
@@ -1284,37 +1288,37 @@ mod test {
                                     value: FieldValue::Int(3),
                                     span: Span::from_single_arg_with_offset(0, 4, 8),
                                     source_scope: DEFAULT_SCOPE_ID,
-                                    end_kind: None
+                                    meta_info: None
                                 })),
                                 "-b".into() => FieldValue::Argument(Box::new(Argument {
                                     value: FieldValue::Null,
                                     span: Span::from_single_arg(1, 2),
                                     source_scope: DEFAULT_SCOPE_ID,
-                                    end_kind: None
+                                    meta_info: None
                                 })),
                                 "-c".into() => FieldValue::Argument(Box::new(Argument {
                                     value: FieldValue::Int(5),
                                     span: Span::from_single_arg(2, 4),
                                     source_scope: DEFAULT_SCOPE_ID,
-                                    end_kind: None
+                                    meta_info: None
                                 })),
                             })
                         )),
                         span: Span::Generated,
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: None
+                        meta_info: None
                     },
                     Argument {
                         value: FieldValue::Text("5".into()),
                         span: Span::from_single_arg_with_offset(0, 9, 10),
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: None
+                        meta_info: None
                     },
                     Argument {
                         value: FieldValue::Text("10".into()),
                         span: Span::from_single_arg(3, 3),
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: None
+                        meta_info: None
                     },
                     Argument {
                         value: FieldValue::Array(Array::Argument(vec![
@@ -1322,18 +1326,20 @@ mod test {
                                 value: FieldValue::Text("asdf".into()),
                                 span: Span::from_single_arg(4, 4),
                                 source_scope: DEFAULT_SCOPE_ID,
-                                end_kind: None
+                                meta_info: None
                             }
                         ])),
                         span: Span::from_single_arg(4, 4),
                         source_scope: DEFAULT_SCOPE_ID,
-                        end_kind: Some(CallExprEndKind::Inline),
+                        meta_info: Some(MetaInfo::EndKind(
+                            CallExprEndKind::Inline
+                        )),
                     }
                 ])),
                 span: Span::from_cli_arg(0, 6, 0, 3),
                 source_scope: DEFAULT_SCOPE_ID,
-                end_kind: Some(CallExprEndKind::End(Span::from_single_arg(
-                    5, 3
+                meta_info: Some(MetaInfo::EndKind(CallExprEndKind::End(
+                    Span::from_single_arg(5, 3)
                 )))
             },
         )

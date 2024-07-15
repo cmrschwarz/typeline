@@ -21,7 +21,10 @@ use crate::{
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
     options::{
-        chain_settings::{SettingPrintRationalsRaw, SettingStreamBufferSize},
+        chain_settings::{
+            RationalsPrintMode, SettingRationalsPrintMode,
+            SettingStreamBufferSize,
+        },
         session_setup::SessionSetupData,
     },
     record_data::{
@@ -183,7 +186,7 @@ pub struct TfFormat<'a> {
         TfFormatStreamValueHandleId,
         TfFormatStreamValueHandle,
     >,
-    print_rationals_raw: bool,
+    rationals_print_mode: RationalsPrintMode,
     contains_raw_bytes: bool,
     stream_buffer_size: usize,
 }
@@ -331,7 +334,7 @@ pub fn build_tf_format<'a>(
     }
 
     let print_rationals_raw =
-        jd.get_setting_from_tf_state::<SettingPrintRationalsRaw>(tf_state);
+        jd.get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state);
     let stream_buffer_size =
         jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
     let tf = TfFormat {
@@ -341,7 +344,7 @@ pub fn build_tf_format<'a>(
         output_targets: Vec::new(),
         stream_value_handles: CountedUniverse::default(),
         contains_raw_bytes: op.contains_raw_bytes,
-        print_rationals_raw,
+        rationals_print_mode: print_rationals_raw,
         stream_buffer_size,
     };
     TransformData::Format(tf)
@@ -1025,7 +1028,7 @@ pub fn setup_key_output_state(
         ss: &mut string_store,
         fm,
         msm,
-        print_rationals_raw: fmt.print_rationals_raw,
+        rationals_print_mode: fmt.rationals_print_mode,
         is_stream_value: false,
         rfk: RealizedFormatKey {
             min_char_count: 0,
@@ -1640,7 +1643,7 @@ fn write_fmt_key(
                     ss: &mut string_store,
                     fm,
                     msm,
-                    print_rationals_raw: fmt.print_rationals_raw,
+                    rationals_print_mode: fmt.rationals_print_mode,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };
@@ -1962,7 +1965,7 @@ pub fn handle_tf_format_stream_value_update<'a>(
             ss: &mut string_store,
             fm: &jd.field_mgr,
             msm: &jd.match_set_mgr,
-            print_rationals_raw: fmt.print_rationals_raw,
+            rationals_print_mode: fmt.rationals_print_mode,
             is_stream_value: true,
             rfk: format_key
                 .realize(handle.min_char_count, handle.float_precision),

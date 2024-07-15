@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{borrow::Cow, ops::Deref};
 
 use bstr::{ByteSlice, ByteVec};
 
@@ -258,6 +258,14 @@ impl<'a> MaybeTextCow<'a> {
     pub fn as_bytes(&self) -> &[u8] {
         self.as_ref().as_bytes()
     }
+    pub fn into_bytes_cow(self) -> Cow<'a, [u8]> {
+        match self {
+            MaybeTextCow::Text(text) => Cow::Owned(text.into_bytes()),
+            MaybeTextCow::Bytes(bytes) => Cow::Owned(bytes),
+            MaybeTextCow::TextRef(text) => Cow::Borrowed(text.as_bytes()),
+            MaybeTextCow::BytesRef(bytes) => Cow::Borrowed(bytes),
+        }
+    }
     pub fn as_str(&self) -> Option<&str> {
         match self {
             MaybeTextCow::Text(s) => Some(s),
@@ -312,10 +320,17 @@ impl<'a> MaybeTextCow<'a> {
         }
     }
 
-    pub(crate) fn from_maybe_text(res: MaybeText) -> MaybeTextCow<'static> {
+    pub fn from_maybe_text(res: MaybeText) -> MaybeTextCow<'static> {
         match res {
             MaybeText::Text(t) => MaybeTextCow::Text(t),
             MaybeText::Bytes(b) => MaybeTextCow::Bytes(b),
+        }
+    }
+
+    pub fn from_maybe_text_ref(res: MaybeTextRef<'a>) -> MaybeTextCow<'a> {
+        match res {
+            MaybeTextRef::Text(t) => MaybeTextCow::TextRef(t),
+            MaybeTextRef::Bytes(b) => MaybeTextCow::BytesRef(b),
         }
     }
 }
@@ -373,12 +388,6 @@ impl<'a> MaybeTextRef<'a> {
         match self {
             MaybeTextRef::Text(s) => s.as_bytes(),
             MaybeTextRef::Bytes(s) => s,
-        }
-    }
-    pub fn to_owned(&self) -> MaybeText {
-        match self {
-            MaybeTextRef::Text(t) => MaybeText::Text((*t).to_string()),
-            MaybeTextRef::Bytes(b) => MaybeText::Bytes(b.to_vec()),
         }
     }
     pub fn from_bytes_try_str(bytes: &'a [u8]) -> Self {
@@ -442,6 +451,17 @@ impl From<MaybeText> for MaybeTextBoxed {
 impl From<MaybeTextBoxed> for MaybeText {
     fn from(value: MaybeTextBoxed) -> Self {
         value.into_maybe_string()
+    }
+}
+
+impl From<MaybeText> for MaybeTextCow<'static> {
+    fn from(value: MaybeText) -> Self {
+        MaybeTextCow::from_maybe_text(value)
+    }
+}
+impl<'a> From<MaybeTextRef<'a>> for MaybeTextCow<'a> {
+    fn from(value: MaybeTextRef<'a>) -> Self {
+        MaybeTextCow::from_maybe_text_ref(value)
     }
 }
 

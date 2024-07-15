@@ -565,7 +565,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             let decimals_end = exponent.unwrap_or(buf.len());
             buf.remove(fp);
             exponent = exponent.map(|e| e - 1);
-            BigRational::new(
+            BigRational::new_raw(
                 BigInt::parse_bytes(buf[..decimals_end - 1].as_bytes(), 10)
                     .unwrap(),
                 BigInt::from_u64(10)
@@ -573,7 +573,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     .pow(decimals_end - decimals_start),
             )
         } else {
-            BigRational::new(
+            BigRational::new_raw(
                 BigInt::parse_bytes(buf[..whole_numer_end].as_bytes(), 10)
                     .unwrap(),
                 BigInt::from_u64(1).unwrap(),

@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     fmt::{Debug, Display},
     str::FromStr,
 };
@@ -8,15 +9,26 @@ use num::{FromPrimitive, PrimInt};
 
 use crate::{
     operators::{errors::OperatorCreationError, operator::OperatorId},
-    options::setting::CliArgIdx,
+    options::{
+        chain_settings::RationalsPrintMode, session_setup::SessionSetupData,
+        setting::CliArgIdx,
+    },
     record_data::{
         array::Array,
+        field::FieldManager,
         field_value::{FieldValue, FieldValueKind, Object, ObjectKeysStored},
+        formattable::{
+            Formattable, FormattingContext, NumberFormat, RealizedFormatKey,
+        },
+        match_set::MatchSetManager,
         scope_manager::ScopeId,
     },
     utils::{
-        debuggable_nonmax::DebuggableNonMaxU32, indexing_type::IndexingType,
+        debuggable_nonmax::DebuggableNonMaxU32,
+        indexing_type::IndexingType,
         int_string_conversions::parse_int_with_units,
+        lazy_lock_guard::{LazyRwLockGuard, LazyRwLockWriteGuard},
+        maybe_text::{MaybeText, MaybeTextCow},
         string_store::StringStore,
     },
 };
@@ -45,12 +57,40 @@ pub enum Span {
     },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct IntFormatQuirks {
+    leading_plus: bool,
+    // We need to throw an error on mixed case hex. That's ok.
+    number_format: NumberFormat,
+    leading_zeros: i32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FloatFormatQuirks {
+    leading_plus: bool,
+    decimal_point: bool,
+    leading_zeros: i32,
+    trailing_zeros: i32,
+    exponent: i32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MetaInfo {
+    EndKind(CallExprEndKind),
+    RawRational {
+        numerator: IntFormatQuirks,
+        denominator: IntFormatQuirks,
+    },
+    IntFormatQuirks(IntFormatQuirks),
+    FloatFormatQuirks(FloatFormatQuirks),
+}
+
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct Argument {
     pub value: FieldValue,
     pub span: Span,
     pub source_scope: ScopeId,
-    pub end_kind: Option<CallExprEndKind>,
+    pub meta_info: Option<MetaInfo>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -92,8 +132,15 @@ pub struct ParsedArgsIterWithBoundedPositionals<'a> {
 
 pub enum ParsedArgValue<'a> {
     Flag(&'a str),
-    NamedArg { key: &'a str, value: &'a FieldValue },
-    PositionalArg { idx: usize, value: &'a FieldValue },
+    NamedArg {
+        key: &'a str,
+        value: &'a FieldValue,
+    },
+    PositionalArg {
+        arg: &'a Argument,
+        idx: usize,
+        value: &'a FieldValue,
+    },
 }
 
 pub struct ParsedArg<'a> {
@@ -111,7 +158,7 @@ impl Argument {
             value,
             span,
             source_scope,
-            end_kind: None,
+            meta_info: None,
         }
     }
     pub fn generated_from_name(name: &str, scope: ScopeId) -> Self {
@@ -119,7 +166,7 @@ impl Argument {
             value: FieldValue::Text(name.to_string()),
             source_scope: scope,
             span: Span::Generated,
-            end_kind: None,
+            meta_info: None,
         }
     }
     pub fn generated_from_field_value(
@@ -130,7 +177,7 @@ impl Argument {
             value,
             source_scope: scope,
             span: Span::Generated,
-            end_kind: None,
+            meta_info: None,
         }
     }
     pub fn expect_plain(
@@ -184,6 +231,36 @@ impl Argument {
             return Ok(sub_args);
         }
         Err(err_v)
+    }
+
+    pub fn stringify(&self, sess: &mut SessionSetupData) -> MaybeTextCow {
+        match &self.value {
+            FieldValue::Text(text) => return MaybeTextCow::TextRef(text),
+            FieldValue::Bytes(bytes) => return MaybeTextCow::BytesRef(bytes),
+            FieldValue::Argument(arg) => return arg.stringify(sess),
+            _ => (),
+        }
+        // TODO: incorporate more format quirks here
+        let mut fmt = FormattingContext {
+            ss: &mut LazyRwLockGuard::NonRead(LazyRwLockWriteGuard::Plain(
+                &mut sess.string_store,
+            )),
+            fm: &mut FieldManager::default(),
+            msm: &mut MatchSetManager::default(),
+            rationals_print_mode: if let Some(MetaInfo::RawRational {
+                ..
+            }) = self.meta_info
+            {
+                RationalsPrintMode::Raw
+            } else {
+                RationalsPrintMode::Dynamic
+            },
+            is_stream_value: false,
+            rfk: RealizedFormatKey::default(),
+        };
+        let mut res = MaybeText::new();
+        self.value.as_ref().format(&mut fmt, &mut res).unwrap();
+        MaybeTextCow::from(res)
     }
 }
 
@@ -307,7 +384,7 @@ impl Span {
 fn parse_call_expr_meta(
     span: Span,
     first_sub_arg: Option<&Argument>,
-    end_kind: Option<CallExprEndKind>,
+    end_kind: Option<MetaInfo>,
 ) -> Result<(&str, CallExprEndKind), CliArgumentError> {
     let Some(first_sub_arg) = first_sub_arg else {
         return Err(CliArgumentError::new(
@@ -329,9 +406,12 @@ fn parse_call_expr_meta(
         )
     })?;
 
-    let end_kind = end_kind.ok_or_else(|| {
-        CliArgumentError::new("call expression must be an s-expression", span)
-    })?;
+    let Some(MetaInfo::EndKind(end_kind)) = end_kind else {
+        return Err(CliArgumentError::new(
+            "call expression must be an s-expression",
+            span,
+        ));
+    };
 
     Ok((op_name, end_kind))
 }
@@ -343,7 +423,7 @@ impl<'a> CallExpr<'a, &'a [Argument]> {
         };
 
         let (op_name, end_kind) =
-            parse_call_expr_meta(arg.span, sub_args.first(), arg.end_kind)?;
+            parse_call_expr_meta(arg.span, sub_args.first(), arg.meta_info)?;
 
         Ok(CallExpr {
             op_name,
@@ -369,7 +449,7 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
         let (arg1, args_rest) = sub_args.split_at_mut(1);
 
         let (op_name, end_kind) =
-            parse_call_expr_meta(arg.span, arg1.first(), arg.end_kind)?;
+            parse_call_expr_meta(arg.span, arg1.first(), arg.meta_info)?;
 
         Ok(CallExpr {
             op_name,
@@ -411,7 +491,7 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
                 value,
                 span: arg.span,
                 source_scope: arg.source_scope,
-                end_kind: None,
+                meta_info: None,
             }));
         }
         (Some(keys_stored), rest)
@@ -710,6 +790,27 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
     ) -> Result<&[u8], OperatorCreationError> {
         self.require_single_arg()?.expect_plain(self.op_name)
     }
+    pub fn require_single_string_arg_autoconvert(
+        &self,
+        sess: &mut SessionSetupData,
+    ) -> Result<Cow<str>, OperatorCreationError> {
+        let arg = self.require_single_arg()?;
+        let res = arg.stringify(sess);
+        match res {
+            MaybeTextCow::TextRef(text) => Ok(Cow::Borrowed(text)),
+            MaybeTextCow::Text(text) => Ok(Cow::Owned(text)),
+            MaybeTextCow::Bytes(_) | MaybeTextCow::BytesRef(_) => {
+                Err(OperatorCreationError::new_s(
+                    format!(
+                        "operator `{}` argument must be valid utf-8, got '{}'",
+                        self.op_name,
+                        res.as_ref().to_str_lossy()
+                    ),
+                    self.span,
+                ))
+            }
+        }
+    }
     pub fn require_single_string_arg(
         &self,
     ) -> Result<&str, OperatorCreationError> {
@@ -824,6 +925,7 @@ impl<'a> Iterator for ParsedArgsIter<'a> {
         self.positional_idx += 1;
         Some(ParsedArg {
             value: ParsedArgValue::PositionalArg {
+                arg,
                 idx,
                 value: &arg.value,
             },

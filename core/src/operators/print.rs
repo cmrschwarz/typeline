@@ -18,7 +18,7 @@ use crate::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
     },
-    options::chain_settings::SettingPrintRationalsRaw,
+    options::chain_settings::{RationalsPrintMode, SettingRationalsPrintMode},
     record_data::{
         field::{Field, FieldManager},
         field_data::{field_value_flags, FieldValueType},
@@ -26,8 +26,8 @@ use crate::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         formattable::{
-            format_error_raw, format_rational_as_decimals_raw, Formattable,
-            FormattingContext, RealizedFormatKey, RATIONAL_DIGITS,
+            format_error_raw, format_rational, Formattable, FormattingContext,
+            RealizedFormatKey,
         },
         iter_hall::IterId,
         iters::{FieldIterator, UnfoldIterRunLength},
@@ -82,7 +82,7 @@ pub struct TfPrint {
     streams_kept_alive: usize,
     target: AnyWriter,
     flush_on_every_print: bool,
-    print_rationals_raw: bool,
+    rationals_print_mode: RationalsPrintMode,
     opts: PrintOptions,
 }
 
@@ -123,8 +123,8 @@ pub fn build_tf_print<'a>(
         // ENHANCE: should we config options for this stuff?
         flush_on_every_print: matches!(op.target, WritableTarget::Stdout)
             && std::io::stdout().is_terminal(),
-        print_rationals_raw: jd
-            .get_setting_from_tf_state::<SettingPrintRationalsRaw>(tf_state),
+        rationals_print_mode: jd
+            .get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state),
         current_stream_val: None,
         streams_kept_alive: 0,
         iter_id: jd.add_iter_for_tf_state(tf_state),
@@ -291,16 +291,11 @@ pub fn handle_tf_print_raw(
                     RefAwareFieldValueRangeIter::from_range(&range, rationals)
                 {
                     for _ in 0..rl {
-                        if print.print_rationals_raw {
-                            stream.write_fmt(format_args!("{v}\n"))?;
-                        } else {
-                            format_rational_as_decimals_raw(
-                                &mut TextWriteIoAdapter(&mut stream),
-                                v,
-                                RATIONAL_DIGITS,
-                            )?;
-                            stream.write_all(b"\n")?;
-                        }
+                        format_rational(
+                            &mut TextWriteIoAdapter(&mut stream),
+                            v,
+                            print.rationals_print_mode,
+                        )?;
                         *handled_field_count += 1;
                     }
                 }
@@ -312,7 +307,7 @@ pub fn handle_tf_print_raw(
                     ss: &mut string_store,
                     fm,
                     msm,
-                    print_rationals_raw: print.print_rationals_raw,
+                    rationals_print_mode: print.rationals_print_mode,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
                 };

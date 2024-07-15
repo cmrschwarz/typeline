@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    chain::{BufferingMode, ChainId},
+    chain::ChainId,
     cli::{
         call_expr::{Argument, CallExpr, Span},
         CliArgumentError,
@@ -14,7 +14,7 @@ use crate::{
     job::JobData,
     options::{
         chain_settings::{
-            SettingBufferingMode, SettingStreamBufferSize,
+            BufferingMode, SettingBufferingMode, SettingStreamBufferSize,
             SettingStreamSizeThreshold,
         },
         session_setup::SessionSetupData,

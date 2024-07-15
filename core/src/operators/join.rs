@@ -7,8 +7,8 @@ use crate::{
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
     job::{JobData, TransformManager},
     options::chain_settings::{
-        SettingPrintRationalsRaw, SettingStreamBufferSize,
-        SettingStreamSizeThreshold,
+        RationalsPrintMode, SettingRationalsPrintMode,
+        SettingStreamBufferSize, SettingStreamSizeThreshold,
     },
     record_data::{
         action_buffer::ActorId,
@@ -108,7 +108,7 @@ pub struct TfJoin<'a> {
     drop_incomplete: bool,
     stream_size_threshold: usize,
     stream_buffer_size: usize,
-    print_rationals_raw: bool,
+    rationals_print_mode: RationalsPrintMode,
     input_field_ref_offset: FieldRefOffset,
 
     group_track_iter_ref: GroupTrackIterRef,
@@ -216,8 +216,8 @@ pub fn build_tf_join<'a>(
         jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
     let stream_size_threshold =
         jd.get_setting_from_tf_state::<SettingStreamSizeThreshold>(tf_state);
-    let print_rationals_raw =
-        jd.get_setting_from_tf_state::<SettingPrintRationalsRaw>(tf_state);
+    let rationals_print_mode =
+        jd.get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state);
     let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
     TransformData::Join(TfJoin {
         separator: op.separator.as_ref().map(|s| s.as_ref()),
@@ -225,7 +225,7 @@ pub fn build_tf_join<'a>(
         drop_incomplete: op.drop_incomplete,
         stream_size_threshold,
         stream_buffer_size,
-        print_rationals_raw,
+        rationals_print_mode,
         input_field_ref_offset,
         group_track_iter_ref: jd
             .group_track_manager
@@ -691,7 +691,7 @@ pub fn handle_tf_join<'a>(
                         true,
                         true,
                         join.input_field_ref_offset,
-                        true, // TODO: configurable
+                        join.rationals_print_mode,
                     );
             }
             last_group_end = iter.get_next_field_pos();
@@ -785,7 +785,7 @@ pub fn handle_tf_join<'a>(
             FieldValueSlice::REP(v) => {
                 let mut fc = FormattingContext {
                     ss: &mut string_store,
-                    print_rationals_raw: join.print_rationals_raw,
+                    rationals_print_mode: join.rationals_print_mode,
                     fm: &jd.field_mgr,
                     msm: &jd.match_set_mgr,
                     is_stream_value: false,

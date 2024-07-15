@@ -6,6 +6,7 @@ use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
 use crate::{
     cli::call_expr::Argument,
     operators::errors::OperatorApplicationError,
+    options::chain_settings::RationalsPrintMode,
     record_data::{
         array::Array,
         field_value::{Object, Undefined},
@@ -37,8 +38,6 @@ use super::{
     match_set::MatchSetManager,
     stream_value::{StreamValue, StreamValueDataType},
 };
-
-pub const RATIONAL_DIGITS: u32 = 40; // TODO: make this configurable
 
 // format string grammar:
 #[rustfmt::skip]
@@ -168,7 +167,7 @@ pub struct FormattingContext<'a, 'b> {
     pub ss: &'a mut LazyRwLockGuard<'b, StringStore>,
     pub fm: &'a FieldManager,
     pub msm: &'a MatchSetManager,
-    pub print_rationals_raw: bool,
+    pub rationals_print_mode: RationalsPrintMode,
     pub is_stream_value: bool,
     pub rfk: RealizedFormatKey,
 }
@@ -520,15 +519,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for BigRational {
         w: &mut W,
     ) -> std::io::Result<()> {
         // TODO: we dont support zero pad etc. for now
-        if fc.print_rationals_raw {
-            w.write_text_fmt(format_args!("{}", self))
-        } else {
-            format_rational_as_decimals_raw(
-                &mut TextWriteIoAdapter(w),
-                self,
-                RATIONAL_DIGITS,
-            )
-        }
+        format_rational(w, self, fc.rationals_print_mode)
     }
 }
 impl Formattable<'_, '_> for BigInt {
@@ -1004,6 +995,33 @@ impl<'a, 'b> FormattingContext<'a, 'b> {
         self.rfk.opts.type_repr = tr;
         self.is_stream_value = sv;
         res
+    }
+}
+
+pub fn format_rational(
+    w: &mut impl TextWrite,
+    v: &BigRational,
+    mode: RationalsPrintMode,
+) -> std::io::Result<()> {
+    match mode {
+        RationalsPrintMode::Cutoff(decimals) => {
+            format_rational_as_decimals_raw(w, v, decimals)
+        }
+        RationalsPrintMode::Raw => w.write_text_fmt(format_args!("{}", v)),
+        RationalsPrintMode::Dynamic => {
+            // rational is printable iff it's reduced denominator
+            // only contains the prime factors two and five
+            // PERF: :(
+
+            let (_, mut denom) = v.reduced().into_raw();
+            denom %= 5;
+            denom %= 2;
+            if denom.is_one() {
+                format_rational_as_decimals_raw(w, v, u32::MAX)
+            } else {
+                w.write_text_fmt(format_args!("{}", v))
+            }
+        }
     }
 }
 
