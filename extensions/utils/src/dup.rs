@@ -7,7 +7,6 @@ use scr_core::{
         OperatorCallEffect,
     },
     operators::{
-        errors::OperatorCreationError,
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
@@ -21,6 +20,7 @@ use scr_core::{
         action_buffer::ActorId, field_action::FieldActionKind,
         group_track::GroupTrackIterRef, iter_hall::IterKind,
     },
+    scr_error::ScrError,
     smallbox,
 };
 
@@ -172,16 +172,12 @@ pub fn create_op_dup(count: usize) -> OperatorData {
     OperatorData::Custom(smallbox!(OpDup { count }))
 }
 
-pub fn parse_op_dup(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn parse_op_dup(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     let count = expr.require_at_most_one_number_arg(false)?.unwrap_or(2);
     Ok(create_op_dup(count))
 }
 
-pub fn parse_op_drop(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn parse_op_drop(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     expr.reject_args()?;
     Ok(create_op_dup(0))
 }

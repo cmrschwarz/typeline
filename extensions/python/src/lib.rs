@@ -2,8 +2,9 @@ use py::build_op_py;
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    operators::operator::OperatorData,
     options::session_setup::SessionSetupData,
+    scr_error::ScrError,
 };
 
 pub mod py;
@@ -19,7 +20,7 @@ impl Extension for PythonExtension {
         &self,
         _ctx_opts: &mut SessionSetupData,
         arg: &mut Argument,
-    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+    ) -> Result<Option<OperatorData>, ScrError> {
         let expr = CallExpr::from_argument(arg)?;
         if expr.op_name == "py" {
             let val = expr.require_single_string_arg()?;

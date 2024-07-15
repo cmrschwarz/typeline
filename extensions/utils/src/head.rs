@@ -7,7 +7,6 @@ use scr_core::{
         OperatorCallEffect, VarId, DYN_VAR_ID,
     },
     operators::{
-        errors::OperatorCreationError,
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
@@ -18,6 +17,7 @@ use scr_core::{
         },
     },
     record_data::{action_buffer::ActorId, field_action::FieldActionKind},
+    scr_error::ScrError,
     smallbox,
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
@@ -205,9 +205,7 @@ pub fn create_op_head(count: isize) -> OperatorData {
     }))
 }
 
-pub fn parse_op_head(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn parse_op_head(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     let count = expr.require_at_most_one_number_arg(false)?.unwrap_or(1);
     Ok(create_op_head(count))
 }

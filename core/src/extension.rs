@@ -1,10 +1,9 @@
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use crate::{
-    cli::call_expr::Argument,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    cli::call_expr::Argument, operators::operator::OperatorData,
     options::session_setup::SessionSetupData,
-    record_data::field_value::FieldValue,
+    record_data::field_value::FieldValue, scr_error::ScrError,
     tyson::TysonParseError,
 };
 
@@ -26,8 +25,7 @@ impl ExtensionRegistry {
                 &self,
                 _sess_opts: &mut SessionSetupData,
                 _arg: &mut Argument,
-            ) -> Result<Option<OperatorData>, OperatorCreationError>
-            {
+            ) -> Result<Option<OperatorData>, ScrError> {
                 Ok(None)
             }
 
@@ -52,7 +50,7 @@ pub trait Extension: Send + Sync {
         &self,
         sess_opts: &mut SessionSetupData,
         arg: &mut Argument,
-    ) -> Result<Option<OperatorData>, OperatorCreationError>;
+    ) -> Result<Option<OperatorData>, ScrError>;
 }
 
 pub fn build_empty_extension_registry() -> Arc<ExtensionRegistry> {

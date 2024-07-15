@@ -11,7 +11,6 @@ use scr_core::{
         OperatorCallEffect,
     },
     operators::{
-        errors::OperatorCreationError,
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
@@ -37,6 +36,7 @@ use scr_core::{
         ref_iter::RefAwareFieldValueRangeIter,
         varying_type_inserter::VaryingTypeInserter,
     },
+    scr_error::ScrError,
     smallbox,
     utils::{lazy_lock_guard::LazyRwLockGuard, string_store::StringStore},
 };
@@ -54,9 +54,7 @@ pub struct TfFlatten {
     input_field_ref_offset: FieldRefOffset,
 }
 
-pub fn parse_op_flatten(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn parse_op_flatten(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     expr.reject_args()?;
     Ok(create_op_flatten())
 }

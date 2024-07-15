@@ -11,7 +11,6 @@ use scr_core::{
         OperatorCallEffect,
     },
     operators::{
-        errors::OperatorCreationError,
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
@@ -33,6 +32,7 @@ use scr_core::{
         scope_manager::ScopeManager,
         varying_type_inserter::VaryingTypeInserter,
     },
+    scr_error::ScrError,
     smallbox,
     utils::{
         stable_vec::StableVec, string_store::StringStoreEntry,
@@ -67,9 +67,7 @@ pub struct TfExplode {
 // always cleared between method calls
 unsafe impl Send for TfExplode {}
 
-pub fn parse_op_explode(
-    expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+pub fn parse_op_explode(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     expr.reject_args()?;
     Ok(create_op_explode())
 }

@@ -3,6 +3,7 @@
 use crate::primes::create_op_primes;
 use collect::create_op_collect;
 use dup::{parse_op_drop, parse_op_dup};
+use exec::parse_op_exec;
 use explode::parse_op_explode;
 use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
@@ -10,8 +11,9 @@ use head::parse_op_head;
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    operators::operator::OperatorData,
     options::session_setup::SessionSetupData,
+    scr_error::ScrError,
 };
 use string_utils::{
     create_op_chars, create_op_lines, create_op_to_tyson, create_op_trim,
@@ -44,10 +46,11 @@ impl Extension for UtilsExtension {
         &self,
         _ctx_opts: &mut SessionSetupData,
         arg: &mut Argument,
-    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+    ) -> Result<Option<OperatorData>, ScrError> {
         let expr = CallExpr::from_argument_mut(arg)?;
         let ctor_with_arg: Option<fn(_) -> _> = match expr.op_name {
             "head" => Some(parse_op_head),
+            "exec" => Some(parse_op_exec),
             "tail" => Some(parse_op_tail),
             "dup" => Some(parse_op_dup),
             "drop" => Some(parse_op_drop),

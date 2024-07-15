@@ -1,8 +1,7 @@
 use scr_core::{
-    cli::call_expr::Argument,
-    extension::Extension,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
-    options::session_setup::SessionSetupData,
+    cli::call_expr::Argument, extension::Extension,
+    operators::operator::OperatorData,
+    options::session_setup::SessionSetupData, scr_error::ScrError,
 };
 
 #[derive(Default)]
@@ -16,7 +15,7 @@ impl Extension for SqliteExtension {
         &self,
         _ctx_opts: &mut SessionSetupData,
         _arg: &mut Argument,
-    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+    ) -> Result<Option<OperatorData>, ScrError> {
         Ok(None)
     }
 }

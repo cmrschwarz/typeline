@@ -807,23 +807,27 @@ fn append_exec_arg(
     Ok(())
 }
 
-pub fn parse_op_exec(
-    expr: &CallExpr,
-) -> Result<OperatorData, CliArgumentError> {
+pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     let mut parts = Vec::new();
     let mut refs = Vec::new();
     let mut fmt_arg_part_ends = Vec::new();
     for arg in expr.parsed_args_iter() {
         match arg.value {
             ParsedArgValue::Flag(flag) => {
-                return Err(expr.error_flag_unsupported(flag, arg.span));
+                return Err(expr
+                    .error_flag_unsupported(flag, arg.span)
+                    .into());
             }
             ParsedArgValue::NamedArg { key, .. } => {
-                return Err(expr.error_named_args_unsupported(key, arg.span));
+                return Err(expr
+                    .error_named_args_unsupported(key, arg.span)
+                    .into());
             }
             ParsedArgValue::PositionalArg { idx, value, .. } => {
                 let Some(value) = value.text_or_bytes() else {
-                    return Err(expr.error_list_arg_unsupported(arg.span));
+                    return Err(expr
+                        .error_list_arg_unsupported(arg.span)
+                        .into());
                 };
                 append_exec_arg(
                     idx,

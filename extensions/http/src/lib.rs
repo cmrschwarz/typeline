@@ -6,8 +6,9 @@ use http::create_op_GET;
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    operators::operator::OperatorData,
     options::session_setup::SessionSetupData,
+    scr_error::ScrError,
 };
 
 #[derive(Default)]
@@ -18,7 +19,7 @@ impl Extension for HttpExtension {
         &self,
         _ctx_opts: &mut SessionSetupData,
         arg: &mut Argument,
-    ) -> Result<Option<OperatorData>, OperatorCreationError> {
+    ) -> Result<Option<OperatorData>, ScrError> {
         let expr = CallExpr::from_argument(arg)?;
         if expr.op_name == "GET" || expr.op_name == "http-get" {
             expr.reject_args()?;
