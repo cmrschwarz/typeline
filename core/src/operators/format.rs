@@ -309,12 +309,10 @@ pub fn build_tf_format<'a>(
                 f.ref_count += 1;
                 id
             } else {
-                let field_id = jd.field_mgr.add_field(
-                    tf_state.match_set_id,
-                    jd.field_mgr.get_first_actor(tf_state.input_field),
-                );
-                jd.scope_mgr.insert_field_name(scope_id, name, field_id);
-                field_id
+                let dummy_field =
+                    jd.match_set_mgr.get_dummy_field(tf_state.match_set_id);
+                jd.scope_mgr.insert_field_name(scope_id, name, dummy_field);
+                dummy_field
             }
         } else {
             let mut f = jd.field_mgr.fields[tf_state.input_field].borrow_mut();
@@ -772,11 +770,31 @@ pub fn build_op_format(
             FormatPart::ByteLiteral(_) => contains_raw_bytes = true,
             FormatPart::TextLiteral(_) => (),
             FormatPart::Key(key) => {
+                debug_assert_eq!(refs.len(), key.ref_idx as usize);
                 refs.push(KeyRefData {
                     ref_type: key.ref_type,
                     name: refs_str[key.ref_idx as usize].take(),
                     name_interned: None,
                 });
+                if let Some(FormatWidthSpec::Ref(min_ref)) = key.min_char_count
+                {
+                    debug_assert_eq!(refs.len(), min_ref as usize);
+                    refs.push(KeyRefData {
+                        ref_type: key.ref_type,
+                        name: refs_str[min_ref as usize].take(),
+                        name_interned: None,
+                    });
+                }
+                if let Some(FormatWidthSpec::Ref(prec_ref)) =
+                    key.float_precision
+                {
+                    debug_assert_eq!(refs.len(), prec_ref as usize);
+                    refs.push(KeyRefData {
+                        ref_type: key.ref_type,
+                        name: refs_str[prec_ref as usize].take(),
+                        name_interned: None,
+                    });
+                }
             }
         }
     }
@@ -892,7 +910,7 @@ pub fn lookup_width_spec(
     fm: &FieldManager,
     msm: &mut MatchSetManager,
     fmt: &mut TfFormat,
-    k: &FormatKey,
+    width_spec: &Option<FormatWidthSpec>,
     batch_size: usize,
     update_iter: bool,
     // fmt, output idx, width, run length
@@ -900,8 +918,7 @@ pub fn lookup_width_spec(
     // fmt, output idx, found field type, run length
     err_func: impl Fn(&mut TfFormat, &mut usize, FieldValueRepr, usize),
 ) {
-    let ident_ref = if let Some(FormatWidthSpec::Ref(ident)) = k.min_char_count
-    {
+    let ident_ref = if let &Some(FormatWidthSpec::Ref(ident)) = width_spec {
         fmt.refs[ident as usize].clone()
     } else {
         return;
@@ -968,15 +985,45 @@ pub fn setup_key_output_state(
         fm,
         msm,
         fmt,
-        k,
+        &k.min_char_count,
         batch_size,
-        true,
+        false,
         |fmt, output_idx, width, run_len| {
             iter_output_states_advanced(
                 &mut fmt.output_states,
                 output_idx,
                 run_len,
                 |os| os.min_char_count = width,
+            )
+        },
+        |fmt, output_idx, kind, run_len| {
+            iter_output_states_advanced(
+                &mut fmt.output_states,
+                output_idx,
+                run_len,
+                |os| {
+                    os.contained_error = Some(FormatError {
+                        error_in_width: true,
+                        part_idx,
+                        kind,
+                    })
+                },
+            )
+        },
+    );
+    lookup_width_spec(
+        fm,
+        msm,
+        fmt,
+        &k.float_precision,
+        batch_size,
+        false,
+        |fmt, output_idx, prec, run_len| {
+            iter_output_states_advanced(
+                &mut fmt.output_states,
+                output_idx,
+                run_len,
+                |os| os.float_precision = prec,
             )
         },
         |fmt, output_idx, kind, run_len| {
@@ -1541,9 +1588,23 @@ fn write_fmt_key(
         fm,
         msm,
         fmt,
-        k,
+        &k.min_char_count,
         batch_size,
-        false,
+        true,
+        |fmt, output_idx, width, run_len| {
+            iter_output_targets(fmt, output_idx, run_len, |ot| {
+                ot.min_char_count = width
+            })
+        },
+        |_fmt, _output_idx, _kind, _run_len| (),
+    );
+    lookup_width_spec(
+        fm,
+        msm,
+        fmt,
+        &k.float_precision,
+        batch_size,
+        true,
         |fmt, output_idx, width, run_len| {
             iter_output_targets(fmt, output_idx, run_len, |ot| {
                 ot.min_char_count = width

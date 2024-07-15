@@ -156,7 +156,7 @@ fn nonexisting_format_width_key() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .push_str("x", 3)
-        .add_op(create_op_format("{:foo$}").unwrap())
+        .add_op(create_op_format("{:foo$.bar$}").unwrap())
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert!(ss.get_data().is_err());
