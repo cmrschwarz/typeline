@@ -5,7 +5,7 @@ use scr::{
     options::session_setup::{ScrSetupOptions, SessionSetupData},
     record_data::record_set::RecordSet,
     scr_error::ScrError,
-    utils::index_vec::IndexSlice,
+    utils::index_slice::IndexSlice,
     DEFAULT_EXTENSION_REGISTRY,
 };
 use std::{process::ExitCode, sync::Arc};

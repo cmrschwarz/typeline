@@ -18,6 +18,7 @@ use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
     context::SessionData,
+    index_newtype,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData},
     options::{
@@ -62,6 +63,9 @@ use crate::{
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         divide_by_char_len,
+        index_slice::IndexSlice,
+        index_vec::IndexVec,
+        indexing_type::IndexingType,
         int_string_conversions::{usize_to_str, USIZE_MAX_DECIMAL_DIGITS},
         io::PointerWriter,
         lazy_lock_guard::LazyRwLockGuard,
@@ -82,7 +86,7 @@ impl FormatWidthSpec {
     pub fn width(&self, target_width: usize) -> usize {
         match self {
             FormatWidthSpec::Value(v) => *v,
-            FormatWidthSpec::Ref(_) => target_width,
+            FormatWidthSpec::Ref { .. } => target_width,
         }
     }
 }
@@ -103,7 +107,6 @@ pub enum FormatKeyRefType {
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FormatKey {
     pub ref_idx: FormatKeyRefId,
-    pub ref_type: FormatKeyRefType,
     pub min_char_count: Option<FormatWidthSpec>,
     pub float_precision: Option<FormatWidthSpec>,
     pub opts: FormatOptions,
@@ -116,20 +119,24 @@ pub enum FormatPart {
     Key(FormatKey),
 }
 
-type FormatKeyRefId = u32;
-type FormatPartIndex = u32;
+index_newtype! {
+    #[derive(derive_more::Add, derive_more::AddAssign, derive_more::Sub)]
+    pub struct FormatKeyRefId(u32);
+    #[derive(derive_more::Add, derive_more::AddAssign, derive_more::Sub)]
+    pub struct FormatPartIndex(u32);
+}
 
-#[derive(Clone)]
-struct KeyRefData {
-    ref_type: FormatKeyRefType,
-    name: Option<String>,
-    name_interned: Option<StringStoreEntry>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormatKeyRefData {
+    pub ref_type: FormatKeyRefType,
+    pub name: Option<String>,
+    pub name_interned: Option<StringStoreEntry>,
 }
 
 #[derive(Clone)]
 pub struct OpFormat {
-    parts: Vec<FormatPart>,
-    refs: Vec<KeyRefData>,
+    parts: IndexVec<FormatPartIndex, FormatPart>,
+    refs: IndexVec<FormatKeyRefId, FormatKeyRefData>,
     contains_raw_bytes: bool,
 }
 
@@ -179,7 +186,7 @@ pub enum FormatKeyRef {
 
 pub struct TfFormat<'a> {
     op: &'a OpFormat,
-    refs: Vec<FormatKeyRef>,
+    refs: IndexVec<FormatKeyRefId, FormatKeyRef>,
     output_states: Vec<OutputState>,
     output_targets: Vec<OutputTarget>,
     stream_value_handles: CountedUniverse<
@@ -209,7 +216,7 @@ impl FormatWidthSpec {
     pub fn realize(&self, lookup_value: usize) -> usize {
         match self {
             FormatWidthSpec::Value(v) => *v,
-            FormatWidthSpec::Ref(_) => lookup_value,
+            FormatWidthSpec::Ref { .. } => lookup_value,
         }
     }
 }
@@ -281,7 +288,7 @@ pub fn build_tf_format<'a>(
     op: &'a OpFormat,
     tf_state: &TransformState,
 ) -> TransformData<'a> {
-    let mut refs = Vec::new();
+    let mut refs = IndexVec::new();
 
     let scope_id =
         jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
@@ -348,6 +355,83 @@ pub fn build_tf_format<'a>(
     TransformData::Format(tf)
 }
 
+pub fn access_format_key_ref(
+    sess: &SessionData,
+    ld: &mut LivenessData,
+    refs: &IndexSlice<FormatKeyRefId, FormatKeyRefData>,
+    id: FormatKeyRefId,
+    op_id: OperatorId,
+    op_offset_after_last_write: OffsetInChain,
+    access_flags: &mut AccessFlags,
+    non_stringified: bool,
+) {
+    if refs[id].ref_type != FormatKeyRefType::Field {
+        return;
+    }
+    let Some(name) = refs[id].name_interned else {
+        access_flags.input_accessed = true;
+        access_flags.non_stringified_input_access = non_stringified;
+        return;
+    };
+    ld.access_var(
+        sess,
+        op_id,
+        ld.var_names[&name],
+        op_offset_after_last_write,
+        non_stringified,
+    );
+}
+
+pub fn access_format_key_refs(
+    fk: &FormatKey,
+    sess: &SessionData,
+    ld: &mut LivenessData,
+    refs: &IndexSlice<FormatKeyRefId, FormatKeyRefData>,
+    op_id: OperatorId,
+    op_offset_after_last_write: OffsetInChain,
+    access_flags: &mut AccessFlags,
+) {
+    let non_stringified = fk.min_char_count.is_some()
+        || fk.opts.add_plus_sign
+        || fk.opts.number_format != NumberFormat::Default
+        || fk.opts.zero_pad_numbers
+        || fk.opts.type_repr != TypeReprFormat::Regular;
+    access_format_key_ref(
+        sess,
+        ld,
+        refs,
+        fk.ref_idx,
+        op_id,
+        op_offset_after_last_write,
+        access_flags,
+        non_stringified,
+    );
+    if let Some(FormatWidthSpec::Ref(id)) = fk.min_char_count {
+        access_format_key_ref(
+            sess,
+            ld,
+            refs,
+            id,
+            op_id,
+            op_offset_after_last_write,
+            access_flags,
+            true,
+        );
+    }
+    if let Some(FormatWidthSpec::Ref(id)) = fk.float_precision {
+        access_format_key_ref(
+            sess,
+            ld,
+            refs,
+            id,
+            op_id,
+            op_offset_after_last_write,
+            access_flags,
+            true,
+        );
+    }
+}
+
 pub fn update_op_format_variable_liveness(
     sess: &SessionData,
     fmt: &OpFormat,
@@ -364,40 +448,15 @@ pub fn update_op_format_variable_liveness(
         match p {
             FormatPart::ByteLiteral(_) | FormatPart::TextLiteral(_) => (),
             FormatPart::Key(fk) => {
-                let non_stringified = fk.min_char_count.is_some()
-                    || fk.opts.add_plus_sign
-                    || fk.opts.number_format != NumberFormat::Default
-                    || fk.opts.zero_pad_numbers
-                    || fk.opts.type_repr != TypeReprFormat::Regular;
-                if let Some(name) = fmt.refs[fk.ref_idx as usize].name_interned
-                {
-                    ld.access_var(
-                        sess,
-                        op_id,
-                        ld.var_names[&name],
-                        op_offset_after_last_write,
-                        non_stringified,
-                    );
-                } else {
-                    access_flags.input_accessed = true;
-                    access_flags.non_stringified_input_access =
-                        non_stringified;
-                }
-                if let Some(FormatWidthSpec::Ref(ws_ref)) = fk.min_char_count {
-                    if let Some(name) = fmt.refs[ws_ref as usize].name_interned
-                    {
-                        ld.access_var(
-                            sess,
-                            op_id,
-                            ld.var_names[&name],
-                            op_offset_after_last_write,
-                            true,
-                        );
-                    } else {
-                        access_flags.input_accessed = true;
-                        access_flags.non_stringified_input_access = true;
-                    }
-                }
+                access_format_key_refs(
+                    fk,
+                    sess,
+                    ld,
+                    &fmt.refs,
+                    op_id,
+                    op_offset_after_last_write,
+                    access_flags,
+                );
             }
         }
     }
@@ -416,7 +475,7 @@ const NO_CLOSING_BRACE_ERR: Cow<'static, str> =
 pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
     fmt: &[u8],
     start: usize,
-    refs: &mut Vec<Option<String>>,
+    refs: &mut IndexVec<FormatKeyRefId, FormatKeyRefData>,
 ) -> Result<(Option<FormatWidthSpec>, usize), (usize, Cow<'static, str>)> {
     let context = if FOR_FLOAT_PREC {
         "format key float precision "
@@ -443,8 +502,12 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
             }
             let val = unsafe { std::str::from_utf8_unchecked(&fmt[start..i]) };
             if c == '$' {
-                let ref_id = refs.len() as FormatKeyRefId;
-                refs.push(Some(val.to_owned()));
+                let ref_id = FormatKeyRefId::from_usize(refs.len());
+                refs.push(FormatKeyRefData {
+                    name: Some(val.to_owned()),
+                    name_interned: None,
+                    ref_type: FormatKeyRefType::Field,
+                });
                 return Ok((Some(FormatWidthSpec::Ref(ref_id)), i + 1));
             }
             let number = val.parse::<usize>().map_err(|e| {
@@ -460,6 +523,18 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
         }
     }
     let mut format_width_ident = SmallString::<[u8; 64]>::new();
+
+    let ref_type = match fmt[i] {
+        b'%' => {
+            i += 1;
+            FormatKeyRefType::Atom
+        }
+        b'@' => {
+            i += 1;
+            FormatKeyRefType::Field
+        }
+        _ => FormatKeyRefType::Field,
+    };
     loop {
         if let Some(mut end) = fmt[i..].find_byteset("${}") {
             end += i;
@@ -477,13 +552,17 @@ pub fn parse_format_width_spec<const FOR_FLOAT_PREC: bool>(
             i = end;
             let c0 = fmt[i] as char;
             if c0 == '$' {
-                let fmt_ref = if format_width_ident.is_empty() {
+                let name = if format_width_ident.is_empty() {
                     None
                 } else {
                     Some(format_width_ident.into_string())
                 };
-                let ref_id = refs.len() as FormatKeyRefId;
-                refs.push(fmt_ref);
+                let ref_id = FormatKeyRefId::from_usize(refs.len());
+                refs.push(FormatKeyRefData {
+                    name,
+                    name_interned: None,
+                    ref_type,
+                });
                 return Ok((Some(FormatWidthSpec::Ref(ref_id)), i + 1));
             }
             let c1 =
@@ -507,7 +586,7 @@ pub fn parse_format_flags(
     fmt: &[u8],
     start: usize,
     key: &mut FormatKey,
-    refs: &mut Vec<Option<String>>,
+    refs: &mut IndexVec<FormatKeyRefId, FormatKeyRefData>,
 ) -> Result<usize, (usize, Cow<'static, str>)> {
     fn next(
         fmt: &[u8],
@@ -658,7 +737,7 @@ pub fn parse_format_flags(
 pub fn parse_format_key(
     fmt: &[u8],
     start: usize,
-    refs: &mut Vec<Option<String>>,
+    refs: &mut IndexVec<FormatKeyRefId, FormatKeyRefData>,
 ) -> Result<(FormatKey, usize), (usize, Cow<'static, str>)> {
     debug_assert!(fmt[start] == b'{');
     let mut i = start + 1;
@@ -666,7 +745,7 @@ pub fn parse_format_key(
     if let Some(mut end) = &fmt[i..].find_byteset("}:") {
         end += i;
         let c0 = fmt[end] as char;
-        key.ref_type = match fmt[i] {
+        let ref_type = match fmt[i] {
             b'%' => {
                 i += 1;
                 FormatKeyRefType::Atom
@@ -677,7 +756,7 @@ pub fn parse_format_key(
             }
             _ => FormatKeyRefType::Field,
         };
-        let ref_val = if end > i {
+        let name = if end > i {
             Some(
                 fmt[i..end]
                     .to_str()
@@ -693,8 +772,12 @@ pub fn parse_format_key(
         } else {
             None
         };
-        refs.push(ref_val);
-        key.ref_idx = refs.len() as FormatKeyRefId - 1;
+        refs.push(FormatKeyRefData {
+            ref_type,
+            name,
+            name_interned: None,
+        });
+        key.ref_idx = refs.next_idx() - FormatKeyRefId::one();
         i = end + 1;
         if c0 == ':' {
             i = parse_format_flags(fmt, i, &mut key, refs)?;
@@ -706,8 +789,8 @@ pub fn parse_format_key(
 
 pub fn parse_format_string(
     fmt: &[u8],
-    refs: &mut Vec<Option<String>>,
-    parts: &mut Vec<FormatPart>,
+    refs: &mut IndexVec<FormatKeyRefId, FormatKeyRefData>,
+    parts: &mut IndexVec<FormatPartIndex, FormatPart>,
 ) -> Result<(), (usize, Cow<'static, str>)> {
     let mut pending_literal = Vec::default();
     let mut i = 0;
@@ -754,50 +837,18 @@ pub fn build_op_format(
     fmt: &[u8],
     span: Span,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let mut refs_str = Vec::new();
-    let mut parts = Vec::new();
-    parse_format_string(fmt, &mut refs_str, &mut parts).map_err(
-        |(i, msg)| OperatorCreationError {
+    let mut refs = IndexVec::new();
+    let mut parts = IndexVec::new();
+    parse_format_string(fmt, &mut refs, &mut parts).map_err(|(i, msg)| {
+        OperatorCreationError {
             message: format!("format string index {i}: {msg}").into(),
             span,
-        },
-    )?;
-    let mut refs = Vec::with_capacity(refs_str.len());
-
-    let mut contains_raw_bytes = false;
-    for part in &parts {
-        match part {
-            FormatPart::ByteLiteral(_) => contains_raw_bytes = true,
-            FormatPart::TextLiteral(_) => (),
-            FormatPart::Key(key) => {
-                debug_assert_eq!(refs.len(), key.ref_idx as usize);
-                refs.push(KeyRefData {
-                    ref_type: key.ref_type,
-                    name: refs_str[key.ref_idx as usize].take(),
-                    name_interned: None,
-                });
-                if let Some(FormatWidthSpec::Ref(min_ref)) = key.min_char_count
-                {
-                    debug_assert_eq!(refs.len(), min_ref as usize);
-                    refs.push(KeyRefData {
-                        ref_type: key.ref_type,
-                        name: refs_str[min_ref as usize].take(),
-                        name_interned: None,
-                    });
-                }
-                if let Some(FormatWidthSpec::Ref(prec_ref)) =
-                    key.float_precision
-                {
-                    debug_assert_eq!(refs.len(), prec_ref as usize);
-                    refs.push(KeyRefData {
-                        ref_type: key.ref_type,
-                        name: refs_str[prec_ref as usize].take(),
-                        name_interned: None,
-                    });
-                }
-            }
         }
-    }
+    })?;
+
+    let contains_raw_bytes = parts
+        .iter()
+        .any(|p| matches!(p, FormatPart::ByteLiteral(_)));
 
     Ok(OperatorData::Format(OpFormat {
         parts,
@@ -918,8 +969,8 @@ pub fn lookup_width_spec(
     // fmt, output idx, found field type, run length
     err_func: impl Fn(&mut TfFormat, &mut usize, FieldValueRepr, usize),
 ) {
-    let ident_ref = if let &Some(FormatWidthSpec::Ref(ident)) = width_spec {
-        fmt.refs[ident as usize].clone()
+    let ident_ref = if let &Some(FormatWidthSpec::Ref(ref_id)) = width_spec {
+        fmt.refs[ref_id].clone()
     } else {
         return;
     };
@@ -1042,7 +1093,7 @@ pub fn setup_key_output_state(
         },
     );
     let field;
-    let ident_ref = fmt.refs[k.ref_idx as usize].clone();
+    let ident_ref = fmt.refs[k.ref_idx].clone();
 
     let mut iter = match &ident_ref {
         FormatKeyRef::Atom(atom) => {
@@ -1425,31 +1476,30 @@ unsafe fn insert_output_target(
 ) -> Option<NonNull<u8>> {
     let os = &mut fmt.output_states[output_idx];
     if let Some(ex) = os.contained_error {
-        let FormatPart::Key(k) = &fmt.op.parts[ex.part_idx as usize] else {
+        let FormatPart::Key(k) = &fmt.op.parts[ex.part_idx] else {
             unreachable!()
         };
         let mut id_str =
             ArrayString::<{ USIZE_MAX_DECIMAL_DIGITS + 1 }>::default();
-        let (key_str, key_quote) = if let Some(name) =
-            fmt.op.refs[k.ref_idx as usize].name_interned
-        {
-            (ss.lookup(name), "'")
-        } else {
-            let key_index = fmt
-                .op
-                .parts
-                .iter()
-                .take(ex.part_idx as usize)
-                .filter(|p| matches!(p, FormatPart::Key(_)))
-                .count()
-                + 1;
-            id_str.push('#');
-            id_str.push_str(&usize_to_str(key_index));
-            (id_str.as_str(), "")
-        };
+        let (key_str, key_quote) =
+            if let Some(name) = fmt.op.refs[k.ref_idx].name_interned {
+                (ss.lookup(name), "'")
+            } else {
+                let key_index = fmt
+                    .op
+                    .parts
+                    .iter()
+                    .take(ex.part_idx.into_usize())
+                    .filter(|p| matches!(p, FormatPart::Key(_)))
+                    .count()
+                    + 1;
+                id_str.push('#');
+                id_str.push_str(&usize_to_str(key_index));
+                (id_str.as_str(), "")
+            };
         let (width_ctx, width_label, width_ctx2) = if ex.error_in_width {
-            if let Some(FormatWidthSpec::Ref(r)) = k.min_char_count {
-                if let Some(name) = fmt.op.refs[r as usize].name_interned {
+            if let Some(FormatWidthSpec::Ref(ref_id)) = k.min_char_count {
+                if let Some(name) = fmt.op.refs[ref_id].name_interned {
                     (" width spec '", ss.lookup(name), "' of")
                 } else {
                     (" width spec of", "", "")
@@ -1613,7 +1663,7 @@ fn write_fmt_key(
         |_fmt, _output_idx, _kind, _run_len| (),
     );
 
-    let ident_ref = fmt.refs[k.ref_idx as usize].clone();
+    let ident_ref = fmt.refs[k.ref_idx].clone();
     let field_pos_start;
     let field;
 
@@ -1901,7 +1951,7 @@ pub fn handle_tf_format(
         contained_error: None,
         incomplete_stream_value_handle: None,
     });
-    for (part_idx, part) in fmt.op.parts.iter().enumerate() {
+    for (part_idx, part) in fmt.op.parts.iter_enumerated() {
         match part {
             FormatPart::ByteLiteral(v) => {
                 fmt.output_states.iter_mut().for_each(|s| {
@@ -1927,7 +1977,7 @@ pub fn handle_tf_format(
                 fmt,
                 batch_size,
                 k,
-                part_idx as FormatPartIndex,
+                part_idx,
             ),
         }
     }
@@ -2001,8 +2051,7 @@ pub fn handle_tf_format_stream_value_update<'a>(
         return;
     }
 
-    let FormatPart::Key(format_key) = &fmt.op.parts[handle.part_idx as usize]
-    else {
+    let FormatPart::Key(format_key) = &fmt.op.parts[handle.part_idx] else {
         unreachable!();
     };
 
@@ -2109,8 +2158,8 @@ pub fn handle_tf_format_stream_value_update<'a>(
         return;
     }
 
-    let mut i = handle.part_idx as usize + 1;
-    while i < fmt.op.parts.len() {
+    let mut i = handle.part_idx + FormatPartIndex::one();
+    while i < fmt.op.parts.next_idx() {
         match &fmt.op.parts[i] {
             FormatPart::ByteLiteral(l) => {
                 inserter.append(StreamValueData::StaticBytes(l));
@@ -2122,7 +2171,7 @@ pub fn handle_tf_format_stream_value_update<'a>(
                 todo!();
             }
         }
-        i += 1;
+        i += FormatPartIndex::one();
     }
     drop(inserter);
 
@@ -2144,17 +2193,20 @@ pub fn handle_tf_format_stream_value_update<'a>(
 mod test {
     use std::borrow::Cow;
 
-    use crate::operators::format::{
-        FormatFillAlignment, FormatFillSpec, FormatKey, FormatOptions,
-        FormatWidthSpec,
+    use crate::{
+        operators::format::{
+            FormatFillAlignment, FormatFillSpec, FormatKey, FormatKeyRefData,
+            FormatKeyRefId, FormatKeyRefType, FormatOptions, FormatWidthSpec,
+        },
+        utils::{index_vec::IndexVec, indexing_type::IndexingType},
     };
 
     use super::{parse_format_string, FormatPart};
 
     #[test]
     fn empty_format_string() {
-        let mut dummy = Vec::new();
-        let mut parts = Vec::new();
+        let mut dummy = IndexVec::new();
+        let mut parts = IndexVec::new();
         parse_format_string(&[], &mut dummy, &mut parts).unwrap();
         assert_eq!(&parts, &[]);
     }
@@ -2172,8 +2224,8 @@ mod test {
             ("foo{{bar", "foo{bar"),
             ("{{foo{{{{bar}}baz}}}}", "{foo{{bar}baz}}"),
         ] {
-            let mut dummy = Vec::new();
-            let mut parts = Vec::new();
+            let mut dummy = IndexVec::new();
+            let mut parts = IndexVec::new();
             parse_format_string(lit.as_bytes(), &mut dummy, &mut parts)
                 .unwrap();
             assert_eq!(&parts, &[FormatPart::TextLiteral(res.to_owned())]);
@@ -2182,16 +2234,16 @@ mod test {
 
     #[test]
     fn two_keys() {
-        let mut idents = Vec::new();
+        let mut idents = IndexVec::new();
         let a = FormatKey {
-            ref_idx: 0,
+            ref_idx: FormatKeyRefId::ZERO,
             ..Default::default()
         };
         let b = FormatKey {
-            ref_idx: 1,
+            ref_idx: FormatKeyRefId::one(),
             ..Default::default()
         };
-        let mut parts = Vec::new();
+        let mut parts = IndexVec::new();
         parse_format_string(
             "foo{{{a}}}__{b}".as_bytes(),
             &mut idents,
@@ -2207,14 +2259,28 @@ mod test {
                 FormatPart::Key(b),
             ]
         );
-        assert_eq!(idents, &[Some("a".to_owned()), Some("b".to_owned())])
+        assert_eq!(
+            idents,
+            [
+                FormatKeyRefData {
+                    ref_type: FormatKeyRefType::Field,
+                    name: Some("a".into()),
+                    name_interned: None
+                },
+                FormatKeyRefData {
+                    ref_type: FormatKeyRefType::Field,
+                    name: Some("b".into()),
+                    name_interned: None
+                },
+            ],
+        )
     }
 
     #[test]
     fn fill_char() {
-        let mut idents = Vec::new();
+        let mut idents = IndexVec::new();
         let a = FormatKey {
-            min_char_count: Some(FormatWidthSpec::Ref(1)),
+            min_char_count: Some(FormatWidthSpec::Ref(FormatKeyRefId::one())),
             opts: FormatOptions {
                 fill: Some(FormatFillSpec::new(
                     Some('~'),
@@ -2224,21 +2290,21 @@ mod test {
             },
             ..Default::default()
         };
-        let mut parts = Vec::new();
+        let mut parts = IndexVec::new();
         parse_format_string(
             "{foo:~^bar$}".as_bytes(),
             &mut idents,
             &mut parts,
         )
         .unwrap();
-        assert_eq!(parts, &[FormatPart::Key(a)]);
+        assert_eq!(&parts, &[FormatPart::Key(a)]);
     }
 
     #[test]
     fn fill_options() {
-        let mut idents = Vec::new();
+        let mut idents = IndexVec::new();
         let a = FormatKey {
-            ref_idx: 0,
+            ref_idx: FormatKeyRefId::ZERO,
             min_char_count: Some(FormatWidthSpec::Value(5)),
             opts: FormatOptions {
                 fill: Some(FormatFillSpec::new(
@@ -2249,33 +2315,54 @@ mod test {
             },
             ..Default::default()
         };
-        let mut parts = Vec::new();
+        let mut parts = IndexVec::new();
         parse_format_string("{a:+<5}".as_bytes(), &mut idents, &mut parts)
             .unwrap();
-        assert_eq!(parts, &[FormatPart::Key(a),]);
-        assert_eq!(idents, &[Some("a".to_owned())])
+        assert_eq!(&parts, &[FormatPart::Key(a),]);
+        assert_eq!(
+            &idents,
+            &[FormatKeyRefData {
+                name: Some("a".to_owned()),
+                ref_type: FormatKeyRefType::Field,
+                name_interned: None
+            }]
+        )
     }
 
     #[test]
     fn float_precision() {
-        let mut idents = Vec::new();
+        let mut idents = IndexVec::new();
         let a = FormatKey {
-            ref_idx: 0,
+            ref_idx: FormatKeyRefId::zero(),
             min_char_count: Some(FormatWidthSpec::Value(3)),
-            float_precision: Some(FormatWidthSpec::Ref(1)),
+            float_precision: Some(FormatWidthSpec::Ref(FormatKeyRefId::one())),
             ..Default::default()
         };
-        let mut parts = Vec::new();
+        let mut parts = IndexVec::new();
         parse_format_string("{a:3.b$}".as_bytes(), &mut idents, &mut parts)
             .unwrap();
         assert_eq!(&parts, &[FormatPart::Key(a)]);
-        assert_eq!(idents, &[Some("a".to_owned()), Some("b".to_owned())])
+        assert_eq!(
+            &idents,
+            &[
+                FormatKeyRefData {
+                    name: Some("a".to_owned()),
+                    name_interned: None,
+                    ref_type: FormatKeyRefType::Field
+                },
+                FormatKeyRefData {
+                    name: Some("b".to_owned()),
+                    name_interned: None,
+                    ref_type: FormatKeyRefType::Field
+                }
+            ]
+        )
     }
 
     #[test]
     fn width_not_an_ident() {
-        let mut idents = Vec::new();
-        let mut parts = Vec::new();
+        let mut idents = IndexVec::new();
+        let mut parts = IndexVec::new();
 
         assert_eq!(
             parse_format_string("{a:1x$}".as_bytes(), &mut idents, &mut parts),
@@ -2290,8 +2377,8 @@ mod test {
 
     #[test]
     fn fill_char_is_optional_not_an_ident() {
-        let mut idents = Vec::new();
-        let mut parts = Vec::new();
+        let mut idents = IndexVec::new();
+        let mut parts = IndexVec::new();
         let a = FormatKey {
             min_char_count: Some(FormatWidthSpec::Value(2)),
             opts: FormatOptions {

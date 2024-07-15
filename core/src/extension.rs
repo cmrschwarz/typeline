@@ -18,6 +18,19 @@ pub struct ExtensionRegistry {
 }
 
 impl ExtensionRegistry {
+    pub fn new(
+        extensions: impl IntoIterator<Item = Box<dyn Extension>>,
+    ) -> Arc<ExtensionRegistry> {
+        let mut exts = ExtensionRegistry::default();
+        for ext in extensions {
+            exts.register(ext);
+        }
+        exts.setup();
+        Arc::new(exts)
+    }
+    pub fn register(&mut self, ext: Box<dyn Extension>) {
+        self.extensions.push(ext);
+    }
     pub fn setup(&mut self) {
         struct DummyExt;
         impl Extension for DummyExt {

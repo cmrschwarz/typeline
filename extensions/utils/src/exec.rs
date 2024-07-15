@@ -15,6 +15,7 @@ use scr_core::{
         CliArgumentError,
     },
     context::SessionData,
+    index_newtype,
     job::{Job, JobData},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
@@ -23,7 +24,8 @@ use scr_core::{
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
         format::{
-            parse_format_string, FormatKey, FormatPart, FormatWidthSpec,
+            access_format_key_refs, parse_format_string, FormatKey,
+            FormatKeyRefData, FormatKeyRefId, FormatPart, FormatPartIndex,
         },
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
@@ -42,7 +44,7 @@ use scr_core::{
         field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
-        formattable::{NumberFormat, RealizedFormatKey, TypeReprFormat},
+        formattable::RealizedFormatKey,
         iter_hall::IterKind,
         iters::{FieldDataRef, FieldIter, UnfoldIterRunLength},
         push_interface::PushInterface,
@@ -60,6 +62,8 @@ use scr_core::{
     scr_error::ScrError,
     smallbox,
     utils::{
+        index_vec::IndexVec,
+        indexing_type::IndexingType,
         int_string_conversions::{f64_to_str, i64_to_str},
         maybe_text::MaybeText,
         string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
@@ -67,12 +71,15 @@ use scr_core::{
     },
 };
 
+index_newtype! {
+    pub struct ExecArgIdx(u32);
+}
+
 #[derive(Clone)]
 pub struct OpExec {
-    fmt_parts: Vec<FormatPart>,
-    refs_str: Vec<Option<String>>,
-    refs_idx: Vec<Option<StringStoreEntry>>,
-    fmt_arg_part_ends: Vec<usize>,
+    fmt_parts: IndexVec<FormatPartIndex, FormatPart>,
+    refs: IndexVec<FormatKeyRefId, FormatKeyRefData>,
+    fmt_arg_part_ends: IndexVec<ExecArgIdx, FormatPartIndex>,
     stderr_field_name: StringStoreEntry,
     exit_code_field_name: StringStoreEntry,
 }
@@ -97,7 +104,7 @@ type RunningCommandIdx = usize;
 
 pub struct TfExec<'a> {
     op: &'a OpExec,
-    iters: Vec<FieldIterRef>,
+    iters: IndexVec<FormatKeyRefId, FieldIterRef>,
     command_args: Vec<CommandArgs>,
     running_command_ids: VecDeque<RunningCommandIdx>,
     running_commands: Universe<RunningCommandIdx, RunningCommand>,
@@ -123,11 +130,11 @@ impl Operator for OpExec {
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
     ) -> Result<OperatorId, ScrError> {
-        for r in std::mem::take(&mut self.refs_str) {
-            self.refs_idx
-                .push(r.map(|r| sess.string_store.intern_moved(r)));
+        for r in &mut self.refs {
+            r.name_interned =
+                r.name.as_ref().map(|n| sess.string_store.intern_cloned(n));
         }
-        self.stderr_field_name = sess.string_store.intern_cloned("stderr");
+        self.stderr_field_name = sess.string_store.intern_static("stderr");
         self.exit_code_field_name =
             sess.string_store.intern_cloned("exit_code");
         Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
@@ -159,40 +166,15 @@ impl Operator for OpExec {
             match p {
                 FormatPart::ByteLiteral(_) | FormatPart::TextLiteral(_) => (),
                 FormatPart::Key(fk) => {
-                    let non_stringified = fk.min_char_count.is_some()
-                        || fk.opts.add_plus_sign
-                        || fk.opts.number_format != NumberFormat::Default
-                        || fk.opts.zero_pad_numbers
-                        || fk.opts.type_repr != TypeReprFormat::Regular;
-                    if let Some(name) = self.refs_idx[fk.ref_idx as usize] {
-                        ld.access_var(
-                            sess,
-                            op_id,
-                            ld.var_names[&name],
-                            op_offset_after_last_write,
-                            non_stringified,
-                        );
-                    } else {
-                        access_flags.input_accessed = true;
-                        access_flags.non_stringified_input_access =
-                            non_stringified;
-                    }
-                    if let Some(FormatWidthSpec::Ref(ws_ref)) =
-                        fk.min_char_count
-                    {
-                        if let Some(name) = self.refs_idx[ws_ref as usize] {
-                            ld.access_var(
-                                sess,
-                                op_id,
-                                ld.var_names[&name],
-                                op_offset_after_last_write,
-                                true,
-                            );
-                        } else {
-                            access_flags.input_accessed = true;
-                            access_flags.non_stringified_input_access = true;
-                        }
-                    }
+                    access_format_key_refs(
+                        fk,
+                        sess,
+                        ld,
+                        &self.refs,
+                        op_id,
+                        op_offset_after_last_write,
+                        access_flags,
+                    );
                 }
             }
         }
@@ -216,13 +198,13 @@ impl Operator for OpExec {
             .borrow()
             .first_actor
             .set(actor_ref);
-        let mut iters = Vec::new();
+        let mut iters = IndexVec::new();
 
         let iter_kind =
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());
         let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
-        for &ref_idx in &self.refs_idx {
-            let field_id = if let Some(name) = ref_idx {
+        for r in &self.refs {
+            let field_id = if let Some(name) = r.name_interned {
                 jd.scope_mgr
                     .lookup_field(ms.active_scope, name)
                     .unwrap_or(ms.dummy_field)
@@ -551,7 +533,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
             &FormatKey::default(),
         );
 
-        let mut part_idx = 0;
+        let mut part_idx = FormatPartIndex::zero();
 
         for (arg_idx, &part_end) in
             self.op.fmt_arg_part_ends.iter().enumerate()
@@ -569,7 +551,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
                         }
                     }
                     FormatPart::Key(fmt_key) => {
-                        let iter_ref = self.iters[fmt_key.ref_idx as usize];
+                        let iter_ref = self.iters[fmt_key.ref_idx];
                         self.push_args_from_field(
                             jd,
                             iter_ref,
@@ -791,9 +773,9 @@ fn append_exec_arg(
     arg_idx: usize,
     value: &[u8],
     span: Span,
-    refs: &mut Vec<Option<String>>,
-    parts: &mut Vec<FormatPart>,
-    fmt_arg_part_ends: &mut Vec<usize>,
+    refs: &mut IndexVec<FormatKeyRefId, FormatKeyRefData>,
+    parts: &mut IndexVec<FormatPartIndex, FormatPart>,
+    fmt_arg_part_ends: &mut IndexVec<ExecArgIdx, FormatPartIndex>,
 ) -> Result<(), CliArgumentError> {
     parse_format_string(value.as_bytes(), refs, parts).map_err(
         |(i, msg)| {
@@ -803,14 +785,14 @@ fn append_exec_arg(
             )
         },
     )?;
-    fmt_arg_part_ends.push(parts.len());
+    fmt_arg_part_ends.push(parts.next_idx());
     Ok(())
 }
 
 pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
-    let mut parts = Vec::new();
-    let mut refs = Vec::new();
-    let mut fmt_arg_part_ends = Vec::new();
+    let mut parts = IndexVec::new();
+    let mut refs = IndexVec::new();
+    let mut fmt_arg_part_ends = IndexVec::new();
     for arg in expr.parsed_args_iter() {
         match arg.value {
             ParsedArgValue::Flag(flag) => {
@@ -843,8 +825,7 @@ pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
 
     Ok(OperatorData::Custom(smallbox!(OpExec {
         fmt_parts: parts,
-        refs_idx: Vec::with_capacity(refs.len()),
-        refs_str: refs,
+        refs,
         fmt_arg_part_ends,
         stderr_field_name: INVALID_STRING_STORE_ENTRY,
         exit_code_field_name: INVALID_STRING_STORE_ENTRY
@@ -854,9 +835,9 @@ pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
 pub fn create_op_exec_from_strings(
     args: Vec<String>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let mut parts = Vec::new();
-    let mut refs = Vec::new();
-    let mut fmt_arg_part_ends = Vec::new();
+    let mut parts = IndexVec::new();
+    let mut refs = IndexVec::new();
+    let mut fmt_arg_part_ends = IndexVec::new();
     for (idx, value) in args.iter().enumerate() {
         append_exec_arg(
             idx,
@@ -870,8 +851,7 @@ pub fn create_op_exec_from_strings(
 
     Ok(OperatorData::Custom(smallbox!(OpExec {
         fmt_parts: parts,
-        refs_idx: Vec::with_capacity(refs.len()),
-        refs_str: refs,
+        refs,
         fmt_arg_part_ends,
         stderr_field_name: INVALID_STRING_STORE_ENTRY,
         exit_code_field_name: INVALID_STRING_STORE_ENTRY

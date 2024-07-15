@@ -36,7 +36,8 @@ use crate::{
     },
     scr_error::ScrError,
     utils::{
-        index_vec::{IndexSlice, IndexVec},
+        index_slice::IndexSlice,
+        index_vec::IndexVec,
         indexing_type::{IndexingType, IndexingTypeRange},
         phantom_slot::PhantomSlot,
         stable_vec::StableVec,

@@ -1,7 +1,9 @@
 use rstest::rstest;
 use scr::{
+    extension::{Extension, ExtensionRegistry},
     operators::sequence::create_op_enum,
-    options::session_setup::ScrSetupOptions, record_data::array::Array,
+    options::session_setup::ScrSetupOptions,
+    record_data::array::Array,
     CliOptionsWithDefaultExtensions,
 };
 use scr_core::{
@@ -18,6 +20,7 @@ use scr_core::{
 use scr_ext_utils::{
     explode::create_op_explode, flatten::create_op_flatten,
     head::create_op_head, primes::create_op_primes, tail::create_op_tail_add,
+    UtilsExtension,
 };
 
 #[test]
@@ -166,5 +169,20 @@ fn flatten_duped_objects() -> Result<(), ScrError> {
         .take(3)
         .collect::<Vec<_>>()
     );
+    Ok(())
+}
+
+#[test]
+fn parse_exec() -> Result<(), ScrError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        ScrSetupOptions::with_extensions(ExtensionRegistry::new([Box::<
+            dyn Extension,
+        >::from(
+            Box::new(UtilsExtension::default()),
+        )])),
+        ["[", "exec", "echo", "foo", "]"],
+    )?
+    .run_collect_stringified()?;
+    assert_eq!(res, ["foo"]);
     Ok(())
 }

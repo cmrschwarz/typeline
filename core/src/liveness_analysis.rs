@@ -687,7 +687,7 @@ impl LivenessData {
         callee_id: BasicBlockId,
     ) -> bool {
         let (bb, callee) = get_two_distinct_mut(
-            self.basic_blocks.slice_mut(),
+            self.basic_blocks.as_slice_mut(),
             bb_id.into_usize(),
             callee_id.into_usize(),
         );

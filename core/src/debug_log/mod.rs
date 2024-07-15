@@ -29,7 +29,7 @@ use crate::{
         match_set::MatchSetId,
     },
     utils::{
-        index_vec::IndexSlice, indexing_type::IndexingType,
+        index_slice::IndexSlice, indexing_type::IndexingType,
         lazy_lock_guard::LazyRwLockGuard, maybe_text::MaybeText,
         string_store::StringStore,
     },

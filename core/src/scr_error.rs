@@ -25,7 +25,7 @@ use crate::{
         },
     },
     record_data::{field_data::FieldValueRepr, field_value::FieldValueKind},
-    utils::{index_vec::IndexSlice, indexing_type::IndexingType},
+    utils::{index_slice::IndexSlice, indexing_type::IndexingType},
 };
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]

@@ -36,8 +36,7 @@ use crate::{
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::{
-        index_vec::{IndexSlice, IndexVec},
-        universe::Universe,
+        index_slice::IndexSlice, index_vec::IndexVec, universe::Universe,
     },
 };
 
