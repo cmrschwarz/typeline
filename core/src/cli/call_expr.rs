@@ -196,6 +196,35 @@ impl Argument {
             )),
         }
     }
+    pub fn expect_simple(
+        &self,
+        op_name: &str,
+    ) -> Result<(), OperatorCreationError> {
+        match &self.value {
+            FieldValue::Argument(arg) => arg.expect_simple(op_name),
+            FieldValue::Undefined
+            | FieldValue::Null
+            | FieldValue::Int(_)
+            | FieldValue::BigInt(_)
+            | FieldValue::Float(_)
+            | FieldValue::BigRational(_)
+            | FieldValue::Text(_)
+            | FieldValue::Bytes(_) => Ok(()),
+            FieldValue::StreamValueId(_)
+            | FieldValue::Array(_)
+            | FieldValue::Object(_)
+            | FieldValue::Error(_)
+            | FieldValue::Custom(_)
+            | FieldValue::FieldReference(_)
+            | FieldValue::SlicedFieldReference(_) => Err(OperatorCreationError::new_s(
+                format!(
+                    "operator `{op_name}` expected a plain argument value, got type `{}`",
+                    self.value.kind()
+                ),
+                self.span,
+            ))
+        }
+    }
     pub fn expect_string(
         &self,
         op_name: &str,
@@ -261,6 +290,25 @@ impl Argument {
         let mut res = MaybeText::new();
         self.value.as_ref().format(&mut fmt, &mut res).unwrap();
         MaybeTextCow::from(res)
+    }
+
+    pub fn stringify_as_text(
+        &self,
+        op_name: &str,
+        sess: &mut SessionSetupData,
+    ) -> Result<Cow<str>, OperatorCreationError> {
+        match self.stringify(sess) {
+            MaybeTextCow::Text(text) => Ok(Cow::Owned(text)),
+            MaybeTextCow::TextRef(text) => Ok(Cow::Borrowed(text)),
+            MaybeTextCow::Bytes(_) | MaybeTextCow::BytesRef(_) => {
+                Err(OperatorCreationError::new_s(
+                    format!(
+                        "argument for operator `{op_name}` must be valid utf-8",
+                    ),
+                    self.span,
+                ))
+            }
+        }
     }
 }
 

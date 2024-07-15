@@ -402,7 +402,7 @@ pub fn parse_regex_opts(
 }
 
 pub fn parse_op_regex(
-    sess: &SessionSetupData,
+    sess: &mut SessionSetupData,
     mut expr: CallExpr,
 ) -> Result<OperatorData, ScrError> {
     expr.split_flags_arg_normalized(&sess.string_store, true);
@@ -414,9 +414,10 @@ pub fn parse_op_regex(
         .map(|f| parse_regex_opts(&expr, f))
         .unwrap_or_else(|| Ok(RegexOptions::default()))?;
 
-    let regex = regex[0].expect_string(expr.op_name)?;
+    regex[0].expect_simple(expr.op_name)?;
+    let regex = regex[0].stringify_as_text(expr.op_name, sess)?;
 
-    build_op_regex(regex, opts, expr.span)
+    build_op_regex(&regex, opts, expr.span)
 }
 
 pub fn create_op_regex_with_opts(
