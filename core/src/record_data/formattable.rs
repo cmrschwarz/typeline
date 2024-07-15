@@ -1,7 +1,12 @@
-use std::borrow::Borrow;
+use std::{
+    borrow::Borrow,
+    ops::{DivAssign, Rem, SubAssign},
+};
 
 use metamatch::metamatch;
-use num::{BigInt, BigRational, FromPrimitive, One, Signed, Zero};
+use num::{
+    BigInt, BigRational, FromPrimitive, One, Signed, ToPrimitive, Zero,
+};
 
 use crate::{
     cli::call_expr::Argument,
@@ -28,7 +33,7 @@ use crate::{
     },
     NULL_STR, UNDEFINED_STR,
 };
-use std::ops::{Add, AddAssign, Div, MulAssign, Rem, Sub};
+use std::ops::{AddAssign, MulAssign, Sub};
 
 use super::{
     custom_data::CustomData,
@@ -1009,17 +1014,29 @@ pub fn format_rational(
         }
         RationalsPrintMode::Raw => w.write_text_fmt(format_args!("{}", v)),
         RationalsPrintMode::Dynamic => {
+            let v = v.reduced();
+            let (_, mut denom) = v.clone().into_raw();
+            let five = BigInt::from_u32(5).unwrap();
+            let two = BigInt::from_u32(2).unwrap();
             // rational is printable iff it's reduced denominator
             // only contains the prime factors two and five
             // PERF: :(
-
-            let (_, mut denom) = v.reduced().into_raw();
-            denom %= 5;
-            denom %= 2;
+            while !denom.is_one()
+                && !denom.is_zero()
+                && denom.clone().rem(&five).is_zero()
+            {
+                denom.div_assign(&five);
+            }
+            while !denom.is_one()
+                && !denom.is_zero()
+                && denom.clone().rem(&two).is_zero()
+            {
+                denom.div_assign(&two);
+            }
             if denom.is_one() {
-                format_rational_as_decimals_raw(w, v, u32::MAX)
+                format_rational_as_decimals_raw(w, &v, u32::MAX)
             } else {
-                w.write_text_fmt(format_args!("{}", v))
+                w.write_text_fmt(format_args!("{}", &v))
             }
         }
     }
@@ -1028,7 +1045,7 @@ pub fn format_rational(
 pub fn format_rational_as_decimals_raw(
     w: &mut impl TextWrite,
     v: &BigRational,
-    decimals: u32,
+    mut decimals: u32,
 ) -> std::io::Result<()> {
     // PERF: this function is stupid
     if v.is_integer() {
@@ -1038,40 +1055,67 @@ pub fn format_rational_as_decimals_raw(
     let negative = v.is_negative();
     let mut whole_number = v.to_integer();
     let mut v = v.sub(&whole_number).abs();
-    let one_half =
-        BigRational::new(BigInt::one(), BigInt::from_u8(2).unwrap());
+    let one = BigInt::one();
+    let one_half = BigRational::new(one.clone(), BigInt::from_u8(2).unwrap());
     if decimals == 0 {
         if v >= one_half {
-            whole_number.add_assign(if negative {
-                -BigInt::one()
-            } else {
-                BigInt::one()
-            });
+            whole_number.add_assign(if negative { -one } else { one });
         }
         w.write_text_fmt(format_args!("{whole_number}"))?;
         return Ok(());
     }
     w.write_text_fmt(format_args!("{}.", &whole_number))?;
 
-    v.mul_assign(BigInt::from_u64(10).unwrap().pow(decimals));
-    let mut decimal_part = v.to_integer();
-    v = v.sub(&decimal_part).abs();
-    if v >= one_half {
-        decimal_part.add_assign(BigInt::one());
-    }
-    if !v.is_zero() {
-        w.write_text_fmt(format_args!("{}", &decimal_part))?;
-        return Ok(());
-    }
-    let ten = BigInt::from_u8(10).unwrap();
     // PERF: really bad
-    loop {
-        let rem = decimal_part.clone().rem(&ten);
-        if !rem.is_zero() {
-            break;
-        }
-        decimal_part = decimal_part.div(&ten).add(rem);
+    let ten = BigInt::from_u64(10).unwrap();
+    while decimals > 1 && !v.is_zero() {
+        v.mul_assign(&ten);
+        let int_part = v.to_integer();
+        w.write_text_fmt(format_args!("{}", v.to_u8().unwrap()))?;
+        v.sub_assign(int_part);
+        decimals -= 1;
     }
-    w.write_text_fmt(format_args!("{}", &decimal_part))?;
+
+    if !v.is_zero() {
+        let round_up = v > one_half;
+        v.mul_assign(&ten);
+        if round_up {
+            v.add_assign(&one);
+        }
+        let int_part = v.to_u8().unwrap();
+        w.write_text_fmt(format_args!("{int_part}"))?;
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use num::{BigInt, BigRational};
+    use rstest::rstest;
+
+    use crate::options::chain_settings::RationalsPrintMode;
+
+    use super::format_rational;
+
+    #[rstest]
+    #[case(1, 3, "1/3")]
+    #[case(1, 2, "0.5")]
+    #[case(1, 7, "1/7")]
+    #[case(1, 42, "1/42")]
+    #[case(1234, 1000, "1.234")]
+    #[case(1234, -1000, "-1.234")]
+    fn print_dynamic_fraction(
+        #[case] num: i64,
+        #[case] denom: i64,
+        #[case] output: &str,
+    ) {
+        let mut res = String::new();
+        format_rational(
+            &mut res,
+            &BigRational::new(BigInt::from(num), BigInt::from(denom)),
+            RationalsPrintMode::Dynamic,
+        )
+        .unwrap();
+        assert_eq!(res, output)
+    }
 }
