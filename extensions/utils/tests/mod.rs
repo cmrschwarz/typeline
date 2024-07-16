@@ -5,6 +5,8 @@ use rstest::rstest;
 use scr::{
     extension::{Extension, ExtensionRegistry},
     operators::{
+        foreach::create_op_foreach,
+        join::create_op_join,
         print::{create_op_print_with_opts, PrintOptions},
         sequence::{create_op_enum, create_op_seq},
     },
@@ -27,7 +29,8 @@ use scr_core::{
 use scr_ext_utils::{
     exec::create_op_exec_from_strings, explode::create_op_explode,
     flatten::create_op_flatten, head::create_op_head,
-    primes::create_op_primes, tail::create_op_tail_add, UtilsExtension,
+    primes::create_op_primes, string_utils::create_op_lines,
+    tail::create_op_tail_add, UtilsExtension,
 };
 
 static EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> = Lazy::new(|| {
@@ -220,5 +223,26 @@ fn run_multi_exec() -> Result<(), ScrError> {
         ))
         .run()?;
     assert_eq!(&**target.get(), "a\n\na\n\na\n\n");
+    Ok(())
+}
+
+#[test]
+fn run_exec_into_join() -> Result<(), ScrError> {
+    let target = DummyWritableTarget::new();
+
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_foreach([
+            create_op_exec_from_strings(["sh", "-c", "yes | head -n 70"])
+                .unwrap(),
+            create_op_lines(),
+            create_op_join(None, None, false),
+        ]))
+        .run_collect_stringified()?;
+    assert_eq!(&res, &[
+        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+    ]);
     Ok(())
 }

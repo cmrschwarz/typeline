@@ -91,7 +91,8 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             .data
             .len()
             .max(std::mem::size_of::<FieldValue>() * 4);
-        let reasonable_elem_count = curr_data_size / fmt.size as usize;
+        let reasonable_elem_count =
+            (curr_data_size / fmt.size as usize).max(1);
         unsafe { self.drop_and_reserve_unchecked(reasonable_elem_count, fmt) }
     }
     pub fn drop_and_reserve_reasonable(&mut self, fmt: FieldValueFormat) {
