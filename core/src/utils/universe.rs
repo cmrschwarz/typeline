@@ -226,6 +226,12 @@ impl<I: IndexingType, T> Universe<I, T> {
         let (a, b, c) = self.get_three_distinct_mut(id1, id2, id3);
         (a.unwrap(), b.unwrap(), c.unwrap())
     }
+    pub fn capacity(&self) -> usize {
+        self.data.capacity()
+    }
+    pub fn next_index_phys(&self) -> I {
+        I::from_usize(self.data.len())
+    }
 }
 
 impl<'a, I: IndexingType, T> UniverseMultiRefMutHandout<'a, I, T> {
@@ -480,6 +486,9 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
     }
     pub fn occupied_entry_count(&self) -> usize {
         self.occupied_entries
+    }
+    pub fn next_index_phys(&self) -> I {
+        self.universe.next_index_phys()
     }
 }
 

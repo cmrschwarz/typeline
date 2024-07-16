@@ -1,8 +1,7 @@
 use std::{
-    collections::VecDeque,
     ffi::{OsStr, OsString},
     io::{Read, Write},
-    process::{Child, Command},
+    process::{Child, Command, Stdio},
     sync::Arc,
 };
 
@@ -36,7 +35,10 @@ use scr_core::{
             TransformState,
         },
     },
-    options::session_setup::SessionSetupData,
+    options::{
+        chain_settings::SettingStreamBufferSize,
+        session_setup::SessionSetupData,
+    },
     record_data::{
         action_buffer::ActorRef,
         field::{FieldId, FieldIterRef},
@@ -67,7 +69,7 @@ use scr_core::{
         int_string_conversions::{f64_to_str, i64_to_str},
         maybe_text::MaybeText,
         string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
-        universe::Universe,
+        universe::{CountedUniverse, Universe},
     },
 };
 
@@ -86,8 +88,8 @@ pub struct OpExec {
 
 struct CommandArgs {
     stdin_sv: Option<StreamValueId>,
-    args: Vec<OsString>,
     stdin_data: Vec<u8>,
+    args: Vec<OsString>,
     error: Option<OperatorApplicationError>,
 }
 
@@ -106,11 +108,11 @@ pub struct TfExec<'a> {
     op: &'a OpExec,
     iters: IndexVec<FormatKeyRefId, FieldIterRef>,
     command_args: Vec<CommandArgs>,
-    running_command_ids: VecDeque<RunningCommandIdx>,
-    running_commands: Universe<RunningCommandIdx, RunningCommand>,
+    running_commands: CountedUniverse<RunningCommandIdx, RunningCommand>,
     stderr_field: FieldId,
     exit_code_field: FieldId,
     input_iter: FieldIterRef,
+    stream_buffer_size: usize,
 }
 
 impl Operator for OpExec {
@@ -233,21 +235,24 @@ impl Operator for OpExec {
             exit_code_field,
         );
 
+        let stream_buffer_size = jd
+            .get_scope_setting_or_default::<SettingStreamBufferSize>(scope_id);
+
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfExec {
                 op: self,
                 iters,
                 stderr_field,
                 command_args: Vec::new(),
-                running_command_ids: VecDeque::new(),
-                running_commands: Universe::default(),
+                running_commands: CountedUniverse::default(),
                 input_iter: FieldIterRef {
                     iter_id: jd
                         .field_mgr
                         .claim_iter_non_cow(tf_state.input_field, iter_kind),
                     field_id: tf_state.input_field
                 },
-                exit_code_field
+                exit_code_field,
+                stream_buffer_size
             }
         )))
     }
@@ -485,12 +490,7 @@ impl<'a> TfExec<'a> {
         let mut iter =
             AutoDerefIter::new(&jd.field_mgr, iter_ref.field_id, iter);
         self.add_iter_to_command_arg(
-            op_id,
-            jd,
-            0,
-            arg_idx + 1,
-            fmt_key,
-            &mut iter,
+            op_id, jd, 0, arg_idx, fmt_key, &mut iter,
         );
         jd.field_mgr.store_iter(
             iter_ref.field_id,
@@ -525,6 +525,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
             self.command_args.push(command_args);
         }
 
+        #[cfg(any())] // TODO: make input optional
         self.push_args_from_field(
             jd,
             self.input_iter,
@@ -588,7 +589,13 @@ impl<'a> Transform<'a> for TfExec<'a> {
                 continue;
             }
             let ca = &mut self.command_args[cmd_idx];
-            match Command::new(&ca.args[1]).args(&ca.args[2..]).spawn() {
+            match Command::new(&ca.args[0])
+                .args(&ca.args[1..])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+            {
                 Ok(proc) => {
                     let stdout_stream =
                         jd.sv_mgr.claim_stream_value(StreamValue::new_empty(
@@ -607,25 +614,22 @@ impl<'a> Transform<'a> for TfExec<'a> {
                             )),
                             StreamValueBufferMode::Stream,
                         ));
-                    let cmd_id = self.running_commands.claim_with_value(
-                        RunningCommand {
-                            proc,
-                            stdout_sv_id: stdout_stream,
-                            stderr_sv_id: stderr_stream,
-                            exit_code_sv_id: exit_code_stream,
-                            stdin_data: std::mem::take(&mut ca.stdin_data),
-                            stdin_offset: 0,
-                        },
-                    );
+                    self.running_commands.claim_with_value(RunningCommand {
+                        proc,
+                        stdout_sv_id: stdout_stream,
+                        stderr_sv_id: stderr_stream,
+                        exit_code_sv_id: exit_code_stream,
+                        stdin_data: std::mem::take(&mut ca.stdin_data),
+                        stdin_offset: 0,
+                    });
 
-                    self.running_command_ids.push_back(cmd_id);
-                    stderr_inserter.push_stream_value_id(
+                    stdout_inserter.push_stream_value_id(
                         stdout_stream,
                         1,
                         true,
                         false,
                     );
-                    stdout_inserter.push_stream_value_id(
+                    stderr_inserter.push_stream_value_id(
                         stderr_stream,
                         1,
                         true,
@@ -639,8 +643,14 @@ impl<'a> Transform<'a> for TfExec<'a> {
                     );
                 }
                 Err(e) => {
-                    let e =
-                        OperatorApplicationError::new_s(e.to_string(), op_id);
+                    let e = OperatorApplicationError::new_s(
+                        format!(
+                            "failed to execute `{}`: {}",
+                            ca.args[0].to_string_lossy(),
+                            e,
+                        ),
+                        op_id,
+                    );
                     stderr_inserter.push_error(e.clone(), 1, true, false);
                     stdout_inserter.push_error(e.clone(), 1, true, false);
                     exit_code_inserter.push_error(e, 1, true, false);
@@ -648,6 +658,12 @@ impl<'a> Transform<'a> for TfExec<'a> {
             }
         }
         jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+
+        self.command_args.clear();
+
+        if !self.running_commands.is_empty() {
+            jd.tf_mgr.make_stream_producer(tf_id);
+        }
     }
 
     fn stream_producer_update(
@@ -657,8 +673,11 @@ impl<'a> Transform<'a> for TfExec<'a> {
     ) {
         let batch_size = 1024; // TODO: configure properly
         let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
-        for &cmd_id in &self.running_command_ids {
-            let cmd = &mut self.running_commands[cmd_id];
+        for cmd_id in self.running_commands.next_index_phys().range_from_zero()
+        {
+            let Some(cmd) = &mut self.running_commands.get_mut(cmd_id) else {
+                continue;
+            };
             let (stdout_sv, stderr_sv, exit_code_sv) =
                 jd.sv_mgr.stream_values.three_distinct_mut(
                     cmd.stdout_sv_id,
@@ -669,7 +688,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
             let mut stdout_inserter =
                 stdout_sv.data_inserter(cmd.stdout_sv_id, batch_size, true);
             let mut stderr_inserter =
-                stderr_sv.data_inserter(cmd.stdout_sv_id, batch_size, true);
+                stderr_sv.data_inserter(cmd.stderr_sv_id, batch_size, true);
             let mut exit_code_inserter = exit_code_sv.data_inserter(
                 cmd.exit_code_sv_id,
                 batch_size,
@@ -678,6 +697,8 @@ impl<'a> Transform<'a> for TfExec<'a> {
 
             let mut res = Ok(None);
 
+            let mut any_stream_running = false;
+
             if let Some(stdin) = &mut cmd.proc.stdin {
                 if cmd.stdin_data.len() > cmd.stdin_offset {
                     match stdin.write(&cmd.stdin_data[cmd.stdin_offset..]) {
@@ -685,6 +706,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
                             cmd.proc.stdin.take();
                         }
                         Ok(n) => {
+                            any_stream_running = true;
                             cmd.stdin_offset += n;
                         }
                         Err(e) => {
@@ -695,25 +717,44 @@ impl<'a> Transform<'a> for TfExec<'a> {
             }
             if res.is_ok() {
                 if let Some(stdout) = &mut cmd.proc.stdout {
-                    res = match stdout_inserter
-                        .with_bytes_buffer(|buf| stdout.read(buf))
-                    {
-                        Ok(0) => cmd.proc.try_wait(),
-                        Ok(_n) => Ok(None),
+                    res = match stdout_inserter.with_bytes_buffer(|buf| {
+                        stdout
+                            .take(self.stream_buffer_size as u64)
+                            .read_to_end(buf)
+                    }) {
+                        Ok(0) => {
+                            cmd.proc.stdout.take();
+                            Ok(None)
+                        }
+                        Ok(_n) => {
+                            any_stream_running = true;
+                            Ok(None)
+                        }
                         Err(e) => Err(e),
                     }
                 }
             }
             if res.is_ok() {
                 if let Some(stderr) = &mut cmd.proc.stderr {
-                    res = match stderr_inserter
-                        .with_bytes_buffer(|buf| stderr.read(buf))
-                    {
-                        Ok(0) => cmd.proc.try_wait(),
-                        Ok(_n) => Ok(None),
+                    res = match stderr_inserter.with_bytes_buffer(|buf| {
+                        stderr
+                            .take(self.stream_buffer_size as u64)
+                            .read_to_end(buf)
+                    }) {
+                        Ok(0) => {
+                            cmd.proc.stderr.take();
+                            Ok(None)
+                        }
+                        Ok(_n) => {
+                            any_stream_running = true;
+                            Ok(None)
+                        }
                         Err(e) => Err(e),
                     }
                 }
+            }
+            if !any_stream_running && res.is_ok() {
+                res = cmd.proc.try_wait();
             }
             let mut res = res.map_err(|e| {
                 OperatorApplicationError::new_s(
@@ -748,13 +789,15 @@ impl<'a> Transform<'a> for TfExec<'a> {
             {
                 jd.sv_mgr.inform_stream_value_subscribers(sv_id);
                 if done {
-                    jd.sv_mgr
-                        .drop_field_value_subscription(sv_id, Some(tf_id));
+                    jd.sv_mgr.drop_field_value_subscription(sv_id, None);
                 }
             }
             if done {
                 self.running_commands.release(cmd_id);
             }
+        }
+        if !self.running_commands.is_empty() {
+            jd.tf_mgr.make_stream_producer(tf_id);
         }
     }
 

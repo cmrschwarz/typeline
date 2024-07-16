@@ -183,6 +183,6 @@ fn parse_exec() -> Result<(), ScrError> {
         ["[", "exec", "echo", "foo", "]"],
     )?
     .run_collect_stringified()?;
-    assert_eq!(res, ["foo"]);
+    assert_eq!(res, ["foo\n"]);
     Ok(())
 }

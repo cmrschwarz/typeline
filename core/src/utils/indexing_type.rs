@@ -25,6 +25,15 @@ pub trait IndexingType:
     fn one() -> Self {
         <Self as IndexingType>::from_usize(1)
     }
+    fn range_to(&self, end: Self) -> IndexingTypeRange<Self> {
+        IndexingTypeRange::new(*self..end)
+    }
+    fn range_from(&self, start: Self) -> IndexingTypeRange<Self> {
+        IndexingTypeRange::new(start..*self)
+    }
+    fn range_from_zero(&self) -> IndexingTypeRange<Self> {
+        self.range_from(Self::zero())
+    }
 }
 
 pub struct IndexingTypeRange<I> {
@@ -168,9 +177,6 @@ macro_rules! index_newtype {
         impl $name {
             pub const fn new(v: $base_type) -> Self {
                 $name(v)
-            }
-            pub fn index_range_to(&self, end: $name) -> $crate::utils::indexing_type::IndexingTypeRange<$name> {
-                $crate::utils::indexing_type::IndexingTypeRange::new(*self..end)
             }
         }
 
