@@ -69,12 +69,18 @@ use scr_core::{
         int_string_conversions::{f64_to_str, i64_to_str},
         maybe_text::MaybeText,
         string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
-        universe::{CountedUniverse, Universe},
+        universe::CountedUniverse,
     },
 };
 
 index_newtype! {
     pub struct ExecArgIdx(u32);
+}
+
+#[derive(Default, Clone)]
+pub struct OpExecOpts {
+    propagate_input: bool,
+    // TODO: more stuff
 }
 
 #[derive(Clone)]
@@ -84,6 +90,7 @@ pub struct OpExec {
     fmt_arg_part_ends: IndexVec<ExecArgIdx, FormatPartIndex>,
     stderr_field_name: StringStoreEntry,
     exit_code_field_name: StringStoreEntry,
+    opts: OpExecOpts,
 }
 
 struct CommandArgs {
@@ -111,7 +118,7 @@ pub struct TfExec<'a> {
     running_commands: CountedUniverse<RunningCommandIdx, RunningCommand>,
     stderr_field: FieldId,
     exit_code_field: FieldId,
-    input_iter: FieldIterRef,
+    input_iter: Option<FieldIterRef>,
     stream_buffer_size: usize,
 }
 
@@ -238,6 +245,17 @@ impl Operator for OpExec {
         let stream_buffer_size = jd
             .get_scope_setting_or_default::<SettingStreamBufferSize>(scope_id);
 
+        let input_iter = if self.opts.propagate_input {
+            Some(FieldIterRef {
+                iter_id: jd
+                    .field_mgr
+                    .claim_iter_non_cow(tf_state.input_field, iter_kind),
+                field_id: tf_state.input_field,
+            })
+        } else {
+            None
+        };
+
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfExec {
                 op: self,
@@ -245,12 +263,7 @@ impl Operator for OpExec {
                 stderr_field,
                 command_args: Vec::new(),
                 running_commands: CountedUniverse::default(),
-                input_iter: FieldIterRef {
-                    iter_id: jd
-                        .field_mgr
-                        .claim_iter_non_cow(tf_state.input_field, iter_kind),
-                    field_id: tf_state.input_field
-                },
+                input_iter,
                 exit_code_field,
                 stream_buffer_size
             }
@@ -525,14 +538,15 @@ impl<'a> Transform<'a> for TfExec<'a> {
             self.command_args.push(command_args);
         }
 
-        #[cfg(any())] // TODO: make input optional
-        self.push_args_from_field(
-            jd,
-            self.input_iter,
-            op_id,
-            0,
-            &FormatKey::default(),
-        );
+        if let Some(iter) = self.input_iter {
+            self.push_args_from_field(
+                jd,
+                iter,
+                op_id,
+                0,
+                &FormatKey::default(),
+            );
+        }
 
         let mut part_idx = FormatPartIndex::zero();
 
@@ -781,6 +795,15 @@ impl<'a> Transform<'a> for TfExec<'a> {
                 exit_code_inserter.propagate_error(&e);
                 done = true;
             }
+            if done {
+                for ins in [
+                    &mut stdout_inserter,
+                    &mut stderr_inserter,
+                    &mut exit_code_inserter,
+                ] {
+                    ins.stream_value().mark_done();
+                }
+            }
             drop(stdout_inserter);
             drop(stderr_inserter);
             drop(exit_code_inserter);
@@ -836,9 +859,14 @@ pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
     let mut parts = IndexVec::new();
     let mut refs = IndexVec::new();
     let mut fmt_arg_part_ends = IndexVec::new();
+    let mut opts = OpExecOpts::default();
     for arg in expr.parsed_args_iter() {
         match arg.value {
             ParsedArgValue::Flag(flag) => {
+                if flag == "-i" {
+                    opts.propagate_input = true;
+                    continue;
+                }
                 return Err(expr
                     .error_flag_unsupported(flag, arg.span)
                     .into());
@@ -870,21 +898,29 @@ pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
         fmt_parts: parts,
         refs,
         fmt_arg_part_ends,
+        opts,
         stderr_field_name: INVALID_STRING_STORE_ENTRY,
         exit_code_field_name: INVALID_STRING_STORE_ENTRY
     })))
 }
 
-pub fn create_op_exec_from_strings(
-    args: Vec<String>,
+pub fn create_op_exec_from_strings<'a>(
+    args: impl IntoIterator<Item = impl Into<&'a str>>,
+) -> Result<OperatorData, OperatorCreationError> {
+    create_op_exec_with_opts_from_strings(OpExecOpts::default(), args)
+}
+
+pub fn create_op_exec_with_opts_from_strings<'a>(
+    opts: OpExecOpts,
+    args: impl IntoIterator<Item = impl Into<&'a str>>,
 ) -> Result<OperatorData, OperatorCreationError> {
     let mut parts = IndexVec::new();
     let mut refs = IndexVec::new();
     let mut fmt_arg_part_ends = IndexVec::new();
-    for (idx, value) in args.iter().enumerate() {
+    for (idx, value) in args.into_iter().enumerate() {
         append_exec_arg(
             idx,
-            value.as_bytes(),
+            value.into().as_bytes(),
             Span::Generated,
             &mut refs,
             &mut parts,
@@ -896,6 +932,7 @@ pub fn create_op_exec_from_strings(
         fmt_parts: parts,
         refs,
         fmt_arg_part_ends,
+        opts,
         stderr_field_name: INVALID_STRING_STORE_ENTRY,
         exit_code_field_name: INVALID_STRING_STORE_ENTRY
     })))

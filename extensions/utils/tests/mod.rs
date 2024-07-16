@@ -1,9 +1,16 @@
+use std::sync::Arc;
+
+use once_cell::sync::Lazy;
 use rstest::rstest;
 use scr::{
     extension::{Extension, ExtensionRegistry},
-    operators::sequence::create_op_enum,
+    operators::{
+        print::{create_op_print_with_opts, PrintOptions},
+        sequence::{create_op_enum, create_op_seq},
+    },
     options::session_setup::ScrSetupOptions,
     record_data::array::Array,
+    utils::test_utils::DummyWritableTarget,
     CliOptionsWithDefaultExtensions,
 };
 use scr_core::{
@@ -18,10 +25,16 @@ use scr_core::{
     scr_error::ScrError,
 };
 use scr_ext_utils::{
-    explode::create_op_explode, flatten::create_op_flatten,
-    head::create_op_head, primes::create_op_primes, tail::create_op_tail_add,
-    UtilsExtension,
+    exec::create_op_exec_from_strings, explode::create_op_explode,
+    flatten::create_op_flatten, head::create_op_head,
+    primes::create_op_primes, tail::create_op_tail_add, UtilsExtension,
 };
+
+static EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> = Lazy::new(|| {
+    ExtensionRegistry::new([Box::<dyn Extension>::from(Box::new(
+        UtilsExtension::default(),
+    ))])
+});
 
 #[test]
 fn primes() -> Result<(), ScrError> {
@@ -175,14 +188,37 @@ fn flatten_duped_objects() -> Result<(), ScrError> {
 #[test]
 fn parse_exec() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_extensions(ExtensionRegistry::new([Box::<
-            dyn Extension,
-        >::from(
-            Box::new(UtilsExtension::default()),
-        )])),
+        ScrSetupOptions::with_extensions(EXTENSION_REGISTRY.clone()),
         ["[", "exec", "echo", "foo", "]"],
     )?
     .run_collect_stringified()?;
     assert_eq!(res, ["foo\n"]);
+    Ok(())
+}
+
+#[test]
+fn parse_exec_2() -> Result<(), ScrError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        ScrSetupOptions::with_extensions(EXTENSION_REGISTRY.clone()),
+        ["seq=3", "[", "exec", "echo", "{}", "]"],
+    )?
+    .run_collect_stringified()?;
+    assert_eq!(res, ["0\n", "1\n", "2\n"]);
+    Ok(())
+}
+
+#[test]
+fn run_multi_exec() -> Result<(), ScrError> {
+    let target = DummyWritableTarget::new();
+
+    ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_exec_from_strings(["echo", "a"]).unwrap())
+        .add_op(create_op_print_with_opts(
+            target.get_target(),
+            PrintOptions::default(),
+        ))
+        .run()?;
+    assert_eq!(&**target.get(), "a\n\na\n\na\n\n");
     Ok(())
 }
