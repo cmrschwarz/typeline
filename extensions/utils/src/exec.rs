@@ -1,12 +1,14 @@
 use std::{
     ffi::{OsStr, OsString},
     io::{Read, Write},
-    process::{Child, Command, Stdio},
+    os::unix::process::ExitStatusExt,
+    process::{Child, Command, ExitStatus, Stdio},
     sync::Arc,
 };
 
 use bstr::ByteSlice;
 use metamatch::metamatch;
+use mio::{unix::pipe::Receiver, Poll};
 use scr_core::{
     chain::ChainId,
     cli::{
@@ -36,13 +38,16 @@ use scr_core::{
         },
     },
     options::{
-        chain_settings::SettingStreamBufferSize,
+        chain_settings::{
+            SettingStreamBufferSize, SettingStreamSizeThreshold,
+        },
         session_setup::SessionSetupData,
     },
     record_data::{
         action_buffer::ActorRef,
+        bytes_insertion_stream::BytesInsertionStream,
         field::{FieldId, FieldIterRef},
-        field_data::{field_value_flags, FieldValueRepr},
+        field_data::{field_value_flags, FieldData, FieldValueRepr},
         field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
@@ -58,8 +63,9 @@ use scr_core::{
         },
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueDataType,
-            StreamValueId,
+            StreamValueId, StreamValueManager,
         },
+        varying_type_inserter::VaryingTypeInserter,
     },
     scr_error::ScrError,
     smallbox,
@@ -69,7 +75,7 @@ use scr_core::{
         int_string_conversions::{f64_to_str, i64_to_str},
         maybe_text::MaybeText,
         string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
-        universe::CountedUniverse,
+        universe::{CountedUniverse, Universe},
     },
 };
 
@@ -83,7 +89,6 @@ pub struct OpExecOpts {
     // TODO: more stuff
 }
 
-#[derive(Clone)]
 pub struct OpExec {
     fmt_parts: IndexVec<FormatPartIndex, FormatPart>,
     refs: IndexVec<FormatKeyRefId, FormatKeyRefData>,
@@ -104,6 +109,8 @@ struct RunningCommand {
     stdin_data: Vec<u8>,
     stdin_offset: usize,
     proc: Child,
+    stdout_rec: Receiver,
+    stderr_rec: Receiver,
     stdout_sv_id: StreamValueId,
     stderr_sv_id: StreamValueId,
     exit_code_sv_id: StreamValueId,
@@ -111,8 +118,14 @@ struct RunningCommand {
 
 type RunningCommandIdx = usize;
 
+enum CommandOutputIdx {
+    Stdout(RunningCommandIdx),
+    Stderr(RunningCommandIdx),
+}
+
 pub struct TfExec<'a> {
     op: &'a OpExec,
+    token_universe: Universe<usize, CommandOutputIdx>,
     iters: IndexVec<FormatKeyRefId, FieldIterRef>,
     command_args: Vec<CommandArgs>,
     running_commands: CountedUniverse<RunningCommandIdx, RunningCommand>,
@@ -120,6 +133,8 @@ pub struct TfExec<'a> {
     exit_code_field: FieldId,
     input_iter: Option<FieldIterRef>,
     stream_buffer_size: usize,
+    stream_buffer_threshold: usize,
+    poll: Poll,
 }
 
 impl Operator for OpExec {
@@ -245,6 +260,11 @@ impl Operator for OpExec {
         let stream_buffer_size = jd
             .get_scope_setting_or_default::<SettingStreamBufferSize>(scope_id);
 
+        let stream_buffer_threshold = jd
+            .get_scope_setting_or_default::<SettingStreamSizeThreshold>(
+                scope_id,
+            );
+
         let input_iter = if self.opts.propagate_input {
             Some(FieldIterRef {
                 iter_id: jd
@@ -260,15 +280,29 @@ impl Operator for OpExec {
             TfExec {
                 op: self,
                 iters,
+                token_universe: Universe::default(),
                 stderr_field,
                 command_args: Vec::new(),
                 running_commands: CountedUniverse::default(),
                 input_iter,
                 exit_code_field,
-                stream_buffer_size
+                stream_buffer_size,
+                stream_buffer_threshold,
+                poll: Poll::new().unwrap()
             }
         )))
     }
+}
+
+enum ProcessStart {
+    Running {
+        stdout: StreamValueId,
+        stderr: StreamValueId,
+        stdout_rec: Receiver,
+        stderr_rec: Receiver,
+        exit_stream: StreamValueId,
+    },
+    Done(ExitStatus),
 }
 
 impl<'a> TfExec<'a> {
@@ -511,6 +545,198 @@ impl<'a> TfExec<'a> {
             iter.into_base_iter(),
         );
     }
+
+    fn insert_out_stream(
+        &mut self,
+        sv_mgr: &mut StreamValueManager,
+        stdout_bis: BytesInsertionStream,
+    ) -> StreamValueId {
+        let stream = sv_mgr.claim_stream_value(StreamValue::new_empty(
+            Some(StreamValueDataType::Bytes),
+            StreamValueBufferMode::Stream,
+        ));
+        sv_mgr.stream_values[stream]
+            .data_inserter(stream, self.stream_buffer_size, false)
+            .append_bytes_copy(stdout_bis.get_inserted_data());
+
+        stdout_bis.abort();
+
+        stream
+    }
+
+    #[cfg(target_family = "unix")]
+    fn setup_out_streams(
+        &mut self,
+        sv_mgr: &mut StreamValueManager,
+        proc: &mut Child,
+        stdout_inserter: &mut VaryingTypeInserter<&mut FieldData>,
+        stderr_inserter: &mut VaryingTypeInserter<&mut FieldData>,
+        exit_code_inserter: &mut VaryingTypeInserter<&mut FieldData>,
+        command_output_idx: usize,
+    ) -> Result<ProcessStart, std::io::Error> {
+        use mio::{Interest, Token};
+
+        let sbt = self.stream_buffer_threshold as u64;
+
+        let mut stdout =
+            mio::unix::pipe::Receiver::from(proc.stdout.take().unwrap());
+        stdout.set_nonblocking(true)?;
+
+        let mut stderr =
+            mio::unix::pipe::Receiver::from(proc.stderr.take().unwrap());
+        stderr.set_nonblocking(true)?;
+
+        let mut stdout_bis = stdout_inserter.bytes_insertion_stream(1);
+        let stdout_bytes =
+            std::io::copy(&mut (&mut stdout).take(sbt), &mut stdout_bis)?;
+
+        let mut stderr_bis = stderr_inserter.bytes_insertion_stream(1);
+        let stderr_bytes =
+            std::io::copy(&mut (&mut stderr).take(sbt), &mut stderr_bis)?;
+
+        if stdout_bytes != sbt || stderr_bytes != sbt {
+            if let Some(exit_code) = proc.try_wait()? {
+                stdout_bis.commit();
+                stderr_bis.commit();
+                exit_code_inserter.push_int(
+                    exit_code.into_raw() as i64,
+                    1,
+                    true,
+                    false,
+                );
+                return Ok(ProcessStart::Done(exit_code));
+            }
+        }
+
+        let stdout_token = self
+            .token_universe
+            .claim_with_value(CommandOutputIdx::Stdout(command_output_idx));
+
+        self.poll.registry().register(
+            &mut stdout,
+            Token(stdout_token),
+            Interest::READABLE,
+        )?;
+
+        let stderr_token = self
+            .token_universe
+            .claim_with_value(CommandOutputIdx::Stdout(command_output_idx));
+        self.poll.registry().register(
+            &mut stderr,
+            Token(stderr_token),
+            Interest::READABLE,
+        )?;
+
+        let stdout_stream = self.insert_out_stream(sv_mgr, stdout_bis);
+        let stderr_stream = self.insert_out_stream(sv_mgr, stderr_bis);
+        let exit_stream = sv_mgr.claim_stream_value(StreamValue::new_empty(
+            Some(StreamValueDataType::SingleValue(FieldValueKind::Int)),
+            StreamValueBufferMode::Stream,
+        ));
+
+        Ok(ProcessStart::Running {
+            stdout: stdout_stream,
+            stderr: stderr_stream,
+            stdout_rec: stdout,
+            stderr_rec: stderr,
+            exit_stream,
+        })
+    }
+    #[cfg(not(target_family = "unix"))]
+    fn setup_out_streams(
+        &mut self,
+        sv_mgr: &mut StreamValueManager,
+        _proc: &mut Child,
+        stdout_inserter: &mut VaryingTypeInserter<&mut FieldData>,
+        stderr_inserter: &mut VaryingTypeInserter<&mut FieldData>,
+        _exit_code_inserter: &mut VaryingTypeInserter<&mut FieldData>,
+        _command_output_idx: usize,
+    ) -> Result<ProcessStart, std::io::Error> {
+        let stdout_stream = sv_mgr.claim_stream_value(StreamValue::new_empty(
+            Some(StreamValueDataType::Bytes),
+            StreamValueBufferMode::Stream,
+        ));
+        stdout_inserter.push_stream_value_id(stdout_stream, 1, true, false);
+
+        let stderr_stream = sv_mgr.claim_stream_value(StreamValue::new_empty(
+            Some(StreamValueDataType::Bytes),
+            StreamValueBufferMode::Stream,
+        ));
+        stderr_inserter.push_stream_value_id(stderr_stream, 1, true, false);
+
+        let exit_stream = sv_mgr.claim_stream_value(StreamValue::new_empty(
+            Some(StreamValueDataType::SingleValue(FieldValueKind::Int)),
+            StreamValueBufferMode::Stream,
+        ));
+        stderr_inserter.push_stream_value_id(stderr_stream, 1, true, false);
+
+        Ok(ProcessStart::Running {
+            stdout: stdout_stream,
+            stderr: stderr_stream,
+            exit_stream,
+        })
+    }
+
+    fn setup_proc(
+        &mut self,
+        sv_mgr: &mut StreamValueManager,
+        cmd_idx: usize,
+        stderr_inserter: &mut VaryingTypeInserter<&mut FieldData>,
+        stdout_inserter: &mut VaryingTypeInserter<&mut FieldData>,
+        exit_code_inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    ) -> Result<(), std::io::Error> {
+        let mut proc = {
+            let ca = &mut self.command_args[cmd_idx];
+            Command::new(&ca.args[0])
+                .args(&ca.args[1..])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        };
+        let res = self.setup_out_streams(
+            sv_mgr,
+            &mut proc,
+            stdout_inserter,
+            stderr_inserter,
+            exit_code_inserter,
+            self.running_commands.peek_claim_id(),
+        )?;
+
+        match res {
+            ProcessStart::Running {
+                stdout,
+                stderr,
+                stdout_rec,
+                stderr_rec,
+                exit_stream,
+            } => {
+                stdout_inserter.push_stream_value_id(stdout, 1, true, false);
+                stderr_inserter.push_stream_value_id(stderr, 1, true, false);
+                exit_code_inserter.push_stream_value_id(
+                    exit_stream,
+                    1,
+                    true,
+                    false,
+                );
+
+                self.running_commands.claim_with_value(RunningCommand {
+                    proc,
+                    stdout_sv_id: stdout,
+                    stderr_sv_id: stderr,
+                    stdout_rec,
+                    stderr_rec,
+                    exit_code_sv_id: exit_stream,
+                    stdin_data: std::mem::take(
+                        &mut self.command_args[cmd_idx].stdin_data,
+                    ),
+                    stdin_offset: 0,
+                });
+            }
+            ProcessStart::Done(_status) => (),
+        }
+        Ok(())
+    }
 }
 
 impl<'a> Transform<'a> for TfExec<'a> {
@@ -602,65 +828,20 @@ impl<'a> Transform<'a> for TfExec<'a> {
                 exit_code_inserter.push_error(e, 1, true, false);
                 continue;
             }
-            let ca = &mut self.command_args[cmd_idx];
-            match Command::new(&ca.args[0])
-                .args(&ca.args[1..])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-            {
-                Ok(proc) => {
-                    let stdout_stream =
-                        jd.sv_mgr.claim_stream_value(StreamValue::new_empty(
-                            Some(StreamValueDataType::Bytes),
-                            StreamValueBufferMode::Stream,
-                        ));
-                    let stderr_stream =
-                        jd.sv_mgr.claim_stream_value(StreamValue::new_empty(
-                            Some(StreamValueDataType::Bytes),
-                            StreamValueBufferMode::Stream,
-                        ));
-                    let exit_code_stream =
-                        jd.sv_mgr.claim_stream_value(StreamValue::new_empty(
-                            Some(StreamValueDataType::SingleValue(
-                                FieldValueKind::Int,
-                            )),
-                            StreamValueBufferMode::Stream,
-                        ));
-                    self.running_commands.claim_with_value(RunningCommand {
-                        proc,
-                        stdout_sv_id: stdout_stream,
-                        stderr_sv_id: stderr_stream,
-                        exit_code_sv_id: exit_code_stream,
-                        stdin_data: std::mem::take(&mut ca.stdin_data),
-                        stdin_offset: 0,
-                    });
-
-                    stdout_inserter.push_stream_value_id(
-                        stdout_stream,
-                        1,
-                        true,
-                        false,
-                    );
-                    stderr_inserter.push_stream_value_id(
-                        stderr_stream,
-                        1,
-                        true,
-                        false,
-                    );
-                    exit_code_inserter.push_stream_value_id(
-                        exit_code_stream,
-                        1,
-                        true,
-                        false,
-                    );
-                }
+            match self.setup_proc(
+                &mut jd.sv_mgr,
+                cmd_idx,
+                &mut stderr_inserter,
+                &mut stdout_inserter,
+                &mut exit_code_inserter,
+            ) {
+                Ok(()) => (),
                 Err(e) => {
                     let e = OperatorApplicationError::new_s(
                         format!(
                             "failed to execute `{}`: {}",
-                            ca.args[0].to_string_lossy(),
+                            self.command_args[cmd_idx].args[0]
+                                .to_string_lossy(),
                             e,
                         ),
                         op_id,
@@ -900,7 +1081,7 @@ pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
         fmt_arg_part_ends,
         opts,
         stderr_field_name: INVALID_STRING_STORE_ENTRY,
-        exit_code_field_name: INVALID_STRING_STORE_ENTRY
+        exit_code_field_name: INVALID_STRING_STORE_ENTRY,
     })))
 }
 
@@ -934,6 +1115,6 @@ pub fn create_op_exec_with_opts_from_strings<'a>(
         fmt_arg_part_ends,
         opts,
         stderr_field_name: INVALID_STRING_STORE_ENTRY,
-        exit_code_field_name: INVALID_STRING_STORE_ENTRY
+        exit_code_field_name: INVALID_STRING_STORE_ENTRY,
     })))
 }

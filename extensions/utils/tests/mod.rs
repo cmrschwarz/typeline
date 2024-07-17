@@ -228,8 +228,6 @@ fn run_multi_exec() -> Result<(), ScrError> {
 
 #[test]
 fn run_exec_into_join() -> Result<(), ScrError> {
-    let target = DummyWritableTarget::new();
-
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_foreach([
