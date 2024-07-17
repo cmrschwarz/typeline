@@ -1210,7 +1210,7 @@ mod test {
                         meta_info: None
                     },
                     Argument {
-                        value: FieldValue::Text("10".into()),
+                        value: FieldValue::Int(10),
                         span: cli_arg.reoffset(4, 6),
                         source_scope: DEFAULT_SCOPE_ID,
                         meta_info: None
@@ -1306,18 +1306,18 @@ mod test {
                                 })),
                             })
                         )),
-                        span: Span::Generated,
+                        span: Span::FlagsObject,
                         source_scope: DEFAULT_SCOPE_ID,
                         meta_info: None
                     },
                     Argument {
-                        value: FieldValue::Text("5".into()),
+                        value: FieldValue::Int(5),
                         span: Span::from_single_arg_with_offset(0, 9, 10),
                         source_scope: DEFAULT_SCOPE_ID,
                         meta_info: None
                     },
                     Argument {
-                        value: FieldValue::Text("10".into()),
+                        value: FieldValue::Int(10),
                         span: Span::from_single_arg(3, 3),
                         source_scope: DEFAULT_SCOPE_ID,
                         meta_info: None
