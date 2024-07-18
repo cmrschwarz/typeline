@@ -2135,6 +2135,7 @@ pub fn handle_tf_format_stream_value_update<'a>(
                 | StreamValueData::Text { .. } => {
                     inserter.append(chunk);
                 }
+                StreamValueData::Single(_) => unreachable!(),
             };
         }
 

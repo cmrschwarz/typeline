@@ -227,6 +227,21 @@ fn run_multi_exec() -> Result<(), ScrError> {
 }
 
 #[test]
+fn run_sleep() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_foreach([
+            create_op_exec_from_strings(["sh", "-c", "sleep {} && echo {}"])
+                .unwrap(),
+            create_op_lines(),
+            create_op_join(None, None, false),
+        ]))
+        .run_collect_stringified()?;
+    assert_eq!(&res, &["0", "1", "2",]);
+    Ok(())
+}
+
+#[test]
 fn run_exec_into_join() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())

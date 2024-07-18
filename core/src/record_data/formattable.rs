@@ -888,6 +888,7 @@ impl<'a, 'b> Formattable<'a, 'b> for StreamValue<'_> {
                     StreamValueData::Bytes { data, range } => {
                         w.write_all(&data[range.clone()])?
                     }
+                    StreamValueData::Single(_) => todo!(),
                 }
             }
             Ok(())

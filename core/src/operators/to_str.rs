@@ -273,6 +273,7 @@ pub fn handle_tf_to_str_stream_value_update(
                 }
                 &data[range.clone()]
             }
+            StreamValueData::Single(_) => todo!(),
         };
         let res = inserter
             .with_text_buffer(|buf| {

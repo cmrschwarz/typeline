@@ -73,6 +73,7 @@ pub enum StreamValueData<'a> {
         data: Arc<Vec<u8>>,
         range: Range<usize>,
     },
+    Single(FieldValue),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -300,7 +301,7 @@ impl<'s, 'd> StreamValueDataCursor<'s, 'd> {
 #[derive(Clone)]
 pub struct StreamValueDataIter<'s, 'd> {
     iter: std::collections::vec_deque::Iter<'d, StreamValueData<'s>>,
-    offset: usize,
+    data_offset: StreamValueDataOffset,
 }
 
 impl<'s, 'd> StreamValueDataIter<'s, 'd> {
@@ -314,14 +315,17 @@ impl<'s, 'd> StreamValueDataIter<'s, 'd> {
         }
         StreamValueDataIter {
             iter,
-            offset: offset.current_value_offset,
+            data_offset: offset,
         }
     }
     pub fn peek(&self) -> Option<StreamValueDataRef<'s, 'd>> {
         self.clone().next()
     }
     pub fn set_next_offset(&mut self, offset: usize) {
-        self.offset = offset;
+        self.data_offset.current_value_offset = offset;
+    }
+    pub fn get_offset(&self) -> StreamValueDataOffset {
+        self.data_offset
     }
 }
 
@@ -329,8 +333,9 @@ impl<'s, 'd> Iterator for StreamValueDataIter<'s, 'd> {
     type Item = StreamValueDataRef<'s, 'd>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let offset = self.offset;
-        self.offset = 0;
+        let offset = self.data_offset.current_value_offset;
+        self.data_offset.current_value_offset = 0;
+        self.data_offset.values_consumed += 1;
         self.iter.next().map(|d| match d {
             StreamValueData::StaticText(t) => {
                 StreamValueDataRef::StaticText(&t[offset..])
@@ -344,6 +349,7 @@ impl<'s, 'd> Iterator for StreamValueDataIter<'s, 'd> {
             StreamValueData::Bytes { data, range } => {
                 StreamValueDataRef::Bytes(&data[range.clone()][offset..])
             }
+            StreamValueData::Single(_) => todo!(),
         })
     }
 }
@@ -356,7 +362,7 @@ impl<'s, 'd> Read for StreamValueDataIter<'s, 'd> {
             let buf_len_rem = buf.len() - buf_offset;
             if elem_data.len() > buf_len_rem {
                 buf[buf_offset..].copy_from_slice(&elem_data[0..buf_len_rem]);
-                self.offset += buf_len_rem;
+                self.data_offset.current_value_offset += buf_len_rem;
                 return Ok(buf.len());
             }
             buf[buf_offset..buf_offset + elem_data.len()]
@@ -374,25 +380,29 @@ impl<'s, 'd> BufRead for StreamValueDataIter<'s, 'd> {
     }
     fn consume(&mut self, mut amount: usize) {
         if let Some(elem) = self.peek() {
-            let len_rem = elem.as_bytes().len() - self.offset;
+            let len_rem =
+                elem.as_bytes().len() - self.data_offset.current_value_offset;
             if len_rem > amount {
-                self.offset += amount;
+                self.data_offset.current_value_offset += amount;
                 return;
             }
             self.iter.next();
             amount -= len_rem;
-            self.offset = 0;
+            self.data_offset.current_value_offset = 0;
+            self.data_offset.values_consumed += 1;
         }
         while amount > 0 {
             let Some(next_len) = self.peek().map(|d| d.len()) else {
                 return;
             };
             if next_len > amount {
-                self.offset = amount;
+                self.data_offset.current_value_offset = amount;
                 return;
             }
             amount -= next_len;
             self.iter.next();
+            self.data_offset.current_value_offset = 0;
+            self.data_offset.values_consumed += 1;
         }
     }
 }
@@ -456,6 +466,9 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
         error: &Option<Arc<OperatorApplicationError>>,
     ) -> bool {
         self.stream_value.propagate_error(error)
+    }
+    pub fn set_error(&mut self, error: Arc<OperatorApplicationError>) {
+        self.stream_value.set_error(error)
     }
     pub fn append_copy(&mut self, data: StreamValueDataRef<'a, '_>) {
         match data {
@@ -633,6 +646,7 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
             StreamValueData::Bytes { data, range } => {
                 self.append_bytes_copy(&data[range])
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn may_append_buffer(&self) -> bool {
@@ -843,6 +857,7 @@ impl<'a> StreamValue<'a> {
             }
             StreamValueData::StaticBytes(_)
             | StreamValueData::Bytes { .. } => StreamValueDataType::Bytes,
+            StreamValueData::Single(_) => todo!(),
         };
         Self::from_data(
             Some(data_type),
@@ -982,6 +997,7 @@ impl<'a> StreamValueData<'a> {
             }
             StreamValueData::StaticBytes(_)
             | StreamValueData::Bytes { .. } => None,
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn as_ref(&self) -> StreamValueDataRef<'a, '_> {
@@ -998,6 +1014,7 @@ impl<'a> StreamValueData<'a> {
             StreamValueData::Bytes { data, range } => {
                 StreamValueDataRef::Bytes(&data[range.clone()])
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn as_field_value_ref(&self) -> FieldValueRef {
@@ -1010,6 +1027,7 @@ impl<'a> StreamValueData<'a> {
             StreamValueData::Bytes { data, range } => {
                 FieldValueRef::Bytes(&data[range.clone()])
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn to_field_value(&self) -> FieldValue {
@@ -1024,6 +1042,7 @@ impl<'a> StreamValueData<'a> {
             StreamValueData::StaticBytes(b) => b.len(),
             StreamValueData::Text { range, .. }
             | StreamValueData::Bytes { range, .. } => range.len(),
+            StreamValueData::Single(_) => 1,
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -1035,6 +1054,7 @@ impl<'a> StreamValueData<'a> {
             StreamValueData::StaticBytes(b) => b.len(),
             StreamValueData::Text { data, .. } => data.capacity(),
             StreamValueData::Bytes { data, .. } => data.capacity(),
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn clear(&mut self) {
@@ -1057,6 +1077,7 @@ impl<'a> StreamValueData<'a> {
                 }
                 *range = 0..0;
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn is_ref_type(&self) -> bool {
@@ -1066,6 +1087,7 @@ impl<'a> StreamValueData<'a> {
             StreamValueData::Text { .. } | StreamValueData::Bytes { .. } => {
                 false
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub unsafe fn extend_with_bytes_raw(
@@ -1127,6 +1149,7 @@ impl<'a> StreamValueData<'a> {
                 v.extend_from_slice(bytes);
                 *self = StreamValueData::from_bytes(v);
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn extend_with_text(&mut self, text: &str) {
@@ -1168,6 +1191,7 @@ impl<'a> StreamValueData<'a> {
                 v.extend_from_slice(text.as_bytes());
                 *self = StreamValueData::from_bytes(v);
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn extend_from_sv_data(&mut self, data: &StreamValueData) {
@@ -1194,6 +1218,7 @@ impl<'a> StreamValueData<'a> {
             } => {
                 *range_prev = subrange(range_prev, &range);
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn sliced(&self, range: Range<usize>) -> StreamValueData<'a> {
@@ -1254,6 +1279,7 @@ impl<'a> StreamValueData<'a> {
                 *self = Self::from_bytes(v);
                 res
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     // fails if the data is currently a non empty byte range
@@ -1303,6 +1329,7 @@ impl<'a> StreamValueData<'a> {
                 *self = Self::from_bytes(v);
                 res
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn make_modifiable(&mut self) {
@@ -1354,6 +1381,7 @@ impl<'a> StreamValueData<'a> {
                 *self = Self::from_string(s);
                 Ok(res)
             }
+            StreamValueData::Single(_) => todo!(),
         }
     }
     pub fn as_escaped_text(&self, quote_to_escape: u8) -> Self {
