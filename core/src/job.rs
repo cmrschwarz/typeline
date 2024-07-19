@@ -334,44 +334,27 @@ pub fn add_transform_to_job<'a>(
     id
 }
 
-impl<'a> JobData<'a> {
-    pub fn new(sess: &'a SessionData) -> Self {
-        Self {
-            session_data: sess,
-            tf_mgr: TransformManager::default(),
-            field_mgr: FieldManager::default(),
-            match_set_mgr: MatchSetManager::default(),
-            // PERF: we should probably try to reuse these scopes somehow,
-            // or use an offset universe or something instead of this clone
-            scope_mgr: sess.scope_mgr.clone(),
-            group_track_manager: GroupTrackManager::default(),
-            sv_mgr: StreamValueManager::default(),
-            temp_vec: Vec::default(),
-            start_tf: None,
-        }
-    }
-    pub fn unlink_transform(
-        &mut self,
-        tf_id: TransformId,
-        available_batch_for_successor: usize,
-    ) {
-        let tf = &mut self.tf_mgr.transforms[tf_id];
-        tf.mark_for_removal = true;
-        let successor = tf.successor;
-        let input_is_done = tf.predecessor_done;
-        if let Some(succ_id) = successor {
-            let succ = &mut self.tf_mgr.transforms[succ_id];
-            succ.predecessor_done = input_is_done;
-            let bs = available_batch_for_successor;
-            succ.available_batch_size += bs;
-            if input_is_done || succ.available_batch_size > 0 {
-                self.tf_mgr.push_tf_in_ready_stack(succ_id);
-            }
-        }
-    }
-}
-
 impl<'a> Job<'a> {
+    pub fn new(sess_data: &'a SessionData) -> Self {
+        Self::from_job_data(JobData::new(sess_data))
+    }
+    pub fn from_job_data(job_data: JobData<'a>) -> Self {
+        Job {
+            transform_data: IndexVec::new(),
+            temp_vec: Vec::new(),
+            #[cfg(feature = "debug_log")]
+            // TODO: nicer error handling for this
+            debug_log: job_data
+                .session_data
+                .settings
+                .debug_log_path
+                .as_ref()
+                .map(|p| {
+                    std::fs::File::create(p).expect("debug log path must be valid")
+                }),
+            job_data,
+        }
+    }
     pub fn log_state(&self, message: &str) {
         if cfg!(feature = "debug_logging") {
             eprintln!("{message}");
@@ -915,6 +898,14 @@ impl<'a> Job<'a> {
         let tf_state = &mut self.job_data.tf_mgr.transforms[tf_id];
         tf_state.is_stream_producer = false;
         stream_producer_update(self, tf_id);
+        #[cfg(feature = "debug_logging")]
+        eprintln!(
+            "/> stream producer update tf {:02} {:>20}, producers: {:?}, stack: {:?}",
+            tf_id,
+            format!("`{}`", self.transform_data[tf_id].display_name()),
+            self.job_data.tf_mgr.stream_producers,
+            self.job_data.tf_mgr.ready_stack,
+         );
     }
     pub fn is_in_streaming_mode(&self) -> bool {
         !self.job_data.tf_mgr.stream_producers.is_empty()
@@ -994,29 +985,41 @@ impl<'a> Job<'a> {
         Ok(())
     }
 }
-impl<'a> Job<'a> {
-    pub fn new(sess_data: &'a SessionData) -> Self {
-        Self::from_job_data(JobData::new(sess_data))
-    }
-    pub fn from_job_data(job_data: JobData<'a>) -> Self {
-        Job {
-            transform_data: IndexVec::new(),
-            temp_vec: Vec::new(),
-            #[cfg(feature = "debug_log")]
-            // TODO: nicer error handling for this
-            debug_log: job_data
-                .session_data
-                .settings
-                .debug_log_path
-                .as_ref()
-                .map(|p| {
-                    std::fs::File::create(p).expect("debug log path must be valid")
-                }),
-            job_data,
+impl<'a> JobData<'a> {
+    pub fn new(sess: &'a SessionData) -> Self {
+        Self {
+            session_data: sess,
+            tf_mgr: TransformManager::default(),
+            field_mgr: FieldManager::default(),
+            match_set_mgr: MatchSetManager::default(),
+            // PERF: we should probably try to reuse these scopes somehow,
+            // or use an offset universe or something instead of this clone
+            scope_mgr: sess.scope_mgr.clone(),
+            group_track_manager: GroupTrackManager::default(),
+            sv_mgr: StreamValueManager::default(),
+            temp_vec: Vec::default(),
+            start_tf: None,
         }
     }
-}
-impl JobData<'_> {
+    pub fn unlink_transform(
+        &mut self,
+        tf_id: TransformId,
+        available_batch_for_successor: usize,
+    ) {
+        let tf = &mut self.tf_mgr.transforms[tf_id];
+        tf.mark_for_removal = true;
+        let successor = tf.successor;
+        let input_is_done = tf.predecessor_done;
+        if let Some(succ_id) = successor {
+            let succ = &mut self.tf_mgr.transforms[succ_id];
+            succ.predecessor_done = input_is_done;
+            let bs = available_batch_for_successor;
+            succ.available_batch_size += bs;
+            if input_is_done || succ.available_batch_size > 0 {
+                self.tf_mgr.push_tf_in_ready_stack(succ_id);
+            }
+        }
+    }
     pub fn get_scope_setting_or_default<S: ChainSetting>(
         &self,
         scope_id: ScopeId,

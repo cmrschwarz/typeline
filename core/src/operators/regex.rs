@@ -743,10 +743,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
     if rmis.batch_state.field_pos_output
         >= rmis.batch_state.batch_end_field_pos_output
     {
-        debug_assert!(
-            rmis.batch_state.field_pos_output
-                == rmis.batch_state.batch_end_field_pos_output
-        );
+        debug_assert!(rmis.batch_state.batch_size_reached());
         return;
     }
     let mut match_count: usize = 0;
@@ -1164,30 +1161,42 @@ pub fn handle_tf_regex(
                 };
             }
             FieldValueSlice::StreamValueId(svs) => {
+                let mut continue_to_buffer = false;
+                let mut continue_to_sub = false;
                 let mut sv_iter = FieldValueRangeIter::from_range(&range, svs);
                 while let Some((&sv_id, rl)) = sv_iter.next() {
                     let sv = &mut jd.sv_mgr.stream_values[sv_id];
-                    if re.streams_kept_alive > 0 {
-                        let rc_diff = (rl as usize)
-                            .saturating_sub(re.streams_kept_alive);
-                        sv.ref_count -= rc_diff;
-                        re.streams_kept_alive -= rc_diff;
-                    }
-                    if !sv.done {
-                        sv.make_contiguous();
-                        sv.subscribe(sv_id, tf_id, rl as usize, true, false);
+
+                    if !sv.done || continue_to_buffer {
+                        let first_encounter = re.streams_kept_alive == 0;
+
+                        if first_encounter {
+                            sv.make_contiguous();
+                            sv.ref_count += rl as usize;
+                            re.streams_kept_alive += rl as usize;
+                        }
+                        if (first_encounter && !continue_to_buffer)
+                            || continue_to_sub
+                        {
+                            sv.subscribe(
+                                sv_id,
+                                tf_id,
+                                rl as usize,
+                                true,
+                                false,
+                            );
+                        }
+                        hit_stream_val = true;
                         // PERF: if multimatch is false and we are in optional
                         // mode we can theoretically
                         // continue here, because there will always be exactly
                         // one match we would need
                         // StreamValueData to support null for that though
-                        hit_stream_val = true;
-                        if re.streams_kept_alive > 0 {
-                            let rc_diff = (rl as usize)
-                                .saturating_sub(re.streams_kept_alive);
-                            sv.ref_count -= rc_diff;
-                            re.streams_kept_alive -= rc_diff;
-                        }
+
+                        let successors_kept_alive =
+                            re.streams_kept_alive - rl as usize;
+                        let skip = successors_kept_alive
+                            - sv_iter.next_n_fields(successors_kept_alive);
                         re.streams_kept_alive +=
                             buffer_remaining_stream_values_in_sv_iter(
                                 &mut jd.sv_mgr,
@@ -1195,6 +1204,7 @@ pub fn handle_tf_regex(
                                 true,
                             );
                         drop(rmis);
+                        iter.next_n_fields(skip);
                         re.streams_kept_alive +=
                             buffer_remaining_stream_values_in_auto_deref_iter(
                                 &jd.match_set_mgr,
@@ -1204,6 +1214,11 @@ pub fn handle_tf_regex(
                                 true,
                             );
                         break 'batch;
+                    }
+                    if re.streams_kept_alive > 0 {
+                        let rc_diff = (rl as usize).min(re.streams_kept_alive);
+                        sv.ref_count -= rc_diff;
+                        re.streams_kept_alive -= rc_diff;
                     }
                     if let Some(e) = &sv.error {
                         for cgi in
@@ -1233,9 +1248,6 @@ pub fn handle_tf_regex(
                                 rl,
                                 RangeOffsets::default(),
                             );
-                            if rmis.batch_state.batch_size_reached() {
-                                break 'batch;
-                            }
                         }
                         StorageAgnosticStreamValueDataRef::Text(t) => {
                             if let Some(tr) = &mut text_regex {
@@ -1255,10 +1267,14 @@ pub fn handle_tf_regex(
                                     RangeOffsets::default(),
                                 )
                             };
-                            if rmis.batch_state.batch_size_reached() {
-                                break 'batch;
-                            }
                         }
+                    }
+                    // we cannot break early because we need to make
+                    // sure to buffer the remainder of the batch
+                    if rmis.batch_state.batch_size_reached() {
+                        continue_to_buffer = true;
+                    } else {
+                        continue_to_sub = true;
                     }
                     jd.sv_mgr.check_stream_value_ref_count(sv_id);
                 }
@@ -1330,7 +1346,7 @@ pub fn handle_tf_regex(
             batch_size - (rbs.field_pos_input - field_pos_start);
         jd.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
         drop(rbs);
-        if !hit_stream_val {
+        if !hit_stream_val || consumed_inputs > 0 || produced_records > 0 {
             jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
     } else if ps.next_batch_ready {
@@ -1338,8 +1354,8 @@ pub fn handle_tf_regex(
     }
 
     if bse {
-        // apply the action list first so we can move the iterator to the
-        // correct continuation field
+        // this applies the action list first so we can move the iterator to
+        // the correct continuation field
         // we explicitly don't store the iterator here so it stays at the
         // start position while we apply the action list
         drop(input_field);
@@ -1378,6 +1394,7 @@ pub fn handle_tf_regex_stream_value_update(
     _custom: usize,
 ) {
     debug_assert!(jd.sv_mgr.stream_values[sv_id].done);
+    jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
     jd.tf_mgr.push_tf_in_ready_stack(tf_id);
 }
 
