@@ -1,6 +1,7 @@
+use bitbybit::bitfield;
+
 use crate::record_data::field_data::{
-    field_value_flags, FieldData, FieldValueFlags, FieldValueFormat,
-    FieldValueHeader, FieldValueRepr, RunLength,
+    FieldData, FieldValueFormat, FieldValueHeader, FieldValueRepr, RunLength,
 };
 use std::{cmp::Ordering, collections::VecDeque, marker::PhantomData};
 
@@ -20,6 +21,14 @@ pub trait FieldDataRef<'a>: Sized + Clone {
             && std::ptr::eq(self.headers(), other.headers())
             && std::ptr::eq(self.data(), other.data())
     }
+}
+
+#[bitfield(u8, default = 0)]
+pub struct FieldIterOpts {
+    #[bit(0, rw)]
+    allow_dead: bool,
+    #[bit(1, rw)]
+    allow_ring_wrap: bool,
 }
 
 impl<'a> FieldDataRef<'a> for &'a FieldData {
@@ -120,18 +129,14 @@ pub trait FieldIterator<'a>: Sized + Clone {
         n: usize,
         kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
-        allow_ring_wrap: bool,
+        opts: FieldIterOpts,
     ) -> usize;
     fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
-        allow_ring_wrap: bool,
+        opts: FieldIterOpts,
     ) -> usize;
     fn move_to_field_pos(&mut self, field_pos: usize) -> usize {
         let curr = self.get_next_field_pos();
@@ -142,10 +147,20 @@ pub trait FieldIterator<'a>: Sized + Clone {
         }
     }
     fn next_n_fields(&mut self, n: usize, allow_ring_wrap: bool) -> usize {
-        self.next_n_fields_with_fmt(n, [], true, 0, 0, allow_ring_wrap)
+        self.next_n_fields_with_fmt(
+            n,
+            [],
+            true,
+            FieldIterOpts::default().with_allow_ring_wrap(allow_ring_wrap),
+        )
     }
     fn prev_n_fields(&mut self, n: usize, allow_ring_wrap: bool) -> usize {
-        self.prev_n_fields_with_fmt(n, [], true, 0, 0, allow_ring_wrap)
+        self.prev_n_fields_with_fmt(
+            n,
+            [],
+            true,
+            FieldIterOpts::default().with_allow_ring_wrap(allow_ring_wrap),
+        )
     }
     fn move_n_fields(&mut self, delta: isize, allow_ring_wrap: bool) -> isize {
         if delta < 0 {
@@ -159,12 +174,12 @@ pub trait FieldIterator<'a>: Sized + Clone {
     fn typed_range_fwd(
         &mut self,
         limit: usize,
-        flag_mask: FieldValueFlags,
+        opts: FieldIterOpts,
     ) -> Option<ValidTypedRange<'a>>;
     fn typed_range_bwd(
         &mut self,
         limit: usize,
-        flag_mask: FieldValueFlags,
+        opts: FieldIterOpts,
     ) -> Option<ValidTypedRange<'a>>;
     fn bounded(
         self,
@@ -460,16 +475,13 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         n: usize,
         kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        mut flags: FieldValueFlags,
-        allow_ring_wrap: bool,
+        opts: FieldIterOpts,
     ) -> usize {
-        flags &= flag_mask;
         let mut stride_rem = n;
         let curr_header_rem =
             (self.header_rl_total - self.header_rl_offset) as usize;
         if curr_header_rem == 0
-            || (self.header_fmt.flags & flag_mask) != flags
+            || (self.header_fmt.deleted() && !opts.allow_dead())
             || (kinds.contains(&self.header_fmt.repr) == invert_kinds_check)
         {
             return 0;
@@ -479,7 +491,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             self.field_pos += stride_rem;
             return stride_rem;
         }
-        let wrap_idx = if allow_ring_wrap {
+        let wrap_idx = if opts.allow_ring_wrap() {
             usize::MAX
         } else {
             let slice_0_len = self.fdr.headers().as_slices().0.len();
@@ -490,7 +502,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             }
         };
         loop {
-            if flag_mask & field_value_flags::DELETED != 0
+            if opts.allow_dead()
                 && self.fdr.headers().len() != self.header_idx + 1
                 && self.fdr.headers()[self.header_idx + 1].deleted()
             {
@@ -499,7 +511,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             }
             stride_rem -= self.next_header() as usize;
             if !self.is_next_valid()
-                || (self.header_fmt.flags & flag_mask) != flags
+                || (self.header_fmt.deleted() && !opts.allow_dead())
                 || (kinds.contains(&self.header_fmt.repr)
                     == invert_kinds_check)
                 || self.header_idx == wrap_idx
@@ -520,14 +532,11 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         n: usize,
         kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        mut flags: FieldValueFlags,
-        allow_ring_wrap: bool,
+        opts: FieldIterOpts,
     ) -> usize {
-        flags &= flag_mask;
         if n == 0
             || self.prev_field() == 0
-            || (self.header_fmt.flags & flag_mask) != flags
+            || (self.header_fmt.deleted() && !opts.allow_dead())
             || (kinds.contains(&self.header_fmt.repr) == invert_kinds_check)
         {
             return 0;
@@ -541,13 +550,13 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             self.field_pos -= stride_rem;
             return stride_rem;
         }
-        let wrap_idx = if allow_ring_wrap {
+        let wrap_idx = if opts.allow_ring_wrap() {
             usize::MAX
         } else {
             self.fdr.headers().as_slices().0.len().saturating_sub(1)
         };
         loop {
-            if flag_mask & field_value_flags::DELETED != 0
+            if !opts.allow_dead()
                 && self.header_idx != 0
                 && self.fdr.headers()[self.header_idx - 1].deleted()
             {
@@ -556,7 +565,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             }
             stride_rem -= self.prev_header() as usize;
             if !self.is_prev_valid()
-                || (self.header_fmt.flags & flag_mask) != flags
+                || (self.header_fmt.deleted() && !opts.allow_dead())
                 || (kinds.contains(&self.header_fmt.repr)
                     == invert_kinds_check)
                 || wrap_idx == self.header_idx
@@ -618,7 +627,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
     fn typed_range_fwd(
         &mut self,
         limit: usize,
-        flag_mask: FieldValueFlags,
+        opts: FieldIterOpts,
     ) -> Option<ValidTypedRange<'a>> {
         if limit == 0 || !self.is_next_valid() {
             return None;
@@ -630,14 +639,8 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             data_begin += oversize_start as usize * fmt.size as usize;
         }
         let header_start = self.header_idx;
-        let field_count = self.next_n_fields_with_fmt(
-            limit,
-            [fmt.repr],
-            false,
-            flag_mask,
-            fmt.flags & flag_mask,
-            false,
-        );
+        let field_count =
+            self.next_n_fields_with_fmt(limit, [fmt.repr], false, opts);
         let mut data_end = self.get_prev_field_data_end();
         let mut oversize_end = 0;
         let mut header_end = self.header_idx;
@@ -670,7 +673,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
     fn typed_range_bwd(
         &mut self,
         limit: usize,
-        flag_mask: FieldValueFlags,
+        opts: FieldIterOpts,
     ) -> Option<ValidTypedRange<'a>> {
         if limit == 0 || !self.is_prev_valid() {
             return None;
@@ -684,14 +687,9 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         let fmt = self.header_fmt;
         let data_end = self.get_next_field_data() + fmt.size as usize;
         let header_end = self.header_idx + 1;
-        let field_count = self.prev_n_fields_with_fmt(
-            limit - 1,
-            [fmt.repr],
-            false,
-            flag_mask,
-            fmt.flags & flag_mask,
-            false,
-        ) + 1;
+        let field_count =
+            self.prev_n_fields_with_fmt(limit - 1, [fmt.repr], false, opts)
+                + 1;
         let header_start = self.header_idx;
         let data_start = self.get_next_field_data();
         let range = TypedRange::new(
@@ -860,38 +858,22 @@ where
         n: usize,
         kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
-        allow_ring_wrap: bool,
+        opts: FieldIterOpts,
     ) -> usize {
         let n = n.min(self.range_fwd());
-        self.iter.next_n_fields_with_fmt(
-            n,
-            kinds,
-            invert_kinds_check,
-            flag_mask,
-            flags,
-            allow_ring_wrap,
-        )
+        self.iter
+            .next_n_fields_with_fmt(n, kinds, invert_kinds_check, opts)
     }
     fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
         invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
-        allow_ring_wrap: bool,
+        opts: FieldIterOpts,
     ) -> usize {
         let n = n.min(self.range_bwd());
-        self.iter.prev_n_fields_with_fmt(
-            n,
-            kinds,
-            invert_kinds_check,
-            flag_mask,
-            flags,
-            allow_ring_wrap,
-        )
+        self.iter
+            .prev_n_fields_with_fmt(n, kinds, invert_kinds_check, opts)
     }
     fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
         self.iter.typed_field_fwd(limit.min(self.range_fwd()))
@@ -902,18 +884,16 @@ where
     fn typed_range_fwd(
         &mut self,
         limit: usize,
-        flag_mask: FieldValueFlags,
+        opts: FieldIterOpts,
     ) -> Option<ValidTypedRange<'a>> {
-        self.iter
-            .typed_range_fwd(limit.min(self.range_fwd()), flag_mask)
+        self.iter.typed_range_fwd(limit.min(self.range_fwd()), opts)
     }
     fn typed_range_bwd(
         &mut self,
         limit: usize,
-        flag_mask: FieldValueFlags,
+        opts: FieldIterOpts,
     ) -> Option<ValidTypedRange<'a>> {
-        self.iter
-            .typed_range_bwd(limit.min(self.range_bwd()), flag_mask)
+        self.iter.typed_range_bwd(limit.min(self.range_bwd()), opts)
     }
 
     fn into_base_iter(self) -> FieldIter<'a, Self::FieldDataRefType> {

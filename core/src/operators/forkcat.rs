@@ -24,12 +24,14 @@ use crate::{
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{CowFieldDataRef, FieldId, FieldIterRef, FieldRefOffset},
-        field_data::{field_value_flags, FieldData, FieldValueRepr},
+        field_data::{FieldData, FieldValueRepr},
         group_track::{
             GroupTrack, GroupTrackId, GroupTrackIterMut, GroupTrackIterRef,
         },
         iter_hall::{IterId, IterKind},
-        iters::{DestructuredFieldDataRef, FieldIter, FieldIterator},
+        iters::{
+            DestructuredFieldDataRef, FieldIter, FieldIterOpts, FieldIterator,
+        },
         match_set::MatchSetId,
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
@@ -784,7 +786,7 @@ pub fn propagate_forkcat(
 
             let mut range_rem = fields_to_consume;
             while let Some(range) =
-                iter.typed_range_fwd(range_rem, field_value_flags::DEFAULT)
+                iter.typed_range_fwd(range_rem, FieldIterOpts::default())
             {
                 range_rem -= range.field_count;
                 inserter.extend_from_valid_range_re_ref(

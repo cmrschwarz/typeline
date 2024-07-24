@@ -27,6 +27,7 @@ use scr_core::{
         field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
         group_track::GroupTrackIterRef,
         iter_hall::{IterId, IterKind},
+        iters::FieldIterOpts,
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -179,7 +180,7 @@ impl TfCollect {
             let Some(range) = bud.iter.typed_range_fwd(
                 bud.match_set_mgr,
                 group_iter.group_len_rem().min(batch_size_rem),
-                0,
+                FieldIterOpts::default(),
             ) else {
                 break;
             };

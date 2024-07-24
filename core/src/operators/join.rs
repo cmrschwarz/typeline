@@ -14,8 +14,7 @@ use crate::{
         action_buffer::ActorId,
         field::FieldRefOffset,
         field_data::{
-            field_value_flags, FieldData, FieldValueRepr, RunLength,
-            INLINE_STR_MAX_LEN,
+            FieldData, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
@@ -24,7 +23,7 @@ use crate::{
         },
         group_track::GroupTrackIterRef,
         iter_hall::{IterId, IterKind},
-        iters::FieldIterator,
+        iters::{FieldIterOpts, FieldIterator},
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
@@ -676,7 +675,7 @@ pub fn handle_tf_join<'a>(
                     .typed_range_fwd(
                         &jd.match_set_mgr,
                         rem,
-                        field_value_flags::DEFAULT,
+                        FieldIterOpts::default(),
                     )
                     .unwrap();
                 rem -= range.base.field_count;
@@ -704,7 +703,7 @@ pub fn handle_tf_join<'a>(
             desired_group_len_rem
                 .min(batch_size_rem)
                 .min(record_group_iter.group_len_rem()),
-            field_value_flags::DEFAULT,
+            FieldIterOpts::default(),
         ) else {
             break;
         };

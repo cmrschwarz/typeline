@@ -6,6 +6,7 @@ use super::{
         Undefined,
     },
     field_value_ref::value_as_bytes,
+    iters::FieldIterOpts,
     match_set::MatchSetManager,
     ref_iter::{
         AutoDerefIter, RefAwareBytesBufferIter, RefAwareFieldValueRangeIter,
@@ -661,7 +662,9 @@ impl FieldData {
         let mut iter = self.iter();
         loop {
             let slice_start_pos = iter.get_next_field_data();
-            let Some(range) = iter.typed_range_fwd(usize::MAX, 0) else {
+            let Some(range) =
+                iter.typed_range_fwd(usize::MAX, FieldIterOpts::default())
+            else {
                 break;
             };
             unsafe {
@@ -702,7 +705,7 @@ impl FieldData {
     pub fn append_data_to(&self, target: &mut FieldDataBuffer) {
         let mut iter = self.iter();
         while let Some(tr) =
-            iter.typed_range_fwd(usize::MAX, field_value_flags::DEFAULT)
+            iter.typed_range_fwd(usize::MAX, FieldIterOpts::default())
         {
             unsafe { append_data(tr.data, &mut |f| f(target)) };
         }
@@ -714,7 +717,7 @@ impl FieldData {
     ) -> usize {
         let mut fields_copied = 0;
         while let Some(tr) =
-            iter.typed_range_fwd(usize::MAX, field_value_flags::DEFAULT)
+            iter.typed_range_fwd(usize::MAX, FieldIterOpts::default())
         {
             unsafe {
                 append_data(tr.data, &mut |f: &mut dyn Fn(
@@ -743,7 +746,7 @@ impl FieldData {
     ) -> usize {
         let mut copied_fields = 0;
         while let Some(tr) =
-            iter.typed_range_fwd(usize::MAX, field_value_flags::DELETED)
+            iter.typed_range_fwd(usize::MAX, FieldIterOpts::default())
         {
             copied_fields += tr.field_count;
             targets_applicator(&mut |fd| {
@@ -777,7 +780,7 @@ impl FieldData {
         while let Some(tr) = iter.typed_range_fwd(
             match_set_mgr,
             usize::MAX,
-            field_value_flags::DELETED,
+            FieldIterOpts::default(),
         ) {
             copied_fields += tr.base.field_count;
             if tr.refs.is_none() {

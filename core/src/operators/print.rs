@@ -21,7 +21,7 @@ use crate::{
     options::chain_settings::{RationalsPrintMode, SettingRationalsPrintMode},
     record_data::{
         field::{Field, FieldManager},
-        field_data::{field_value_flags, FieldValueType},
+        field_data::FieldValueType,
         field_value::{Null, Undefined},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
@@ -30,7 +30,7 @@ use crate::{
             RealizedFormatKey,
         },
         iter_hall::IterId,
-        iters::{FieldIterator, UnfoldIterRunLength},
+        iters::{FieldIterOpts, FieldIterator, UnfoldIterRunLength},
         match_set::MatchSetManager,
         push_interface::PushInterface,
         ref_iter::{
@@ -227,7 +227,7 @@ pub fn handle_tf_print_raw(
         .bounded(0, batch_size);
     let mut iter = AutoDerefIter::new(fm, input_field_id, base_iter);
     'iter: while let Some(range) =
-        iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
+        iter.typed_range_fwd(msm, usize::MAX, FieldIterOpts::default())
     {
         metamatch!(match range.base.data {
             FieldValueSlice::Null(_) if print.opts.ignore_nulls => {

@@ -13,14 +13,13 @@ use crate::{
     options::chain_settings::{RationalsPrintMode, SettingRationalsPrintMode},
     record_data::{
         field::Field,
-        field_data::field_value_flags,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         formattable::{
             Formattable, FormattingContext, RealizedFormatKey, TypeReprFormat,
         },
         iter_hall::IterId,
-        iters::FieldIterator,
+        iters::{FieldIterOpts, FieldIterator},
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
@@ -294,7 +293,7 @@ pub fn handle_tf_string_sink(
     while let Some(range) = iter.typed_range_fwd(
         &jd.match_set_mgr,
         usize::MAX,
-        field_value_flags::DEFAULT,
+        FieldIterOpts::default(),
     ) {
         metamatch!(match range.base.data {
             FieldValueSlice::Null(_) => {

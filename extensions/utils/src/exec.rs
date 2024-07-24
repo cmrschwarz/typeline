@@ -50,13 +50,13 @@ use scr_core::{
         action_buffer::ActorRef,
         bytes_insertion_stream::BytesInsertionStream,
         field::{FieldId, FieldIterRef},
-        field_data::{field_value_flags, FieldData, FieldValueRepr},
+        field_data::{FieldData, FieldValueRepr},
         field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         formattable::RealizedFormatKey,
         iter_hall::IterKind,
-        iters::{FieldDataRef, FieldIter, UnfoldIterRunLength},
+        iters::{FieldDataRef, FieldIter, FieldIterOpts, UnfoldIterRunLength},
         match_set::MatchSetManager,
         push_interface::PushInterface,
         ref_iter::{
@@ -442,7 +442,7 @@ impl<'a> TfExec<'a> {
     ) {
         let mut cmd_idx = cmd_offset;
         while let Some(range) =
-            iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
+            iter.typed_range_fwd(msm, usize::MAX, FieldIterOpts::default())
         {
             metamatch!(match range.base.data {
                 #[expand((REP, ITER) in [

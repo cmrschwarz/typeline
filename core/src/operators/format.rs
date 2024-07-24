@@ -31,9 +31,7 @@ use crate::{
     record_data::{
         atom_iter_abstraction::{AtomIter, AutoDerefIterOrAtom},
         field::{Field, FieldIterRef, FieldManager},
-        field_data::{
-            field_value_flags, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
-        },
+        field_data::{FieldValueRepr, RunLength, INLINE_STR_MAX_LEN},
         field_value::{FieldValue, Null, Undefined},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
@@ -44,7 +42,7 @@ use crate::{
             ValueFormattingOpts,
         },
         iter_hall::IterKind,
-        iters::FieldIterator,
+        iters::{FieldIterOpts, FieldIterator},
         match_set::MatchSetManager,
         push_interface::PushInterface,
         ref_iter::{
@@ -999,7 +997,9 @@ pub fn lookup_width_spec(
         .bounded(0, batch_size);
     let mut iter = AutoDerefIter::new(fm, ident_ref.field_id, iter);
 
-    while let Some(range) = iter.typed_range_fwd(msm, usize::MAX, 0) {
+    while let Some(range) =
+        iter.typed_range_fwd(msm, usize::MAX, FieldIterOpts::default())
+    {
         match range.base.data {
             FieldValueSlice::Int(ints) => {
                 for (v, rl) in FieldValueRangeIter::from_range(&range, ints) {
@@ -1136,7 +1136,7 @@ pub fn setup_key_output_state(
     };
 
     while let Some(range) =
-        iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
+        iter.typed_range_fwd(msm, usize::MAX, FieldIterOpts::default())
     {
         metamatch!(match range.base.data {
             #[expand(REP in [Null, Undefined])]
@@ -1694,7 +1694,7 @@ fn write_fmt_key(
         type_repr_format: k.opts.type_repr,
     };
     while let Some(range) =
-        iter.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
+        iter.typed_range_fwd(msm, usize::MAX, FieldIterOpts::default())
     {
         metamatch!(match range.base.data {
             #[expand(REP in [Null, Undefined])]

@@ -10,8 +10,8 @@ use crate::{
     cli::call_expr::CallExpr,
     job::JobData,
     record_data::{
-        field_data::field_value_flags, field_value_ref::FieldValueSlice,
-        iter_hall::IterId,
+        field_value_ref::FieldValueSlice, iter_hall::IterId,
+        iters::FieldIterOpts,
     },
     scr_error::ScrError,
 };
@@ -69,11 +69,9 @@ pub fn handle_tf_success_updator(
 
     // PERF: we could optimize this
     let mut rem = batch_size;
-    while let Some(range) = iter.typed_range_fwd(
-        &jd.match_set_mgr,
-        rem,
-        field_value_flags::DEFAULT,
-    ) {
+    while let Some(range) =
+        iter.typed_range_fwd(&jd.match_set_mgr, rem, FieldIterOpts::default())
+    {
         if matches!(range.base.data, FieldValueSlice::Error(_)) {
             su.success = false;
         }

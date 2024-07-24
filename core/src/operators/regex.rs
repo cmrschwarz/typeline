@@ -17,9 +17,7 @@ use crate::{
         action_buffer::{ActionBuffer, ActorId, ActorRef},
         field::{Field, FieldId, FieldRefOffset},
         field_action::FieldActionKind,
-        field_data::{
-            field_value_flags, FieldData, FieldValueRepr, RunLength,
-        },
+        field_data::{FieldData, FieldValueRepr, RunLength},
         field_value::{
             FieldReference, FieldValue, ObjectKeysStored, SlicedFieldReference,
         },
@@ -27,7 +25,7 @@ use crate::{
         field_value_slice_iter::FieldValueRangeIter,
         formattable::RealizedFormatKey,
         iter_hall::{IterId, IterKind},
-        iters::FieldIterator,
+        iters::{FieldIterOpts, FieldIterator},
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RangeOffsets, RefAwareBytesBufferIter,
@@ -1028,7 +1026,7 @@ pub fn handle_tf_regex(
         let Some(range) = iter.typed_range_fwd(
             &jd.match_set_mgr,
             max_run_len,
-            field_value_flags::DEFAULT,
+            FieldIterOpts::default(),
         ) else {
             break;
         };

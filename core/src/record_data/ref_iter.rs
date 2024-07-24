@@ -5,16 +5,14 @@ use super::{
         CowFieldDataRef, Field, FieldId, FieldManager, FieldRefOffset,
         FIELD_REF_LOOKUP_ITER_ID,
     },
-    field_data::{field_value_flags, FieldValueType},
+    field_data::FieldValueType,
     field_value::{FieldReference, SlicedFieldReference},
-    iters::{DestructuredFieldDataRef, FieldDataRef},
+    iters::{DestructuredFieldDataRef, FieldDataRef, FieldIterOpts},
     match_set::MatchSetManager,
 };
 
 use crate::record_data::{
-    field_data::{
-        field_value_flags::FieldValueFlags, FieldValueHeader, RunLength,
-    },
+    field_data::{FieldValueHeader, RunLength},
     field_value_ref::{
         FieldValueRef, FieldValueSlice, TypedRange, ValidTypedRange,
     },
@@ -234,7 +232,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         &mut self,
         match_set_mgr: &'_ MatchSetManager,
         mut limit: usize,
-        flag_mask: FieldValueFlags,
+        opts: FieldIterOpts,
     ) -> Option<(ValidTypedRange<'a>, FieldValueRangeIter<'a, R>)> {
         let (mut field_ref, mut field_rl) = self.refs_iter.peek()?;
         let refs_headers_start = self.refs_iter.header_ptr();
@@ -256,9 +254,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
                 (field_rl as usize).min(limit),
                 [fmt.repr],
                 false,
-                flag_mask,
-                fmt.flags,
-                false,
+                opts,
             );
             field_count += data_stride;
             limit -= data_stride;
@@ -459,14 +455,14 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         &mut self,
         match_set_mgr: &MatchSetManager,
         limit: usize,
-        flags: FieldValueFlags,
+        opts: FieldIterOpts,
     ) -> Option<RefAwareTypedRange<'a>> {
         loop {
             if let Some(ri) = &mut self.ref_iter {
                 match ri {
                     AnyRefIter::FieldRef(iter) => {
                         if let Some((range, refs)) =
-                            iter.typed_range_fwd(match_set_mgr, limit, flags)
+                            iter.typed_range_fwd(match_set_mgr, limit, opts)
                         {
                             let (fr, _) = refs.peek().unwrap();
                             return Some(RefAwareTypedRange {
@@ -478,7 +474,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                     }
                     AnyRefIter::SlicedFieldRef(iter) => {
                         if let Some((range, refs)) =
-                            iter.typed_range_fwd(match_set_mgr, limit, flags)
+                            iter.typed_range_fwd(match_set_mgr, limit, opts)
                         {
                             let (fr, _) = refs.peek().unwrap();
                             return Some(RefAwareTypedRange {
@@ -494,7 +490,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                 self.ref_iter = None;
             }
             let field_pos = self.iter.get_next_field_pos();
-            if let Some(range) = self.iter.typed_range_fwd(limit, flags) {
+            if let Some(range) = self.iter.typed_range_fwd(limit, opts) {
                 if self.setup_for_field_refs_range(
                     match_set_mgr,
                     field_pos,
@@ -556,7 +552,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                     self.iter.typed_field_bwd(limit);
                     let range = self
                         .iter
-                        .typed_range_fwd(limit, field_value_flags::DEFAULT)
+                        .typed_range_fwd(limit, FieldIterOpts::default())
                         .unwrap();
                     self.setup_for_field_refs_range(
                         match_set_mgr,
@@ -576,7 +572,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         &mut self,
         msm: &'_ MatchSetManager,
     ) -> Option<RefAwareTypedRange<'a>> {
-        self.typed_range_fwd(msm, usize::MAX, field_value_flags::DEFAULT)
+        self.typed_range_fwd(msm, usize::MAX, FieldIterOpts::default())
     }
     // using `next_range` and nesting RefAwareTypedSliceIters is significantly
     // faster. for example, `scr seqn=1G sum p` gets a 5x speedup
@@ -1045,7 +1041,7 @@ mod ref_iter_tests {
         },
         field_value::SlicedFieldReference,
         field_value_ref::FieldValueSlice,
-        iters::FieldIter,
+        iters::{FieldIter, FieldIterOpts},
         push_interface::PushInterface,
         scope_manager::ScopeManager,
     };
@@ -1080,7 +1076,7 @@ mod ref_iter_tests {
                 .typed_range_fwd(
                     &match_set_mgr,
                     usize::MAX,
-                    field_value_flags::DEFAULT,
+                    FieldIterOpts::default(),
                 )
                 .unwrap();
             let iter = match range.base.data {

@@ -2,12 +2,11 @@ use std::sync::RwLockReadGuard;
 
 use super::{
     field_data::{
-        field_value_flags, FieldValueFlags, FieldValueFormat,
-        FieldValueHeader, RunLength,
+        field_value_flags, FieldValueFormat, FieldValueHeader, RunLength,
     },
     field_value::FieldValue,
     field_value_ref::{TypedRange, ValidTypedRange},
-    iters::FieldIterator,
+    iters::{FieldIterOpts, FieldIterator},
     match_set::MatchSetManager,
     ref_iter::{AutoDerefIter, RefAwareTypedRange},
     scope_manager::Atom,
@@ -30,11 +29,11 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIterOrAtom<'a, I> {
         &mut self,
         msm: &MatchSetManager,
         limit: usize,
-        flags: FieldValueFlags,
+        opts: FieldIterOpts,
     ) -> Option<RefAwareTypedRange> {
         match self {
             AutoDerefIterOrAtom::Iter(iter) => {
-                iter.typed_range_fwd(msm, limit, flags)
+                iter.typed_range_fwd(msm, limit, opts)
             }
             AutoDerefIterOrAtom::Atom(iter) => iter.typed_range_fwd(limit),
         }

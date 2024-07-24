@@ -2,12 +2,11 @@ use crate::{
     job::JobData,
     record_data::{
         field::Field,
-        field_data::field_value_flags,
         field_value::FieldValue,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         iter_hall::IterId,
-        iters::FieldIterator,
+        iters::{FieldIterOpts, FieldIterator},
         push_interface::PushInterface,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
@@ -127,7 +126,7 @@ pub fn handle_tf_field_value_sink(
     while let Some(range) = iter.typed_range_fwd(
         &jd.match_set_mgr,
         usize::MAX,
-        field_value_flags::DEFAULT,
+        FieldIterOpts::default(),
     ) {
         metamatch!(match range.base.data {
             #[expand(REP in [Null, Undefined])]
