@@ -115,16 +115,6 @@ pub trait FieldIterator<'a>: Sized + Clone {
     fn prev_header(&mut self) -> RunLength;
     fn next_field(&mut self) -> RunLength;
     fn prev_field(&mut self) -> RunLength;
-    fn next_n_fields_with_fmt_and_data_check<const N: usize>(
-        &mut self,
-        n: usize,
-        kinds: [FieldValueRepr; N],
-        invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
-        allow_ring_wrap: bool,
-        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
-    ) -> usize;
     fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
@@ -133,26 +123,6 @@ pub trait FieldIterator<'a>: Sized + Clone {
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         allow_ring_wrap: bool,
-    ) -> usize {
-        self.next_n_fields_with_fmt_and_data_check(
-            n,
-            kinds,
-            invert_kinds_check,
-            flag_mask,
-            flags,
-            allow_ring_wrap,
-            |_, _| true,
-        )
-    }
-    fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
-        &mut self,
-        n: usize,
-        kinds: [FieldValueRepr; N],
-        invert_kinds_check: bool,
-        flag_mask: FieldValueFlags,
-        flags: FieldValueFlags,
-        allow_ring_wrap: bool,
-        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize;
     fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
@@ -162,17 +132,7 @@ pub trait FieldIterator<'a>: Sized + Clone {
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         allow_ring_wrap: bool,
-    ) -> usize {
-        self.prev_n_fields_with_fmt_and_data_check(
-            n,
-            kinds,
-            invert_kinds_check,
-            flag_mask,
-            flags,
-            allow_ring_wrap,
-            |_, _| true,
-        )
-    }
+    ) -> usize;
     fn move_to_field_pos(&mut self, field_pos: usize) -> usize {
         let curr = self.get_next_field_pos();
         match curr.cmp(&field_pos) {
@@ -495,7 +455,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         }
         self.prev_header()
     }
-    fn next_n_fields_with_fmt_and_data_check<const N: usize>(
+    fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
@@ -503,7 +463,6 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         flag_mask: FieldValueFlags,
         mut flags: FieldValueFlags,
         allow_ring_wrap: bool,
-        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         flags &= flag_mask;
         let mut stride_rem = n;
@@ -543,10 +502,6 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
                 || (self.header_fmt.flags & flag_mask) != flags
                 || (kinds.contains(&self.header_fmt.repr)
                     == invert_kinds_check)
-                || !data_check(
-                    &self.header_fmt,
-                    self.fdr.data().ptr_from_index(self.get_next_field_data()),
-                )
                 || self.header_idx == wrap_idx
             {
                 return n - stride_rem;
@@ -560,7 +515,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             }
         }
     }
-    fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
+    fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
@@ -568,7 +523,6 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         flag_mask: FieldValueFlags,
         mut flags: FieldValueFlags,
         allow_ring_wrap: bool,
-        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         flags &= flag_mask;
         if n == 0
@@ -605,10 +559,6 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
                 || (self.header_fmt.flags & flag_mask) != flags
                 || (kinds.contains(&self.header_fmt.repr)
                     == invert_kinds_check)
-                || !data_check(
-                    &self.header_fmt,
-                    self.fdr.data().ptr_from_index(self.get_next_field_data()),
-                )
                 || wrap_idx == self.header_idx
             {
                 return n - stride_rem;
@@ -905,7 +855,7 @@ where
             self.iter.prev_field()
         }
     }
-    fn next_n_fields_with_fmt_and_data_check<const N: usize>(
+    fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
@@ -913,20 +863,18 @@ where
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         allow_ring_wrap: bool,
-        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         let n = n.min(self.range_fwd());
-        self.iter.next_n_fields_with_fmt_and_data_check(
+        self.iter.next_n_fields_with_fmt(
             n,
             kinds,
             invert_kinds_check,
             flag_mask,
             flags,
             allow_ring_wrap,
-            data_check,
         )
     }
-    fn prev_n_fields_with_fmt_and_data_check<const N: usize>(
+    fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
@@ -934,17 +882,15 @@ where
         flag_mask: FieldValueFlags,
         flags: FieldValueFlags,
         allow_ring_wrap: bool,
-        data_check: impl Fn(&FieldValueFormat, *const u8) -> bool,
     ) -> usize {
         let n = n.min(self.range_bwd());
-        self.iter.prev_n_fields_with_fmt_and_data_check(
+        self.iter.prev_n_fields_with_fmt(
             n,
             kinds,
             invert_kinds_check,
             flag_mask,
             flags,
             allow_ring_wrap,
-            data_check,
         )
     }
     fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
