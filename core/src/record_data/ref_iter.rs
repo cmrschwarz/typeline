@@ -253,8 +253,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
             let data_stride = self.data_iter.next_n_fields_with_fmt(
                 (field_rl as usize).min(limit),
                 [fmt.repr],
-                false,
-                opts,
+                opts.with_invert_kinds_check(false),
             );
             field_count += data_stride;
             limit -= data_stride;
