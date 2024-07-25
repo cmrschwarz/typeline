@@ -580,6 +580,17 @@ fn negative_seq() -> Result<(), ScrError> {
 }
 
 #[test]
+// regression test against 49544e93b2d6ae40b61a2e2794063e9b9112cdee
+// (inserter reservation issue on non fast step sequences)
+fn negative_seq_stringified() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(-1, -5, -2)?)
+        .run_collect_stringified()?;
+    assert_eq!(res, ["-1", "-3"]);
+    Ok(())
+}
+
+#[test]
 fn stream_error_after_regular_error() -> Result<(), ScrError> {
     // TODO: this test used to test for a stream value error as output of
     // the format. that is no longer observed since join outputs a stream

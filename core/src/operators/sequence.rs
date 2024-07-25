@@ -244,6 +244,7 @@ impl GeneratorSequence for TfSequence {
                 }
             } else if count > 0 {
                 let mut int_str = i64_to_str(false, self.current_value);
+                self.current_value += self.ss.step;
                 // TODO: this whole variable sized type inserter thing sucks
                 // reimplement that with a heuristic resrevation size maybe
                 // in this special case we could do a perfect reserve and then
