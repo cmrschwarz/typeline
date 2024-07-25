@@ -242,12 +242,17 @@ impl GeneratorSequence for TfSequence {
                     }
                     self.current_value += self.ss.step;
                 }
-            } else {
-                for _ in 0..count {
-                    inserter.push_may_rereserve(&i64_to_str(
-                        false,
-                        self.current_value,
-                    ));
+            } else if count > 0 {
+                let mut int_str = i64_to_str(false, self.current_value);
+                // TODO: this whole variable sized type inserter thing sucks
+                // reimplement that with a heuristic resrevation size maybe
+                // in this special case we could do a perfect reserve and then
+                // avoid checking all together
+                inserter.drop_and_reserve(count, int_str.len());
+                inserter.push_may_rereserve(&int_str);
+                for _ in 1..count {
+                    int_str = i64_to_str(false, self.current_value);
+                    inserter.push_may_rereserve(&int_str);
                     self.current_value += self.ss.step;
                 }
             }
