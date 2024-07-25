@@ -1045,6 +1045,7 @@ mod ref_iter_tests {
         scope_manager::ScopeManager,
     };
 
+    #[track_caller]
     fn compare_iter_output(
         fd: FieldData,
         fd_refs: FieldData,

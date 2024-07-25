@@ -23,7 +23,7 @@ pub trait FieldDataRef<'a>: Sized + Clone {
     }
 }
 
-#[bitfield(u8, default = 3)]
+#[bitfield(u8, default = 0b011)]
 pub struct FieldIterOpts {
     #[bit(0, rw)]
     allow_dead: bool,
@@ -504,7 +504,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             }
         };
         loop {
-            if opts.allow_dead()
+            if !opts.allow_dead()
                 && self.fdr.headers().len() != self.header_idx + 1
                 && self.fdr.headers()[self.header_idx + 1].deleted()
             {

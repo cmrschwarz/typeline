@@ -86,6 +86,23 @@ impl SequenceMode {
     }
 }
 
+impl SequenceSpec {
+    pub fn normalize_end(&mut self) {
+        let range = self.end - self.start;
+        let offset = range % self.step;
+        if offset == 0 {
+            return;
+        }
+        self.end += self.step - offset;
+    }
+    pub fn len(&self) -> u64 {
+        ((self.end - self.start) / self.step) as u64
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 impl TfSequence {
     pub fn display_name(&self) -> DefaultTransformName {
         self.mode.to_str_with_seq_spec(self.ss).into()
@@ -175,7 +192,7 @@ impl GeneratorSequence for TfSequence {
     }
 
     fn seq_len_rem(&self) -> u64 {
-        (self.ss.end - self.current_value) as u64
+        ((self.ss.end - self.current_value) / self.ss.step) as u64
     }
 
     fn reset_sequence(&mut self) {
@@ -360,12 +377,13 @@ fn create_op_sequence_with_opts(
             end -= -step - rem;
         }
     }
-    let ss = SequenceSpec { start, end, step };
+    let mut ss = SequenceSpec { start, end, step };
+    ss.normalize_end();
     Ok(OperatorData::Sequence(OpSequence {
         ss,
         mode,
         non_string_reads: true,
-        seq_len_total: ((ss.end - ss.start) / ss.step) as u64,
+        seq_len_total: ss.len(),
     }))
 }
 
@@ -421,4 +439,26 @@ pub fn create_op_enum_unbounded(
         SequenceMode::EnumUnbounded,
         Span::Generated,
     )
+}
+
+#[cfg(test)]
+mod test {
+    use rstest::rstest;
+
+    use super::SequenceSpec;
+
+    #[rstest]
+    #[case(1, 3, 2, 3)]
+    #[case(1, 4, 2, 5)]
+    #[case(-1, -4, -2, -5)]
+    fn normalize_end(
+        #[case] start: i64,
+        #[case] end: i64,
+        #[case] step: i64,
+        #[case] normalized_end: i64,
+    ) {
+        let mut ss = SequenceSpec { start, end, step };
+        ss.normalize_end();
+        assert_eq!(ss.end, normalized_end);
+    }
 }

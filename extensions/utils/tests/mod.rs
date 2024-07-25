@@ -33,11 +33,12 @@ use scr_ext_utils::{
     tail::create_op_tail_add, UtilsExtension,
 };
 
-static EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> = Lazy::new(|| {
-    ExtensionRegistry::new([Box::<dyn Extension>::from(Box::new(
-        UtilsExtension::default(),
-    ))])
-});
+static UTILS_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
+    Lazy::new(|| {
+        ExtensionRegistry::new([Box::<dyn Extension>::from(Box::new(
+            UtilsExtension::default(),
+        ))])
+    });
 
 #[test]
 fn primes() -> Result<(), ScrError> {
@@ -191,7 +192,7 @@ fn flatten_duped_objects() -> Result<(), ScrError> {
 #[test]
 fn parse_exec() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_extensions(EXTENSION_REGISTRY.clone()),
+        ScrSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["[", "exec", "echo", "foo", "]"],
     )?
     .run_collect_stringified()?;
@@ -202,7 +203,7 @@ fn parse_exec() -> Result<(), ScrError> {
 #[test]
 fn parse_exec_2() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_extensions(EXTENSION_REGISTRY.clone()),
+        ScrSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["seq=3", "[", "exec", "echo", "{}", "]"],
     )?
     .run_collect_stringified()?;
@@ -229,15 +230,19 @@ fn run_multi_exec() -> Result<(), ScrError> {
 #[test]
 fn run_sleep() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
-        .add_op(create_op_seq(0, 3, 1).unwrap())
+        .add_op(create_op_seq(0, 6, 2).unwrap())
         .add_op(create_op_foreach([
-            create_op_exec_from_strings(["sh", "-c", "sleep {} && echo {}"])
-                .unwrap(),
+            create_op_exec_from_strings([
+                "sh",
+                "-c",
+                "sleep 0.{} && echo 0.{}",
+            ])
+            .unwrap(),
             create_op_lines(),
             create_op_join(None, None, false),
         ]))
         .run_collect_stringified()?;
-    assert_eq!(&res, &["0", "1", "2",]);
+    assert_eq!(&res, &["0", "0.2", "0.4",]);
     Ok(())
 }
 

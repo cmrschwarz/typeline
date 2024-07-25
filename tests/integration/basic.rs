@@ -570,6 +570,14 @@ fn error_on_sbs_0() {
         }
     );
 }
+#[test]
+fn negative_seq() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(-1, -5, -2)?)
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [-1, -3]);
+    Ok(())
+}
 
 #[test]
 fn stream_error_after_regular_error() -> Result<(), ScrError> {
