@@ -28,7 +28,7 @@ use crate::{
     options::session_setup::SessionSetupData,
     record_data::{
         array::Array,
-        field_value::{FieldValue, FieldValueKind, Object},
+        field_value::{FieldValue, FieldValueKind, Object, ObjectKeysStored},
         scope_manager::{ScopeId, DEFAULT_SCOPE_ID},
     },
     scr_error::ScrError,
@@ -371,6 +371,19 @@ pub fn parse_operator_data(
     })
 }
 
+fn require_object_start_as_separate_arg(
+    arg: &[u8],
+    arg_span: Span,
+) -> Result<(), CliArgumentError> {
+    if arg.len() > 1 {
+        return Err(CliArgumentError::new(
+            "object start `{` must be followed by whitespace",
+            arg_span.subslice_offsets(1, arg.len()),
+        ));
+    }
+    Ok(())
+}
+
 fn require_list_start_as_separate_arg(
     arg: &[u8],
     i: usize,
@@ -379,7 +392,7 @@ fn require_list_start_as_separate_arg(
     if arg.len() > i + 1 {
         return Err(CliArgumentError::new(
             "list start `[` must be followed by whitespace",
-            arg_span.subslice_offsets(i, arg.len()),
+            arg_span.subslice_offsets(i + 1, arg.len()),
         ));
     }
     Ok(())
@@ -441,7 +454,7 @@ pub fn gobble_cli_args_while_dashed_or_eq<'a>(
             break;
         }
         let (arg, span) = src.next().unwrap();
-        final_span = Some(span);
+
         if dash {
             parse_dashed_arg(
                 arg,
@@ -449,14 +462,17 @@ pub fn gobble_cli_args_while_dashed_or_eq<'a>(
                 span,
                 target.get_or_insert_with(IndexMap::new),
             )?;
+            final_span = Some(span);
             continue;
         }
-        args.push(Argument {
-            value: parse_single_arg_value(&arg[1..]),
-            span,
+        let arg = parse_arg(
+            &arg[1..],
+            span.subslice_offsets(1, arg.len()),
+            src,
             source_scope,
-            meta_info: None,
-        });
+        )?;
+        final_span = Some(arg.span);
+        args.push(arg);
     }
     Ok(final_span)
 }
@@ -490,6 +506,13 @@ pub fn parse_block_until_end<'a>(
         "unterminated block expression: end of input reached while searching for `end`",
         block_start,
     ))
+}
+
+pub fn error_unterminated_object(list_start: Span) -> CliArgumentError {
+    CliArgumentError::new(
+        "unterminated object: eof reached while searching for `}`",
+        list_start,
+    )
 }
 
 pub fn error_unterminated_list(list_start: Span) -> CliArgumentError {
@@ -787,6 +810,162 @@ pub fn create_nop_arg(source_scope: ScopeId) -> Argument {
     )
 }
 
+fn object_key_to_str(
+    argv: &[u8],
+    span: Span,
+) -> Result<&str, CliArgumentError> {
+    let Ok(key) = argv.to_str() else {
+        return Err(CliArgumentError::new(
+            "object key must be valid utf-8",
+            span,
+        ));
+    };
+    Ok(key)
+}
+
+fn parse_arg<'a>(
+    val: &[u8],
+    span: Span,
+    src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
+    source_scope: ScopeId,
+) -> Result<Argument, CliArgumentError> {
+    Ok(if val.starts_with(b"{") {
+        require_object_start_as_separate_arg(val, span)?;
+        parse_object_after_start(src, span, source_scope)?
+    } else if val.starts_with(b"[") {
+        require_list_start_as_separate_arg(val, 0, span)?;
+        parse_list_after_start(src, span, source_scope)?
+    } else {
+        Argument {
+            value: parse_single_arg_value(val),
+            span,
+            source_scope,
+            meta_info: None,
+        }
+    })
+}
+
+fn reject_duplicate_object_key(
+    args: &IndexMap<String, FieldValue>,
+    key: &str,
+    _start_span: Span,
+    span: Span,
+) -> Result<(), CliArgumentError> {
+    if args.contains_key(key) {
+        return Err(CliArgumentError::new_s(
+            format!("object contains key twice: '{key}'"),
+            span,
+        ));
+    }
+    Ok(())
+}
+
+pub fn parse_object_after_start<'a>(
+    src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
+    start_span: Span,
+    source_scope: ScopeId,
+) -> Result<Argument, CliArgumentError> {
+    let mut args = ObjectKeysStored::default();
+    while let Some((mut argv, mut span)) = src.next() {
+        if argv == b"}" {
+            return Ok(Argument {
+                value: FieldValue::Object(Box::new(Object::KeysStored(args))),
+                span: start_span.span_until(span).unwrap(),
+                source_scope,
+                meta_info: None,
+            });
+        }
+
+        let leading_colon = argv.starts_with(b":");
+        if leading_colon {
+            argv = &argv[1..];
+            span = span.slice_of_start(1);
+        }
+
+        let Some((next_v, next_span)) = src.peek() else {
+            return Err(error_unterminated_object(start_span));
+        };
+
+        let comma = next_v == b",";
+        let closing_brace = next_v == b"}";
+        if !leading_colon {
+            if let Some(colon) = argv.find_byte(b':') {
+                let obj_key = span.subslice_offsets(0, colon);
+                let key = object_key_to_str(&argv[..colon], obj_key)?;
+                reject_duplicate_object_key(&args, key, start_span, obj_key)?;
+                args.insert(
+                    key.to_owned(),
+                    FieldValue::Argument(Box::new(Argument {
+                        value: parse_single_arg_value(&argv[colon + 1..]),
+                        span: span.slice_of_start(colon + 1),
+                        source_scope,
+                        meta_info: None,
+                    })),
+                );
+                if comma {
+                    src.next();
+                    continue;
+                }
+                return Err(CliArgumentError::new(
+                    "expected `,` or `}` after object entry",
+                    *next_span,
+                ));
+            }
+        }
+        if comma || closing_brace {
+            let key = object_key_to_str(argv, span)?;
+            reject_duplicate_object_key(&args, key, start_span, span)?;
+            args.insert(key.to_owned(), FieldValue::Null);
+            if comma {
+                src.next();
+            }
+            continue;
+        }
+
+        let key = object_key_to_str(argv, span)?;
+        let key_span = span;
+
+        if !next_v.starts_with(b":") {
+            if !leading_colon && !key.ends_with(':') {
+                return Err(CliArgumentError::new(
+                    "expected `:`,  `,` or `}` after object key",
+                    key_span,
+                ));
+            }
+            let key = key[..key.len() - 1].to_owned();
+            reject_duplicate_object_key(&args, &key, start_span, span)?;
+            args.insert(
+                key,
+                FieldValue::Argument(Box::new(Argument {
+                    value: parse_single_arg_value(next_v),
+                    span: *next_span,
+                    source_scope,
+                    meta_info: None,
+                })),
+            );
+            src.next();
+            continue;
+        }
+        let arg = if next_v.len() > 1 {
+            Argument {
+                value: parse_single_arg_value(&next_v[1..]),
+                span: next_span.slice_of_start(1),
+                source_scope,
+                meta_info: None,
+            }
+        } else {
+            src.next();
+            let Some((val, span)) = src.next() else {
+                return Err(error_unterminated_object(start_span));
+            };
+            parse_arg(val, span, src, source_scope)?
+        };
+
+        args.insert(key.to_owned(), FieldValue::Argument(Box::new(arg)));
+    }
+    Err(error_unterminated_object(start_span))
+}
+
 pub fn parse_list_after_start<'a>(
     src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
     start_span: Span,
@@ -823,17 +1002,12 @@ pub fn parse_list_after_start<'a>(
 
         let (modes, i) = parse_modes(argv, span)?;
 
-        let mut arg = if argv.get(i) == Some(&b'[') {
-            require_list_start_as_separate_arg(argv, i, span)?;
-            parse_list_after_start(src, span, source_scope)?
-        } else {
-            Argument {
-                value: parse_single_arg_value(&argv[i..]),
-                span,
-                source_scope,
-                meta_info: None,
-            }
-        };
+        let mut arg = parse_arg(
+            &argv[i..],
+            span.subslice_offsets(i, argv.len()),
+            src,
+            source_scope,
+        )?;
 
         if modes.transparent_mode {
             arg = wrap_expr_in_transparent(arg);
@@ -1179,7 +1353,7 @@ mod test {
     use crate::{
         cli::{
             call_expr::{Argument, CallExprEndKind, MetaInfo, Span},
-            cli_args_into_arguments_iter, parse_call_expr,
+            cli_args_into_arguments_iter, parse_call_expr, CliArgumentError,
         },
         record_data::{
             array::Array,
@@ -1343,6 +1517,69 @@ mod test {
                 meta_info: Some(MetaInfo::EndKind(CallExprEndKind::End(
                     Span::from_single_arg(5, 3)
                 )))
+            },
+        )
+    }
+    #[test]
+    fn test_duplicate_object_key() {
+        let src = ["seq", "={", "foo", ",", "foo:bar", "}"];
+        let res = parse_call_expr(
+            &mut cli_args_into_arguments_iter(
+                src.into_iter().map(str::as_bytes),
+            ),
+            DEFAULT_SCOPE_ID,
+        );
+        assert_eq!(
+            res.err(),
+            Some(CliArgumentError::new_s(
+                "object contains key twice: 'foo'".into(),
+                Span::from_single_arg_with_offset(4, 0, 3)
+            ))
+        );
+    }
+    #[test]
+    fn test_parse_object_arg() {
+        let src = ["seq", "={", "foo", ",", "bar:bar", ",", ":baz:quux", "}"];
+        let expr = parse_call_expr(
+            &mut cli_args_into_arguments_iter(
+                src.into_iter().map(str::as_bytes),
+            ),
+            DEFAULT_SCOPE_ID,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!expr.append_mode);
+        assert_eq!(
+            expr.arg,
+            Argument {
+                value: FieldValue::Array(Array::Argument(vec![
+                    Argument {
+                        value: FieldValue::Text("seq".to_string()),
+                        span: Span::from_single_arg(0, 3),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        meta_info: None
+                    },
+                    Argument {
+                        value: FieldValue::Object(Box::new(
+                            Object::KeysStored(indexmap! {
+                                "foo".into() => FieldValue::Null,
+                                "bar".into() => FieldValue::Argument(Box::new(Argument {
+                                    value: FieldValue::Text("bar".into()),
+                                    span: Span::from_single_arg_with_offset(4, 4, 7),
+                                    source_scope: DEFAULT_SCOPE_ID,
+                                    meta_info: None
+                                })),
+                                "baz:quux".into() => FieldValue::Null,
+                            })
+                        )),
+                        span: Span::from_cli_arg(1, 8, 1, 1),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        meta_info: None
+                    },
+                ])),
+                span: Span::from_cli_arg(0, 8, 0, 1),
+                source_scope: DEFAULT_SCOPE_ID,
+                meta_info: Some(MetaInfo::EndKind(CallExprEndKind::Inline))
             },
         )
     }

@@ -201,6 +201,17 @@ fn parse_exec() -> Result<(), ScrError> {
 }
 
 #[test]
+fn parse_exec_stdin() -> Result<(), ScrError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        ScrSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
+        ["str=foo", "[", "exec", "{", "-i", "}", "cat", "]"],
+    )?
+    .run_collect_stringified()?;
+    assert_eq!(res, ["foo\n"]);
+    Ok(())
+}
+
+#[test]
 fn parse_exec_2() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
         ScrSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
@@ -242,7 +253,7 @@ fn run_sleep() -> Result<(), ScrError> {
             create_op_join(None, None, false),
         ]))
         .run_collect_stringified()?;
-    assert_eq!(&res, &["0", "0.2", "0.4",]);
+    assert_eq!(&res, &["0.0", "0.2", "0.4"]);
     Ok(())
 }
 

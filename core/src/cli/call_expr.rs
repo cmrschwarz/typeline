@@ -411,6 +411,26 @@ impl Span {
             env_var @ Span::EnvVar { .. } => env_var,
         }
     }
+    pub fn slice_of_start(&self, cli_arg_offset_start: usize) -> Span {
+        match *self {
+            Span::CliArg {
+                start,
+                end,
+                offset_start,
+                offset_end,
+            } => Span::CliArg {
+                start,
+                end,
+                offset_start: offset_start + cli_arg_offset_start as u16,
+                offset_end,
+            },
+            Span::Generated => Span::Generated,
+            Span::FlagsObject => Span::FlagsObject,
+            Span::Builtin => Span::Builtin,
+            macro_exp @ Span::MacroExpansion { .. } => macro_exp,
+            env_var @ Span::EnvVar { .. } => env_var,
+        }
+    }
     pub fn span_until(&self, end: Span) -> Option<Span> {
         match (*self, end) {
             (
