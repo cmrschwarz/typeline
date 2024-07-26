@@ -193,7 +193,7 @@ fn flatten_duped_objects() -> Result<(), ScrError> {
 fn parse_exec() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
         ScrSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
-        ["[", "exec", "echo", "foo", "]"],
+        ["[", "exec", "sh", "-c", "sleep 0.1; echo foo", "]"],
     )?
     .run_collect_stringified()?;
     assert_eq!(res, ["foo\n"]);

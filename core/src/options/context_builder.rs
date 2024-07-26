@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use once_cell::sync::Lazy;
 
@@ -25,7 +25,7 @@ use crate::{
 use super::{
     chain_settings::{
         ChainSetting, SettingBatchSize, SettingConversionError,
-        SettingMaxThreads, SettingStreamBufferSize,
+        SettingDebugLog, SettingMaxThreads, SettingStreamBufferSize,
         SettingStreamSizeThreshold,
     },
     session_setup::{ScrSetupOptions, SessionSetupData},
@@ -347,5 +347,13 @@ impl ContextBuilder {
         sst: usize,
     ) -> Result<Self, SettingConversionError> {
         self.set_chain_setting::<SettingStreamSizeThreshold>(sst)
+    }
+    pub fn set_debug_log_path(
+        self,
+        path: impl AsRef<Path>,
+    ) -> Result<Self, SettingConversionError> {
+        self.set_chain_setting::<SettingDebugLog>(Some(
+            path.as_ref().to_owned(),
+        ))
     }
 }

@@ -120,6 +120,7 @@ struct OutStream {
     receiver: Option<Receiver>,
     token: CommandOutputTokenId,
     sv_id: Option<StreamValueId>,
+    sv_appended: bool,
 }
 
 const STDOUT_IDX: usize = 0;
@@ -771,11 +772,13 @@ impl<'a> TfExec<'a> {
                 receiver: Some(stdout),
                 token: stdout_token,
                 sv_id: Some(stdout_stream),
+                sv_appended: false,
             },
             stderr: OutStream {
                 receiver: Some(stderr),
                 token: stderr_token,
                 sv_id: Some(stderr_stream),
+                sv_appended: false,
             },
             exit_stream,
         })
@@ -901,9 +904,9 @@ impl<'a> TfExec<'a> {
         let mut sv = sv_mgr.stream_values[sv_id].data_inserter(
             sv_id,
             self.stream_buffer_size,
-            true,
+            !out_stream.sv_appended,
         );
-
+        out_stream.sv_appended = true;
         let receiver = out_stream.receiver.as_mut().unwrap();
         let res = sv.with_bytes_buffer(|buf| {
             if read_to_end {
@@ -937,16 +940,7 @@ impl<'a> TfExec<'a> {
                 sv_mgr.inform_stream_value_subscribers(sv_id);
                 sv_mgr.drop_field_value_subscription(sv_id, None);
                 out_stream.sv_id = None;
-
-                return;
             }
-        }
-
-        if read_to_end {
-            sv.stream_value().mark_done();
-            drop(sv);
-            sv_mgr.inform_stream_value_subscribers(sv_id);
-            sv_mgr.drop_field_value_subscription(sv_id, None);
         }
     }
 
@@ -1178,6 +1172,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
                     continue;
                 }
             };
+            cmd.out_streams[out_stream_idx].sv_appended = true;
             self.read_out_stream(
                 &mut jd.sv_mgr,
                 cmd_id,
@@ -1192,8 +1187,9 @@ impl<'a> Transform<'a> for TfExec<'a> {
         while let Some(cmd_id) = self.commands_to_poll.pop() {
             let cmd = &mut self.running_commands[cmd_id];
             cmd.poll_requested = false;
+            let mut done = false;
             match cmd.proc.try_wait() {
-                Ok(None) => continue,
+                Ok(None) => {}
                 Ok(Some(status)) => {
                     jd.sv_mgr.stream_values[cmd.exit_code_sv_id]
                         .data_inserter(
@@ -1214,9 +1210,25 @@ impl<'a> Transform<'a> for TfExec<'a> {
                             true,
                         );
                     }
+                    done = true;
                 }
                 Err(e) => {
                     self.propagate_process_failure(jd, cmd_id, op_id, e);
+                    done = true;
+                }
+            }
+            let cmd = &mut self.running_commands[cmd_id];
+            for out_stream_idx in 0..cmd.out_streams.len() {
+                let os = &mut cmd.out_streams[out_stream_idx];
+                os.sv_appended = false;
+                if let Some(sv_id) = cmd.out_streams[out_stream_idx].sv_id {
+                    if done {
+                        jd.sv_mgr.stream_values[sv_id].mark_done();
+                    }
+                    jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+                    if done {
+                        jd.sv_mgr.drop_field_value_subscription(sv_id, None);
+                    }
                 }
             }
             let cmd = &mut self.running_commands[cmd_id];
