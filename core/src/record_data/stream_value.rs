@@ -26,7 +26,7 @@ use super::{
     field_value_ref::FieldValueRef,
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StreamValueDataOffset {
     pub values_consumed: usize,
     pub current_value_offset: usize,
@@ -116,6 +116,8 @@ pub struct StreamValue<'a> {
     pub data_type: Option<StreamValueDataType>,
     pub data: VecDeque<StreamValueData<'a>>,
     pub buffer_mode: StreamValueBufferMode,
+    pub values_dropped: usize,
+    pub data_consumed: StreamValueDataOffset,
     pub done: bool,
     // transforms that want to be readied as soon as this receives any data
     pub subscribers: SmallVec<[StreamValueSubscription; 1]>,
@@ -124,7 +126,8 @@ pub struct StreamValue<'a> {
 
 pub struct StreamValueDataCursor<'s, 'd> {
     stream_value: &'d mut StreamValue<'s>,
-    initial_offset: StreamValueDataOffset,
+    data_index_start: usize,
+    data_offset_start: usize,
     may_consume_data: bool,
     data_index: usize,
 }
@@ -185,57 +188,63 @@ impl<'s, 'd> StreamValueDataCursor<'s, 'd> {
         // (that's how we store the offset inside updates to avoid missing
         // appends), skip the zero length remainder for this cursor.
         if offset.current_value_offset > 0 {
-            if let Some(d) = stream_value.data.get(offset.values_consumed) {
+            if let Some(d) = stream_value
+                .data
+                .get(offset.values_consumed - stream_value.values_dropped)
+            {
                 if d.len() == offset.current_value_offset {
                     offset.values_consumed += 1;
                     offset.current_value_offset = 0;
                 }
             }
         }
+        let data_index = offset.values_consumed - stream_value.values_dropped;
         Self {
+            data_index,
+            data_index_start: data_index,
+            data_offset_start: offset.current_value_offset,
             stream_value,
-            initial_offset: offset,
             may_consume_data,
-            data_index: offset.values_consumed,
         }
     }
     pub fn peek_next(&self) -> Option<StreamValueDataRef<'s, '_>> {
         let data = self.stream_value.data.get(self.data_index)?.as_ref();
-        if self.data_index > self.initial_offset.values_consumed {
+        if self.data_index > self.data_index_start {
             return Some(data);
         }
-        Some(data.sliced(self.initial_offset.current_value_offset..))
+        Some(data.sliced(self.data_offset_start..))
     }
+
     pub fn peek_prev(&self) -> Option<StreamValueDataRef<'s, '_>> {
-        if self.data_index == self.initial_offset.values_consumed {
+        if self.data_index == self.data_index_start {
             return None;
         }
         let idx = self.data_index - 1;
         let data = self.stream_value.data[idx].as_ref();
-        if idx > self.initial_offset.values_consumed {
+        if idx > self.data_index_start {
             return Some(data);
         }
-        Some(data.sliced(self.initial_offset.current_value_offset..))
+        Some(data.sliced(self.data_offset_start..))
     }
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<StreamValueDataRef<'s, '_>> {
         let data = self.stream_value.data.get(self.data_index)?.as_ref();
         self.data_index += 1;
-        if self.data_index > self.initial_offset.values_consumed + 1 {
+        if self.data_index > self.data_index_start + 1 {
             return Some(data);
         }
-        Some(data.sliced(self.initial_offset.current_value_offset..))
+        Some(data.sliced(self.data_offset_start..))
     }
     pub fn prev(&mut self) -> Option<StreamValueDataRef<'s, '_>> {
-        if self.data_index == self.initial_offset.values_consumed {
+        if self.data_index == self.data_index_start {
             return None;
         }
         self.data_index -= 1;
         let data = self.stream_value.data[self.data_index].as_ref();
-        if self.data_index > self.initial_offset.values_consumed {
+        if self.data_index > self.data_index_start {
             return Some(data);
         }
-        Some(data.sliced(self.initial_offset.current_value_offset..))
+        Some(data.sliced(self.data_offset_start..))
     }
     pub fn next_steal(
         &mut self,
@@ -244,18 +253,16 @@ impl<'s, 'd> StreamValueDataCursor<'s, 'd> {
         let data = self.stream_value.data.get_mut(self.data_index)?;
         self.data_index += 1;
         if !self.may_consume_data || !may_consume_data {
-            if self.data_index > self.initial_offset.values_consumed + 1 {
+            if self.data_index > self.data_index_start + 1 {
                 return Some(data.clone());
             }
-            return Some(data.sliced(
-                self.initial_offset.current_value_offset..data.len(),
-            ));
+            return Some(data.sliced(self.data_offset_start..data.len()));
         }
         let mut data = std::mem::take(data);
-        if self.data_index > self.initial_offset.values_consumed + 1 {
+        if self.data_index > self.data_index_start + 1 {
             return Some(data);
         }
-        data.slice(self.initial_offset.current_value_offset..data.len());
+        data.slice(self.data_offset_start..data.len());
         Some(data)
     }
     pub fn copy_prev(&self, target: &mut StreamValueDataInserter<'s, '_>) {
@@ -263,18 +270,23 @@ impl<'s, 'd> StreamValueDataCursor<'s, 'd> {
             target.append_copy(self.peek_prev().unwrap());
             return;
         }
-        let full = self.data_index > self.initial_offset.values_consumed
-            || self.initial_offset.current_value_offset == 0;
+        let full = self.data_index > self.data_index_start
+            || self.data_offset_start == 0;
         if full {
             target.append(self.stream_value.data[self.data_index - 1].clone());
         }
     }
     pub fn curr_offset(&self) -> StreamValueDataOffset {
-        if self.data_index == self.initial_offset.values_consumed {
-            return self.initial_offset;
+        if self.data_index == self.data_index_start {
+            return StreamValueDataOffset {
+                values_consumed: self.data_index_start
+                    + self.stream_value.values_dropped,
+                current_value_offset: self.data_offset_start,
+            };
         }
         StreamValueDataOffset {
-            values_consumed: self.data_index,
+            values_consumed: self.data_index
+                + self.stream_value.values_dropped,
             current_value_offset: 0,
         }
     }
@@ -282,17 +294,20 @@ impl<'s, 'd> StreamValueDataCursor<'s, 'd> {
         &self,
         consumed_of_last: usize,
     ) -> StreamValueDataOffset {
-        let pos_delta = self.data_index - self.initial_offset.values_consumed;
+        let pos_delta = self.data_index - self.data_index_start;
         debug_assert!(pos_delta > 0);
         if pos_delta == 1 {
             return StreamValueDataOffset {
-                values_consumed: self.initial_offset.values_consumed,
-                current_value_offset: self.initial_offset.current_value_offset
+                values_consumed: self.data_index_start
+                    + self.stream_value.values_dropped,
+                current_value_offset: self.data_offset_start
                     + consumed_of_last,
             };
         }
         StreamValueDataOffset {
-            values_consumed: self.data_index - 1,
+            values_consumed: self.data_index
+                + self.stream_value.values_dropped
+                - 1,
             current_value_offset: consumed_of_last,
         }
     }
@@ -422,13 +437,14 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
         sv_id: StreamValueId,
         stream_value: &'b mut StreamValue<'a>,
         memory_budget: usize,
-        clear_if_streaming: bool,
+        mark_prev_data_consumed: bool,
     ) -> Self {
         let mut dead_elems_leading = 0;
-        if clear_if_streaming && !stream_value.is_buffered() {
-            stream_value.data.retain(|svd| !svd.is_ref_type());
-            dead_elems_leading = stream_value.data.len();
-            stream_value.reset_subscriber_offsets();
+        if mark_prev_data_consumed {
+            if !stream_value.is_buffered() {
+                stream_value.data_consumed = stream_value.data_offset_end();
+                dead_elems_leading = stream_value.drop_dead_head();
+            }
         }
         let memory_budget = match stream_value.buffer_mode {
             StreamValueBufferMode::Stream => {
@@ -697,12 +713,11 @@ impl<'a> StreamValue<'a> {
         notify_only_once_done: bool,
         treat_current_data_as_consumed: bool,
     ) {
-        let data_offset =
-            if treat_current_data_as_consumed && self.is_buffered() {
-                self.curr_data_offset()
-            } else {
-                StreamValueDataOffset::default()
-            };
+        let data_offset = if treat_current_data_as_consumed {
+            self.data_offset_end()
+        } else {
+            StreamValueDataOffset::default()
+        };
         self.subscribers.push(StreamValueSubscription {
             tf_id,
             data_offset,
@@ -718,11 +733,12 @@ impl<'a> StreamValue<'a> {
             self.data
         );
     }
-    pub fn curr_data_offset(&self) -> StreamValueDataOffset {
+    pub fn data_offset_end(&self) -> StreamValueDataOffset {
         // we use the end of the last element, not the start of the next
         // in case this one gets appended
         StreamValueDataOffset {
-            values_consumed: self.data.len().saturating_sub(1),
+            values_consumed: self.data.len().saturating_sub(1)
+                + self.values_dropped,
             current_value_offset: self
                 .data
                 .back()
@@ -730,6 +746,31 @@ impl<'a> StreamValue<'a> {
                 .unwrap_or(0),
         }
     }
+    pub fn drop_dead_head(&mut self) -> usize {
+        let mut i = 0;
+        loop {
+            let data = &mut self.data[i];
+            if self.data_consumed.values_consumed == self.values_dropped {
+                if data.len() != self.data_consumed.current_value_offset {
+                    break;
+                }
+                self.data_consumed.values_consumed += 1;
+                self.data_consumed.current_value_offset = 0;
+            }
+            if data.is_ref_type() {
+                self.data.swap_remove_front(i);
+            } else {
+                data.clear();
+                i += 1;
+            }
+            self.values_dropped += 1;
+            if i == self.data.len() {
+                break;
+            }
+        }
+        i
+    }
+
     pub fn make_contiguous(&mut self) {
         if self.buffer_mode == StreamValueBufferMode::Contiguous {
             return;
@@ -837,6 +878,8 @@ impl<'a> StreamValue<'a> {
             buffer_mode,
             done: false,
             subscribers: SmallVec::new(),
+            data_consumed: StreamValueDataOffset::default(),
+            values_dropped: 0,
             ref_count: 1,
         }
     }
@@ -853,6 +896,8 @@ impl<'a> StreamValue<'a> {
             buffer_mode,
             done,
             subscribers: SmallVec::new(),
+            data_consumed: StreamValueDataOffset::default(),
+            values_dropped: 0,
             ref_count: 1,
         }
     }
@@ -871,21 +916,6 @@ impl<'a> StreamValue<'a> {
             StreamValueBufferMode::Contiguous,
             true,
         )
-    }
-    pub fn reset_subscriber_offsets(&mut self) {
-        for sub in &mut self.subscribers {
-            sub.data_offset = StreamValueDataOffset::default();
-        }
-    }
-    pub fn clear_buffer(&mut self) {
-        self.data.clear();
-        self.reset_subscriber_offsets();
-    }
-    pub fn clear_if_streaming(&mut self) {
-        if !self.buffer_mode.is_streaming() {
-            return;
-        };
-        self.clear_buffer();
     }
     pub fn propagate_error(
         &mut self,
@@ -927,13 +957,13 @@ impl<'a> StreamValue<'a> {
         &mut self,
         sv_id: StreamValueId,
         default_batch_size: usize,
-        clear_if_streaming: bool,
+        drop_dead_head: bool,
     ) -> StreamValueDataInserter<'a, '_> {
         StreamValueDataInserter::new(
             sv_id,
             self,
             default_batch_size,
-            clear_if_streaming,
+            drop_dead_head,
         )
     }
     pub fn is_buffered(&self) -> bool {
@@ -955,6 +985,29 @@ impl<'a> StreamValue<'a> {
         self.done = true;
         if self.data_type == Some(StreamValueDataType::MaybeText) {
             self.data_type = Some(StreamValueDataType::Text)
+        }
+    }
+
+    pub fn set_subscriber_data_offset(
+        &mut self,
+        tf_id: TransformId,
+        data_offset: StreamValueDataOffset,
+    ) {
+        let sub_id = self
+            .subscribers
+            .iter_mut()
+            .position(|s| s.tf_id == tf_id)
+            .unwrap();
+        let offset = &mut self.subscribers[sub_id].data_offset;
+        let prev = *offset;
+        *offset = data_offset;
+        if prev == self.data_consumed {
+            self.data_consumed = self
+                .subscribers
+                .iter()
+                .min_by_key(|s| &s.data_offset)
+                .unwrap()
+                .data_offset;
         }
     }
 }
@@ -1490,15 +1543,7 @@ impl<'s> StreamValueDataRef<'s, 'static> {
 
 impl<'a> Default for StreamValue<'a> {
     fn default() -> Self {
-        Self {
-            error: None,
-            data_type: None,
-            data: VecDeque::new(),
-            buffer_mode: StreamValueBufferMode::Stream,
-            done: false,
-            subscribers: SmallVec::new(),
-            ref_count: 1,
-        }
+        Self::new_empty(None, StreamValueBufferMode::Stream)
     }
 }
 
@@ -1541,9 +1586,17 @@ impl<'a> StreamValueManager<'a> {
     pub fn inform_stream_value_subscribers(&mut self, sv_id: StreamValueId) {
         let sv = &mut self.stream_values[sv_id];
         let last_sub = sv.subscribers.len().saturating_sub(1);
-        let new_data_offset = sv.curr_data_offset();
+        let new_data_offset = sv.data_offset_end();
         for (i, sub) in sv.subscribers.iter_mut().enumerate() {
             if !sub.notify_only_once_done || sv.done {
+                if sub.data_offset.values_consumed < sv.values_dropped {
+                    debug_assert_eq!(
+                        sub.data_offset.values_consumed + 1,
+                        sv.values_dropped
+                    );
+                    sub.data_offset.values_consumed += 1;
+                    sub.data_offset.current_value_offset = 0;
+                }
                 self.updates.push_back(StreamValueUpdate {
                     sv_id,
                     tf_id: sub.tf_id,

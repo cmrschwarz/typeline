@@ -68,7 +68,7 @@ use scr_core::{
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
             StreamValueDataOffset, StreamValueDataType, StreamValueId,
-            StreamValueManager,
+            StreamValueManager, StreamValueUpdate,
         },
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -105,6 +105,7 @@ pub struct OpExec {
 
 struct CommandArgs {
     stdin_sv: Option<StreamValueId>,
+    fake_stdin: bool,
     args: Vec<OsString>,
     error: Option<OperatorApplicationError>,
 }
@@ -560,6 +561,7 @@ impl<'a> TfExec<'a> {
                         {
                             let ca = &mut self.command_args[cmd_idx];
                             ca.stdin_sv = Some(sv);
+                            ca.fake_stdin = false;
                             cmd_idx += 1;
                         }
                     } else {
@@ -640,11 +642,13 @@ impl<'a> TfExec<'a> {
     }
 
     #[cfg(target_family = "unix")]
-    fn setup_out_streams(
+    fn setup_proc_streams(
         &mut self,
+        tf_id: TransformId,
         sv_mgr: &mut StreamValueManager,
         proc: &mut Child,
         stdin_sv: Option<StreamValueId>,
+        fake_stdin_sv: bool,
         stdout_inserter: &mut VaryingTypeInserter<&mut FieldData>,
         stderr_inserter: &mut VaryingTypeInserter<&mut FieldData>,
         exit_code_inserter: &mut VaryingTypeInserter<&mut FieldData>,
@@ -674,6 +678,16 @@ impl<'a> TfExec<'a> {
         }
 
         if let Some(input_sv) = stdin_sv {
+            if !fake_stdin_sv {
+                sv_mgr.subscribe_to_stream_value(
+                    input_sv,
+                    tf_id,
+                    command_idx.into_usize(),
+                    false,
+                    true,
+                )
+            }
+
             let sv = &mut sv_mgr.stream_values[input_sv];
             let mut iter = sv.data_iter(StreamValueDataOffset {
                 values_consumed: 0,
@@ -681,8 +695,7 @@ impl<'a> TfExec<'a> {
             });
 
             match std::io::copy(&mut iter, stdin.as_mut().unwrap()) {
-                Ok(n) => {
-                    println!("copied: {n}");
+                Ok(_) => {
                     if iter.is_end() && sv.done {
                         stdin.take();
                     }
@@ -820,13 +833,14 @@ impl<'a> TfExec<'a> {
 
     fn setup_proc(
         &mut self,
+        tf_id: TransformId,
         sv_mgr: &mut StreamValueManager,
         cmd_idx: usize,
         stderr_inserter: &mut VaryingTypeInserter<&mut FieldData>,
         stdout_inserter: &mut VaryingTypeInserter<&mut FieldData>,
         exit_code_inserter: &mut VaryingTypeInserter<&mut FieldData>,
     ) -> Result<(), std::io::Error> {
-        let (mut proc, in_sv) = {
+        let (mut proc, in_sv, fake_in_sv) = {
             let ca = &mut self.command_args[cmd_idx];
             let proc = Command::new(&ca.args[0])
                 .args(&ca.args[1..])
@@ -838,13 +852,15 @@ impl<'a> TfExec<'a> {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?;
-            (proc, ca.stdin_sv)
+            (proc, ca.stdin_sv, ca.fake_stdin)
         };
 
-        let res = self.setup_out_streams(
+        let res = self.setup_proc_streams(
+            tf_id,
             sv_mgr,
             &mut proc,
             in_sv,
+            fake_in_sv,
             stdout_inserter,
             stderr_inserter,
             exit_code_inserter,
@@ -1018,6 +1034,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
         for _ in 0..batch_size {
             let command_args = CommandArgs {
                 stdin_sv: None,
+                fake_stdin: true,
                 args: vec![OsString::new(); self.op.fmt_arg_part_ends.len()],
                 error: None,
             };
@@ -1100,6 +1117,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
                 continue;
             }
             match self.setup_proc(
+                tf_id,
                 &mut jd.sv_mgr,
                 cmd_idx,
                 &mut stderr_inserter,
@@ -1397,12 +1415,11 @@ impl<'a> Transform<'a> for TfExec<'a> {
 
     fn handle_stream_value_update(
         &mut self,
-        _jd: &mut JobData,
-        _tf_id: TransformId,
-        _sv_id: StreamValueId,
-        _custom: usize,
+        jd: &mut JobData,
+        svu: StreamValueUpdate,
     ) {
-        todo!()
+        jd.sv_mgr.stream_values[svu.sv_id]
+            .set_subscriber_data_offset(svu.tf_id, svu.data_offset);
     }
 }
 

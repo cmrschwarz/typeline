@@ -356,7 +356,9 @@ impl<'a> Job<'a> {
         }
     }
     pub fn log_state(&self, message: &str) {
-        if cfg!(feature = "debug_logging") {
+        if cfg!(feature = "debug_logging")
+            && cfg!(feature = "debug_logging_setup")
+        {
             eprintln!("{message}");
             for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
                 let name = self.transform_data[i].display_name();
@@ -820,7 +822,7 @@ impl<'a> Job<'a> {
         let batch_size_available =
             self.job_data.tf_mgr.transforms[tf_id].available_batch_size;
 
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug_logging_transform_update")]
         eprintln!(
             "> transform update {}",
             self.job_data.tf_mgr.format_transform_state(

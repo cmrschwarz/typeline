@@ -7,10 +7,8 @@ use crate::{
     index_newtype,
     job::{Job, JobData},
     record_data::{
-        field::FieldId,
-        group_track::GroupTrackId,
-        match_set::MatchSetId,
-        stream_value::{StreamValueId, StreamValueUpdate},
+        field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
+        stream_value::StreamValueUpdate,
     },
     utils::{
         debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
@@ -264,9 +262,7 @@ pub trait Transform<'a>: Send + 'a {
     fn handle_stream_value_update(
         &mut self,
         _jd: &mut JobData<'a>,
-        _tf_id: TransformId,
-        _sv_id: StreamValueId,
-        _custom: usize,
+        _svu: StreamValueUpdate,
     ) {
         unimplemented!(
             "transform `{}` does not implement stream value updates",
@@ -512,9 +508,7 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::AggregatorTrailer(_) => unreachable!(),
         TransformData::Custom(tf) => tf.handle_stream_value_update(
             jd,
-            svu.tf_id,
-            svu.sv_id,
-            svu.custom,
+            svu
         ),
     }
 }

@@ -14,8 +14,7 @@ use scr_core::{
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
+            DefaultTransformName, Transform, TransformData, TransformState,
         },
         utils::basic_transform_update::{
             basic_transform_update, BasicUpdateData,
@@ -36,7 +35,7 @@ use scr_core::{
         },
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
-            StreamValueDataOffset, StreamValueDataType, StreamValueId,
+            StreamValueDataOffset, StreamValueDataType,
         },
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -282,15 +281,6 @@ impl Transform<'_> for TfFromTyson {
         basic_transform_update(jd, tf_id, [], self.input_iter_id, |bud| {
             self.transform_update(bud)
         });
-    }
-
-    fn handle_stream_value_update(
-        &mut self,
-        _jd: &mut JobData,
-        _tf_id: TransformId,
-        _sv_id: StreamValueId,
-        _custom: usize,
-    ) {
     }
 }
 

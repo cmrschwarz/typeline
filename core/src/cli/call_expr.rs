@@ -13,9 +13,7 @@ use crate::{
         array::Array,
         field::FieldManager,
         field_value::{FieldValue, FieldValueKind, Object, ObjectKeysStored},
-        formattable::{
-            Formattable, FormattingContext, NumberFormat, RealizedFormatKey,
-        },
+        formattable::{Formattable, FormattingContext, RealizedFormatKey},
         match_set::MatchSetManager,
         scope_manager::ScopeId,
     },
@@ -52,32 +50,10 @@ pub enum Span {
     },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct IntFormatQuirks {
-    leading_plus: bool,
-    // We need to throw an error on mixed case hex. That's ok.
-    number_format: NumberFormat,
-    leading_zeros: i32,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct FloatFormatQuirks {
-    leading_plus: bool,
-    decimal_point: bool,
-    leading_zeros: i32,
-    trailing_zeros: i32,
-    exponent: i32,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum MetaInfo {
     EndKind(CallExprEndKind),
-    RawRational {
-        numerator: IntFormatQuirks,
-        denominator: IntFormatQuirks,
-    },
-    IntFormatQuirks(IntFormatQuirks),
-    FloatFormatQuirks(FloatFormatQuirks),
+    DenormalRepresentation(Box<str>),
 }
 
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -258,6 +234,10 @@ impl Argument {
     }
 
     pub fn stringify(&self, sess: &mut SessionSetupData) -> MaybeTextCow {
+        if let Some(MetaInfo::DenormalRepresentation(repr)) = &self.meta_info {
+            return MaybeTextCow::TextRef(repr);
+        };
+
         match &self.value {
             FieldValue::Text(text) => return MaybeTextCow::TextRef(text),
             FieldValue::Bytes(bytes) => return MaybeTextCow::BytesRef(bytes),
@@ -271,14 +251,7 @@ impl Argument {
             )),
             fm: &mut FieldManager::default(),
             msm: &mut MatchSetManager::default(),
-            rationals_print_mode: if let Some(MetaInfo::RawRational {
-                ..
-            }) = self.meta_info
-            {
-                RationalsPrintMode::Raw
-            } else {
-                RationalsPrintMode::Dynamic
-            },
+            rationals_print_mode: RationalsPrintMode::Dynamic,
             is_stream_value: false,
             rfk: RealizedFormatKey::default(),
         };
@@ -466,11 +439,11 @@ impl Span {
     }
 }
 
-fn parse_call_expr_meta(
+fn parse_call_expr_meta<'a>(
     span: Span,
-    first_sub_arg: Option<&Argument>,
-    end_kind: Option<MetaInfo>,
-) -> Result<(&str, CallExprEndKind), CliArgumentError> {
+    first_sub_arg: Option<&'a Argument>,
+    end_kind: &'a Option<MetaInfo>,
+) -> Result<(&'a str, CallExprEndKind), CliArgumentError> {
     let Some(first_sub_arg) = first_sub_arg else {
         return Err(CliArgumentError::new(
             "call expression must contain at least one element",
@@ -498,7 +471,7 @@ fn parse_call_expr_meta(
         ));
     };
 
-    Ok((op_name, end_kind))
+    Ok((op_name, *end_kind))
 }
 
 impl<'a> CallExpr<'a, &'a [Argument]> {
@@ -508,7 +481,7 @@ impl<'a> CallExpr<'a, &'a [Argument]> {
         };
 
         let (op_name, end_kind) =
-            parse_call_expr_meta(arg.span, sub_args.first(), arg.meta_info)?;
+            parse_call_expr_meta(arg.span, sub_args.first(), &arg.meta_info)?;
 
         Ok(CallExpr {
             op_name,
@@ -534,7 +507,7 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
         let (arg1, args_rest) = sub_args.split_at_mut(1);
 
         let (op_name, end_kind) =
-            parse_call_expr_meta(arg.span, arg1.first(), arg.meta_info)?;
+            parse_call_expr_meta(arg.span, arg1.first(), &arg.meta_info)?;
 
         Ok(CallExpr {
             op_name,
