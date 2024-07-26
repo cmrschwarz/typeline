@@ -66,8 +66,9 @@ use scr_core::{
             RefAwareUnfoldIterRunLength,
         },
         stream_value::{
-            StreamValue, StreamValueBufferMode, StreamValueDataOffset,
-            StreamValueDataType, StreamValueId, StreamValueManager,
+            StreamValue, StreamValueBufferMode, StreamValueData,
+            StreamValueDataOffset, StreamValueDataType, StreamValueId,
+            StreamValueManager,
         },
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -348,20 +349,21 @@ impl<'a> TfExec<'a> {
     ) {
         if arg_idx == 0 {
             // TODO: maybe consider converting the encoding on non unix?
-            let stdin_sv =
-                if let Some(stdin_sv) = self.command_args[cmd_idx].stdin_sv {
-                    stdin_sv
-                } else {
-                    sv_mgr.stream_values.claim_with_value(
-                        StreamValue::new_empty(
-                            Some(StreamValueDataType::Bytes),
-                            StreamValueBufferMode::Stream,
-                        ),
-                    )
-                };
-            sv_mgr.stream_values[stdin_sv]
-                .data_inserter(stdin_sv, self.stream_buffer_size, false)
-                .append_text_copy(text);
+            let sv_id = &mut self.command_args[cmd_idx].stdin_sv;
+            if let Some(stdin_sv) = *sv_id {
+                sv_mgr.stream_values[stdin_sv]
+                    .data_inserter(stdin_sv, self.stream_buffer_size, false)
+                    .append_text_copy(text);
+            } else {
+                *sv_id = Some(sv_mgr.stream_values.claim_with_value(
+                    StreamValue::from_data(
+                        Some(StreamValueDataType::MaybeText),
+                        StreamValueData::from_string(text.to_owned()),
+                        StreamValueBufferMode::Stream,
+                        true,
+                    ),
+                ));
+            }
             return;
         }
         self.command_args[cmd_idx].args[arg_idx - 1].push(text);
@@ -658,24 +660,33 @@ impl<'a> TfExec<'a> {
 
         let mut token_stdin = None;
         let mut stdin_offset = StreamValueDataOffset::default();
-        if stdin.is_some() {
-            token_stdin = Some(
-                self.token_universe
-                    .claim_with_value(CommandStreamIdx::Stdin(command_idx)),
-            );
+        if let Some(stdin) = stdin.as_mut() {
+            let stdin_tok = self
+                .token_universe
+                .claim_with_value(CommandStreamIdx::Stdin(command_idx));
+            token_stdin = Some(stdin_tok);
+            self.poll.registry().register(
+                stdin,
+                Token(stdin_tok),
+                Interest::WRITABLE,
+            )?;
         }
 
         if let Some(input_sv) = stdin_sv {
-            let mut iter = sv_mgr.stream_values[input_sv].data_iter(
-                StreamValueDataOffset {
-                    values_consumed: 0,
-                    current_value_offset: 0,
-                },
-            );
+            let sv = &mut sv_mgr.stream_values[input_sv];
+            let mut iter = sv.data_iter(StreamValueDataOffset {
+                values_consumed: 0,
+                current_value_offset: 0,
+            });
 
             match std::io::copy(&mut iter, stdin.as_mut().unwrap()) {
-                Ok(n) => n,
-                Err(e) if e.kind() == ErrorKind::WouldBlock => 0,
+                Ok(n) => {
+                    println!("copied: {n}");
+                    if iter.is_end() && sv.done {
+                        stdin.take();
+                    }
+                }
+                Err(e) if e.kind() == ErrorKind::WouldBlock => (),
                 Err(e) => return Err(e),
             };
 
@@ -817,9 +828,9 @@ impl<'a> TfExec<'a> {
             let proc = Command::new(&ca.args[0])
                 .args(&ca.args[1..])
                 .stdin(if self.op.opts.propagate_input {
-                    Stdio::null()
-                } else {
                     Stdio::piped()
+                } else {
+                    Stdio::null()
                 })
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())

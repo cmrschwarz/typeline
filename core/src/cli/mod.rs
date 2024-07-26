@@ -1492,7 +1492,7 @@ mod test {
                     },
                     Argument {
                         value: FieldValue::Int(10),
-                        span: Span::from_single_arg(3, 3),
+                        span: Span::from_single_arg_with_offset(3, 1, 3),
                         source_scope: DEFAULT_SCOPE_ID,
                         meta_info: None
                     },

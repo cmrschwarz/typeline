@@ -327,6 +327,9 @@ impl<'s, 'd> StreamValueDataIter<'s, 'd> {
     pub fn get_offset(&self) -> StreamValueDataOffset {
         self.data_offset
     }
+    pub fn is_end(&self) -> bool {
+        self.data_offset.current_value_offset == 0 && self.peek().is_none()
+    }
 }
 
 impl<'s, 'd> Iterator for StreamValueDataIter<'s, 'd> {
@@ -358,7 +361,8 @@ impl<'s, 'd> Read for StreamValueDataIter<'s, 'd> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut buf_offset = 0;
         while let Some(elem) = self.peek() {
-            let elem_data = elem.as_bytes();
+            let elem_data =
+                &elem.as_bytes()[self.data_offset.current_value_offset..];
             let buf_len_rem = buf.len() - buf_offset;
             if elem_data.len() > buf_len_rem {
                 buf[buf_offset..].copy_from_slice(&elem_data[0..buf_len_rem]);
@@ -369,6 +373,8 @@ impl<'s, 'd> Read for StreamValueDataIter<'s, 'd> {
                 .copy_from_slice(elem_data);
             buf_offset += elem_data.len();
             self.iter.next();
+            self.data_offset.current_value_offset = 0;
+            self.data_offset.values_consumed += 1;
         }
         Ok(buf_offset)
     }

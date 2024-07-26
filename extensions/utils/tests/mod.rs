@@ -207,7 +207,7 @@ fn parse_exec_stdin() -> Result<(), ScrError> {
         ["str=foo", "[", "exec", "{", "-i", "}", "cat", "]"],
     )?
     .run_collect_stringified()?;
-    assert_eq!(res, ["foo\n"]);
+    assert_eq!(res, ["foo"]);
     Ok(())
 }
 
