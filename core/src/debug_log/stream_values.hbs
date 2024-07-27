@@ -1,0 +1,93 @@
+{{~let "transform_update_id" ../transform_update_id}}
+{{~let "stream_values_id" transform_update_id "_stream_values" }}
+{{~let "collapsed_stream_values_id" transform_update_id "_collapsed_stream_values" }}
+
+<div class="stream-value-container">
+    <div
+        class="stream-values-header"
+        onclick="toggle_collapsable('{{stream_values_id}}', '{{collapsed_stream_values_id}}')"
+    >
+        Stream Values
+    </div>
+    <table collapse_tag="[{{stream_values_id}}]" class="stream-values-table">
+        <thead>
+            <th>ID</th>
+            <th>Kind</th>
+            <th class="tooltip-parent">
+                RC/VD/D
+                <span class="tooltip-text">
+                    Ref Count / Values Dropped / Done
+                </span>
+            </th>
+            <th>Subs</th>
+            <th>Data</th>
+        </thead>
+        <tbody>
+
+            {{#each stream_values}}
+                <tr>
+                    <td>{{id}}</td>
+                    <td>{{titleCase buffer_mode}}: {{titleCase data_type}}</td>
+                    <td>{{ref_count}}/{{values_dropped}}/{{to_int done}}</td>
+                    <td>
+                        <div class="stream-value-subscriber-list">
+                        <div class="stream-value-subscriber-placeholder">9</div>
+                        {{#each subscribers}}
+                            <div
+                                class="stream-value-subscriber tooltip-parent"
+                                onmouseenter="highlight('{{../transform_update_id}}_tf_{{tf_id}}')"
+                                onmouseleave="unhighlight('{{../transform_update_id}}_tf_{{tf_id}}')"
+                            >
+                            {{tf_id}}
+                                <span class="tooltip-text">
+                                    Values Consumed: {{offset.values_consumed}}
+                                    <br>
+                                    Current Value Offset: {{offset.current_value_offset}}
+                                    <br>
+                                    Notify Only Once Done: {{notify_only_once_done}}
+                                </span>
+                            </div>
+                        {{/each}}
+                        </div>
+                    </td>
+                    <td class="stream-value-data-table-parent">
+                    {{#if error}}
+                        ERROR: {{error}}
+                    {{else}}
+                    {{#if data}}
+                    <table class="stream-value-data-table">
+                        <thead>
+                            <th>N</th>
+                            <th>Kind</th>
+                            <th>Range</th>
+                            <th>Value</th>
+                        </thead>
+                        <tbody>
+                        {{#each data}}
+                            <tr>
+                                <td>{{add @index ../values_dropped}}</td>
+                                <td>{{titleCase kind}}</td>
+                                <td>
+                                    {{#if this.range}}
+                                        {{this.range.start}}..{{this.range.end}}
+                                    {{/if}}
+                                </td>
+                                <td>{{value}}</td>
+                            </tr>
+                        {{/each}}
+                        </tbody>
+                    </table>
+                    {{/if}}
+                    {{/if}}
+                    </td>
+                </tr>
+            {{/each}}
+        </tbody>
+    </table>
+     <div
+        class="collapsed-stream-values"
+        collapse_tag="[{{collapsed_stream_values_id}}]"
+        style="display: none;"
+        onclick="toggle_collapsable('{{stream_values_id}}', '{{collapsed_stream_values_id}}')"
+    ></div>
+</div>

@@ -1,10 +1,9 @@
 mod helpers;
 
-use std::{cell::Cell, collections::HashSet, fmt::Write, io::BufWriter};
-
 use handlebars::{Handlebars, RenderError, RenderErrorReason};
 use once_cell::sync::Lazy;
 use serde_json::{json, Value};
+use std::{cell::Cell, collections::HashSet, fmt::Write, io::BufWriter};
 
 use crate::{
     job::JobData,
@@ -18,6 +17,7 @@ use crate::{
     record_data::{
         field::{Field, FieldId},
         field_action::FieldAction,
+        field_value::FieldValue,
         field_value_ref::FieldValueRef,
         formattable::{
             FormatOptions, Formattable, FormattingContext, RealizedFormatKey,
@@ -27,6 +27,7 @@ use crate::{
         iter_hall::{CowVariant, IterKind, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
+        stream_value::{StreamValueData, StreamValueDataOffset},
     },
     utils::{
         index_slice::IndexSlice, indexing_type::IndexingType,
@@ -112,6 +113,9 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
     hb.register_partial("transform_env", include_str!("transform_env.hbs"))
         .unwrap();
 
+    hb.register_partial("stream_values", include_str!("stream_values.hbs"))
+        .unwrap();
+
     hb.register_helper("unique_id", Box::new(helpers::UniqueId));
     hb.register_helper("repeat", Box::new(helpers::helper_repeat));
     hb.register_helper("let", Box::new(helpers::helper_let));
@@ -119,6 +123,8 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
     hb.register_helper("reindent", Box::new(helpers::Reindent));
     hb.register_helper("debug_log", Box::new(helpers::DebugLog));
     hb.register_helper("stringify", Box::new(helpers::Stringify));
+    hb.register_helper("to_int", Box::new(helpers::ToInt));
+    hb.register_helper("add", Box::new(helpers::Add));
     hb.set_strict_mode(true);
     hb
 });
@@ -953,6 +959,96 @@ pub fn write_debug_log_html_tail(
         .map_err(unwrap_render_error)
 }
 
+pub fn stream_value_data_offset_to_json(
+    offs: &StreamValueDataOffset,
+) -> Value {
+    json!({
+        "values_consumed": offs.values_consumed,
+        "current_value_offset": offs.current_value_offset,
+    })
+}
+
+pub fn stream_values_to_json(jd: &JobData) -> serde_json::Value {
+    let mut svs_json = Vec::new();
+
+    let mut formatting_context = FormattingContext {
+        ss: &mut LazyRwLockGuard::new(&jd.session_data.string_store),
+        fm: &jd.field_mgr,
+        msm: &jd.match_set_mgr,
+        rationals_print_mode: RationalsPrintMode::Dynamic,
+        is_stream_value: false,
+        rfk: RealizedFormatKey {
+            opts: FormatOptions {
+                type_repr: TypeReprFormat::Typed,
+                ..FormatOptions::default()
+            },
+            ..RealizedFormatKey::default()
+        },
+    };
+
+    for (sv_id, sv) in jd.sv_mgr.stream_values.iter_enumerated() {
+        let mut subscribers = Vec::new();
+        for sub in &sv.subscribers {
+            subscribers.push(json!({
+                "tf_id": sub.tf_id.into_usize(),
+                "notify_only_once_done": sub.notify_only_once_done,
+                "offset": stream_value_data_offset_to_json(&sub.data_offset),
+            }));
+        }
+        let mut sv_data = Vec::new();
+        for data in &sv.data {
+            let data_text = match data {
+                StreamValueData::StaticText(v) => (*v).into(),
+                StreamValueData::StaticBytes(v) => (*v).into(),
+                StreamValueData::Text { data, .. } => (&***data).into(),
+                StreamValueData::Bytes { data, .. } => (&***data).into(),
+                StreamValueData::Single(v) => match v {
+                    FieldValue::FieldReference(fr) => {
+                        MaybeText::Text(format!("{}", fr.field_ref_offset))
+                    }
+                    FieldValue::SlicedFieldReference(fr) => {
+                        MaybeText::Text(format!(
+                            "({})[{}..{}]",
+                            fr.field_ref_offset, fr.begin, fr.end
+                        ))
+                    }
+                    FieldValue::StreamValueId(sv_id) => {
+                        MaybeText::Text(sv_id.to_string())
+                    }
+                    _ => {
+                        let mut value_str = MaybeText::new();
+                        Formattable::format(
+                            &v.as_ref(),
+                            &mut formatting_context,
+                            &mut value_str,
+                        )
+                        .unwrap();
+                        value_str
+                    }
+                },
+            };
+            sv_data.push(json!({
+                "kind": data.kind().to_str(),
+                "range": data.range(),
+                "value": data_text.into_text_lossy(),
+            }));
+        }
+        svs_json.push(json!({
+            "id":  sv_id.into_usize(),
+            "buffer_mode": sv.buffer_mode.to_str(),
+            "subscribers": subscribers,
+            "ref_count": sv.ref_count,
+            "done": sv.done,
+            "values_dropped": sv.values_dropped,
+            "data_consumed": stream_value_data_offset_to_json(&sv.data_consumed),
+            "data_type": sv.data_type.map(|dt| dt.kind().to_str()),
+            "error":  sv.error.as_ref().map(|e|e.message()),
+            "data": sv_data,
+        }));
+    }
+    svs_json.into()
+}
+
 pub fn write_transform_update_to_html(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
@@ -967,6 +1063,7 @@ pub fn write_transform_update_to_html(
         "transform_id": tf_id.into_usize(),
         "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data, Some(batch_size)),
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
+        "stream_values": stream_values_to_json(jd),
     });
 
     TEMPLATES
@@ -986,6 +1083,7 @@ pub fn write_initial_state_to_html(
         "transform_id": Value::Null,
         "transform_update_text": "Initial State",
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
+        "stream_values": stream_values_to_json(jd),
     });
     TEMPLATES
         .render_to_write("transform_update", &update, BufWriter::new(w))

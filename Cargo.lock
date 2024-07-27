@@ -643,6 +643,7 @@ version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5226a0e122dc74917f3a701484482bed3ee86d016c7356836abbaa033133a157"
 dependencies = [
+ "heck 0.5.0",
  "log",
  "pest",
  "pest_derive",

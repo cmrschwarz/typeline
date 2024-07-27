@@ -162,6 +162,13 @@ impl StreamValueBufferMode {
     pub fn is_streaming(&self) -> bool {
         *self == StreamValueBufferMode::Stream
     }
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            StreamValueBufferMode::Stream => "stream",
+            StreamValueBufferMode::Buffered => "buffered",
+            StreamValueBufferMode::Contiguous => "contiguous",
+        }
+    }
 }
 
 impl StreamValueDataType {
@@ -1448,6 +1455,15 @@ impl<'a> StreamValueData<'a> {
         let mut w = EscapedWriter::new(String::new(), quote_to_escape);
         w.write_all(self.as_bytes()).unwrap();
         Self::from_string(w.into_inner().unwrap())
+    }
+    pub fn range(&self) -> Option<Range<usize>> {
+        match self {
+            StreamValueData::Text { range, .. }
+            | StreamValueData::Bytes { range, .. } => Some(range.clone()),
+            StreamValueData::StaticText(_)
+            | StreamValueData::StaticBytes(_)
+            | StreamValueData::Single(_) => None,
+        }
     }
 }
 

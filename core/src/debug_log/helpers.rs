@@ -5,7 +5,7 @@ use handlebars::{
     RenderContext, RenderError, RenderErrorReason, Renderable,
 };
 use once_cell::sync::Lazy;
-use serde_json::Value;
+use serde_json::{Number, Value};
 
 handlebars_helper!(Range: |n: u64| {
     serde_json::Value::Array((0..n).map(
@@ -30,6 +30,21 @@ handlebars_helper!(DebugLog: |s: Value| {
 
 handlebars_helper!(Stringify: |object: Value| {
     format!("{object:#?}")
+});
+
+handlebars_helper!(ToInt: |value: Value| {
+    match value {
+        Value::Null => Value::Number(0.into()),
+        Value::Bool(b) => Value::Number(Number::from(u8::from(b))),
+        Value::Number(_) => value,
+        Value::String(s) =>  Value::Number(s.parse().unwrap()),
+        Value::Array(_) |
+        Value::Object(_) => panic!("not a number"),
+    }
+});
+
+handlebars_helper!(Add: |lhs: i64, rhs: i64| {
+    Number::from(lhs + rhs)
 });
 
 pub fn reindent(

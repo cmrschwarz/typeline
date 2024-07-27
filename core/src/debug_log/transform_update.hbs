@@ -1,5 +1,4 @@
-    {{! this partial is intentionally indented one level, because it gets written directly inside the html body !}}
-
+{{! this partial is intentionally indented one level, because it gets written directly inside the html body !}}
     {{~let "transform_update_id" (unique_id "tfu_")}}
     {{~let "transform_update_body_id" (unique_id "transform_update_body_id_")}}
     {{~let "collapsed_transform_update_body_id" (unique_id "collapsed_transform_update_body_id_")}}
@@ -15,6 +14,7 @@
         </div>
         <div class="transform-update-body" collapse_tag="[{{transform_update_body_id}}]">
             {{>transform_chain transform_chain transform_update_id=transform_update_id}}
+            {{>stream_values stream_values=stream_values transform_update_id=transform_update_id}}
         </div>
         <div
             class="collapsed-transform-update-body"
@@ -24,3 +24,4 @@
         >
         </div>
     </div>
+{{!/transform}}

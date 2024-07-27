@@ -454,6 +454,17 @@ impl From<MaybeTextBoxed> for MaybeText {
     }
 }
 
+impl From<&str> for MaybeText {
+    fn from(value: &str) -> Self {
+        MaybeText::Text(value.to_owned())
+    }
+}
+impl From<&[u8]> for MaybeText {
+    fn from(value: &[u8]) -> Self {
+        MaybeText::Bytes(value.to_owned())
+    }
+}
+
 impl From<MaybeText> for MaybeTextCow<'static> {
     fn from(value: MaybeText) -> Self {
         MaybeTextCow::from_maybe_text(value)

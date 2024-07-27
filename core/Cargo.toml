@@ -46,7 +46,9 @@ unicode-ident = "1.0.12"
 # for debug_log
 serde_derive = { version = "1.0.203", optional = true }
 serde_json = { version = "1.0.120", optional = true }
-handlebars = { version = "6.0.0", optional = true }
+handlebars = { version = "6.0.0", features = [
+    "string_helpers",
+], optional = true }
 
 # deps for repl mode:
 [dependencies.reedline]
