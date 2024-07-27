@@ -2,7 +2,7 @@
 {{~let "group_track_container_id" "group_id_" id ~}} {{! (unique_id "collapsed_field_id_") }}
 <div
     class="collapsed-field-container"
-    highlight_tag="[{{transform_update_id}}_group_track_{{id}}]"
+    highlight_tag="[{{update_id}}_group_track_{{id}}]"
     collapse_tag="[{{collapsed_group_track_container_id}}]"
     style="display: none;"
     onclick="toggle_collapsable('{{group_track_container_id}}', '{{collapsed_group_track_container_id}}', 'inline-block')"
@@ -16,7 +16,7 @@
 <div class="group-track-container" collapse_tag="[{{group_track_container_id}}]">
     <table
         class="group-track"
-        highlight_tag="[{{transform_update_id}}_group_track_{{id}}]"
+        highlight_tag="[{{update_id}}_group_track_{{id}}]"
         collapse_tag="[group_track_{{id}}]"
     >
         <thead>
@@ -38,7 +38,7 @@
             <th colspan="5">
                 <div class="iter-list-descriptor-wrapper">
                     <div class="iter-list-descriptor">Leading Iters:</div>
-                    {{>iter_list iters=this.iters_before_start transform_update_id=transform_update_id}}
+                    {{>iter_list iters=this.iters_before_start update_id=update_id}}
                 </div>
             </th>
         </thead>
@@ -49,24 +49,24 @@
                     <div class="ref size-placeholder">9</div>
                     {{#if alias_source includeZero=true}}
                     <div class="ref group-track-alias-source"
-                        onmouseenter="highlight('{{transform_update_id}}_group_track_{{alias_source}}')"
-                        onmouseleave="unhighlight('{{transform_update_id}}_group_track_{{alias_source}}')"
+                        onmouseenter="highlight('{{update_id}}_group_track_{{alias_source}}')"
+                        onmouseleave="unhighlight('{{update_id}}_group_track_{{alias_source}}')"
                     >
                         Alias: G-{{alias_source}}
                     </div>
                     {{/if}}
                     {{#if corresponding_header includeZero=true}}
                     <div class="ref group-track-corresponding-header"
-                        onmouseenter="highlight('{{transform_update_id}}_group_track_{{corresponding_header}}')"
-                        onmouseleave="unhighlight('{{transform_update_id}}_group_track_{{corresponding_header}}')"
+                        onmouseenter="highlight('{{update_id}}_group_track_{{corresponding_header}}')"
+                        onmouseleave="unhighlight('{{update_id}}_group_track_{{corresponding_header}}')"
                     >
                         Header: G-{{corresponding_header}}
                     </div>
                     {{/if}}
                     {{#if parent includeZero=true}}
                     <div class="ref group-track-parent"
-                        onmouseenter="highlight('{{transform_update_id}}_group_track_{{parent}}')"
-                        onmouseleave="unhighlight('{{transform_update_id}}_group_track_{{parent}}')"
+                        onmouseenter="highlight('{{update_id}}_group_track_{{parent}}')"
+                        onmouseleave="unhighlight('{{update_id}}_group_track_{{parent}}')"
                     >
                         Parent: G-{{parent}}
                     </div>
@@ -82,14 +82,14 @@
         </thead>
         <tbody>
             {{#each rows as |row|}}
-            {{~let "transform_update_id" ../transform_update_id~}}
+            {{~let "update_id" ../update_id~}}
             {{#each (range row.dead_slots)}}
             <tr class="group-track-row dead-row">
                 <td colspan="4">
                     <div class="dead-row-placeholder">
                         <div class="group-idx">0</div>
                         <div class="group-len-rem">0</div>
-                        {{>iter_list iters=[] transform_update_id=transform_update_id}}
+                        {{>iter_list iters=[] update_id=update_id}}
                     </div>
                 </td>
             </tr>
@@ -108,7 +108,7 @@
                     {{/if}}
                 </td>
                 <td>
-                    {{>iter_list iters=row.iters transform_update_id=transform_update_id}}
+                    {{>iter_list iters=row.iters update_id=update_id}}
                 </td>
             </tr>
             {{/each}}
@@ -116,7 +116,7 @@
             <tr class="field-row">
                 <td colspan="2"></td>
                  <td>
-                    {{>iter_list iters=iters_after_end transform_update_id=transform_update_id}}
+                    {{>iter_list iters=iters_after_end update_id=update_id}}
                 </td>
             </tr>
             {{/if}}

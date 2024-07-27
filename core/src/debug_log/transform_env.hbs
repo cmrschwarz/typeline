@@ -5,7 +5,7 @@
         {{#if (or fields (or subchains group_tracks))}}
         <div
             class="transform-name filled_transform"
-            highlight_tag="[{{transform_update_id}}_tf_{{transform_id_unique}}]"
+            highlight_tag="[{{update_id}}_tf_{{transform_id_unique}}]"
             onclick="toggle_collapsable('tf_{{transform_id_unique}}', 'collapsed_tf_{{transform_id_unique}}')"
         >
             {{#if transform_id includeZero=true}}
@@ -18,21 +18,21 @@
             {{#if subchains}}
             <div class="chain-list">
             {{#each subchains as |subchain|}}
-                {{>transform_chain subchain transform_update_id=transform_update_id}}
+                {{>transform_chain subchain update_id=update_id}}
             {{/each}}
             </div>
             {{/if}}
             {{#if group_tracks}}
             <div class="group-track-list">
                 {{#each group_tracks as |group_track|}}
-                {{>group_track group_track transform_update_id=transform_update_id}}
+                {{>group_track group_track update_id=update_id}}
                 {{/each}}
             </div>
             {{/if}}
             {{#if fields}}
             <div class="field-list">
                 {{#each fields as |field|}}
-                {{>field field transform_update_id=transform_update_id}}
+                {{>field field update_id=update_id}}
                 {{/each}}
             </div>
             {{/if}}
@@ -40,8 +40,8 @@
         {{else}}
         <div
             class="transform-name empty-transform"
-            highlight_tag="[{{transform_update_id}}_tf_{{transform_id}}]"
-            collapse_tag="[{{transform_update_id}}_tf_{{transform_id}}]"
+            highlight_tag="[{{update_id}}_tf_{{transform_id}}]"
+            collapse_tag="[{{update_id}}_tf_{{transform_id}}]"
             onclick="toggle_collapsable('tf_{{transform_id_unique}}', 'collapsed_tf_{{transform_id_unique}}')"
         >
             {{#if transform_id includeZero=true}}
@@ -53,7 +53,7 @@
 </div>
 <div
     class="collapsed-transform-container"
-    highlight_tag="[{{transform_update_id}}_tf_{{transform_id_unique}}]"
+    highlight_tag="[{{update_id}}_tf_{{transform_id_unique}}]"
     collapse_tag="[collapsed_tf_{{transform_id_unique}}]"
     style="display: none;"
     onclick="toggle_collapsable('tf_{{transform_id_unique}}', 'collapsed_tf_{{transform_id_unique}}')"

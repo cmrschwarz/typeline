@@ -2,7 +2,7 @@
 {{let "field_container_id" "field_container_" id~}}  {{! (unique_id "collapsed_field_id_") }}
 <div
     class="collapsed-field-container"
-    highlight_tag="[{{transform_update_id}}_field_{{id}}]"
+    highlight_tag="[{{update_id}}_field_{{id}}]"
     collapse_tag="[{{collapsed_field_container_id}}]"
     style="display: none;"
     onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
@@ -21,7 +21,7 @@
         class="field"
         {{/if}}
         collapse_tag="[field_{{id}}]"
-        highlight_tag="[{{transform_update_id}}_field_{{id}}]"
+        highlight_tag="[{{update_id}}_field_{{id}}]"
     >
         <thead>
             <th
@@ -44,8 +44,8 @@
                     {{#if cow}}
                     <div
                         class="field-owned-info field-is-cow {{cow.variant}}"
-                        onmouseenter="highlight('{{transform_update_id}}_field_{{cow.source}}')"
-                        onmouseleave="unhighlight('{{transform_update_id}}_field_{{cow.source}}')"
+                        onmouseenter="highlight('{{update_id}}_field_{{cow.source}}')"
+                        onmouseleave="unhighlight('{{update_id}}_field_{{cow.source}}')"
                     >
                         {{cow.variant}}: {{cow.source}}
                     </div>
@@ -71,7 +71,7 @@
             <th colspan="5">
                 <div class="iter-list-descriptor-wrapper">
                     <div class="iter-list-descriptor">Leading Iters:</div>
-                    {{>iter_list iters=this.iters_before_start transform_update_id=transform_update_id}}
+                    {{>iter_list iters=this.iters_before_start update_id=update_id}}
                 </div>
             </th>
         </thead>
@@ -82,8 +82,8 @@
                     <div class="ref size-placeholder">9</div>
                     {{#each field_refs as |ref|}}
                     <div class="ref"
-                        onmouseenter="highlight('{{../transform_update_id}}_field_{{ref}}')"
-                        onmouseleave="unhighlight('{{../transform_update_id}}_field_{{ref}}')"
+                        onmouseenter="highlight('{{../update_id}}_field_{{ref}}')"
+                        onmouseleave="unhighlight('{{../update_id}}_field_{{ref}}')"
                     >{{ref}}
                     </div>
                     {{/each}}
@@ -99,7 +99,7 @@
         </thead>
         <tbody>
             {{#each rows as |row|}}
-            {{~let "transform_update_id" ../transform_update_id}}
+            {{~let "update_id" ../update_id}}
             {{#each (range row.dead_slots) as |id|}}
             <tr class="field-row dead-row">
                 <td colspan="5">
@@ -109,7 +109,7 @@
                             <div class="data_type">DataType</div>
                             <div class="flag flag_same_as_prev"></div>
                         </div>
-                        {{>iter_list iters=[] transform_update_id=transform_update_id}}
+                        {{>iter_list iters=[] update_id=update_id}}
                     </div>
                 </td>
             </tr>
@@ -128,9 +128,9 @@
             <tr
                 class="field-row"
                 {{#if (eq row.repr "stream_value_id")}}
-                highlight_tag="[{{transform_update_id}}_sv_ref_{{row.value}}]"
-                onmouseenter="highlight('{{transform_update_id}}_sv_{{row.value}}')"
-                onmouseleave="unhighlight('{{transform_update_id}}_sv_{{row.value}}')"
+                highlight_tag="[{{update_id}}_sv_ref_{{row.value}}]"
+                onmouseenter="highlight('{{update_id}}_sv_{{row.value}}')"
+                onmouseleave="unhighlight('{{update_id}}_sv_{{row.value}}')"
                 {{/if}}
             >
                 <td>
@@ -180,7 +180,7 @@
                 </td>
                 <td class="data{{flag_shadow_data}}">{{row.value}}</td>
                 <td>
-                    {{>iter_list iters=row.iters transform_update_id=transform_update_id}}
+                    {{>iter_list iters=row.iters update_id=update_id}}
                 </td>
             </tr>
             {{/each}}
@@ -188,7 +188,7 @@
             <tr class="field-row">
                 <td colspan="4"></td>
                 <td>
-                    {{>iter_list iters=iters_after_end transform_update_id=transform_update_id}}
+                    {{>iter_list iters=iters_after_end update_id=update_id}}
                 </td>
             </tr>
             {{/if}}
