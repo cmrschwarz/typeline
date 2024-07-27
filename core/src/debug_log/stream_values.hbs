@@ -1,5 +1,5 @@
-{{~let "stream_values_id" transform_update_id "_stream_values" }}
-{{~let "collapsed_stream_values_id" transform_update_id "_collapsed_stream_values" }}
+{{let "stream_values_id" transform_update_id "_stream_values" }}
+{{let "collapsed_stream_values_id" transform_update_id "_collapsed_stream_values" }}
 
 <div class="stream-value-container">
     <div
@@ -31,34 +31,36 @@
         </thead>
         <tbody>
 
-            {{#each stream_values}}
+            {{#each stream_values as |sv|}}
+                {{let "transform_update_id" ../transform_update_id}}
                 <tr
-                    highlight_tag="[{{../transform_update_id}}_sv_{{id}}]"
-                    onmouseenter="highlight('{{../transform_update_id}}_sv_ref_{{id}}')"
-                    onmouseleave="unhighlight('{{../transform_update_id}}_sv_ref_{{id}}')"
+                    highlight_tag="[{{transform_update_id}}_sv_{{sv.id}}]"
+                    onmouseenter="highlight('{{transform_update_id}}_sv_ref_{{sv.id}}')"
+                    onmouseleave="unhighlight('{{transform_update_id}}_sv_ref_{{sv.id}}')"
                 >
-                    <td>{{id}}</td>
-                    <td>{{titleCase buffer_mode}}</td>
-                    <td>{{titleCase data_type}}</td>
-                    <td>{{ref_count}}</td>
-                    <td>{{values_dropped}}</td>
-                    <td>{{done}}</td>
+                    <td>{{sv.id}}</td>
+                    <td>{{titleCase sv.buffer_mode}}</td>
+                    <td>{{titleCase sv.data_type}}</td>
+                    <td>{{sv.ref_count}}</td>
+                    <td>{{sv.values_dropped}}</td>
+                    <td>{{sv.done}}</td>
                     <td>
                         <div class="stream-value-subscriber-list">
                         <div class="stream-value-subscriber-placeholder">9</div>
-                        {{#each subscribers}}
+                        {{#each sv.subscribers as |sub|}}
+                            {{let "transform_update_id" ../transform_update_id}}
                             <div
                                 class="stream-value-subscriber tooltip-parent"
-                                onmouseenter="highlight('{{../transform_update_id}}_tf_{{tf_id}}')"
-                                onmouseleave="unhighlight('{{../transform_update_id}}_tf_{{tf_id}}')"
+                                onmouseenter="highlight('{{transform_update_id}}_tf_{{sub.tf_id}}')"
+                                onmouseleave="unhighlight('{{transform_update_id}}_tf_{{sub.tf_id}}')"
                             >
-                            {{tf_id}}
+                            {{sub.tf_id}}
                                 <span class="tooltip-text">
-                                    Values Consumed: {{offset.values_consumed}}
+                                    Values Consumed: {{sub.offset.values_consumed}}
                                     <br>
-                                    Current Value Offset: {{offset.current_value_offset}}
+                                    Current Value Offset: {{sub.offset.current_value_offset}}
                                     <br>
-                                    Notify Only Once Done: {{notify_only_once_done}}
+                                    Notify Only Once Done: {{sub.notify_only_once_done}}
                                 </span>
                             </div>
                         {{/each}}
@@ -68,7 +70,7 @@
                     {{#if error}}
                         ERROR: {{error}}
                     {{else}}
-                    {{#if data}}
+                    {{#if sv.data}}
                     <table class="stream-value-data-table">
                         <thead>
                             <th>N</th>
@@ -77,16 +79,16 @@
                             <th>Value</th>
                         </thead>
                         <tbody>
-                        {{#each data}}
+                        {{#each sv.data as |data|}}
                             <tr>
-                                <td>{{add @index ../values_dropped}}</td>
-                                <td>{{titleCase kind}}</td>
+                                <td>{{add @index ../sv.values_dropped}}</td>
+                                <td>{{titleCase data.kind}}</td>
                                 <td>
-                                    {{#if this.range}}
-                                        {{this.range.start}}..{{this.range.end}}
+                                    {{#if data.range}}
+                                        {{data.range.start}}..{{data.range.end}}
                                     {{/if}}
                                 </td>
-                                <td>{{value}}</td>
+                                <td>{{data.value}}</td>
                             </tr>
                         {{/each}}
                         </tbody>

@@ -1,30 +1,29 @@
-{{! this partial is intentionally indented one level, because it gets written directly inside the html body !}}
-    {{~let "update_id" (unique_id "tfu_")}}
-    {{~let "transform_update_id" update_id}}
-    {{~let "update_body_id" (unique_id "update_body_id_")}}
-    {{~let "collapsed_update_body_id" (unique_id "collapsed_update_body_id_")}}
-    <div class="update {{update_kind}}">
-        <div
-            collapse_tag="[{{update_id}}]"
-            class="transform-update-text"
-            onclick="toggle_collapsable('{{update_body_id}}', '{{collapsed_update_body_id}}')"
-            onmouseenter="highlight('{{update_id}}_tf_{{transform_id}}')"
-            onmouseleave="unhighlight('{{update_id}}_tf_{{transform_id}}')"
-        >
-            {{transform_update_text}}
+{{! this partial is intentionally indented two levels, because it gets written directly inside the html body !}}
+{{~let "update_id" (unique_id "tfu_")}}
+{{~let "update_body_id" (unique_id "update_body_id_")}}
+{{~let "collapsed_update_body_id" (unique_id "collapsed_update_body_id_")
+}}        <div class="update {{update_kind}}">
+            <div
+                collapse_tag="[{{update_id}}]"
+                class="transform-update-text"
+                onclick="toggle_collapsable('{{update_body_id}}', '{{collapsed_update_body_id}}')"
+                onmouseenter="highlight('{{update_id}}_tf_{{transform_id}}')"
+                onmouseleave="unhighlight('{{update_id}}_tf_{{transform_id}}')"
+            >
+                {{transform_update_text}}
+            </div>
+            <div class="transform-update-body" collapse_tag="[{{update_body_id}}]">
+                {{>transform_chain transform_chain transform_update_id=update_id}}
+                {{#if stream_values}}
+                {{>stream_values stream_values=stream_values transform_update_id=update_id}}
+                {{/if}}
+            </div>
+            <div
+                class="collapsed-update-body {{update_kind}}"
+                collapse_tag="[{{collapsed_update_body_id}}]"
+                style="display: none;"
+                onclick="toggle_collapsable('{{update_body_id}}', '{{collapsed_update_body_id}}')"
+            >
+            </div>
         </div>
-        <div class="transform-update-body" collapse_tag="[{{update_body_id}}]">
-            {{>transform_chain transform_chain transform_update_id=update_id}}
-            {{#if stream_values}}
-            {{>stream_values stream_values=stream_values transform_update_id=update_id}}
-            {{/if}}
-        </div>
-        <div
-            class="collapsed-update-body {{update_kind}}"
-            collapse_tag="[{{collapsed_update_body_id}}]"
-            style="display: none;"
-            onclick="toggle_collapsable('{{update_body_id}}', '{{collapsed_update_body_id}}')"
-        >
-        </div>
-    </div>
 {{!/update}}

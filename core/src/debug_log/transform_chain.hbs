@@ -1,8 +1,8 @@
 <div class="transform-chain">
     {{#each this.match_chains as |mc|}}
-    {{~let "transform_update_id" ../transform_update_id}}
-    {{~let "match_set_body_id" "match_set_" mc.ms_id }} {{! (unique_id "match_set_body_")}}
-    {{~let "collapsed_match_set_body_id" "collapsed_match_set_" mc.ms_id  }} {{! (unique_id "collapsed_match_set_body_") }}
+    {{let "transform_update_id" ../transform_update_id}}
+    {{~let "match_set_body_id" "match_set_" mc.ms_id ~}} {{! (unique_id "match_set_body_")}}
+    {{~let "collapsed_match_set_body_id" "collapsed_match_set_" mc.ms_id  ~}} {{! (unique_id "collapsed_match_set_body_") }}
     <div class="match-set-container">
         <div class="match-set">
             <div
@@ -27,5 +27,4 @@
         </div>
     </div>
     {{/each}}
-
 </div>

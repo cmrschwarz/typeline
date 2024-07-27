@@ -1,4 +1,4 @@
-{{~let "collapsed_group_track_container_id" "collapsed_group_id_" id }} {{! (unique_id "collapsed_field_container_id_")}}
+{{let "collapsed_group_track_container_id" "collapsed_group_id_" id~}} {{! (unique_id "collapsed_field_container_id_")}}
 {{~let "group_track_container_id" "group_id_" id ~}} {{! (unique_id "collapsed_field_id_") }}
 <div
     class="collapsed-field-container"
@@ -82,7 +82,7 @@
         </thead>
         <tbody>
             {{#each rows as |row|}}
-            {{~let "transform_update_id" ../transform_update_id}}
+            {{~let "transform_update_id" ../transform_update_id~}}
             {{#each (range row.dead_slots)}}
             <tr class="group-track-row dead-row">
                 <td colspan="4">
@@ -94,10 +94,10 @@
                 </td>
             </tr>
             {{/each}}
-            {{#if row.is_group_start}}
-            {{~let "flag_shadow" ""}}
+            {{~#if row.is_group_start}}
+            {{~let "flag_shadow" ""~}}
             {{else}}
-            {{~let "flag_shadow" " flag-shadow"}}
+            {{~let "flag_shadow" " flag-shadow"~}}
             {{/if}}
             <tr class="group-track-row">
                 <td class="parent-group-idx{{flag_shadow}}">{{row.parent_group_idx}}</td>

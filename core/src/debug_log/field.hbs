@@ -100,7 +100,7 @@
         <tbody>
             {{#each rows as |row|}}
             {{~let "transform_update_id" ../transform_update_id}}
-            {{#each (range row.dead_slots)}}
+            {{#each (range row.dead_slots) as |id|}}
             <tr class="field-row dead-row">
                 <td colspan="5">
                     <div class="dead-row-placeholder">

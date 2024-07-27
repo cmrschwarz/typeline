@@ -92,7 +92,6 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
         .unwrap();
     hb.register_template_string("update", include_str!("update.hbs"))
         .unwrap();
-
     hb.register_partial("stylesheet", include_str!("style.css"))
         .unwrap();
     hb.register_partial("script", include_str!("script.js"))
