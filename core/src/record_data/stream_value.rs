@@ -447,11 +447,9 @@ impl<'a, 'b> StreamValueDataInserter<'a, 'b> {
         mark_prev_data_consumed: bool,
     ) -> Self {
         let mut dead_elems_leading = 0;
-        if mark_prev_data_consumed {
-            if !stream_value.is_buffered() {
-                stream_value.data_consumed = stream_value.data_offset_end();
-                dead_elems_leading = stream_value.drop_dead_head();
-            }
+        if mark_prev_data_consumed && !stream_value.is_buffered() {
+            stream_value.data_consumed = stream_value.data_offset_end();
+            dead_elems_leading = stream_value.drop_dead_head();
         }
         let memory_budget = match stream_value.buffer_mode {
             StreamValueBufferMode::Stream => {

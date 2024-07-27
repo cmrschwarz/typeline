@@ -24,6 +24,9 @@ body {
 .update.stream-value-update .transform-update-text {
     background-color: rgb(148, 100, 237);
 }
+.update.stream-producer-update .transform-update-text {
+    background-color: rgb(100, 237, 155);
+}
 
 .transform-chain {
     display: flex;

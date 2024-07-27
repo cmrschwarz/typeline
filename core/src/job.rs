@@ -914,6 +914,22 @@ impl<'a> Job<'a> {
         let tf_state = &mut self.job_data.tf_mgr.transforms[tf_id];
         tf_state.is_stream_producer = false;
         stream_producer_update(self, tf_id);
+
+        #[cfg(feature = "debug_log")]
+        if let (Some(f), Some(start_tf)) =
+            (&mut self.debug_log, self.job_data.start_tf)
+        {
+            crate::debug_log::write_stream_producer_update_to_html(
+                &self.job_data,
+                &self.transform_data,
+                tf_id,
+                start_tf,
+                f,
+            )
+            .expect("debug log write must succeed"); // TODO: handle this
+                                                     // better
+        }
+
         #[cfg(feature = "debug_logging")]
         eprintln!(
             "/> stream producer update tf {:02} {:>20}, producers: {:?}, stack: {:?}",

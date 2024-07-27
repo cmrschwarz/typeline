@@ -286,7 +286,12 @@ fn claim_stream_value(
 ) -> StreamValueId {
     debug_assert!(join.active_stream_value.is_none());
 
-    let sv = if !join.buffer.is_empty() {
+    let sv = if join.buffer.is_empty() {
+        StreamValue::new_empty(
+            Some(StreamValueDataType::MaybeText),
+            StreamValueBufferMode::Stream,
+        )
+    } else {
         let cap = join.buffer.capacity();
         let buf =
             std::mem::replace(&mut join.buffer, MaybeText::with_capacity(cap));
@@ -301,11 +306,6 @@ fn claim_stream_value(
             StreamValueData::from_maybe_text(buf),
             StreamValueBufferMode::Stream,
             false,
-        )
-    } else {
-        StreamValue::new_empty(
-            Some(StreamValueDataType::MaybeText),
-            StreamValueBufferMode::Stream,
         )
     };
 

@@ -28,8 +28,7 @@ use crate::{
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
         stream_value::{
-            StreamValueData, StreamValueDataOffset, StreamValueId,
-            StreamValueUpdate,
+            StreamValueData, StreamValueDataOffset, StreamValueUpdate,
         },
     },
     utils::{
@@ -91,11 +90,8 @@ static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
         .unwrap();
     hb.register_template_string("tail", include_str!("tail.hbs"))
         .unwrap();
-    hb.register_template_string(
-        "transform_update",
-        include_str!("transform_update.hbs"),
-    )
-    .unwrap();
+    hb.register_template_string("update", include_str!("update.hbs"))
+        .unwrap();
 
     hb.register_partial("stylesheet", include_str!("style.css"))
         .unwrap();
@@ -1064,6 +1060,30 @@ pub fn stream_values_to_json(jd: &JobData) -> serde_json::Value {
     svs_json.into()
 }
 
+pub fn write_update_to_html(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    update_text: &str,
+    update_kind: &str,
+    tf_id: Option<TransformId>,
+    root_tf: TransformId,
+    w: &mut impl std::io::Write,
+) -> Result<(), std::io::Error> {
+    let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
+
+    let update = &json!({
+        "transform_id": tf_id.map(TransformId::into_usize),
+        "transform_update_text": update_text,
+        "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
+        "stream_values": stream_values_to_json(jd),
+        "update_kind": update_kind
+    });
+
+    TEMPLATES
+        .render_to_write("update", &update, BufWriter::new(w))
+        .map_err(unwrap_render_error)
+}
+
 pub fn write_transform_update_to_html(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
@@ -1072,19 +1092,16 @@ pub fn write_transform_update_to_html(
     root_tf: TransformId,
     w: &mut impl std::io::Write,
 ) -> Result<(), std::io::Error> {
-    let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
-
-    let update = &json!({
-        "transform_id": tf_id.into_usize(),
-        "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data, Some(batch_size)),
-        "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
-        "stream_values": stream_values_to_json(jd),
-        "update_kind": "transform-update"
-    });
-
-    TEMPLATES
-        .render_to_write("transform_update", &update, BufWriter::new(w))
-        .map_err(unwrap_render_error)
+    write_update_to_html(
+        jd,
+        tf_data,
+        &jd.tf_mgr
+            .format_transform_state(tf_id, tf_data, Some(batch_size)),
+        "transform-update",
+        Some(tf_id),
+        root_tf,
+        w,
+    )
 }
 
 pub fn write_stream_value_update_to_html(
@@ -1094,25 +1111,44 @@ pub fn write_stream_value_update_to_html(
     root_tf: TransformId,
     w: &mut impl std::io::Write,
 ) -> Result<(), std::io::Error> {
-    let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
-
-    let update = &json!({
-        "transform_id": svu.tf_id.into_usize(),
-        "transform_update_text": format!(
+    write_update_to_html(
+        jd,
+        tf_data,
+        &format!(
             "sv {} update for tf {:02} `{}`, stack:{:?}",
             svu.sv_id,
             svu.tf_id,
             tf_data[svu.tf_id].display_name(),
             &jd.tf_mgr.ready_stack
         ),
-        "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
-        "stream_values": stream_values_to_json(jd),
-        "update_kind": "stream-value-update"
-    });
+        "stream-value-update",
+        Some(svu.tf_id),
+        root_tf,
+        w,
+    )
+}
 
-    TEMPLATES
-        .render_to_write("transform_update", &update, BufWriter::new(w))
-        .map_err(unwrap_render_error)
+pub fn write_stream_producer_update_to_html(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    tf_id: TransformId,
+    root_tf: TransformId,
+    w: &mut impl std::io::Write,
+) -> Result<(), std::io::Error> {
+    write_update_to_html(
+        jd,
+        tf_data,
+        &format!(
+            "stream produicer update for tf {:02} `{}`, stack:{:?}",
+            tf_id,
+            tf_data[tf_id].display_name(),
+            &jd.tf_mgr.ready_stack
+        ),
+        "stream-producer-update",
+        Some(tf_id),
+        root_tf,
+        w,
+    )
 }
 
 pub fn write_initial_state_to_html(
@@ -1121,16 +1157,13 @@ pub fn write_initial_state_to_html(
     root_tf: TransformId,
     w: &mut impl std::io::Write,
 ) -> Result<(), std::io::Error> {
-    let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
-
-    let update = &json!({
-        "transform_id": Value::Null,
-        "transform_update_text": "Initial State",
-        "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
-        "stream_values": stream_values_to_json(jd),
-        "update_kind": "initial-state"
-    });
-    TEMPLATES
-        .render_to_write("transform_update", &update, BufWriter::new(w))
-        .map_err(unwrap_render_error)
+    write_update_to_html(
+        jd,
+        tf_data,
+        "Initial State",
+        "initial-state",
+        None,
+        root_tf,
+        w,
+    )
 }
