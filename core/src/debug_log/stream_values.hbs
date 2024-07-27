@@ -12,13 +12,21 @@
     <table collapse_tag="[{{stream_values_id}}]" class="stream-values-table">
         <thead>
             <th>ID</th>
-            <th>Kind</th>
+            <th>Mode</th>
+            <th>Type</th>
             <th class="tooltip-parent">
-                RC/VD/D
+                RC
                 <span class="tooltip-text">
-                    Ref Count / Values Dropped / Done
+                    Ref Count
                 </span>
             </th>
+            <th class="tooltip-parent">
+                VD
+                <span class="tooltip-text">
+                    Values Dropped
+                </span>
+            </th>
+            <th>Done</th>
             <th>Subs</th>
             <th>Data</th>
         </thead>
@@ -27,8 +35,11 @@
             {{#each stream_values}}
                 <tr>
                     <td>{{id}}</td>
-                    <td>{{titleCase buffer_mode}}: {{titleCase data_type}}</td>
-                    <td>{{ref_count}}/{{values_dropped}}/{{to_int done}}</td>
+                    <td>{{titleCase buffer_mode}}</td>
+                    <td>{{titleCase data_type}}</td>
+                    <td>{{ref_count}}</td>
+                    <td>{{values_dropped}}</td>
+                    <td>{{done}}</td>
                     <td>
                         <div class="stream-value-subscriber-list">
                         <div class="stream-value-subscriber-placeholder">9</div>

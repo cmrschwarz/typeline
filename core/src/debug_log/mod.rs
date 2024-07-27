@@ -997,40 +997,52 @@ pub fn stream_values_to_json(jd: &JobData) -> serde_json::Value {
         }
         let mut sv_data = Vec::new();
         for data in &sv.data {
-            let data_text = match data {
-                StreamValueData::StaticText(v) => (*v).into(),
-                StreamValueData::StaticBytes(v) => (*v).into(),
-                StreamValueData::Text { data, .. } => (&***data).into(),
-                StreamValueData::Bytes { data, .. } => (&***data).into(),
-                StreamValueData::Single(v) => match v {
-                    FieldValue::FieldReference(fr) => {
-                        MaybeText::Text(format!("{}", fr.field_ref_offset))
+            let value = 'data_text: {
+                let data_raw: MaybeText = match data {
+                    StreamValueData::StaticText(v) => (*v).into(),
+                    StreamValueData::StaticBytes(v) => (*v).into(),
+                    StreamValueData::Text { data, .. } => (&***data).into(),
+                    StreamValueData::Bytes { data, .. } => (&***data).into(),
+                    StreamValueData::Single(v) => {
+                        break 'data_text match v {
+                            FieldValue::FieldReference(fr) => MaybeText::Text(
+                                format!("{}", fr.field_ref_offset),
+                            ),
+                            FieldValue::SlicedFieldReference(fr) => {
+                                MaybeText::Text(format!(
+                                    "({})[{}..{}]",
+                                    fr.field_ref_offset, fr.begin, fr.end
+                                ))
+                            }
+                            FieldValue::StreamValueId(sv_id) => {
+                                MaybeText::Text(sv_id.to_string())
+                            }
+                            _ => {
+                                let mut value_str = MaybeText::new();
+                                Formattable::format(
+                                    &v.as_ref(),
+                                    &mut formatting_context,
+                                    &mut value_str,
+                                )
+                                .unwrap();
+                                value_str
+                            }
+                        }
                     }
-                    FieldValue::SlicedFieldReference(fr) => {
-                        MaybeText::Text(format!(
-                            "({})[{}..{}]",
-                            fr.field_ref_offset, fr.begin, fr.end
-                        ))
-                    }
-                    FieldValue::StreamValueId(sv_id) => {
-                        MaybeText::Text(sv_id.to_string())
-                    }
-                    _ => {
-                        let mut value_str = MaybeText::new();
-                        Formattable::format(
-                            &v.as_ref(),
-                            &mut formatting_context,
-                            &mut value_str,
-                        )
-                        .unwrap();
-                        value_str
-                    }
-                },
+                };
+                let mut value_escaped = MaybeText::new();
+                Formattable::format(
+                    &FieldValue::from_maybe_text(data_raw).as_ref(),
+                    &mut formatting_context,
+                    &mut value_escaped,
+                )
+                .unwrap();
+                value_escaped
             };
             sv_data.push(json!({
                 "kind": data.kind().to_str(),
                 "range": data.range(),
-                "value": data_text.into_text_lossy(),
+                "value": value.into_text_lossy(),
             }));
         }
         svs_json.push(json!({
