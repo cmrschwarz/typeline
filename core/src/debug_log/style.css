@@ -2,7 +2,7 @@ body {
     background-color: linen;
 }
 
-.transform-update {
+.update {
     padding: 0.5em;
     margin: 0.5em 0;
     border: 3px solid black;
@@ -11,9 +11,18 @@ body {
     width: fit-content;
 }
 
-.transform-update .transform-update-text {
-    background-color: cornflowerblue;
+.update .transform-update-text {
     margin-bottom: 0.5em;
+}
+
+.update.initial-state .transform-update-text {
+    background-color: rgb(249, 150, 69);
+}
+.update.transform-update .transform-update-text {
+    background-color: cornflowerblue;
+}
+.update.stream-value-update .transform-update-text {
+    background-color: rgb(148, 100, 237);
 }
 
 .transform-chain {

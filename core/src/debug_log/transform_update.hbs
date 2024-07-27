@@ -2,7 +2,7 @@
     {{~let "transform_update_id" (unique_id "tfu_")}}
     {{~let "transform_update_body_id" (unique_id "transform_update_body_id_")}}
     {{~let "collapsed_transform_update_body_id" (unique_id "collapsed_transform_update_body_id_")}}
-    <div class="transform-update">
+    <div class="update {{update_kind}}">
         <div
             collapse_tag="[{{transform_update_id}}]"
             class="transform-update-text"

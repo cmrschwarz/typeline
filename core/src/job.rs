@@ -812,6 +812,20 @@ impl<'a> Job<'a> {
             }
         }
         transform_stream_value_update(self, svu);
+        #[cfg(feature = "debug_log")]
+        if let (Some(f), Some(start_tf)) =
+            (&mut self.debug_log, self.job_data.start_tf)
+        {
+            crate::debug_log::write_stream_value_update_to_html(
+                &self.job_data,
+                &self.transform_data,
+                svu,
+                start_tf,
+                f,
+            )
+            .expect("debug log write must succeed"); // TODO: handle this
+                                                     // better
+        }
     }
     pub fn handle_transform(
         &mut self,

@@ -27,7 +27,10 @@ use crate::{
         iter_hall::{CowVariant, IterKind, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
-        stream_value::{StreamValueData, StreamValueDataOffset},
+        stream_value::{
+            StreamValueData, StreamValueDataOffset, StreamValueId,
+            StreamValueUpdate,
+        },
     },
     utils::{
         index_slice::IndexSlice, indexing_type::IndexingType,
@@ -1076,6 +1079,35 @@ pub fn write_transform_update_to_html(
         "transform_update_text": jd.tf_mgr.format_transform_state(tf_id, tf_data, Some(batch_size)),
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
         "stream_values": stream_values_to_json(jd),
+        "update_kind": "transform-update"
+    });
+
+    TEMPLATES
+        .render_to_write("transform_update", &update, BufWriter::new(w))
+        .map_err(unwrap_render_error)
+}
+
+pub fn write_stream_value_update_to_html(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    svu: StreamValueUpdate,
+    root_tf: TransformId,
+    w: &mut impl std::io::Write,
+) -> Result<(), std::io::Error> {
+    let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
+
+    let update = &json!({
+        "transform_id": svu.tf_id.into_usize(),
+        "transform_update_text": format!(
+            "sv {} update for tf {:02} `{}`, stack:{:?}",
+            svu.sv_id,
+            svu.tf_id,
+            tf_data[svu.tf_id].display_name(),
+            &jd.tf_mgr.ready_stack
+        ),
+        "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
+        "stream_values": stream_values_to_json(jd),
+        "update_kind": "stream-value-update"
     });
 
     TEMPLATES
@@ -1096,6 +1128,7 @@ pub fn write_initial_state_to_html(
         "transform_update_text": "Initial State",
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
         "stream_values": stream_values_to_json(jd),
+        "update_kind": "initial-state"
     });
     TEMPLATES
         .render_to_write("transform_update", &update, BufWriter::new(w))
