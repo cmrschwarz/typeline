@@ -756,6 +756,9 @@ impl<'a> StreamValue<'a> {
     pub fn drop_dead_head(&mut self) -> usize {
         let mut i = 0;
         loop {
+            if i == self.data.len() {
+                break;
+            }
             let data = &mut self.data[i];
             if self.data_consumed.values_consumed == self.values_dropped {
                 if data.len() != self.data_consumed.current_value_offset {
@@ -771,9 +774,6 @@ impl<'a> StreamValue<'a> {
                 i += 1;
             }
             self.values_dropped += 1;
-            if i == self.data.len() {
-                break;
-            }
         }
         i
     }

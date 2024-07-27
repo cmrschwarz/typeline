@@ -285,22 +285,31 @@ fn claim_stream_value(
     sv_mgr: &mut StreamValueManager,
 ) -> StreamValueId {
     debug_assert!(join.active_stream_value.is_none());
-    let buf = if join.first_record_added {
+
+    let sv = if !join.buffer.is_empty() {
         let cap = join.buffer.capacity();
-        std::mem::replace(&mut join.buffer, MaybeText::with_capacity(cap))
-    } else {
-        MaybeText::default()
-    };
-    let sv_id = sv_mgr.claim_stream_value(StreamValue::from_data(
-        if buf.as_str().is_some() {
+        let buf =
+            std::mem::replace(&mut join.buffer, MaybeText::with_capacity(cap));
+
+        let data_type = if buf.as_str().is_some() {
             Some(StreamValueDataType::MaybeText)
         } else {
             Some(StreamValueDataType::Bytes)
-        },
-        StreamValueData::from_maybe_text(buf),
-        StreamValueBufferMode::Stream,
-        false,
-    ));
+        };
+        StreamValue::from_data(
+            data_type,
+            StreamValueData::from_maybe_text(buf),
+            StreamValueBufferMode::Stream,
+            false,
+        )
+    } else {
+        StreamValue::new_empty(
+            Some(StreamValueDataType::MaybeText),
+            StreamValueBufferMode::Stream,
+        )
+    };
+
+    let sv_id = sv_mgr.claim_stream_value(sv);
     join.active_stream_value = Some(sv_id);
     join.active_stream_value_appended = true;
     sv_id
