@@ -125,8 +125,15 @@
             {{~else}}
             {{~let "flag_shadow_data" ""}}
             {{~/if}}
-            <tr class="field-row">
-                <td >
+            <tr
+                class="field-row"
+                {{#if (eq row.repr "stream_value_id")}}
+                highlight_tag="[{{transform_update_id}}_sv_ref_{{row.value}}]"
+                onmouseenter="highlight('{{transform_update_id}}_sv_{{row.value}}')"
+                onmouseleave="unhighlight('{{transform_update_id}}_sv_{{row.value}}')"
+                {{/if}}
+            >
+                <td>
                     <div class="meta-list">
                         {{#if (eq row.padding 0)}}
                         <div class="padding padding-zero{{flag_shadow}}">

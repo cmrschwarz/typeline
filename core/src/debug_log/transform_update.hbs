@@ -14,7 +14,9 @@
         </div>
         <div class="transform-update-body" collapse_tag="[{{transform_update_body_id}}]">
             {{>transform_chain transform_chain transform_update_id=transform_update_id}}
+            {{#if stream_values}}
             {{>stream_values stream_values=stream_values transform_update_id=transform_update_id}}
+            {{/if}}
         </div>
         <div
             class="collapsed-transform-update-body"

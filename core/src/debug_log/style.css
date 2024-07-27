@@ -370,6 +370,10 @@ body {
     flex-grow: 1;
 }
 
+.highlighted .data_type {
+    background-color: red !important;
+}
+
 .field .meta-list > .flag {
     padding-inline: 0.15em;
     margin-inline: 0.1em;

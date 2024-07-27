@@ -1,11 +1,10 @@
-{{~let "transform_update_id" ../transform_update_id}}
 {{~let "stream_values_id" transform_update_id "_stream_values" }}
 {{~let "collapsed_stream_values_id" transform_update_id "_collapsed_stream_values" }}
 
 <div class="stream-value-container">
     <div
         class="stream-values-header"
-        onclick="toggle_collapsable('{{stream_values_id}}', '{{collapsed_stream_values_id}}')"
+        onclick="toggle_collapsable('{{stream_values_id}}', '{{collapsed_stream_values_id}}', 'inline-block')"
     >
         Stream Values
     </div>
@@ -33,7 +32,11 @@
         <tbody>
 
             {{#each stream_values}}
-                <tr>
+                <tr
+                    highlight_tag="[{{../transform_update_id}}_sv_{{id}}]"
+                    onmouseenter="highlight('{{../transform_update_id}}_sv_ref_{{id}}')"
+                    onmouseleave="unhighlight('{{../transform_update_id}}_sv_ref_{{id}}')"
+                >
                     <td>{{id}}</td>
                     <td>{{titleCase buffer_mode}}</td>
                     <td>{{titleCase data_type}}</td>
