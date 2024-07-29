@@ -537,7 +537,20 @@ body {
     color: white;
 }
 
+.stream-values-data-display {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+}
+
 .stream-values-table {
+    position: relative;
+    background-color: lightgray;
+    border-collapse: collapse;
+    text-align: center;
+}
+
+.stream-value-updates-table {
     position: relative;
     background-color: lightgray;
     border-collapse: collapse;
@@ -557,12 +570,11 @@ body {
     min-width: 1em;
 }
 
-.stream-values-table th {
+:is(.stream-values-table, .stream-value-updates-table) :is(th, td) {
     border: 1px solid black;
 }
 
-.stream-values-table td {
-    border: 1px solid black;
+.stream-value-data-table-parent-td {
     padding: 0;
 }
 

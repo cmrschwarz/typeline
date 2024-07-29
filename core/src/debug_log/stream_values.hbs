@@ -4,105 +4,131 @@
 <div class="stream-value-container">
     <div
         class="stream-values-header"
-        onclick="toggle_collapsable('{{stream_values_id}}', '{{collapsed_stream_values_id}}', 'inline-block')"
+        onclick="toggle_collapsable('{{stream_values_id}}', '{{collapsed_stream_values_id}}')"
     >
         Stream Values
     </div>
-    <table collapse_tag="[{{stream_values_id}}]" class="stream-values-table">
-        <thead>
-            <th>ID</th>
-            <th>Mode</th>
-            <th>Type</th>
-            <th class="tooltip-parent">
-                RC
-                <span class="tooltip-text">
-                    Ref Count
-                </span>
-            </th>
-            <th class="tooltip-parent">
-                VD
-                <span class="tooltip-text">
-                    Values Dropped
-                </span>
-            </th>
-            <th>Done</th>
-            <th>Subs</th>
-            <th>Data</th>
-        </thead>
-        <tbody>
+    <div collapse_tag="[{{stream_values_id}}]" class="stream-values-data-display">
+        <table class="stream-values-table">
+            <thead>
+                <th>ID</th>
+                <th>Mode</th>
+                <th>Type</th>
+                <th class="tooltip-parent">
+                    RC
+                    <span class="tooltip-text">
+                        Ref Count
+                    </span>
+                </th>
+                <th class="tooltip-parent">
+                    VD
+                    <span class="tooltip-text">
+                        Values Dropped
+                    </span>
+                </th>
+                <th>Done</th>
+                <th>Subs</th>
+                <th>Data</th>
+            </thead>
+            <tbody>
 
-            {{#each stream_values as |sv|}}
-                {{let "update_id" ../update_id}}
-                <tr
-                    highlight_tag="[{{update_id}}_sv_{{sv.id}}]"
-                    onmouseenter="highlight('{{update_id}}_sv_ref_{{sv.id}}')"
-                    onmouseleave="unhighlight('{{update_id}}_sv_ref_{{sv.id}}')"
-                >
-                    <td>{{sv.id}}</td>
-                    <td>{{titleCase sv.buffer_mode}}</td>
-                    <td>{{titleCase sv.data_type}}</td>
-                    <td>{{sv.ref_count}}</td>
-                    <td>{{sv.values_dropped}}</td>
-                    <td>{{sv.done}}</td>
-                    <td>
-                        <div class="stream-value-subscriber-list">
-                        <div class="stream-value-subscriber-placeholder">9</div>
-                        {{#each sv.subscribers as |sub|}}
-                            {{let "update_id" ../update_id}}
-                            <div
-                                class="stream-value-subscriber tooltip-parent"
-                                onmouseenter="highlight('{{update_id}}_tf_{{sub.tf_id}}')"
-                                onmouseleave="unhighlight('{{update_id}}_tf_{{sub.tf_id}}')"
-                            >
-                            {{sub.tf_id}}
-                                <span class="tooltip-text">
-                                    Values Consumed: {{sub.offset.values_consumed}}
-                                    <br>
-                                    Current Value Offset: {{sub.offset.current_value_offset}}
-                                    <br>
-                                    Notify Only Once Done: {{sub.notify_only_once_done}}
-                                </span>
+                {{#each stream_values as |sv|}}
+                    {{let "update_id" ../update_id}}
+                    <tr
+                        highlight_tag="[{{update_id}}_sv_{{sv.id}}]"
+                        onmouseenter="highlight('{{update_id}}_sv_ref_{{sv.id}}')"
+                        onmouseleave="unhighlight('{{update_id}}_sv_ref_{{sv.id}}')"
+                    >
+                        <td>{{sv.id}}</td>
+                        <td>{{titleCase sv.buffer_mode}}</td>
+                        <td>{{titleCase sv.data_type}}</td>
+                        <td>{{sv.ref_count}}</td>
+                        <td>{{sv.values_dropped}}</td>
+                        <td>{{sv.done}}</td>
+                        <td>
+                            <div class="stream-value-subscriber-list">
+                            <div class="stream-value-subscriber-placeholder">9</div>
+                            {{#each sv.subscribers as |sub|}}
+                                {{let "update_id" ../update_id}}
+                                <div
+                                    class="stream-value-subscriber tooltip-parent"
+                                    onmouseenter="highlight('{{update_id}}_tf_{{sub.tf_id}}')"
+                                    onmouseleave="unhighlight('{{update_id}}_tf_{{sub.tf_id}}')"
+                                >
+                                {{sub.tf_id}}
+                                    <span class="tooltip-text">
+                                        Values Consumed: {{sub.offset.values_consumed}}
+                                        <br>
+                                        Current Value Offset: {{sub.offset.current_value_offset}}
+                                        <br>
+                                        Notify Only Once Done: {{sub.notify_only_once_done}}
+                                    </span>
+                                </div>
+                            {{/each}}
                             </div>
-                        {{/each}}
-                        </div>
-                    </td>
-                    <td>
-                        <div class="stream-value-data-table-container">
-                            {{#if error}}
-                                ERROR: {{error}}
-                            {{else}}
-                            {{#if sv.data}}
-                            <table class="stream-value-data-table">
-                                <thead>
-                                    <th>N</th>
-                                    <th>Kind</th>
-                                    <th>Range</th>
-                                    <th>Value</th>
-                                </thead>
-                                <tbody>
-                                {{#each sv.data as |data|}}
-                                    <tr>
-                                        <td>{{add @index ../sv.values_dropped}}</td>
-                                        <td>{{titleCase data.kind}}</td>
-                                        <td>
-                                            {{#if data.range}}
-                                                {{data.range.start}}..{{data.range.end}}
-                                            {{/if}}
-                                        </td>
-                                        <td>{{data.value}}</td>
-                                    </tr>
-                                {{/each}}
-                                </tbody>
-                            </table>
-                            {{/if}}
-                            {{/if}}
-                        <div>
-                    </td>
+                        </td>
+                        <td class="stream-value-data-table-parent-td">
+                            <div class="stream-value-data-table-container">
+                                {{#if error}}
+                                    ERROR: {{error}}
+                                {{else}}
+                                {{#if sv.data}}
+                                <table class="stream-value-data-table">
+                                    <thead>
+                                        <th>N</th>
+                                        <th>Kind</th>
+                                        <th>Range</th>
+                                        <th>Value</th>
+                                    </thead>
+                                    <tbody>
+                                    {{#each sv.data as |data|}}
+                                        <tr>
+                                            <td>{{add @index ../sv.values_dropped}}</td>
+                                            <td>{{titleCase data.kind}}</td>
+                                            <td>
+                                                {{#if data.range}}
+                                                    {{data.range.start}}..{{data.range.end}}
+                                                {{/if}}
+                                            </td>
+                                            <td>{{data.value}}</td>
+                                        </tr>
+                                    {{/each}}
+                                    </tbody>
+                                </table>
+                                {{/if}}
+                                {{/if}}
+                            <div>
+                        </td>
+                    </tr>
+                {{/each}}
+            </tbody>
+        </table>
+        <table class="stream-value-updates-table">
+            <thead>
+                <th>TF</th>
+                <th>SV</th>
+                <th>Values Consumed</th>
+                <th>Value Offset</th>
+            </thead>
+            <tbody>
+            {{#each stream_value_updates as |svu|}}
+                <tr>
+                    <td
+                        onmouseenter="highlight('{{update_id}}_tf_{{svu.tf_id}}')"
+                        onmouseleave="unhighlight('{{update_id}}_tf_{{svu.tf_id}}')"
+                    >tf {{svu.tf_id}} `{{svu.tf_display_name}}`</td>
+                    <td
+                        onmouseenter="highlight('{{update_id}}_sv_{{svu.sv_id}}')"
+                        onmouseleave="unhighlight('{{update_id}}_sv_{{svu.sv_id}}')"
+                    >{{svu.sv_id}}</td>
+                    <td>{{svu.offset.values_consumed}}</td>
+                    <td>{{svu.offset.current_value_offset}}</td>
                 </tr>
             {{/each}}
-        </tbody>
-    </table>
-     <div
+            </tbody>
+        </table>
+    </div>
+    <div
         class="collapsed-stream-values"
         collapse_tag="[{{collapsed_stream_values_id}}]"
         style="display: none;"

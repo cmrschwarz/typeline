@@ -1059,6 +1059,23 @@ pub fn stream_values_to_json(jd: &JobData) -> serde_json::Value {
     svs_json.into()
 }
 
+pub fn stream_value_updates_to_json(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData<'_>>,
+) -> serde_json::Value {
+    let mut svus_json = Vec::new();
+
+    for svu in &jd.sv_mgr.updates {
+        svus_json.push(json!({
+           "tf_id": svu.tf_id.into_usize(),
+           "tf_display_name": &*tf_data[svu.tf_id].display_name(),
+           "sv_id": svu.sv_id.into_usize(),
+           "offset": stream_value_data_offset_to_json(&svu.data_offset),
+        }));
+    }
+    svus_json.into()
+}
+
 pub fn write_update_to_html(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
@@ -1075,6 +1092,7 @@ pub fn write_update_to_html(
         "transform_update_text": update_text,
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),
         "stream_values": stream_values_to_json(jd),
+        "stream_value_updates": stream_value_updates_to_json(jd, tf_data),
         "update_kind": update_kind
     });
 
