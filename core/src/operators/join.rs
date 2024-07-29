@@ -1012,7 +1012,9 @@ pub fn handle_tf_join_stream_value_update(
             join,
             group_batch_id,
         );
-        join.group_batches.release(group_batch_id);
+        if join.active_group_batch != Some(group_batch_id) {
+            join.group_batches.release(group_batch_id);
+        }
         jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
         return;
     }
