@@ -93,3 +93,16 @@ debug_logging_iter_states = [
     "debug_logging_field_actions",
 ]
 debug_logging_field_action_group_accel = ["debug_logging"]
+
+debug_logging_full = [
+    "debug_logging_transform_update",
+    "debug_logging_liveness_analysis",
+    "debug_logging_setup",
+    "debug_logging_streams",
+    "debug_logging_cow_fields",
+    "debug_logging_output_fields",
+    "debug_logging_field_actions",
+    "debug_logging_field_action_groups",
+    "debug_logging_iter_states",
+    "debug_logging_field_action_group_accel",
+]
