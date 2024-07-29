@@ -861,9 +861,27 @@ fn parse_arg<'a>(
     source_scope: ScopeId,
 ) -> Result<Argument, CliArgumentError> {
     Ok(if val.starts_with(b"{") {
+        if val == b"{}" {
+            return Ok(Argument {
+                value: FieldValue::Object(Box::new(Object::KeysStored(
+                    IndexMap::new(),
+                ))),
+                span,
+                source_scope,
+                meta_info: None,
+            });
+        }
         require_object_start_as_separate_arg(val, span)?;
         parse_object_after_start(src, span, source_scope)?
     } else if val.starts_with(b"[") {
+        if val == b"[]" {
+            return Ok(Argument {
+                value: FieldValue::Array(Array::default()),
+                span,
+                source_scope,
+                meta_info: None,
+            });
+        }
         require_list_start_as_separate_arg(val, 0, span)?;
         parse_list_after_start(src, span, source_scope)?
     } else {
