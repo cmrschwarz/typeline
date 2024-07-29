@@ -1,4 +1,5 @@
 use scr_core::{
+    cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -6,6 +7,7 @@ use scr_core::{
         OperatorCallEffect,
     },
     operators::{
+        errors::OperatorCreationError,
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
@@ -265,4 +267,11 @@ impl Transform<'_> for TfCollect {
 
 pub fn create_op_collect() -> OperatorData {
     OperatorData::Custom(smallbox!(OpCollect {}))
+}
+
+pub fn parse_op_collect(
+    expr: &CallExpr,
+) -> Result<OperatorData, OperatorCreationError> {
+    expr.reject_args()?;
+    Ok(create_op_collect())
 }

@@ -677,12 +677,11 @@ pub fn parse_call_expr_head(
     let mut equals_arg = None;
 
     if equals_found {
-        equals_arg = Some(Argument {
-            value: parse_single_arg_value(&argv[i..]),
-            span: arg_span.subslice_offsets(i, argv.len()),
+        equals_arg = Some(parse_single_arg_value(
+            &argv[i..],
+            arg_span.subslice_offsets(i, argv.len()),
             source_scope,
-            meta_info: None,
-        })
+        ));
     };
 
     Ok(CallExprHead {
@@ -695,23 +694,41 @@ pub fn parse_call_expr_head(
     })
 }
 
-pub fn parse_single_arg_value(arg: &[u8]) -> FieldValue {
-    if arg[0] == b':' {
-        return FieldValue::from_maybe_text(MaybeText::from_bytes_try_str(
-            &arg[1..],
-        ));
+pub fn parse_single_arg_value(
+    value: &[u8],
+    span: Span,
+    source_scope: ScopeId,
+) -> Argument {
+    let mut arg = Argument {
+        value: FieldValue::Null,
+        span,
+        source_scope,
+        meta_info: None,
+    };
+    if value[0] == b':' {
+        arg.value = FieldValue::from_maybe_text(
+            MaybeText::from_bytes_try_str(&value[1..]),
+        );
+        return arg;
     }
 
-    if TysonParser::<&'static [u8]>::is_number_start(arg[0]) {
-        let mut tp = TysonParser::new(&arg[1..], true, None);
-        if let Ok(number) = tp.parse_number(arg[0]) {
+    if TysonParser::<&'static [u8]>::is_number_start(value[0]) {
+        let mut tp = TysonParser::new(&value[1..], true, None);
+        if let Ok(number) = tp.parse_number(value[0]) {
             if tp.end_of_input().unwrap() {
-                return number;
+                arg.value = number;
+                // PERF: only do this if the repr isn't the default
+                arg.meta_info = Some(MetaInfo::DenormalRepresentation(
+                    value.to_str().unwrap().to_owned().into_boxed_str(),
+                ));
+                return arg;
             }
         }
-    };
+    }
 
-    FieldValue::from_maybe_text(MaybeText::from_bytes_try_str(arg))
+    arg.value =
+        FieldValue::from_maybe_text(MaybeText::from_bytes_try_str(value));
+    arg
 }
 
 struct ExprModes {
@@ -836,12 +853,7 @@ fn parse_arg<'a>(
         require_list_start_as_separate_arg(val, 0, span)?;
         parse_list_after_start(src, span, source_scope)?
     } else {
-        Argument {
-            value: parse_single_arg_value(val),
-            span,
-            source_scope,
-            meta_info: None,
-        }
+        parse_single_arg_value(val, span, source_scope)
     })
 }
 
@@ -895,12 +907,11 @@ pub fn parse_object_after_start<'a>(
                 reject_duplicate_object_key(&args, key, start_span, obj_key)?;
                 args.insert(
                     key.to_owned(),
-                    FieldValue::Argument(Box::new(Argument {
-                        value: parse_single_arg_value(&argv[colon + 1..]),
-                        span: span.slice_of_start(colon + 1),
+                    FieldValue::Argument(Box::new(parse_single_arg_value(
+                        &argv[colon + 1..],
+                        span.slice_of_start(colon + 1),
                         source_scope,
-                        meta_info: None,
-                    })),
+                    ))),
                 );
                 if comma {
                     src.next();
@@ -936,23 +947,21 @@ pub fn parse_object_after_start<'a>(
             reject_duplicate_object_key(&args, &key, start_span, span)?;
             args.insert(
                 key,
-                FieldValue::Argument(Box::new(Argument {
-                    value: parse_single_arg_value(next_v),
-                    span: *next_span,
+                FieldValue::Argument(Box::new(parse_single_arg_value(
+                    next_v,
+                    *next_span,
                     source_scope,
-                    meta_info: None,
-                })),
+                ))),
             );
             src.next();
             continue;
         }
         let arg = if next_v.len() > 1 {
-            Argument {
-                value: parse_single_arg_value(&next_v[1..]),
-                span: next_span.slice_of_start(1),
+            parse_single_arg_value(
+                &next_v[1..],
+                next_span.slice_of_start(1),
                 source_scope,
-                meta_info: None,
-            }
+            )
         } else {
             src.next();
             let Some((val, span)) = src.next() else {
@@ -1063,12 +1072,24 @@ pub fn parse_dashed_arg(
         }
         let arg_start = i;
         let mut key = argv;
-        let mut value = FieldValue::Null;
+
+        let arg_span = span
+            .subslice_offsets(arg_start - usize::from(starts_with_dash), i);
+        let mut value = Argument {
+            value: FieldValue::Null,
+            span: arg_span,
+            source_scope,
+            meta_info: None,
+        };
         if argv[i] == b'-' {
             if let Some(colon_idx) = argv[i + 1..].find_char(':') {
                 let colon_idx = i + 1 + colon_idx;
                 key = &argv[..colon_idx];
-                value = parse_single_arg_value(&argv[colon_idx + 1..]);
+                value = parse_single_arg_value(
+                    &argv[colon_idx + 1..],
+                    arg_span,
+                    source_scope,
+                );
                 i = argv.len();
             };
         } else {
@@ -1083,7 +1104,11 @@ pub fn parse_dashed_arg(
                     }
                     i += 1;
                 }
-                value = parse_single_arg_value(&argv[v_start..i]);
+                value = parse_single_arg_value(
+                    &argv[v_start..i],
+                    arg_span,
+                    source_scope,
+                );
             }
         }
         let Ok(key) = key.to_str() else {
@@ -1093,15 +1118,7 @@ pub fn parse_dashed_arg(
             ));
         };
         let key = format!("-{key}");
-        let value = FieldValue::Argument(Box::new(Argument {
-            value,
-            span: span.subslice_offsets(
-                arg_start - usize::from(starts_with_dash),
-                i,
-            ),
-            source_scope,
-            meta_info: None,
-        }));
+        let value = FieldValue::Argument(Box::new(value));
         if let Some(_prev) = target.insert(key.to_string(), value) {
             return Err(CliArgumentError::new_s(
                 format!("dashed argument name '{key}' specified twice"),
@@ -1537,6 +1554,7 @@ mod test {
             ))
         );
     }
+
     #[test]
     fn test_parse_object_arg() {
         let src = ["seq", "={", "foo", ",", "bar:bar", ",", ":baz:quux", "}"];

@@ -17,6 +17,7 @@ use scr_core::{
             TransformState,
         },
     },
+    options::session_setup::SessionSetupData,
     record_data::{action_buffer::ActorId, field_action::FieldActionKind},
     scr_error::ScrError,
     smallbox,
@@ -217,14 +218,17 @@ pub fn create_op_tail_add(count: usize) -> OperatorData {
     }))
 }
 
-pub fn parse_op_tail(expr: &CallExpr) -> Result<OperatorData, ScrError> {
-    let arg = expr.require_at_most_one_string_arg()?;
+pub fn parse_op_tail(
+    sess: &mut SessionSetupData,
+    expr: &CallExpr,
+) -> Result<OperatorData, ScrError> {
+    let arg = expr.require_at_most_one_arg()?;
     let Some(arg) = arg else {
         return Ok(create_op_tail(1));
     };
-    let arg = arg.trim();
+    let arg = arg.stringify_as_text(expr.op_name, sess)?;
     let add_mode = arg.starts_with('+');
-    let count = parse_int_with_units::<isize>(arg)
+    let count = parse_int_with_units::<isize>(arg.trim())
         .map_err(|msg| {
             OperatorCreationError::new_s(
                 format!(

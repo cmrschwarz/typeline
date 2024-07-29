@@ -1,4 +1,5 @@
 use scr_core::{
+    cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -6,7 +7,7 @@ use scr_core::{
         OperatorCallEffect,
     },
     operators::{
-        errors::OperatorApplicationError,
+        errors::{OperatorApplicationError, OperatorCreationError},
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorId,
             PreboundOutputsMap, TransformInstatiation,
@@ -287,6 +288,13 @@ impl Transform<'_> for TfSum {
             |bud| self.transform_update(bud),
         );
     }
+}
+
+pub fn parse_op_sum(
+    expr: &CallExpr,
+) -> Result<OperatorData, OperatorCreationError> {
+    expr.reject_args()?;
+    Ok(create_op_sum())
 }
 
 pub fn create_op_sum() -> OperatorData {

@@ -1,24 +1,24 @@
 #![allow(clippy::too_many_arguments)]
 
-use crate::primes::create_op_primes;
-use collect::create_op_collect;
+use collect::parse_op_collect;
 use dup::{parse_op_drop, parse_op_dup};
 use exec::parse_op_exec;
 use explode::parse_op_explode;
 use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
 use head::parse_op_head;
+use primes::parse_op_primes;
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::operator::OperatorData,
+    operators::{errors::OperatorCreationError, operator::OperatorData},
     options::session_setup::SessionSetupData,
     scr_error::ScrError,
 };
 use string_utils::{
     create_op_chars, create_op_lines, create_op_to_tyson, create_op_trim,
 };
-use sum::create_op_sum;
+use sum::parse_op_sum;
 use tail::parse_op_tail;
 use typename::create_op_typename;
 
@@ -44,41 +44,38 @@ impl Extension for UtilsExtension {
     }
     fn parse_call_expr(
         &self,
-        _ctx_opts: &mut SessionSetupData,
+        sess: &mut SessionSetupData,
         arg: &mut Argument,
     ) -> Result<Option<OperatorData>, ScrError> {
         let expr = CallExpr::from_argument_mut(arg)?;
-        let ctor_with_arg: Option<fn(_) -> _> = match expr.op_name {
-            "head" => Some(parse_op_head),
-            "exec" => Some(parse_op_exec),
-            "tail" => Some(parse_op_tail),
-            "dup" => Some(parse_op_dup),
-            "drop" => Some(parse_op_drop),
-            "explode" => Some(parse_op_explode),
-            "flatten" => Some(parse_op_flatten),
-            _ => None,
-        };
-        if let Some(ctor) = ctor_with_arg {
-            return Ok(Some(ctor(&expr)?));
+
+        fn parse_op_reject_args(
+            expr: &CallExpr,
+            create_fn: fn() -> OperatorData,
+        ) -> Result<OperatorData, OperatorCreationError> {
+            expr.reject_args()?;
+            Ok(create_fn())
         }
 
-        let ctor_without_arg: Option<fn() -> _> = match expr.op_name {
-            "sum" => Some(create_op_sum),
-            "primes" => Some(create_op_primes),
-            "lines" | "l" => Some(create_op_lines),
-            "chars" => Some(create_op_chars),
-            "typename" => Some(create_op_typename),
-            "trim" => Some(create_op_trim),
-            "from_tyson" => Some(create_op_from_tyson),
-            "to_tyson" => Some(create_op_to_tyson),
-            "collect" => Some(create_op_collect),
-            _ => None,
-        };
-        if let Some(ctor) = ctor_without_arg {
-            expr.reject_args()?;
-            return Ok(Some(ctor()));
-        }
-        Ok(None)
+        Ok(Some(match expr.op_name {
+            "tail" => parse_op_tail(sess, &expr)?,
+            "head" => parse_op_head(&expr)?,
+            "exec" => parse_op_exec(&expr)?,
+            "dup" => parse_op_dup(&expr)?,
+            "drop" => parse_op_drop(&expr)?,
+            "explode" => parse_op_explode(&expr)?,
+            "flatten" => parse_op_flatten(&expr)?,
+            "sum" => parse_op_sum(&expr)?,
+            "primes" => parse_op_primes(&expr)?,
+            "collect" => parse_op_collect(&expr)?,
+            "lines" | "l" => parse_op_reject_args(&expr, create_op_lines)?,
+            "chars" => parse_op_reject_args(&expr, create_op_chars)?,
+            "typename" => parse_op_reject_args(&expr, create_op_typename)?,
+            "trim" => parse_op_reject_args(&expr, create_op_trim)?,
+            "from_tyson" => parse_op_reject_args(&expr, create_op_from_tyson)?,
+            "to_tyson" => parse_op_reject_args(&expr, create_op_to_tyson)?,
+            _ => return Ok(None),
+        }))
     }
 
     fn setup(
