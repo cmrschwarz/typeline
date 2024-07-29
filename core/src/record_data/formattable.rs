@@ -1,5 +1,6 @@
 use std::{
     borrow::Borrow,
+    io::ErrorKind,
     ops::{DivAssign, Rem, SubAssign},
 };
 
@@ -168,10 +169,11 @@ pub struct ValueFormattingOpts {
     pub type_repr_format: TypeReprFormat,
 }
 
+#[derive(Default)]
 pub struct FormattingContext<'a, 'b> {
-    pub ss: &'a mut LazyRwLockGuard<'b, StringStore>,
-    pub fm: &'a FieldManager,
-    pub msm: &'a MatchSetManager,
+    pub ss: Option<&'a mut LazyRwLockGuard<'b, StringStore>>,
+    pub fm: Option<&'a FieldManager>,
+    pub msm: Option<&'a MatchSetManager>,
     pub rationals_print_mode: RationalsPrintMode,
     pub is_stream_value: bool,
     pub rfk: RealizedFormatKey,
@@ -428,7 +430,13 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Object {
                     } else {
                         w.write_all_text(", ")?;
                     }
-                    format_quoted_string_raw(w, fc.ss.get().lookup(k))?;
+                    let Some(ss) = &mut fc.ss else {
+                        return Err(std::io::Error::new(
+                            ErrorKind::InvalidInput,
+                            "string store needed but not supplied",
+                        ));
+                    };
+                    format_quoted_string_raw(w, ss.get().lookup(k))?;
                     w.write_all_text(": ")?;
                     Formattable::format(&v.as_ref(), fc, w)?;
                 }

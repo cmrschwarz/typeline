@@ -796,10 +796,10 @@ pub fn handle_tf_join<'a>(
             #[expand(REP in [Object, Array, Argument, BigRational])]
             FieldValueSlice::REP(v) => {
                 let mut fc = FormattingContext {
-                    ss: &mut string_store,
+                    ss: Some(&mut string_store),
                     rationals_print_mode: join.rationals_print_mode,
-                    fm: &jd.field_mgr,
-                    msm: &jd.match_set_mgr,
+                    fm: Some(&jd.field_mgr),
+                    msm: Some(&jd.match_set_mgr),
                     is_stream_value: false,
                     rfk: RealizedFormatKey::with_type_repr(
                         TypeReprFormat::Typed,

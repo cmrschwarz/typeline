@@ -53,8 +53,8 @@ pub const RARTIONAL_DECIMALS_DEFAULT_CUTOFF: u32 = 40;
 pub enum RationalsPrintMode {
     Cutoff(u32),
     Raw,
-    // attempts to use plain if losslessly possible, otherwise uses raw
     Dynamic,
+    // attempts to use plain if losslessly possible, otherwise uses raw
 }
 
 pub type ChainSettingNames = [StringStoreEntry; chain_settings_list::COUNT];
@@ -117,6 +117,12 @@ pub trait ChainSetting: chain_settings_list::TypeList {
 impl SettingConversionError {
     pub fn new(message: String) -> Self {
         Self { message }
+    }
+}
+
+impl Default for RationalsPrintMode {
+    fn default() -> Self {
+        RationalsPrintMode::Cutoff(RARTIONAL_DECIMALS_DEFAULT_CUTOFF)
     }
 }
 

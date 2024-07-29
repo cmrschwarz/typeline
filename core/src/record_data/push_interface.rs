@@ -877,9 +877,9 @@ pub unsafe trait PushInterface {
             }
             FieldValueSlice::BigRational(vals) => {
                 let mut fc = FormattingContext {
-                    ss,
-                    fm,
-                    msm,
+                    ss: Some(ss),
+                    fm: Some(fm),
+                    msm: Some(msm),
                     rationals_print_mode,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
@@ -895,9 +895,9 @@ pub unsafe trait PushInterface {
             #[expand(REP in [Object, Array, Argument])]
             FieldValueSlice::REP(vals) => {
                 let mut fc = FormattingContext {
-                    ss,
-                    fm,
-                    msm,
+                    ss: Some(ss),
+                    fm: Some(fm),
+                    msm: Some(msm),
                     rationals_print_mode,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),

@@ -305,9 +305,9 @@ pub fn handle_tf_print_raw(
             #[expand(REP in [Array, Object, Argument])]
             FieldValueSlice::REP(arrays) => {
                 let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
+                    ss: Some(&mut string_store),
+                    fm: Some(fm),
+                    msm: Some(msm),
                     rationals_print_mode: print.rationals_print_mode,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),

@@ -360,9 +360,9 @@ pub fn handle_tf_string_sink(
             #[expand(REP in [BigRational, Array, Object, Argument])]
             FieldValueSlice::REP(values) => {
                 let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm: &jd.field_mgr,
-                    msm: &jd.match_set_mgr,
+                    ss: Some(&mut string_store),
+                    fm: Some(&jd.field_mgr),
+                    msm: Some(&jd.match_set_mgr),
                     rationals_print_mode: ss.rationals_print_mode,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::with_type_repr(

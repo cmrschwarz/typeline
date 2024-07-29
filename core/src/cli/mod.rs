@@ -25,15 +25,18 @@ use crate::{
         sequence::{parse_op_seq, SequenceMode},
         to_str::parse_op_to_str,
     },
-    options::session_setup::SessionSetupData,
+    options::{
+        chain_settings::RationalsPrintMode, session_setup::SessionSetupData,
+    },
     record_data::{
         array::Array,
         field_value::{FieldValue, FieldValueKind, Object, ObjectKeysStored},
+        formattable::{FormattingContext, RealizedFormatKey},
         scope_manager::{ScopeId, DEFAULT_SCOPE_ID},
     },
     scr_error::ScrError,
     tyson::TysonParser,
-    utils::maybe_text::MaybeText,
+    utils::{maybe_text::MaybeText, text_write::ByteComparingStream},
 };
 pub mod call_expr;
 use bstr::ByteSlice;
@@ -716,11 +719,22 @@ pub fn parse_single_arg_value(
         let mut tp = TysonParser::new(&value[1..], true, None);
         if let Ok(number) = tp.parse_number(value[0]) {
             if tp.end_of_input().unwrap() {
+                let mut cmp = ByteComparingStream::new(value);
+                let mut fc = FormattingContext {
+                    ss: None,
+                    fm: None,
+                    msm: None,
+                    rationals_print_mode: RationalsPrintMode::Dynamic,
+                    is_stream_value: false,
+                    rfk: RealizedFormatKey::default(),
+                };
+                number.format(&mut fc, &mut cmp).unwrap();
+                if !cmp.equal_and_done() {
+                    arg.meta_info = Some(MetaInfo::DenormalRepresentation(
+                        value.to_str().unwrap().to_owned().into_boxed_str(),
+                    ));
+                }
                 arg.value = number;
-                // PERF: only do this if the repr isn't the default
-                arg.meta_info = Some(MetaInfo::DenormalRepresentation(
-                    value.to_str().unwrap().to_owned().into_boxed_str(),
-                ));
                 return arg;
             }
         }
@@ -1073,11 +1087,9 @@ pub fn parse_dashed_arg(
         let arg_start = i;
         let mut key = argv;
 
-        let arg_span = span
-            .subslice_offsets(arg_start - usize::from(starts_with_dash), i);
-        let mut value = Argument {
+        let mut argval = Argument {
             value: FieldValue::Null,
-            span: arg_span,
+            span,
             source_scope,
             meta_info: None,
         };
@@ -1085,9 +1097,9 @@ pub fn parse_dashed_arg(
             if let Some(colon_idx) = argv[i + 1..].find_char(':') {
                 let colon_idx = i + 1 + colon_idx;
                 key = &argv[..colon_idx];
-                value = parse_single_arg_value(
+                argval = parse_single_arg_value(
                     &argv[colon_idx + 1..],
-                    arg_span,
+                    span,
                     source_scope,
                 );
                 i = argv.len();
@@ -1104,9 +1116,9 @@ pub fn parse_dashed_arg(
                     }
                     i += 1;
                 }
-                value = parse_single_arg_value(
+                argval = parse_single_arg_value(
                     &argv[v_start..i],
-                    arg_span,
+                    span,
                     source_scope,
                 );
             }
@@ -1117,8 +1129,10 @@ pub fn parse_dashed_arg(
                 span.subslice_offsets(arg_start, arg_start + key.len()),
             ));
         };
+        argval.span = span
+            .subslice_offsets(arg_start - usize::from(starts_with_dash), i);
         let key = format!("-{key}");
-        let value = FieldValue::Argument(Box::new(value));
+        let value = FieldValue::Argument(Box::new(argval));
         if let Some(_prev) = target.insert(key.to_string(), value) {
             return Err(CliArgumentError::new_s(
                 format!("dashed argument name '{key}' specified twice"),

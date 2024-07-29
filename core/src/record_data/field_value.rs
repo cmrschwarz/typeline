@@ -12,6 +12,7 @@ use crate::{
         force_cast,
         maybe_text::{MaybeText, MaybeTextRef},
         string_store::StringStoreEntry,
+        text_write::MaybeTextWrite,
     },
 };
 
@@ -21,6 +22,7 @@ use super::{
     field::FieldRefOffset,
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
     field_value_ref::{FieldValueRef, FieldValueRefMut},
+    formattable::{Formattable, FormattingContext},
     stream_value::StreamValueId,
 };
 
@@ -245,6 +247,13 @@ impl PartialEq for FieldValue {
 }
 
 impl FieldValue {
+    pub fn format(
+        &self,
+        ctx: &mut FormattingContext,
+        w: &mut impl MaybeTextWrite,
+    ) -> Result<(), std::io::Error> {
+        self.as_ref().format(ctx, w)
+    }
     pub fn repr(&self) -> FieldValueRepr {
         metamatch!(match self {
             FieldValue::Null => FieldValueRepr::Null,

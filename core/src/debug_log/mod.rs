@@ -571,9 +571,9 @@ pub fn field_data_to_json<'a>(
     let mut del_count = 0;
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
     let mut formatting_context = FormattingContext {
-        ss: &mut string_store,
-        fm: &jd.field_mgr,
-        msm: &jd.match_set_mgr,
+        ss: Some(&mut string_store),
+        fm: Some(&jd.field_mgr),
+        msm: Some(&jd.match_set_mgr),
         rationals_print_mode: RationalsPrintMode::Dynamic,
         is_stream_value: false,
         rfk: RealizedFormatKey {
@@ -968,11 +968,11 @@ pub fn stream_value_data_offset_to_json(
 
 pub fn stream_values_to_json(jd: &JobData) -> serde_json::Value {
     let mut svs_json = Vec::new();
-
+    let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
     let mut formatting_context = FormattingContext {
-        ss: &mut LazyRwLockGuard::new(&jd.session_data.string_store),
-        fm: &jd.field_mgr,
-        msm: &jd.match_set_mgr,
+        ss: Some(&mut string_store),
+        fm: Some(&jd.field_mgr),
+        msm: Some(&jd.match_set_mgr),
         rationals_print_mode: RationalsPrintMode::Dynamic,
         is_stream_value: false,
         rfk: RealizedFormatKey {

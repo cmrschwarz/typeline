@@ -1123,9 +1123,9 @@ pub fn setup_key_output_state(
     };
 
     let mut fc = FormattingContext {
-        ss: &mut string_store,
-        fm,
-        msm,
+        ss: Some(&mut string_store),
+        fm: Some(fm),
+        msm: Some(msm),
         rationals_print_mode: fmt.rationals_print_mode,
         is_stream_value: false,
         rfk: RealizedFormatKey {
@@ -1751,9 +1751,9 @@ fn write_fmt_key(
             #[expand(REP in [BigRational, Object, Array, Argument])]
             FieldValueSlice::REP(vs) => {
                 let mut fc = FormattingContext {
-                    ss: &mut string_store,
-                    fm,
-                    msm,
+                    ss: Some(&mut string_store),
+                    fm: Some(fm),
+                    msm: Some(msm),
                     rationals_print_mode: fmt.rationals_print_mode,
                     is_stream_value: false,
                     rfk: RealizedFormatKey::default(),
@@ -2072,9 +2072,9 @@ pub fn handle_tf_format_stream_value_update<'a>(
         let mut string_store =
             LazyRwLockGuard::new(&jd.session_data.string_store);
         let fc = FormattingContext {
-            ss: &mut string_store,
-            fm: &jd.field_mgr,
-            msm: &jd.match_set_mgr,
+            ss: Some(&mut string_store),
+            fm: Some(&jd.field_mgr),
+            msm: Some(&jd.match_set_mgr),
             rationals_print_mode: fmt.rationals_print_mode,
             is_stream_value: true,
             rfk: format_key

@@ -451,3 +451,59 @@ impl TextWrite for String {
         Ok(())
     }
 }
+
+#[derive(Clone)]
+pub struct ByteComparingStream<'a> {
+    pub source: &'a [u8],
+    pub index: usize,
+    pub equal: bool,
+}
+
+impl<'a> ByteComparingStream<'a> {
+    pub fn new(source: &'a [u8]) -> Self {
+        Self {
+            source,
+            index: 0,
+            equal: true,
+        }
+    }
+    pub fn equal_and_done(&self) -> bool {
+        self.equal && self.index == self.source.len()
+    }
+}
+
+impl<'a> TextWrite for ByteComparingStream<'a> {
+    unsafe fn write_text_unchecked(
+        &mut self,
+        buf: &[u8],
+    ) -> std::io::Result<usize> {
+        <Self as std::io::Write>::write(self, buf)
+    }
+
+    fn flush_text(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> std::io::Write for ByteComparingStream<'a> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let res = Ok(buf.len());
+        if !self.equal {
+            return res;
+        }
+        let end = self.index + buf.len();
+        if end > self.source.len() {
+            self.equal = false;
+            return res;
+        }
+        if &self.source[self.index..end] != buf {
+            self.equal = false;
+        }
+        self.index = end;
+        res
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}

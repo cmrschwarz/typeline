@@ -11,10 +11,8 @@ use crate::{
     },
     record_data::{
         array::Array,
-        field::FieldManager,
         field_value::{FieldValue, FieldValueKind, Object, ObjectKeysStored},
         formattable::{Formattable, FormattingContext, RealizedFormatKey},
-        match_set::MatchSetManager,
         scope_manager::ScopeId,
     },
     utils::{
@@ -244,13 +242,14 @@ impl Argument {
             FieldValue::Argument(arg) => return arg.stringify(sess),
             _ => (),
         }
+        let mut ss = LazyRwLockGuard::NonRead(LazyRwLockWriteGuard::Plain(
+            &mut sess.string_store,
+        ));
         // TODO: incorporate more format quirks here
         let mut fmt = FormattingContext {
-            ss: &mut LazyRwLockGuard::NonRead(LazyRwLockWriteGuard::Plain(
-                &mut sess.string_store,
-            )),
-            fm: &mut FieldManager::default(),
-            msm: &mut MatchSetManager::default(),
+            ss: Some(&mut ss),
+            fm: None,
+            msm: None,
             rationals_print_mode: RationalsPrintMode::Dynamic,
             is_stream_value: false,
             rfk: RealizedFormatKey::default(),
