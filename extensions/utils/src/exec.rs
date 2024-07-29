@@ -1239,16 +1239,22 @@ impl<'a> Transform<'a> for TfExec<'a> {
             let cmd = &mut self.running_commands[cmd_id];
             for out_stream_idx in 0..cmd.out_streams.len() {
                 let os = &mut cmd.out_streams[out_stream_idx];
+                let appended = os.sv_appended;
                 os.sv_appended = false;
                 if let Some(sv_id) = cmd.out_streams[out_stream_idx].sv_id {
                     if done {
                         jd.sv_mgr.stream_values[sv_id].mark_done();
                     }
-                    jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+                    if done || appended {
+                        jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+                    }
                     if done {
                         jd.sv_mgr.drop_field_value_subscription(sv_id, None);
                     }
                 }
+            }
+            if !done {
+                continue;
             }
             let cmd = &mut self.running_commands[cmd_id];
             jd.sv_mgr

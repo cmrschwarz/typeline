@@ -27,10 +27,14 @@ use scr_core::{
     scr_error::ScrError,
 };
 use scr_ext_utils::{
-    exec::create_op_exec_from_strings, explode::create_op_explode,
-    flatten::create_op_flatten, head::create_op_head,
-    primes::create_op_primes, string_utils::create_op_lines,
-    tail::create_op_tail_add, UtilsExtension,
+    exec::create_op_exec_from_strings,
+    explode::create_op_explode,
+    flatten::create_op_flatten,
+    head::create_op_head,
+    primes::create_op_primes,
+    string_utils::{create_op_lines, create_op_trim},
+    tail::create_op_tail_add,
+    UtilsExtension,
 };
 
 static UTILS_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
@@ -249,9 +253,9 @@ fn run_sleep() -> Result<(), ScrError> {
                 "sleep 0.{} && echo 0.{}",
             ])
             .unwrap(),
-            create_op_lines(),
-            create_op_join(None, None, false),
+            create_op_trim(),
         ]))
+        //  .set_debug_log_path("run_sleep.html")?
         .run_collect_stringified()?;
     assert_eq!(&res, &["0.0", "0.2", "0.4"]);
     Ok(())
