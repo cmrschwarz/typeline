@@ -752,6 +752,10 @@ impl<'a> StreamValue<'a> {
         }
     }
     pub fn drop_dead_head(&mut self) -> usize {
+        if cfg!(feature = "debug_log") && !cfg!(feature = "debug_log_no_apply")
+        {
+            return 0;
+        }
         let mut i = 0;
         loop {
             if i == self.data.len() {

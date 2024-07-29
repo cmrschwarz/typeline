@@ -941,7 +941,9 @@ pub fn handle_tf_regex(
     tf_id: TransformId,
     re: &mut TfRegex,
 ) {
-    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = jd
+        .tf_mgr
+        .claim_batch_with_limit_bump(tf_id, re.streams_kept_alive);
     jd.tf_mgr.prepare_for_output(
         &mut jd.field_mgr,
         &mut jd.match_set_mgr,

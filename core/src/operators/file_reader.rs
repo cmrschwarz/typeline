@@ -386,7 +386,7 @@ pub fn handle_tf_file_reader_stream_producer_update(
     if done {
         fr.file.take();
         // we only drop our stream value once all input is already handled
-        if jd.tf_mgr.transforms[tf_id].mark_for_removal {
+        if jd.tf_mgr.transforms[tf_id].done {
             jd.sv_mgr.drop_field_value_subscription(sv_id, None);
         }
         return;

@@ -1138,7 +1138,7 @@ pub fn write_stream_producer_update_to_html(
         jd,
         tf_data,
         &format!(
-            "stream produicer update for tf {:02} `{}`, stack:{:?}",
+            "stream producer update for tf {:02} `{}`, stack:{:?}",
             tf_id,
             tf_data[tf_id].display_name(),
             &jd.tf_mgr.ready_stack

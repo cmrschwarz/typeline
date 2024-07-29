@@ -90,11 +90,17 @@ impl TransformManager {
         override_batch_size_available: Option<usize>,
     ) -> String {
         let tf = &self.transforms[tf_id];
+        let bsa =
+            override_batch_size_available.unwrap_or(tf.available_batch_size);
         format!(
-                "tf {tf_id:02} {:>20}, in_fid: {}, bsa: {}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
+                "tf {tf_id:02} {:>20}, in_fid: {}, bsa: {bsa}{}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
             format!("`{}`", tf_data[tf_id].display_name()),
             tf.input_field,
-            override_batch_size_available.unwrap_or(tf.available_batch_size),
+            if bsa > tf.desired_batch_size {
+                format!(" (tgt bs: {})", tf.desired_batch_size)
+            } else {
+                String::new()
+            },
             tf.predecessor_done,
             tf.done,
             self.ready_stack
@@ -138,6 +144,16 @@ impl TransformManager {
         self.claim_batch_with_limit(
             tf_id,
             self.transforms[tf_id].desired_batch_size,
+        )
+    }
+    pub fn claim_batch_with_limit_bump(
+        &mut self,
+        tf_id: TransformId,
+        limit_bump: usize,
+    ) -> (usize, PipelineState) {
+        self.claim_batch_with_limit(
+            tf_id,
+            self.transforms[tf_id].desired_batch_size + limit_bump,
         )
     }
     pub fn claim_all(&mut self, tf_id: TransformId) -> (usize, PipelineState) {
@@ -275,7 +291,7 @@ impl TransformManager {
                 )
             }
 
-            if self.pre_stream_transform_stack_cutoff != 0 {
+            if self.pre_stream_transform_stack_cutoff == 0 {
                 self.pre_stream_transform_stack_cutoff =
                     self.ready_stack.len();
             }
