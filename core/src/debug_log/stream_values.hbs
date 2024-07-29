@@ -66,35 +66,37 @@
                         {{/each}}
                         </div>
                     </td>
-                    <td class="stream-value-data-table-parent">
-                    {{#if error}}
-                        ERROR: {{error}}
-                    {{else}}
-                    {{#if sv.data}}
-                    <table class="stream-value-data-table">
-                        <thead>
-                            <th>N</th>
-                            <th>Kind</th>
-                            <th>Range</th>
-                            <th>Value</th>
-                        </thead>
-                        <tbody>
-                        {{#each sv.data as |data|}}
-                            <tr>
-                                <td>{{add @index ../sv.values_dropped}}</td>
-                                <td>{{titleCase data.kind}}</td>
-                                <td>
-                                    {{#if data.range}}
-                                        {{data.range.start}}..{{data.range.end}}
-                                    {{/if}}
-                                </td>
-                                <td>{{data.value}}</td>
-                            </tr>
-                        {{/each}}
-                        </tbody>
-                    </table>
-                    {{/if}}
-                    {{/if}}
+                    <td>
+                        <div class="stream-value-data-table-container">
+                            {{#if error}}
+                                ERROR: {{error}}
+                            {{else}}
+                            {{#if sv.data}}
+                            <table class="stream-value-data-table">
+                                <thead>
+                                    <th>N</th>
+                                    <th>Kind</th>
+                                    <th>Range</th>
+                                    <th>Value</th>
+                                </thead>
+                                <tbody>
+                                {{#each sv.data as |data|}}
+                                    <tr>
+                                        <td>{{add @index ../sv.values_dropped}}</td>
+                                        <td>{{titleCase data.kind}}</td>
+                                        <td>
+                                            {{#if data.range}}
+                                                {{data.range.start}}..{{data.range.end}}
+                                            {{/if}}
+                                        </td>
+                                        <td>{{data.value}}</td>
+                                    </tr>
+                                {{/each}}
+                                </tbody>
+                            </table>
+                            {{/if}}
+                            {{/if}}
+                        <div>
                     </td>
                 </tr>
             {{/each}}
