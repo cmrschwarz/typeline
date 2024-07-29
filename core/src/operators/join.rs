@@ -1,7 +1,6 @@
 use metamatch::metamatch;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use smallvec::SmallVec;
 use std::{collections::VecDeque, sync::Arc};
 
 use crate::{
@@ -132,6 +131,8 @@ pub struct TfJoin<'a> {
 
     group_batches: Universe<GroupBatchId, GroupBatch<'a>>,
     producing_batches: Vec<GroupBatchId>,
+    // temp storage for delayed stream value ref count drops
+    svs_to_drop: Vec<StreamValueId>,
 }
 
 static ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
@@ -251,6 +252,7 @@ pub fn build_tf_join<'a>(
         active_group_batch_appended: false,
         group_batches: Universe::default(),
         producing_batches: Vec::new(),
+        svs_to_drop: Vec::new(),
     })
 }
 
@@ -1123,8 +1125,6 @@ fn handle_group_batch_producer_update<'a>(
 ) {
     let gb = &mut join.group_batches[gbi];
     let out_sv_id = gb.output_stream_value;
-    // PERF: make member
-    let mut svs_to_drop = SmallVec::<[StreamValueId; 4]>::new();
 
     let mut streams_handout = jd.sv_mgr.stream_values.multi_ref_handout();
 
@@ -1188,9 +1188,8 @@ fn handle_group_batch_producer_update<'a>(
                     }
                 }
 
-                svs_to_drop.push(*id);
-
                 if rl_consumed == entry.run_length {
+                    join.svs_to_drop.push(*id);
                     streams_handout.release(*id);
                 }
             }
@@ -1213,7 +1212,8 @@ fn handle_group_batch_producer_update<'a>(
     }
     jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
 
-    for sv in svs_to_drop {
+    for &sv in &join.svs_to_drop {
         jd.sv_mgr.drop_field_value_subscription(sv, Some(tf_id));
     }
+    join.svs_to_drop.clear();
 }
