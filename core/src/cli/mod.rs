@@ -374,19 +374,6 @@ pub fn parse_operator_data(
     })
 }
 
-fn require_object_start_as_separate_arg(
-    arg: &[u8],
-    arg_span: Span,
-) -> Result<(), CliArgumentError> {
-    if arg.len() > 1 {
-        return Err(CliArgumentError::new(
-            "object start `{` must be followed by whitespace",
-            arg_span.subslice_offsets(1, arg.len()),
-        ));
-    }
-    Ok(())
-}
-
 fn require_list_start_as_separate_arg(
     arg: &[u8],
     i: usize,
@@ -860,33 +847,16 @@ fn parse_arg<'a>(
     src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
     source_scope: ScopeId,
 ) -> Result<Argument, CliArgumentError> {
-    Ok(if val.starts_with(b"{") {
-        if val == b"{}" {
-            return Ok(Argument {
-                value: FieldValue::Object(Box::new(Object::KeysStored(
-                    IndexMap::new(),
-                ))),
-                span,
-                source_scope,
-                meta_info: None,
-            });
-        }
-        require_object_start_as_separate_arg(val, span)?;
+    let val = if val == b"{" {
+        // require_object_start_as_separate_arg(val, span)?;
         parse_object_after_start(src, span, source_scope)?
-    } else if val.starts_with(b"[") {
-        if val == b"[]" {
-            return Ok(Argument {
-                value: FieldValue::Array(Array::default()),
-                span,
-                source_scope,
-                meta_info: None,
-            });
-        }
-        require_list_start_as_separate_arg(val, 0, span)?;
+    } else if val == b"[" {
+        // require_list_start_as_separate_arg(val, 0, span)?;
         parse_list_after_start(src, span, source_scope)?
     } else {
         parse_single_arg_value(val, span, source_scope)
-    })
+    };
+    Ok(val)
 }
 
 fn reject_duplicate_object_key(

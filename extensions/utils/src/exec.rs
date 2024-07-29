@@ -1468,7 +1468,7 @@ pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
             ParsedArgValue::PositionalArg { idx, value, .. } => {
                 let Some(value) = value.text_or_bytes() else {
                     return Err(expr
-                        .error_list_arg_unsupported(arg.span)
+                        .error_non_primitive_arg_unsupported(arg.span)
                         .into());
                 };
                 append_exec_arg(

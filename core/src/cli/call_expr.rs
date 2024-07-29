@@ -734,10 +734,13 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
             span,
         )
     }
-    pub fn error_list_arg_unsupported(&self, span: Span) -> CliArgumentError {
+    pub fn error_non_primitive_arg_unsupported(
+        &self,
+        span: Span,
+    ) -> CliArgumentError {
         CliArgumentError::new_s(
             format!(
-                "operator `{}` does not accept list arguments",
+                "operator `{}` only accepts primitive arguments",
                 self.op_name
             ),
             span,
