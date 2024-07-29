@@ -13,7 +13,7 @@ use crate::{
         call_expr::{CallExpr, ParsedArgValue},
         CliArgumentError,
     },
-    job::{JobData, TransformManager},
+    job::{JobData, PipelineState, TransformManager},
     operators::utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
@@ -431,7 +431,9 @@ pub fn handle_tf_print(
     if tf.current_stream_val.is_some() {
         return;
     }
-    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = jd
+        .tf_mgr
+        .claim_batch_with_limit_bump(tf_id, tf.streams_kept_alive);
 
     let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
     let of_id = jd.tf_mgr.prepare_output_field(
@@ -492,10 +494,13 @@ pub fn handle_tf_print(
     if ps.next_batch_ready && streams_done {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    jd.tf_mgr.submit_batch(
+    jd.tf_mgr.submit_batch_ready_for_more(
         tf_id,
         outputs_produced,
-        ps.input_done && streams_done,
+        PipelineState {
+            input_done: ps.input_done && streams_done,
+            ..ps
+        },
     );
 }
 

@@ -10,7 +10,7 @@ use crate::{
         call_expr::{Argument, CallExpr, Span},
         CliArgumentError,
     },
-    job::JobData,
+    job::{JobData, PipelineState},
     liveness_analysis::OpOutputIdx,
     options::session_setup::SessionSetupData,
     record_data::{
@@ -1379,10 +1379,13 @@ pub fn handle_tf_regex(
             base_iter,
         );
     }
-    jd.tf_mgr.submit_batch(
+    jd.tf_mgr.submit_batch_ready_for_more(
         tf_id,
         produced_records,
-        ps.input_done && !hit_stream_val && !bse,
+        PipelineState {
+            input_done: ps.input_done && !hit_stream_val && !bse,
+            ..ps
+        },
     );
 }
 

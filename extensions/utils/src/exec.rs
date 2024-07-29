@@ -1141,13 +1141,14 @@ impl<'a> Transform<'a> for TfExec<'a> {
                 }
             }
         }
-        jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
-
-        self.command_args.clear();
 
         if !self.running_commands.is_empty() {
             jd.tf_mgr.make_stream_producer(tf_id);
         }
+
+        jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+
+        self.command_args.clear();
     }
 
     #[cfg(target_family = "unix")]
