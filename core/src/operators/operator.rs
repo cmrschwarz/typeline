@@ -32,6 +32,7 @@ use super::{
         build_tf_call_concurrent, setup_op_call_concurrent,
         setup_op_call_concurrent_liveness_data, OpCallConcurrent,
     },
+    chunks::{insert_tf_chunks, setup_op_chunks, OpChunks},
     count::{build_tf_count, OpCount},
     field_value_sink::{build_tf_field_value_sink, OpFieldValueSink},
     file_reader::{build_tf_file_reader, setup_op_file_reader, OpFileReader},
@@ -117,6 +118,7 @@ pub enum OperatorData {
     Sequence(OpSequence),
     Aggregator(OpAggregator),
     Foreach(OpForeach),
+    Chunks(OpChunks),
     MacroDef(OpMacroDef),
     MacroCall(OpMacroCall),
     SuccessUpdator(OpSuccessUpdator),
@@ -278,6 +280,14 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
+            OperatorData::Chunks(op) => setup_op_chunks(
+                op,
+                sess,
+                op_data_id,
+                chain_id,
+                offset_in_chain,
+                span,
+            ),
             OperatorData::Nop(op) => setup_op_nop(
                 op,
                 sess,
@@ -400,7 +410,8 @@ impl OperatorData {
             | OperatorData::Sequence(_)
             | OperatorData::Aggregator(_)
             | OperatorData::MacroDef(_)
-            | OperatorData::Foreach(_) => false,
+            | OperatorData::Foreach(_)
+            | OperatorData::Chunks(_) => false,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return false;
@@ -479,7 +490,8 @@ impl OperatorData {
             OperatorData::FileReader(_) => 1,
             OperatorData::Literal(_) => 1,
             OperatorData::Sequence(_) => 1,
-            OperatorData::Foreach(_) => 0, // last sc output is output
+            OperatorData::Foreach(_) => 0,
+            OperatorData::Chunks(_) => 0, // last sc output is output
             OperatorData::Aggregator(agg) => {
                 let mut op_count = 1;
                 // TODO: do this properly, merging field names etc.
@@ -569,6 +581,7 @@ impl OperatorData {
             | OperatorData::Literal(_)
             | OperatorData::Sequence(_)
             | OperatorData::Foreach(_)
+            | OperatorData::Chunks(_)
             | OperatorData::MacroDef(_)
             | OperatorData::MacroCall(_)
             | OperatorData::SuccessUpdator(_)
@@ -591,6 +604,7 @@ impl OperatorData {
             OperatorData::Sequence(op) => op.default_op_name(),
             OperatorData::Fork(_) => "fork".into(),
             OperatorData::Foreach(_) => "foreach".into(),
+            OperatorData::Chunks(_) => "chunks".into(),
             OperatorData::ForkCat(_) => "forkcat".into(),
             OperatorData::Key(_) => "key".into(),
             OperatorData::Transparent(_) => "transparent".into(),
@@ -677,6 +691,7 @@ impl OperatorData {
             | OperatorData::Aggregator(_)
             | OperatorData::NopCopy(_) => OutputFieldKind::Unique,
             OperatorData::Foreach(_)
+            | OperatorData::Chunks(_)
             | OperatorData::Nop(_)
             | OperatorData::SuccessUpdator(_)
             | OperatorData::Fork(_)
@@ -768,6 +783,7 @@ impl OperatorData {
             | OperatorData::Nop(_)
             | OperatorData::SuccessUpdator(_)
             | OperatorData::Foreach(_)
+            | OperatorData::Chunks(_)
             | OperatorData::NopCopy(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
@@ -809,6 +825,7 @@ impl OperatorData {
             OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Foreach(_)
+            | OperatorData::Chunks(_)
             | OperatorData::Call(_)
             | OperatorData::MacroDef(_)
             | OperatorData::CallConcurrent(_) => {
@@ -1075,6 +1092,7 @@ impl OperatorData {
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Foreach(_)
+            | OperatorData::Chunks(_)
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
@@ -1119,6 +1137,16 @@ impl OperatorData {
             OperatorData::Count(op) => build_tf_count(jd, op_base, op, tfs),
             OperatorData::Foreach(op) => {
                 return insert_tf_foreach(
+                    job,
+                    op,
+                    tf_state,
+                    op_base.chain_id,
+                    op_id,
+                    prebound_outputs,
+                );
+            }
+            OperatorData::Chunks(op) => {
+                return insert_tf_chunks(
                     job,
                     op,
                     tf_state,
@@ -1273,6 +1301,7 @@ impl OperatorData {
             | OperatorData::Literal(_)
             | OperatorData::Sequence(_)
             | OperatorData::Foreach(_)
+            | OperatorData::Chunks(_)
             | OperatorData::SuccessUpdator(_)
             | OperatorData::Custom(_)
             | OperatorData::MacroDef(_) => None,

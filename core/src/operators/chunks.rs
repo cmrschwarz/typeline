@@ -1,8 +1,10 @@
 use std::iter;
 
+use num::Integer;
+
 use crate::{
     chain::{ChainId, SubchainIndex},
-    cli::call_expr::{Argument, Span},
+    cli::call_expr::{Argument, CallExpr, Span},
     job::{add_transform_to_job, Job, JobData},
     options::session_setup::SessionSetupData,
     record_data::{
@@ -22,17 +24,20 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-pub struct OpForeach {
+pub struct OpChunks {
     pub subchain: Vec<(OperatorData, Span)>,
     pub subchain_idx: SubchainIndex,
+    pub stride: usize,
 }
-pub struct TfForeachHeader {
+pub struct TfChunksHeader {
     parent_group_track_iter: GroupTrackIterId,
+    stride: usize,
+    curr_stride_rem: usize,
 }
-pub struct TfForeachTrailer {}
+pub struct TfChunksTrailer {}
 
-pub fn setup_op_foreach(
-    op: &mut OpForeach,
+pub fn setup_op_chunks(
+    op: &mut OpChunks,
     sess: &mut SessionSetupData,
     op_data_id: OperatorDataId,
     chain_id: ChainId,
@@ -45,9 +50,9 @@ pub fn setup_op_foreach(
     Ok(op_id)
 }
 
-pub fn insert_tf_foreach(
+pub fn insert_tf_chunks(
     job: &mut Job,
-    op: &OpForeach,
+    op: &OpChunks,
     mut tf_state: TransformState,
     chain_id: ChainId,
     op_id: OperatorId,
@@ -86,8 +91,10 @@ pub fn insert_tf_foreach(
         &mut job.job_data,
         &mut job.transform_data,
         tf_state,
-        TransformData::ForeachHeader(TfForeachHeader {
+        TransformData::ChunksHeader(TfChunksHeader {
             parent_group_track_iter,
+            stride: op.stride,
+            curr_stride_rem: op.stride,
         }),
     );
     debug_assert!(header_tf_id_peek == header_tf_id);
@@ -153,7 +160,7 @@ pub fn insert_tf_foreach(
         &mut job.job_data,
         &mut job.transform_data,
         trailer_tf_state,
-        TransformData::ForeachTrailer(TfForeachTrailer {}),
+        TransformData::ChunksTrailer(TfChunksTrailer {}),
     );
     job.job_data.tf_mgr.transforms[out_tf_id].successor = Some(trailer_tf_id);
 
@@ -166,10 +173,10 @@ pub fn insert_tf_foreach(
     }
 }
 
-pub fn handle_tf_foreach_header(
+pub fn handle_tf_chunks_header(
     jd: &mut JobData,
     tf_id: TransformId,
-    feh: &mut TfForeachHeader,
+    ch: &mut TfChunksHeader,
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     if batch_size == 0 {
@@ -190,12 +197,37 @@ pub fn handle_tf_foreach_header(
         jd.group_track_manager.lookup_group_track_iter(
             GroupTrackIterRef {
                 track_id: in_group_track_id,
-                iter_id: feh.parent_group_track_iter,
+                iter_id: ch.parent_group_track_iter,
             },
             &jd.match_set_mgr,
         );
 
+    let stride = ch.stride;
+
     let mut size_rem = batch_size;
+
+    let gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
+
+    let append_prev = ch.curr_stride_rem != stride;
+
+    let appendable = ch.curr_stride_rem.min(gs_rem);
+
+    if append_prev {
+        let idx = group_track.group_lengths.len() - 1;
+        group_track.group_lengths.add_value(idx, appendable);
+        parent_record_group_iter.next_n_fields(appendable);
+        ch.curr_stride_rem -= appendable;
+        let eoi = parent_record_group_iter.is_end_of_group(ps.input_done);
+        if !eoi && ch.curr_stride_rem > 0 {
+            jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+            return;
+        }
+        if eoi {
+            parent_record_group_iter.next_group();
+        }
+        ch.curr_stride_rem = stride;
+    }
+
     loop {
         let gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
         let parent_group_idx_stable =
@@ -204,36 +236,37 @@ pub fn handle_tf_foreach_header(
         group_track
             .parent_group_indices_stable
             .promote_to_size_class_of_value(parent_group_idx_stable);
+
+        let (full_groups, partial_group) = gs_rem.div_rem(&stride);
+        let have_partial_group = partial_group != 0;
+        let group_count = full_groups + usize::from(have_partial_group);
+
         group_track.parent_group_indices_stable.extend_truncated(
-            iter::repeat(parent_group_idx_stable).take(gs_rem),
+            iter::repeat(parent_group_idx_stable).take(group_count),
         );
         group_track
             .group_lengths
-            .extend_truncated(iter::repeat(1).take(gs_rem));
+            .extend_truncated(iter::repeat(stride).take(full_groups));
+        if have_partial_group {
+            group_track.group_lengths.push_back_truncated(partial_group);
+        }
         size_rem -= gs_rem;
 
         if size_rem == 0 {
+            ch.curr_stride_rem = stride - partial_group;
             break;
         }
-        parent_record_group_iter.try_next_group();
+        parent_record_group_iter.next_group();
     }
-    parent_record_group_iter.store_iter(feh.parent_group_track_iter);
+    parent_record_group_iter.store_iter(ch.parent_group_track_iter);
 
     jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
-
-    #[cfg(feature = "debug_logging_output_fields")]
-    {
-        eprintln!(
-            "foreach header (tf {tf_id}) set up group list {}: {}",
-            out_group_track_id, group_track
-        );
-    }
 }
 
-pub fn handle_tf_foreach_trailer(
+pub fn handle_tf_chunks_trailer(
     jd: &mut JobData,
     tf_id: TransformId,
-    _fet: &TfForeachTrailer,
+    _fet: &TfChunksTrailer,
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 
@@ -253,40 +286,48 @@ pub fn handle_tf_foreach_trailer(
     jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
 }
 
-pub fn create_op_foreach_with_spans(
+pub fn create_op_chunks_with_spans(
+    stride: usize,
     subchain: impl IntoIterator<Item = (OperatorData, Span)>,
 ) -> OperatorData {
     let mut subchain = subchain.into_iter().collect::<Vec<_>>();
     if subchain.is_empty() {
         subchain.push((create_op_nop(), Span::Generated));
     }
-    OperatorData::Foreach(OpForeach {
+    OperatorData::Chunks(OpChunks {
         subchain,
         subchain_idx: SubchainIndex::MAX_VALUE,
+        stride,
     })
 }
 
-pub fn create_op_foreach(
+pub fn create_op_chunks(
+    stride: usize,
     subchain: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    create_op_foreach_with_spans(
+    create_op_chunks_with_spans(
+        stride,
         subchain.into_iter().map(|v| (v, Span::Generated)),
     )
 }
 
-pub fn parse_op_foreach(
+pub fn parse_op_chunks(
     sess: &mut SessionSetupData,
-    mut arg: Argument,
+    arg: &mut Argument,
 ) -> Result<OperatorData, ScrError> {
+    let expr = CallExpr::from_argument_mut(arg)?;
+    let stride = expr
+        .require_nth_arg(0, "stride")?
+        .expect_int(expr.op_name, true)?;
     let mut subchain = Vec::new();
     for arg in std::mem::take(arg.expect_arg_array_mut()?)
         .into_iter()
-        .skip(1)
+        .skip(2)
     {
         let span = arg.span;
         let op = sess.parse_argument(arg)?;
         subchain.push((op, span));
     }
 
-    Ok(create_op_foreach_with_spans(subchain))
+    Ok(create_op_chunks_with_spans(stride, subchain))
 }

@@ -278,7 +278,7 @@ impl Argument {
         }
     }
 
-    fn expect_int<I>(
+    pub fn expect_int<I>(
         &self,
         op_name: &str,
         fuzzy: bool,
@@ -858,6 +858,23 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
             ));
         }
         Ok(&self.args.as_ref()[0])
+    }
+    pub fn require_nth_arg(
+        &self,
+        index: usize,
+        purpose: &str,
+    ) -> Result<&Argument, OperatorCreationError> {
+        match self.args.as_ref().get(index) {
+            Some(arg) => Ok(arg),
+            None => Err(OperatorCreationError::new_s(
+                format!(
+                    "operator `{}` requires {purpose} in argument {}",
+                    self.op_name,
+                    index + 1
+                ),
+                self.span,
+            )),
+        }
     }
     pub fn require_single_plaintext_arg(
         &self,

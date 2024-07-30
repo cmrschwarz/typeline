@@ -19,6 +19,7 @@ use crate::{
     operators::{
         call::OpCall,
         call_concurrent::OpCallConcurrent,
+        chunks::OpChunks,
         foreach::OpForeach,
         fork::OpFork,
         forkcat::OpForkCat,
@@ -593,7 +594,8 @@ impl LivenessData {
                 self.split_bb_at_call(sess, bb_id, op_n);
                 return true;
             }
-            OperatorData::Foreach(OpForeach { subchain_idx, .. }) => {
+            OperatorData::Foreach(OpForeach { subchain_idx, .. })
+            | OperatorData::Chunks(OpChunks { subchain_idx, .. }) => {
                 bb.calls.push(cn.subchains[*subchain_idx].into_bb_id());
                 self.split_bb_at_call(sess, bb_id, op_n);
             }

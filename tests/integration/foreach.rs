@@ -1,4 +1,4 @@
-use scr::operators::sequence::create_op_seq;
+use scr::operators::{chunks::create_op_chunks, sequence::create_op_seq};
 use scr_core::{
     operators::{
         foreach::create_op_foreach, join::create_op_join,
@@ -85,5 +85,15 @@ fn foreach_seq_seq() -> Result<(), ScrError> {
         ]))
         .run_collect_stringified()?;
     assert_eq!(res, &["3", "3", "3"]);
+    Ok(())
+}
+
+#[test]
+fn chunks() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 10, 1).unwrap())
+        .add_op(create_op_chunks(3, [create_op_sum()]))
+        .run_collect_stringified()?;
+    assert_eq!(res, &["3", "12", "21", "9"]);
     Ok(())
 }
