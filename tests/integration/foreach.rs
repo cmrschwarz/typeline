@@ -89,11 +89,40 @@ fn foreach_seq_seq() -> Result<(), ScrError> {
 }
 
 #[test]
+fn chunk_size_zero_fails() {
+    assert!(create_op_chunks(0, [create_op_sum()]).is_err())
+}
+
+#[test]
 fn chunks() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
-        .add_op(create_op_seq(0, 10, 1).unwrap())
-        .add_op(create_op_chunks(3, [create_op_sum()]))
+        .add_op(create_op_seq(0, 10, 1)?)
+        .add_op(create_op_chunks(3, [create_op_sum()])?)
         .run_collect_stringified()?;
     assert_eq!(res, &["3", "12", "21", "9"]);
+    Ok(())
+}
+
+#[test]
+fn batched_chunks() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 10, 1)?)
+        .set_batch_size(2)?
+        .add_op(create_op_chunks(3, [create_op_sum()])?)
+        .run_collect_stringified()?;
+    assert_eq!(res, &["3", "12", "21", "9"]);
+    Ok(())
+}
+
+#[test]
+fn chunks_empty() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 10, 1).unwrap())
+        .add_op(create_op_chunks(
+            3,
+            [create_op_dup(0), create_op_chunks(1, [create_op_sum()])?],
+        )?)
+        .run_collect_stringified()?;
+    assert!(res.is_empty());
     Ok(())
 }

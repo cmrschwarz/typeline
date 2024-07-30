@@ -16,6 +16,7 @@ use crate::{
 };
 
 use super::{
+    errors::OperatorCreationError,
     nop::create_op_nop,
     operator::{
         OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
@@ -219,6 +220,7 @@ pub fn handle_tf_chunks_header(
         ch.curr_stride_rem -= appendable;
         let eoi = parent_record_group_iter.is_end_of_group(ps.input_done);
         if !eoi && ch.curr_stride_rem > 0 {
+            parent_record_group_iter.store_iter(ch.parent_group_track_iter);
             jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
             return;
         }
@@ -235,14 +237,17 @@ pub fn handle_tf_chunks_header(
         parent_record_group_iter.next_n_fields(gs_rem);
         group_track
             .parent_group_indices_stable
-            .promote_to_size_class_of_value(parent_group_idx_stable);
+            .promote_to_size_class_of_value(
+                parent_group_idx_stable.into_usize(),
+            );
 
         let (full_groups, partial_group) = gs_rem.div_rem(&stride);
         let have_partial_group = partial_group != 0;
         let group_count = full_groups + usize::from(have_partial_group);
 
         group_track.parent_group_indices_stable.extend_truncated(
-            iter::repeat(parent_group_idx_stable).take(group_count),
+            iter::repeat(parent_group_idx_stable.into_usize())
+                .take(group_count),
         );
         group_track
             .group_lengths
@@ -288,25 +293,34 @@ pub fn handle_tf_chunks_trailer(
 
 pub fn create_op_chunks_with_spans(
     stride: usize,
+    stride_span: Span,
     subchain: impl IntoIterator<Item = (OperatorData, Span)>,
-) -> OperatorData {
+) -> Result<OperatorData, OperatorCreationError> {
+    if stride == 0 {
+        return Err(OperatorCreationError::new(
+            "chunk stride cannot be zero",
+            stride_span,
+        ));
+    }
+
     let mut subchain = subchain.into_iter().collect::<Vec<_>>();
     if subchain.is_empty() {
         subchain.push((create_op_nop(), Span::Generated));
     }
-    OperatorData::Chunks(OpChunks {
+    Ok(OperatorData::Chunks(OpChunks {
         subchain,
         subchain_idx: SubchainIndex::MAX_VALUE,
         stride,
-    })
+    }))
 }
 
 pub fn create_op_chunks(
     stride: usize,
     subchain: impl IntoIterator<Item = OperatorData>,
-) -> OperatorData {
+) -> Result<OperatorData, OperatorCreationError> {
     create_op_chunks_with_spans(
         stride,
+        Span::Generated,
         subchain.into_iter().map(|v| (v, Span::Generated)),
     )
 }
@@ -316,18 +330,20 @@ pub fn parse_op_chunks(
     arg: &mut Argument,
 ) -> Result<OperatorData, ScrError> {
     let expr = CallExpr::from_argument_mut(arg)?;
-    let stride = expr
-        .require_nth_arg(0, "stride")?
-        .expect_int(expr.op_name, true)?;
+
+    let stride_arg = expr.require_nth_arg(0, "stride")?;
+
+    let stride = stride_arg.expect_int(expr.op_name, true)?;
+    let stride_span = stride_arg.span;
+
+    let args = std::mem::take(arg.expect_arg_array_mut()?);
+
     let mut subchain = Vec::new();
-    for arg in std::mem::take(arg.expect_arg_array_mut()?)
-        .into_iter()
-        .skip(2)
-    {
+    for arg in args.into_iter().skip(2) {
         let span = arg.span;
         let op = sess.parse_argument(arg)?;
         subchain.push((op, span));
     }
 
-    Ok(create_op_chunks_with_spans(stride, subchain))
+    Ok(create_op_chunks_with_spans(stride, stride_span, subchain)?)
 }
