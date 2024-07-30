@@ -119,7 +119,7 @@ struct InStream {
 
 struct OutStream {
     receiver: Option<Receiver>,
-    token: CommandOutputTokenId,
+    token: Option<CommandOutputTokenId>,
     sv_id: Option<StreamValueId>,
     sv_appended: bool,
 }
@@ -665,17 +665,6 @@ impl<'a> TfExec<'a> {
 
         let mut token_stdin = None;
         let mut stdin_offset = StreamValueDataOffset::default();
-        if let Some(stdin) = stdin.as_mut() {
-            let stdin_tok = self
-                .token_universe
-                .claim_with_value(CommandStreamIdx::Stdin(command_idx));
-            token_stdin = Some(stdin_tok);
-            self.poll.registry().register(
-                stdin,
-                Token(stdin_tok),
-                Interest::WRITABLE,
-            )?;
-        }
 
         if let Some(input_sv) = stdin_sv {
             if !fake_stdin_sv {
@@ -705,6 +694,18 @@ impl<'a> TfExec<'a> {
             };
 
             stdin_offset = iter.get_offset();
+        }
+
+        if let Some(stdin) = stdin.as_mut() {
+            let stdin_tok = self
+                .token_universe
+                .claim_with_value(CommandStreamIdx::Stdin(command_idx));
+            token_stdin = Some(stdin_tok);
+            self.poll.registry().register(
+                stdin,
+                Token(stdin_tok),
+                Interest::WRITABLE,
+            )?;
         }
 
         let mut stdout =
@@ -783,13 +784,13 @@ impl<'a> TfExec<'a> {
             },
             stdout: OutStream {
                 receiver: Some(stdout),
-                token: stdout_token,
+                token: Some(stdout_token),
                 sv_id: Some(stdout_stream),
                 sv_appended: false,
             },
             stderr: OutStream {
                 receiver: Some(stderr),
-                token: stderr_token,
+                token: Some(stderr_token),
                 sv_id: Some(stderr_stream),
                 sv_appended: false,
             },
@@ -865,15 +866,22 @@ impl<'a> TfExec<'a> {
             stderr_inserter,
             exit_code_inserter,
             self.running_commands.peek_claim_id(),
-        )?;
+        );
 
         match res {
-            ProcessStart::Running {
+            Err(e) => {
+                // last resort to not leave behind a mess.
+                // should only happen in case of a very unfortunately timed
+                // interrupt or something
+                let _ = proc.kill();
+                return Err(e);
+            }
+            Ok(ProcessStart::Running {
                 stdin,
                 stdout,
                 stderr,
                 exit_stream,
-            } => {
+            }) => {
                 stdout_inserter.push_stream_value_id(
                     stdout.sv_id.unwrap(),
                     1,
@@ -893,15 +901,19 @@ impl<'a> TfExec<'a> {
                     false,
                 );
 
-                self.running_commands.claim_with_value(RunningCommand {
-                    proc,
-                    in_stream: stdin,
-                    out_streams: [stdout, stderr],
-                    exit_code_sv_id: exit_stream,
-                    poll_requested: false,
-                });
+                let cmd_idx =
+                    self.running_commands.claim_with_value(RunningCommand {
+                        proc,
+                        in_stream: stdin,
+                        out_streams: [stdout, stderr],
+                        exit_code_sv_id: exit_stream,
+                        poll_requested: true,
+                    });
+                // initial poll in case this command completed
+                // before we managed to register the streams
+                self.commands_to_poll.push(cmd_idx);
             }
-            ProcessStart::Done(_status) => (),
+            Ok(ProcessStart::Done(_status)) => (),
         }
         Ok(())
     }
@@ -916,7 +928,9 @@ impl<'a> TfExec<'a> {
     ) {
         let cmd = &mut self.running_commands[cmd_id];
         let out_stream = &mut cmd.out_streams[out_stream_idx];
-        let sv_id = out_stream.sv_id.unwrap();
+        let Some(sv_id) = out_stream.sv_id else {
+            return;
+        };
         let mut sv = sv_mgr.stream_values[sv_id].data_inserter(
             sv_id,
             self.stream_buffer_size,
@@ -937,7 +951,8 @@ impl<'a> TfExec<'a> {
         if let Err(e) = &res {
             if e.kind() != ErrorKind::WouldBlock {
                 let _ = self.poll.registry().deregister(receiver);
-                self.token_universe.release(out_stream.token);
+                self.token_universe
+                    .release(out_stream.token.take().unwrap());
                 out_stream.receiver.take();
 
                 let e = Arc::new(OperatorApplicationError::new_s(
@@ -962,6 +977,7 @@ impl<'a> TfExec<'a> {
 
     fn handle_input_stream(
         &mut self,
+        tf_id: TransformId,
         sv_mgr: &mut StreamValueManager<'a>,
         cmd_id: RunningCommandIdx,
     ) -> Result<(), std::io::Error> {
@@ -977,6 +993,17 @@ impl<'a> TfExec<'a> {
             }
         }
         stream.stdin_offset = iter.get_offset();
+        if iter.is_end() {
+            let _ = self
+                .poll
+                .registry()
+                .deregister(&mut stream.sender.take().unwrap());
+            self.token_universe.release(stream.token.take().unwrap());
+            sv_mgr.drop_field_value_subscription(
+                stream.sv_id.take().unwrap(),
+                Some(tf_id),
+            )
+        }
         Ok(())
     }
 
@@ -1009,7 +1036,8 @@ impl<'a> TfExec<'a> {
             }
             if let Some(mut rec) = out_stream.receiver.take() {
                 let _ = self.poll.registry().deregister(&mut rec);
-                self.token_universe.release(out_stream.token);
+                self.token_universe
+                    .release(out_stream.token.take().unwrap());
             }
         }
         jd.sv_mgr.stream_values[cmd.exit_code_sv_id].set_error(e);
@@ -1184,7 +1212,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
                 CommandStreamIdx::Stderr(_) => STDERR_IDX,
                 CommandStreamIdx::Stdin(_) => {
                     if let Err(e) =
-                        self.handle_input_stream(&mut jd.sv_mgr, cmd_id)
+                        self.handle_input_stream(tf_id, &mut jd.sv_mgr, cmd_id)
                     {
                         self.propagate_process_failure(jd, cmd_id, op_id, e);
                     }
@@ -1241,7 +1269,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
                 let os = &mut cmd.out_streams[out_stream_idx];
                 let appended = os.sv_appended;
                 os.sv_appended = false;
-                if let Some(sv_id) = cmd.out_streams[out_stream_idx].sv_id {
+                if let Some(sv_id) = os.sv_id {
                     if done {
                         jd.sv_mgr.stream_values[sv_id].mark_done();
                     }
@@ -1250,12 +1278,26 @@ impl<'a> Transform<'a> for TfExec<'a> {
                     }
                     if done {
                         jd.sv_mgr.drop_field_value_subscription(sv_id, None);
+                        if let Some(token) = os.token {
+                            self.token_universe.release(token);
+                        }
+                        if let Some(mut stream) = os.receiver.take() {
+                            let _ =
+                                self.poll.registry().deregister(&mut stream);
+                        }
                     }
                 }
             }
             if !done {
                 continue;
             }
+            if let Some(token) = cmd.in_stream.token {
+                self.token_universe.release(token);
+            }
+            if let Some(mut stream) = cmd.in_stream.sender.take() {
+                let _ = self.poll.registry().deregister(&mut stream);
+            }
+
             let cmd = &mut self.running_commands[cmd_id];
             jd.sv_mgr
                 .inform_stream_value_subscribers(cmd.exit_code_sv_id);
