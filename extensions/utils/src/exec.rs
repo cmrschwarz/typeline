@@ -1231,6 +1231,17 @@ impl<'a> Transform<'a> for TfExec<'a> {
         events.clear();
         self.events = Some(events);
 
+        // HACK: this works around the fact that sometimes
+        // we don't get any epoll results despite the process
+        // ending
+        // TODO: figure out a better way to do this
+        for (idx, cmd) in self.running_commands.iter_enumerated_mut() {
+            if !cmd.poll_requested {
+                cmd.poll_requested = true;
+                self.commands_to_poll.push(idx);
+            }
+        }
+
         while let Some(cmd_id) = self.commands_to_poll.pop() {
             let cmd = &mut self.running_commands[cmd_id];
             cmd.poll_requested = false;
