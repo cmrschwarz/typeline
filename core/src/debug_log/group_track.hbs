@@ -75,7 +75,12 @@
             </th>
         </thead>
         <thead>
-            <th class="group-track-table-header">PGID</th>
+            <th class="group-track-table-header tooltip-parent">
+                SP
+                <span class="tooltip-text">
+                    Same Parent as Previous
+                </span>
+            </th>
             <th class="group-track-table-header">GID</th>
             <th class="group-track-table-header">Len</th>
             <th class="group-track-table-header">Iters</th>
@@ -100,7 +105,13 @@
             {{~let "flag_shadow" " flag-shadow"~}}
             {{/if}}
             <tr class="group-track-row">
-                <td class="parent-group-idx{{flag_shadow}}">{{row.parent_group_idx}}</td>
+                <td class="same-parent-as-prev{{flag_shadow}}">
+                    {{#if row.same_parent_as_prev}}
+                        T
+                    {{else}}
+                        F
+                    {{/if}}
+                </td>
                 <td class="group-idx{{flag_shadow}}">{{row.group_idx}}</td>
                 <td class="group-len-rem{{flag_shadow}}">
                     {{#if row.is_group_start}}

@@ -866,25 +866,23 @@ fn group_track_to_json(
 
         let is_curr_group_start = is_next_group_start;
         let group_idx;
-        let parent_group_idx;
+        let same_parent_as_prev;
         let group_len_rem;
         if passed {
             group_idx = -1;
             zero_size_groups = 0;
             group_len_rem = passed_count;
             passed_count -= 1;
-            parent_group_idx = None;
+            same_parent_as_prev = false;
             is_next_group_start = passed_count == 0;
         } else {
             if iter.is_end(true) {
                 break;
             }
             zero_size_groups = iter.skip_empty_groups();
-            group_idx = iter.group_idx_stable() as isize;
-            parent_group_idx = iter
-                .group_track()
-                .parent_group_indices_stable
-                .try_get(iter.group_idx());
+            group_idx = iter.group_idx_stable().into_usize() as isize;
+            same_parent_as_prev =
+                iter.group_track().same_parent_as_prev[iter.group_idx()];
 
             group_len_rem = iter.group_len_rem();
             iter.next_n_fields(1);
@@ -911,7 +909,7 @@ fn group_track_to_json(
         }
 
         rows.push(json!({
-            "parent_group_idx": parent_group_idx,
+            "same_parent_as_prev": same_parent_as_prev,
             "group_idx": group_idx,
             "passed": passed_count,
             "zero_sized_groups": zero_size_groups,

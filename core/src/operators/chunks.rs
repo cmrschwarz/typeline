@@ -34,6 +34,7 @@ pub struct TfChunksHeader {
     parent_group_track_iter: GroupTrackIterId,
     stride: usize,
     curr_stride_rem: usize,
+    starting_new_group: bool,
 }
 pub struct TfChunksTrailer {}
 
@@ -96,6 +97,7 @@ pub fn insert_tf_chunks(
             parent_group_track_iter,
             stride: op.stride,
             curr_stride_rem: op.stride,
+            starting_new_group: true,
         }),
     );
     debug_assert!(header_tf_id_peek == header_tf_id);
@@ -232,23 +234,19 @@ pub fn handle_tf_chunks_header(
 
     loop {
         let gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
-        let parent_group_idx_stable =
-            parent_record_group_iter.group_idx_stable();
         parent_record_group_iter.next_n_fields(gs_rem);
-        group_track
-            .parent_group_indices_stable
-            .promote_to_size_class_of_value(
-                parent_group_idx_stable.into_usize(),
-            );
 
         let (full_groups, partial_group) = gs_rem.div_rem(&stride);
         let have_partial_group = partial_group != 0;
         let group_count = full_groups + usize::from(have_partial_group);
+        group_track
+            .same_parent_as_prev
+            .push_back(!ch.starting_new_group);
+        ch.starting_new_group = false;
 
-        group_track.parent_group_indices_stable.extend_truncated(
-            iter::repeat(parent_group_idx_stable.into_usize())
-                .take(group_count),
-        );
+        group_track
+            .same_parent_as_prev
+            .extend(iter::repeat(true).take(group_count - 1));
         group_track
             .group_lengths
             .extend_truncated(iter::repeat(stride).take(full_groups));
@@ -262,6 +260,7 @@ pub fn handle_tf_chunks_header(
             break;
         }
         parent_record_group_iter.next_group();
+        ch.starting_new_group = true;
     }
     parent_record_group_iter.store_iter(ch.parent_group_track_iter);
 

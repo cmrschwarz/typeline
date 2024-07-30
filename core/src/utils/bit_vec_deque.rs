@@ -14,6 +14,8 @@ pub struct BitVecDeque {
     cap: usize,
 }
 
+unsafe impl Send for BitVecDeque {}
+
 impl Default for BitVecDeque {
     fn default() -> Self {
         Self::new()

@@ -636,7 +636,7 @@ pub fn handle_tf_forkcat(
             ps.input_done,
         );
     }
-    jd.group_track_manager.propagate_leading_groups_to_alias(
+    jd.group_track_manager.propagate_leading_groups_to_aliases(
         &jd.match_set_mgr,
         jd.tf_mgr.transforms[tf_id].input_group_track_id,
         batch_size,
@@ -768,9 +768,10 @@ pub fn propagate_forkcat(
             assert_eq!(curr_sc, FcSubchainIdx::zero());
             cont_group_track.push_group(
                 fields_to_consume,
-                group_track_iter.parent_group_idx_stable(),
+                group_track_iter.same_parent_as_prev(),
             );
-            cont_group_track_next_group_id += 1;
+            cont_group_track_next_group_id =
+                cont_group_track_next_group_id.next();
         } else {
             let group_idx = cont_group_track.group_lengths.len() - 1;
             cont_group_track
