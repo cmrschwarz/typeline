@@ -14,11 +14,8 @@ use bstr::ByteSlice;
 
 use num::Zero;
 use std::{
-    ffi::OsString,
-    marker::PhantomData,
-    os::unix::ffi::{OsStrExt, OsStringExt},
-    path::PathBuf,
-    sync::Arc,
+    ffi::OsString, marker::PhantomData, os::unix::ffi::OsStringExt,
+    path::PathBuf, sync::Arc,
 };
 use thiserror::Error;
 
@@ -368,11 +365,7 @@ impl<S: ChainSetting> SettingTypeConverter<Option<PathBuf>>
         match value {
             Some(v) => match v.into_os_string().into_string() {
                 Ok(v) => Ok(FieldValue::Text(v)),
-                // TODO: once we switch to msrv 1.74, use into_encoded_bytes
-                // instead
-                Err(v) => {
-                    Ok(FieldValue::Bytes(v.as_os_str().as_bytes().to_owned()))
-                }
+                Err(v) => Ok(FieldValue::Bytes(v.into_encoded_bytes())),
             },
             None => Ok(FieldValue::Null),
         }
