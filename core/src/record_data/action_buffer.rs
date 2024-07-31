@@ -1630,8 +1630,8 @@ impl ActionBuffer {
         drop_info: &HeaderDropInfo,
     ) {
         let last_header_idx = drop_info.header_count_rem.saturating_sub(1);
+        let actual_drop = dead_data_leading.prev_multiple_of(&MAX_FIELD_ALIGN);
         for it in iters.into_iter().map(Cell::get_mut) {
-            it.data = it.data.saturating_sub(dead_data_leading);
             if it.header_idx == drop_info.dead_headers_leading {
                 it.header_rl_offset = it
                     .header_rl_offset
@@ -1646,6 +1646,16 @@ impl ActionBuffer {
             if it.header_idx == last_header_idx {
                 it.header_rl_offset =
                     it.header_rl_offset.min(drop_info.last_header_run_len);
+            }
+            if it.header_idx == 0 {
+                // subtracting the 'actual_drop' is not enough to arrive at
+                // this because some of the 'semantic drop'
+                // might have ended up as padding of this
+                // header, which would then not be subtracted from the data
+                // offset
+                it.data = 0;
+            } else {
+                it.data = it.data.saturating_sub(actual_drop);
             }
         }
     }
@@ -2397,38 +2407,157 @@ mod test_dead_data_drop {
             ],
             56,
             56,
+            [IterStateDummy {
+                field_pos: 1,
+                data: 40,
+                header_idx: 4,
+                header_rl_offset: 0,
+                lean_left_on_inserts: false,
+            }],
+            [IterStateDummy {
+                field_pos: 1,
+                data: 16,
+                header_idx: 2,
+                header_rl_offset: 0,
+                lean_left_on_inserts: false,
+            }],
+        );
+    }
+    #[test]
+    fn adjust_iters_after_padded_drop() {
+        // make sure that the padding is not taken away from the iterators,
+        // despite it technically counting as leading dead data
+        test_drop_dead_data(
             [
-                IterStateDummy {
-                    field_pos: 0,
-                    data: 8,
-                    header_idx: 1,
-                    header_rl_offset: 0,
-                    lean_left_on_inserts: false,
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::padding(1),
+                    },
+                    run_length: 1,
                 },
-                IterStateDummy {
-                    field_pos: 1,
-                    data: 40,
-                    header_idx: 4,
-                    header_rl_offset: 0,
-                    lean_left_on_inserts: false,
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED
+                            | field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 1,
                 },
             ],
             [
-                IterStateDummy {
-                    field_pos: 0,
-                    data: 0,
-                    header_idx: 0,
-                    header_rl_offset: 0,
-                    lean_left_on_inserts: false,
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::padding(1),
+                    },
+                    run_length: 1,
                 },
-                IterStateDummy {
-                    field_pos: 1,
-                    data: 16,
-                    header_idx: 2,
-                    header_rl_offset: 0,
-                    lean_left_on_inserts: false,
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED
+                            | field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 1,
                 },
             ],
+            3,
+            3,
+            [IterStateDummy {
+                field_pos: 1,
+                data: 3,
+                header_idx: 2,
+                header_rl_offset: 0,
+                lean_left_on_inserts: true,
+            }],
+            [IterStateDummy {
+                field_pos: 1,
+                data: 3,
+                header_idx: 2,
+                header_rl_offset: 0,
+                lean_left_on_inserts: true,
+            }],
+        );
+    }
+
+    #[test]
+    fn adjust_iters_after_drop_became_padding() {
+        // make sure that a deleted header that gets turned into padding
+        // gets subtracted from iterator data offsets
+        test_drop_dead_data(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DEFAULT
+                            | field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    size: 1,
+                    flags: field_value_flags::padding(1)
+                        | field_value_flags::SHARED_VALUE,
+                },
+                run_length: 1,
+            }],
+            3,
+            3,
+            [IterStateDummy {
+                field_pos: 0,
+                data: 1,
+                header_idx: 1,
+                header_rl_offset: 0,
+                lean_left_on_inserts: true,
+            }],
+            [IterStateDummy {
+                field_pos: 0,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 0,
+                lean_left_on_inserts: true,
+            }],
         );
     }
 }
