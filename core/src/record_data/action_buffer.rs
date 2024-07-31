@@ -1596,11 +1596,6 @@ impl ActionBuffer {
             field_data_size,
             field_data_size,
         );
-        Self::adjust_iters_to_data_drop(
-            &mut field.iter_hall.iters,
-            drop_instructions.leading_drop,
-            &drop_info,
-        );
         let fd = &mut field.iter_hall.field_data;
         // LEAK this leaks all resources of the data. //TODO: drop before
         fd.data.drop_front(
@@ -1740,13 +1735,11 @@ impl ActionBuffer {
             last_header_data_pos: field_end_new - last_header_size,
         };
 
-        if drop_instructions.leading_drop != 0 || dead_headers_leading != 0 {
-            Self::adjust_iters_to_data_drop(
-                iters,
-                drop_instructions.leading_drop,
-                &drop_info,
-            );
-        }
+        Self::adjust_iters_to_data_drop(
+            iters,
+            drop_instructions.leading_drop,
+            &drop_info,
+        );
 
         drop_info
     }
@@ -2325,6 +2318,117 @@ mod test_dead_data_drop {
             3,
             [],
             [],
+        );
+    }
+
+    // extracted from bug in integration::foreach::batched_chunks
+    #[test]
+    fn correct_iter_adjustment_after_dead_header() {
+        test_drop_dead_data(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DELETED,
+                        size: 8,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DELETED,
+                        size: 8,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DEFAULT,
+                        size: 8,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DELETED
+                            | field_value_flags::SHARED_VALUE,
+                        size: 8,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DEFAULT,
+                        size: 8,
+                    },
+                    run_length: 2,
+                },
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DEFAULT,
+                        size: 8,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DELETED
+                            | field_value_flags::SHARED_VALUE,
+                        size: 8,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DEFAULT,
+                        size: 8,
+                    },
+                    run_length: 2,
+                },
+            ],
+            56,
+            56,
+            [
+                IterStateDummy {
+                    field_pos: 0,
+                    data: 8,
+                    header_idx: 1,
+                    header_rl_offset: 0,
+                    lean_left_on_inserts: false,
+                },
+                IterStateDummy {
+                    field_pos: 1,
+                    data: 40,
+                    header_idx: 4,
+                    header_rl_offset: 0,
+                    lean_left_on_inserts: false,
+                },
+            ],
+            [
+                IterStateDummy {
+                    field_pos: 0,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 0,
+                    lean_left_on_inserts: false,
+                },
+                IterStateDummy {
+                    field_pos: 1,
+                    data: 16,
+                    header_idx: 2,
+                    header_rl_offset: 0,
+                    lean_left_on_inserts: false,
+                },
+            ],
         );
     }
 }
