@@ -76,9 +76,9 @@
         </thead>
         <thead>
             <th class="group-track-table-header tooltip-parent">
-                SP
+                NP
                 <span class="tooltip-text">
-                    Same Parent as Previous
+                    Starts new Parent Group
                 </span>
             </th>
             <th class="group-track-table-header">GID</th>
@@ -105,11 +105,13 @@
             {{~let "flag_shadow" " flag-shadow"~}}
             {{/if}}
             <tr class="group-track-row">
-                <td class="same-parent-as-prev{{flag_shadow}}">
-                    {{#if row.same_parent_as_prev}}
+                <td class="starts-new-parent-group{{flag_shadow}}">
+                    {{#if row.is_group_start}}
+                    {{#if row.starts_new_parent_group}}
                         T
                     {{else}}
                         F
+                    {{/if}}
                     {{/if}}
                 </td>
                 <td class="group-idx{{flag_shadow}}">{{row.group_idx}}</td>

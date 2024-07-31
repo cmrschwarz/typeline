@@ -240,13 +240,13 @@ pub fn handle_tf_chunks_header(
         let have_partial_group = partial_group != 0;
         let group_count = full_groups + usize::from(have_partial_group);
         group_track
-            .same_parent_as_prev
-            .push_back(!ch.starting_new_group);
+            .starts_new_parent_group
+            .push_back(ch.starting_new_group);
         ch.starting_new_group = false;
 
         group_track
-            .same_parent_as_prev
-            .extend(iter::repeat(true).take(group_count - 1));
+            .starts_new_parent_group
+            .extend(iter::repeat(false).take(group_count - 1));
         group_track
             .group_lengths
             .extend_truncated(iter::repeat(stride).take(full_groups));

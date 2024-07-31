@@ -61,6 +61,7 @@ pub struct GroupTrack {
 
     // stable index of physical index 0
     pub group_index_offset: GroupIdxStable,
+    pub parent_group_index_offset: GroupIdxStable,
 
     pub iter_lookup_table:
         Universe<GroupTrackIterId, GroupTrackIterSortedIndex>,
@@ -79,7 +80,7 @@ pub struct GroupTrack {
     // to make sense of zero length groups, where we would otherwise lose
     // this connection, since we can't find the right partner by lockstep
     // iterating over both group lists by length anymore.
-    pub same_parent_as_prev: BitVecDeque,
+    pub starts_new_parent_group: BitVecDeque,
 
     #[cfg(feature = "debug_state")]
     // for forkcat suchains this points to the source
@@ -448,6 +449,11 @@ impl GroupTrack {
             group_index.wrapping_add(self.group_index_offset.into_usize()),
         )
     }
+    pub fn last_group_idx_stable(&self) -> GroupIdxStable {
+        self.stable_idx_from_group_idx(
+            self.group_lengths.len().saturating_sub(1),
+        )
+    }
     pub fn group_idx_from_stable_idx(
         &self,
         stable_idx: GroupIdxStable,
@@ -462,9 +468,9 @@ impl GroupTrack {
     pub fn group_len(&self, group_index: GroupIdx) -> usize {
         self.get_group_len(group_index).unwrap()
     }
-    pub fn push_group(&mut self, group_len: usize, same_parent_as_prev: bool) {
+    pub fn push_group(&mut self, group_len: usize, starts_new_parent: bool) {
         self.group_lengths.push_back(group_len);
-        self.same_parent_as_prev.push_back(same_parent_as_prev);
+        self.starts_new_parent_group.push_back(starts_new_parent);
     }
     pub fn get_group_len(&self, group_index: GroupIdx) -> Option<usize> {
         self.group_lengths.try_get(group_index)
@@ -605,17 +611,24 @@ impl GroupTrack {
             eprintln!();
         }
         self.group_lengths.drain(0..lgts.full_group_count);
-        self.same_parent_as_prev.drop_front(lgts.full_group_count);
+        let parent_starts_dropped = self
+            .starts_new_parent_group
+            .iter()
+            .take(lgts.full_group_count)
+            .filter(|x| *x)
+            .count();
+        self.starts_new_parent_group
+            .drop_front(lgts.full_group_count);
+        self.parent_group_index_offset = self
+            .parent_group_index_offset
+            .wrapping_add(parent_starts_dropped);
 
         if let Some(v) = lgts.partial_group_len {
             self.group_lengths.sub_value(0, v);
         }
 
-        self.group_index_offset = GroupIdxStable::from_usize(
-            self.group_index_offset
-                .into_usize()
-                .wrapping_add(lgts.full_group_count),
-        );
+        self.group_index_offset =
+            self.group_index_offset.wrapping_add(lgts.full_group_count);
         if make_passed {
             self.passed_fields_count += total_field_count;
         }
@@ -688,14 +701,16 @@ impl GroupTrack {
             alias.group_lengths.extend_truncated(
                 self.group_lengths.iter().take(lgts.full_group_count),
             );
-            alias.same_parent_as_prev.extend(
-                self.same_parent_as_prev.iter().take(lgts.full_group_count),
+            alias.starts_new_parent_group.extend(
+                self.starts_new_parent_group
+                    .iter()
+                    .take(lgts.full_group_count),
             );
             if let Some(v) = lgts.partial_group_len {
                 alias.group_lengths.push_back_truncated(v);
-                alias
-                    .same_parent_as_prev
-                    .push_back(self.same_parent_as_prev[lgts.full_group_count])
+                alias.starts_new_parent_group.push_back(
+                    self.starts_new_parent_group[lgts.full_group_count],
+                )
             }
         } else {
             debug_assert!(
@@ -703,7 +718,7 @@ impl GroupTrack {
                     == alias
                         .group_index_offset
                         .into_usize()
-                        .wrapping_add(alias.group_lengths.len())
+                        .wrapping_add(alias.group_lengths.len() - 1)
             );
             let child_last_index = alias.group_lengths.len() - 1;
             if lgts.full_group_count > 0 {
@@ -715,16 +730,16 @@ impl GroupTrack {
                 alias.group_lengths.extend_truncated(
                     self.group_lengths.iter().skip(1).take(full_group_count),
                 );
-                alias.same_parent_as_prev.extend(
-                    self.same_parent_as_prev
+                alias.starts_new_parent_group.extend(
+                    self.starts_new_parent_group
                         .iter()
                         .skip(1)
                         .take(full_group_count),
                 );
                 if let Some(v) = lgts.partial_group_len {
                     alias.group_lengths.push_back_truncated(v);
-                    alias.same_parent_as_prev.push_back(
-                        self.same_parent_as_prev[full_group_count + 1],
+                    alias.starts_new_parent_group.push_back(
+                        self.starts_new_parent_group[full_group_count + 1],
                     );
                 }
             } else if let Some(v) = lgts.partial_group_len {
@@ -958,9 +973,10 @@ impl GroupTrackManager {
             actor_ref: actor,
             parent_group_track_id: parent_list,
             group_index_offset: GroupIdxStable::ZERO,
+            parent_group_index_offset: GroupIdxStable::ZERO,
             passed_fields_count: 0,
             group_lengths: SizeClassedVecDeque::default(),
-            same_parent_as_prev: BitVecDeque::new(),
+            starts_new_parent_group: BitVecDeque::new(),
             iter_states: Vec::default(),
             iter_lookup_table: Universe::default(),
             snapshot: SnapshotRef::default(),
@@ -1050,12 +1066,12 @@ impl GroupTrackManager {
         &self,
         group_track_id: GroupTrackId,
         field_count: usize,
-        same_parent_as_prev: bool,
+        starts_new_parent: bool,
     ) {
         let mut gl = self.group_tracks[group_track_id].borrow_mut();
         debug_assert!(gl.parent_group_track_id.is_none());
         gl.group_lengths.push_back(field_count);
-        gl.same_parent_as_prev.push_back(same_parent_as_prev);
+        gl.starts_new_parent_group.push_back(starts_new_parent);
     }
     pub fn borrow_group_track(
         &self,
@@ -1118,10 +1134,14 @@ impl GroupTrackManager {
 
         let mut processed_field_count = 0;
 
-        let mut processed_parent_group_count = 0;
+        let mut parent_group_id_stable = child_gt.parent_group_index_offset;
+        let mut prev_parent_group_idx =
+            parent_prev_gt.group_idx_from_stable_idx(parent_group_id_stable);
+
         let mut processed_child_group_count = 0;
 
-        let mut first_group_added = false;
+        let mut first_subgroup_found = false;
+        let mut first_starts_new_parent = true;
 
         let mut child_groups_sum = 0;
 
@@ -1132,8 +1152,13 @@ impl GroupTrackManager {
             let mut group_len =
                 child_gt.group_lengths.get(processed_child_group_count);
 
-            let same_parent =
-                child_gt.same_parent_as_prev[processed_child_group_count];
+            let starts_new_parent =
+                child_gt.starts_new_parent_group[processed_child_group_count];
+
+            if !first_subgroup_found {
+                first_subgroup_found = true;
+                first_starts_new_parent = starts_new_parent;
+            }
 
             end_reached = processed_field_count + group_len >= field_count;
 
@@ -1144,42 +1169,55 @@ impl GroupTrackManager {
 
             processed_field_count += group_len;
             processed_child_group_count += 1;
+            child_groups_sum += group_len;
 
-            if same_parent {
-                child_groups_sum += group_len;
+            if !starts_new_parent {
                 continue;
             }
 
-            if !first_group_added && !parent_new_gt.group_lengths.is_empty() {
+            first_subgroup_found = false;
+
+            if first_starts_new_parent
+                && (parent_new_gt.group_lengths.is_empty()
+                    || parent_group_id_stable
+                        != parent_new_gt.last_group_idx_stable())
+            {
+                parent_new_gt.group_lengths.push_back(child_groups_sum);
+                parent_new_gt.starts_new_parent_group.push_back(
+                    parent_prev_gt.starts_new_parent_group
+                        [prev_parent_group_idx],
+                );
+            } else {
+                debug_assert!(
+                    parent_new_gt.last_group_idx_stable()
+                        == parent_group_id_stable
+                );
                 let last_index = parent_new_gt.group_lengths.len() - 1;
                 parent_new_gt
                     .group_lengths
                     .add_value(last_index, child_groups_sum);
-                first_group_added = true;
-            } else {
-                parent_new_gt.group_lengths.push_back(child_groups_sum);
-                parent_new_gt.same_parent_as_prev.push_back(
-                    parent_prev_gt.same_parent_as_prev
-                        [processed_parent_group_count],
-                );
             }
 
-            processed_parent_group_count += 1;
-            child_groups_sum = group_len;
+            if first_starts_new_parent {
+                prev_parent_group_idx += 1;
+                parent_group_id_stable = parent_group_id_stable.next();
+            }
+
+            child_groups_sum = 0;
         }
 
-        if child_groups_sum > 0 {
-            if !first_group_added && !parent_new_gt.group_lengths.is_empty() {
+        if first_subgroup_found {
+            if first_starts_new_parent {
+                parent_new_gt.group_lengths.push_back(child_groups_sum);
+                parent_new_gt.starts_new_parent_group.push_back(
+                    parent_prev_gt.starts_new_parent_group
+                        [prev_parent_group_idx],
+                );
+            } else {
                 let last_index = parent_new_gt.group_lengths.len() - 1;
                 parent_new_gt
                     .group_lengths
                     .add_value(last_index, child_groups_sum);
-            } else {
-                parent_new_gt.group_lengths.push_back(child_groups_sum);
-                parent_new_gt.same_parent_as_prev.push_back(
-                    parent_prev_gt.same_parent_as_prev
-                        [processed_parent_group_count],
-                );
             }
         }
 
@@ -1749,8 +1787,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         count
     }
 
-    pub fn same_parent_as_prev(&self) -> bool {
-        self.base.group_track.same_parent_as_prev[self.base.group_idx]
+    pub fn group_starts_new_parent(&self) -> bool {
+        self.base.group_track.starts_new_parent_group[self.base.group_idx]
     }
 }
 
