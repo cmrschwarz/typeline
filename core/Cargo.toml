@@ -74,6 +74,8 @@ repl = ["dep:shlex", "dep:reedline"]
 unstable = []
 debug_state = []
 
+debug_disable_terminator = []
+
 debug_log = ["debug_state", "handlebars", "serde_json", "serde_derive"]
 debug_log_extern_style_sheet = ["debug_log"]
 debug_log_lenient = ["debug_log"]

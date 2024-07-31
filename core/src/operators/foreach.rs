@@ -89,7 +89,7 @@ pub fn insert_tf_foreach(
         tf_state,
         TransformData::ForeachHeader(TfForeachHeader {
             parent_group_track_iter,
-            starting_new_group: true,
+            starting_new_group: false,
         }),
     );
     debug_assert!(header_tf_id_peek == header_tf_id);

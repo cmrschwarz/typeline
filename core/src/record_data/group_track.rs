@@ -80,6 +80,8 @@ pub struct GroupTrack {
     // to make sense of zero length groups, where we would otherwise lose
     // this connection, since we can't find the right partner by lockstep
     // iterating over both group lists by length anymore.
+    // Edge case: this is **false** for the very first group in each track,
+    // because that one should retain the parent group index 0.
     pub starts_new_parent_group: BitVecDeque,
 
     #[cfg(feature = "debug_state")]
@@ -1177,9 +1179,9 @@ impl GroupTrackManager {
 
             first_subgroup_found = false;
 
-            if first_starts_new_parent
-                && (parent_new_gt.group_lengths.is_empty()
-                    || parent_group_id_stable
+            if parent_new_gt.group_lengths.is_empty()
+                || (first_starts_new_parent
+                    && parent_group_id_stable
                         != parent_new_gt.last_group_idx_stable())
             {
                 parent_new_gt.group_lengths.push_back(child_groups_sum);
@@ -1207,7 +1209,11 @@ impl GroupTrackManager {
         }
 
         if first_subgroup_found {
-            if first_starts_new_parent {
+            if parent_new_gt.group_lengths.is_empty()
+                || (first_starts_new_parent
+                    && parent_group_id_stable
+                        != parent_new_gt.last_group_idx_stable())
+            {
                 parent_new_gt.group_lengths.push_back(child_groups_sum);
                 parent_new_gt.starts_new_parent_group.push_back(
                     parent_prev_gt.starts_new_parent_group

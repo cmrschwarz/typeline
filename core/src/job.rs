@@ -444,7 +444,11 @@ impl<'a> Job<'a> {
         let rgt = &mut self.job_data.group_track_manager;
         let input_group_track =
             rgt.add_group_track(None, ms_id, ActorRef::default());
-        rgt.append_group_to_track(input_group_track, input_record_count, true);
+        rgt.append_group_to_track(
+            input_group_track,
+            input_record_count,
+            false,
+        );
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {
@@ -463,7 +467,9 @@ impl<'a> Job<'a> {
 
         self.job_data.start_tf = Some(instantiation.tfs_begin);
 
-        add_terminator(self, instantiation.tfs_end);
+        if !cfg!(feature = "debug_disable_terminator") {
+            add_terminator(self, instantiation.tfs_end);
+        }
 
         self.job_data
             .tf_mgr

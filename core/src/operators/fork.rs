@@ -312,7 +312,9 @@ fn setup_fork_subchain(
         None,
         &HashMap::default(),
     );
-    add_terminator(job, instantiation.tfs_end);
+    if !cfg!(feature = "debug_disable_terminator") {
+        add_terminator(job, instantiation.tfs_end);
+    }
     ForkTarget {
         tf_id: instantiation.tfs_begin,
         gt_id: target_group_track,

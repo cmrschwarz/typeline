@@ -97,7 +97,7 @@ pub fn insert_tf_chunks(
             parent_group_track_iter,
             stride: op.stride,
             curr_stride_rem: op.stride,
-            starting_new_group: true,
+            starting_new_group: false,
         }),
     );
     debug_assert!(header_tf_id_peek == header_tf_id);
@@ -220,16 +220,17 @@ pub fn handle_tf_chunks_header(
         group_track.group_lengths.add_value(idx, appendable);
         parent_record_group_iter.next_n_fields(appendable);
         ch.curr_stride_rem -= appendable;
-        let eoi = parent_record_group_iter.is_end_of_group(ps.input_done);
-        if !eoi && ch.curr_stride_rem > 0 {
+        size_rem -= appendable;
+        let eog = parent_record_group_iter.is_end_of_group(ps.input_done);
+        if eog {
+            parent_record_group_iter.next_group();
+            ch.curr_stride_rem = stride;
+        }
+        if (!eog && ch.curr_stride_rem > 0) || size_rem == 0 {
             parent_record_group_iter.store_iter(ch.parent_group_track_iter);
             jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
             return;
         }
-        if eoi {
-            parent_record_group_iter.next_group();
-        }
-        ch.curr_stride_rem = stride;
     }
 
     loop {
