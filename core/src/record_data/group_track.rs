@@ -1263,24 +1263,23 @@ impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
     }
     pub fn next_n_fields(&mut self, n: usize) -> usize {
         let mut n_rem = n;
-        if n <= self.group_len_rem {
-            self.group_len_rem -= n;
-            self.field_pos += n;
-            return n;
-        }
-        while let Some(group_len) =
-            self.group_track.group_lengths.try_get(self.group_idx + 1)
-        {
-            self.group_idx += 1;
-            if group_len >= n_rem {
-                self.group_len_rem = group_len - n_rem;
+        loop {
+            if n_rem <= self.group_len_rem {
+                self.group_len_rem -= n_rem;
+                self.field_pos += n_rem;
                 return n;
             }
-            n_rem -= group_len;
+            n_rem -= self.group_len_rem;
+            self.field_pos += self.group_len_rem;
+            let Some(group_len) =
+                self.group_track.group_lengths.try_get(self.group_idx + 1)
+            else {
+                self.group_len_rem = 0;
+                return n - n_rem;
+            };
+            self.group_idx += 1;
+            self.group_len_rem = group_len;
         }
-        let fields_advanced = n - n_rem;
-        self.field_pos += fields_advanced;
-        fields_advanced
     }
     pub fn next_group(&mut self) {
         self.group_idx += 1;
