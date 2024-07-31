@@ -11,6 +11,8 @@ use super::{
     push_interface::PushInterface,
 };
 
+// TODO: rework this. this code sucks, does not respect padding,
+// always uses MAX_FIELD_ALIGN, etc..
 pub struct RawFixedSizedTypeInserter<'a> {
     fd: &'a mut FieldData,
     count: usize,
@@ -56,12 +58,8 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
         element_size: usize,
         max_inserts: usize,
     ) {
-        self.fd
-            .data
-            .reserve(MAX_FIELD_ALIGN + max_inserts * element_size);
-        self.fd
-            .data
-            .reserve_contiguous(MAX_FIELD_ALIGN + element_size, 0);
+        let reservation = MAX_FIELD_ALIGN + max_inserts * element_size;
+        self.fd.data.reserve_contiguous(reservation, 0);
         self.data_ptr = self.fd.data.tail_ptr_mut();
         self.max = (self.fd.data.contiguous_tail_space_available()
             - MAX_FIELD_ALIGN)
@@ -75,7 +73,7 @@ impl<'a> RawFixedSizedTypeInserter<'a> {
     ) {
         unsafe {
             self.commit(fmt);
-            self.drop_and_reserve(new_max_inserts, fmt.size as usize);
+            self.drop_and_reserve(fmt.size as usize, new_max_inserts);
         }
     }
     #[inline(always)]
@@ -141,7 +139,7 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
     pub fn push(&mut self, v: T) {
         if self.raw.count >= self.raw.max {
             self.commit_and_reserve(
-                (self.raw.fd.data.len() / std::mem::size_of::<T>()).min(4),
+                (self.raw.fd.data.len() / std::mem::size_of::<T>()).max(4),
             );
         }
         unsafe {

@@ -1393,7 +1393,7 @@ impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
         &self.group_track
     }
 
-    fn is_invalid(&self) -> bool {
+    pub fn is_invalid(&self) -> bool {
         self.group_idx >= self.group_track.group_lengths.len()
     }
 }

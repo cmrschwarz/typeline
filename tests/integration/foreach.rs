@@ -1,4 +1,6 @@
-use scr::operators::{chunks::create_op_chunks, sequence::create_op_seq};
+use scr::operators::{
+    chunks::create_op_chunks, count::create_op_count, sequence::create_op_seq,
+};
 use scr_core::{
     operators::{
         foreach::create_op_foreach, join::create_op_join,
@@ -124,5 +126,15 @@ fn chunks_empty() -> Result<(), ScrError> {
         )?)
         .run_collect_stringified()?;
     assert!(res.is_empty());
+    Ok(())
+}
+
+#[test]
+fn chunks_counted() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 10, 1).unwrap())
+        .add_op(create_op_chunks(3, [create_op_count()])?)
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [3, 3, 3, 1]);
     Ok(())
 }
