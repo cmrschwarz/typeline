@@ -598,6 +598,7 @@ pub fn field_data_to_json<'a>(
         let header_idx = iter.get_next_header_index();
         let header_offs = iter.field_run_length_bwd();
         let mut iters_end = iters_start;
+
         while iters_end < iters.len() {
             let it = &iters[iters_end];
 
@@ -653,6 +654,13 @@ pub fn field_data_to_json<'a>(
             }
         }
 
+        iter.next_field_allow_dead();
+        if cfg!(feature = "debug_log_lenient") && !iter.is_next_valid()
+            || iter.get_next_field_pos() >= field_count_cap
+        {
+            iters_end = iters.len();
+        }
+
         rows.push(json!({
             "dead_slots": dead_slot_count,
             "shadow_meta": shadow_meta,
@@ -669,9 +677,8 @@ pub fn field_data_to_json<'a>(
 
         }));
         iters_start = iters_end;
-        iter.next_field_allow_dead();
     }
-    #[cfg(not(feature = "debug_log_lenient"))]
+
     assert_eq!(iters_start, iters.len());
 
     let cow = if let Some(info) = field_info.cow_info {
