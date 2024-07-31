@@ -765,35 +765,35 @@ impl GroupTrack {
         Self::lookup_iter_for_deref(self, iter_id)
     }
     fn build_iter_from_iter_state<T: Deref<Target = Self>>(
-        list: T,
+        group_track: T,
         iter_state: GroupTrackIterState,
     ) -> GroupTrackIter<T> {
         GroupTrackIter {
             field_pos: iter_state.field_pos,
             group_idx: iter_state.group_idx,
-            group_len_rem: list.group_len(iter_state.group_idx)
+            group_len_rem: group_track.group_len(iter_state.group_idx)
                 - iter_state.group_offset,
-            group_track: list,
+            group_track,
         }
     }
     pub fn lookup_iter_for_deref<T: Deref<Target = Self>>(
-        list: T,
+        group_track: T,
         iter_id: GroupTrackIterId,
     ) -> GroupTrackIter<T> {
-        let iter_index = list.iter_lookup_table[iter_id];
-        let iter_state = list.iter_states[iter_index as usize].get();
-        Self::build_iter_from_iter_state(list, iter_state)
+        let iter_index = group_track.iter_lookup_table[iter_id];
+        let iter_state = group_track.iter_states[iter_index as usize].get();
+        Self::build_iter_from_iter_state(group_track, iter_state)
     }
     pub fn lookup_iter_for_deref_mut<T: DerefMut<Target = Self>>(
-        list: T,
+        group_track: T,
         iter_id: GroupTrackIterId,
         msm: &MatchSetManager,
         actor_id: ActorId,
     ) -> GroupTrackIterMut<T> {
-        let action_buffer = &msm.match_sets[list.ms_id].action_buffer;
-        let iter_index = list.iter_lookup_table[iter_id];
-        let iter_state = list.iter_states[iter_index as usize].get();
-        let base = Self::build_iter_from_iter_state(list, iter_state);
+        let action_buffer = &msm.match_sets[group_track.ms_id].action_buffer;
+        let iter_index = group_track.iter_lookup_table[iter_id];
+        let iter_state = group_track.iter_states[iter_index as usize].get();
+        let base = Self::build_iter_from_iter_state(group_track, iter_state);
         action_buffer.borrow_mut().begin_action_group(actor_id);
         GroupTrackIterMut {
             group_len: base.group_len_rem + iter_state.group_offset,
@@ -964,7 +964,7 @@ impl GroupTrack {
 impl GroupTrackManager {
     pub fn add_group_track(
         &mut self,
-        parent_list: Option<GroupTrackId>,
+        parent_track: Option<GroupTrackId>,
         ms_id: MatchSetId,
         actor: ActorRef,
     ) -> GroupTrackId {
@@ -973,7 +973,7 @@ impl GroupTrackManager {
             id,
             ms_id,
             actor_ref: actor,
-            parent_group_track_id: parent_list,
+            parent_group_track_id: parent_track,
             group_index_offset: GroupIdxStable::ZERO,
             parent_group_index_offset: GroupIdxStable::ZERO,
             passed_fields_count: 0,
