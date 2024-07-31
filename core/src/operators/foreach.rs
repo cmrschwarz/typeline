@@ -207,12 +207,12 @@ pub fn handle_tf_foreach_header(
         parent_record_group_iter.next_n_fields(gs_rem);
 
         group_track
-            .starts_new_parent_group
-            .push_back(feh.starting_new_group);
+            .parent_group_advancement
+            .push_back_truncated(usize::from(feh.starting_new_group));
         feh.starting_new_group = false;
         group_track
-            .starts_new_parent_group
-            .extend(iter::repeat(false).take(gs_rem - 1));
+            .parent_group_advancement
+            .extend_truncated(iter::repeat(0).take(gs_rem - 1));
         group_track
             .group_lengths
             .extend_truncated(iter::repeat(1).take(gs_rem));

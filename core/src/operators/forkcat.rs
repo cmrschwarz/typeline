@@ -768,7 +768,7 @@ pub fn propagate_forkcat(
             assert_eq!(curr_sc, FcSubchainIdx::zero());
             cont_group_track.push_group(
                 fields_to_consume,
-                group_track_iter.group_starts_new_parent(),
+                group_track_iter.parent_group_advancement(),
             );
             cont_group_track_next_group_id =
                 cont_group_track_next_group_id.next();

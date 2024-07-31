@@ -151,17 +151,21 @@ impl TfSum {
         let op_id = bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap();
         let fpm = self.floating_point_math;
 
-        let mut output_field = bud
-            .field_mgr
-            .borrow_field_dealiased_mut(bud.output_field_id);
-        let mut inserter = output_field.iter_hall.varying_type_inserter();
-
         let mut group_iter = bud.group_tracker.lookup_group_track_iter_mut(
             self.group_track_iter.track_id,
             self.group_track_iter.iter_id,
             bud.match_set_mgr,
             self.actor_id,
         );
+
+        if group_iter.is_invalid() {
+            return (0, bud.ps.input_done);
+        }
+
+        let mut output_field = bud
+            .field_mgr
+            .borrow_field_dealiased_mut(bud.output_field_id);
+        let mut inserter = output_field.iter_hall.varying_type_inserter();
 
         let mut finished_group_count = 0;
         let mut last_finished_group_end = group_iter.field_pos();

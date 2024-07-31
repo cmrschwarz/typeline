@@ -240,14 +240,15 @@ pub fn handle_tf_chunks_header(
         let (full_groups, partial_group) = gs_rem.div_rem(&stride);
         let have_partial_group = partial_group != 0;
         let group_count = full_groups + usize::from(have_partial_group);
+        // FIXME: this is wrong. count skipped zero groups
         group_track
-            .starts_new_parent_group
-            .push_back(ch.starting_new_group);
+            .parent_group_advancement
+            .push_back_truncated(usize::from(ch.starting_new_group));
         ch.starting_new_group = false;
 
         group_track
-            .starts_new_parent_group
-            .extend(iter::repeat(false).take(group_count - 1));
+            .parent_group_advancement
+            .extend_truncated(iter::repeat(0).take(group_count - 1));
         group_track
             .group_lengths
             .extend_truncated(iter::repeat(stride).take(full_groups));

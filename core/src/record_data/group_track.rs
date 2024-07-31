@@ -8,9 +8,9 @@ use std::{
 use crate::{
     index_newtype,
     utils::{
-        bit_vec_deque::BitVecDeque, debuggable_nonmax::DebuggableNonMaxU32,
-        indexing_type::IndexingType, range_bounds_to_range,
-        size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
+        debuggable_nonmax::DebuggableNonMaxU32, indexing_type::IndexingType,
+        range_bounds_to_range, size_classed_vec_deque::SizeClassedVecDeque,
+        universe::Universe,
     },
 };
 
@@ -75,14 +75,14 @@ pub struct GroupTrack {
     // dropped yet.
     pub passed_fields_count: usize,
     pub group_lengths: SizeClassedVecDeque,
-    // Contains a bit for each group to indicate whether it is a subgroup of
-    // the same parent as it's predecessor or the next one. This is necessary
+
+    // Number of parent group indices to advance to get to the parent of this
+    // group, relative to the previous one. This is necessary
     // to make sense of zero length groups, where we would otherwise lose
     // this connection, since we can't find the right partner by lockstep
     // iterating over both group lists by length anymore.
-    // Edge case: this is **false** for the very first group in each track,
-    // because that one should retain the parent group index 0.
-    pub starts_new_parent_group: BitVecDeque,
+    // This is 0 for the very first group in each track.
+    pub parent_group_advancement: SizeClassedVecDeque,
 
     #[cfg(feature = "debug_state")]
     // for forkcat suchains this points to the source
@@ -470,9 +470,14 @@ impl GroupTrack {
     pub fn group_len(&self, group_index: GroupIdx) -> usize {
         self.get_group_len(group_index).unwrap()
     }
-    pub fn push_group(&mut self, group_len: usize, starts_new_parent: bool) {
+    pub fn push_group(
+        &mut self,
+        group_len: usize,
+        parent_group_advanceent: usize,
+    ) {
         self.group_lengths.push_back(group_len);
-        self.starts_new_parent_group.push_back(starts_new_parent);
+        self.parent_group_advancement
+            .push_back(parent_group_advanceent);
     }
     pub fn get_group_len(&self, group_index: GroupIdx) -> Option<usize> {
         self.group_lengths.try_get(group_index)
@@ -492,6 +497,10 @@ impl GroupTrack {
         }
     }
     pub fn eprint_iter_states(&self, indent_level: usize) {
+        if self.iter_lookup_table.indices().next().is_none() {
+            eprint!("[]");
+            return;
+        }
         eprintln!("[");
         for &i in &self.iter_lookup_table {
             eprintln!(
@@ -614,13 +623,12 @@ impl GroupTrack {
         }
         self.group_lengths.drain(0..lgts.full_group_count);
         let parent_starts_dropped = self
-            .starts_new_parent_group
+            .parent_group_advancement
             .iter()
             .take(lgts.full_group_count)
-            .filter(|x| *x)
-            .count();
-        self.starts_new_parent_group
-            .drop_front(lgts.full_group_count);
+            .sum();
+        self.parent_group_advancement
+            .drain(0..lgts.full_group_count);
         self.parent_group_index_offset = self
             .parent_group_index_offset
             .wrapping_add(parent_starts_dropped);
@@ -698,20 +706,23 @@ impl GroupTrack {
         alias
             .group_lengths
             .promote_to_size_class(self.group_lengths.size_class());
+        alias
+            .parent_group_advancement
+            .promote_to_size_class(self.parent_group_advancement.size_class());
 
         if alias.group_lengths.is_empty() {
             alias.group_lengths.extend_truncated(
                 self.group_lengths.iter().take(lgts.full_group_count),
             );
-            alias.starts_new_parent_group.extend(
-                self.starts_new_parent_group
+            alias.parent_group_advancement.extend(
+                self.parent_group_advancement
                     .iter()
                     .take(lgts.full_group_count),
             );
             if let Some(v) = lgts.partial_group_len {
                 alias.group_lengths.push_back_truncated(v);
-                alias.starts_new_parent_group.push_back(
-                    self.starts_new_parent_group[lgts.full_group_count],
+                alias.parent_group_advancement.push_back_truncated(
+                    self.parent_group_advancement.get(lgts.full_group_count),
                 )
             }
         } else {
@@ -732,16 +743,17 @@ impl GroupTrack {
                 alias.group_lengths.extend_truncated(
                     self.group_lengths.iter().skip(1).take(full_group_count),
                 );
-                alias.starts_new_parent_group.extend(
-                    self.starts_new_parent_group
+                alias.parent_group_advancement.extend(
+                    self.parent_group_advancement
                         .iter()
                         .skip(1)
                         .take(full_group_count),
                 );
                 if let Some(v) = lgts.partial_group_len {
                     alias.group_lengths.push_back_truncated(v);
-                    alias.starts_new_parent_group.push_back(
-                        self.starts_new_parent_group[full_group_count + 1],
+                    alias.parent_group_advancement.push_back_truncated(
+                        self.parent_group_advancement
+                            .get(full_group_count + 1),
                     );
                 }
             } else if let Some(v) = lgts.partial_group_len {
@@ -771,7 +783,10 @@ impl GroupTrack {
         GroupTrackIter {
             field_pos: iter_state.field_pos,
             group_idx: iter_state.group_idx,
-            group_len_rem: group_track.group_len(iter_state.group_idx)
+            group_len_rem: group_track
+                .group_lengths
+                .try_get(iter_state.group_idx)
+                .unwrap_or(0)
                 - iter_state.group_offset,
             group_track,
         }
@@ -961,6 +976,120 @@ impl GroupTrack {
     }
 }
 
+pub fn merge_leading_groups_into_parent_raw(
+    parent_prev_gt: &GroupTrack,
+    child_gt: &mut GroupTrack,
+    parent_new_gt: &mut GroupTrack,
+    field_count: usize,
+    end_of_input: bool,
+) {
+    let mut processed_field_count = 0;
+
+    let mut parent_group_id_stable = child_gt.parent_group_index_offset;
+    let mut prev_parent_group_idx =
+        parent_prev_gt.group_idx_from_stable_idx(parent_group_id_stable);
+
+    let mut processed_child_group_count = 0;
+
+    let mut first_subgroup_found = false;
+    let mut first_parent_advancement = 0;
+
+    let mut child_groups_sum = 0;
+
+    let mut final_group_len = 0;
+
+    let mut end_reached = field_count == 0;
+    loop {
+        if !end_reached {
+            let mut group_len =
+                child_gt.group_lengths.get(processed_child_group_count);
+
+            let parent_advancement = child_gt
+                .parent_group_advancement
+                .get(processed_child_group_count);
+
+            if !first_subgroup_found {
+                first_subgroup_found = true;
+                first_parent_advancement = parent_advancement;
+            }
+
+            end_reached = processed_field_count + group_len >= field_count;
+
+            if end_reached {
+                group_len = field_count - processed_field_count;
+                final_group_len = group_len;
+            }
+
+            processed_field_count += group_len;
+            processed_child_group_count += 1;
+            child_groups_sum += group_len;
+
+            if parent_advancement == 0 {
+                continue;
+            }
+
+            first_subgroup_found = false;
+        }
+
+        if parent_new_gt.group_lengths.is_empty()
+            || (first_parent_advancement != 0
+                && parent_group_id_stable
+                    != parent_new_gt.last_group_idx_stable())
+        {
+            for i in 1..first_parent_advancement {
+                parent_new_gt.group_lengths.push_back(child_groups_sum);
+                parent_new_gt.parent_group_advancement.push_back(
+                    parent_prev_gt
+                        .parent_group_advancement
+                        .get(prev_parent_group_idx + i - 1),
+                );
+            }
+            parent_new_gt.group_lengths.push_back(child_groups_sum);
+            parent_new_gt.parent_group_advancement.push_back(
+                parent_prev_gt.parent_group_advancement.get(
+                    prev_parent_group_idx
+                        + first_parent_advancement.saturating_sub(1),
+                ),
+            );
+        } else {
+            debug_assert!(
+                parent_new_gt.last_group_idx_stable()
+                    == parent_group_id_stable
+            );
+            let last_index = parent_new_gt.group_lengths.len() - 1;
+            parent_new_gt
+                .group_lengths
+                .add_value(last_index, child_groups_sum);
+        }
+        if end_reached {
+            break;
+        }
+
+        if first_parent_advancement != 0 {
+            prev_parent_group_idx += first_parent_advancement;
+            parent_group_id_stable =
+                parent_group_id_stable.wrapping_add(first_parent_advancement);
+        }
+
+        child_groups_sum = 0;
+    }
+
+    let lgts = if end_of_input {
+        LeadingGroupTrackSlice {
+            full_group_count: processed_child_group_count,
+            full_group_field_count: field_count,
+            partial_group_len: None,
+        }
+    } else {
+        LeadingGroupTrackSlice {
+            full_group_count: processed_child_group_count.saturating_sub(1),
+            full_group_field_count: field_count - final_group_len,
+            partial_group_len: Some(final_group_len),
+        }
+    };
+    child_gt.drop_leading_groups(true, lgts, end_of_input);
+}
+
 impl GroupTrackManager {
     pub fn add_group_track(
         &mut self,
@@ -978,7 +1107,7 @@ impl GroupTrackManager {
             parent_group_index_offset: GroupIdxStable::ZERO,
             passed_fields_count: 0,
             group_lengths: SizeClassedVecDeque::default(),
-            starts_new_parent_group: BitVecDeque::new(),
+            parent_group_advancement: SizeClassedVecDeque::new(),
             iter_states: Vec::default(),
             iter_lookup_table: Universe::default(),
             snapshot: SnapshotRef::default(),
@@ -1068,12 +1197,13 @@ impl GroupTrackManager {
         &self,
         group_track_id: GroupTrackId,
         field_count: usize,
-        starts_new_parent: bool,
+        parent_group_advancement: usize,
     ) {
         let mut gl = self.group_tracks[group_track_id].borrow_mut();
         debug_assert!(gl.parent_group_track_id.is_none());
         gl.group_lengths.push_back(field_count);
-        gl.starts_new_parent_group.push_back(starts_new_parent);
+        gl.parent_group_advancement
+            .push_back(parent_group_advancement);
     }
     pub fn borrow_group_track(
         &self,
@@ -1111,7 +1241,6 @@ impl GroupTrackManager {
             gt.drop_leading_groups(true, lgts, end_of_input);
         }
     }
-
     pub fn merge_leading_groups_into_parent(
         &self,
         msm: &MatchSetManager,
@@ -1134,114 +1263,13 @@ impl GroupTrackManager {
         // PERF: is that actually neccessary?
         parent_new_gt.apply_field_actions(msm);
 
-        let mut processed_field_count = 0;
-
-        let mut parent_group_id_stable = child_gt.parent_group_index_offset;
-        let mut prev_parent_group_idx =
-            parent_prev_gt.group_idx_from_stable_idx(parent_group_id_stable);
-
-        let mut processed_child_group_count = 0;
-
-        let mut first_subgroup_found = false;
-        let mut first_starts_new_parent = true;
-
-        let mut child_groups_sum = 0;
-
-        let mut final_group_len = 0;
-
-        let mut end_reached = field_count == 0;
-        while !end_reached {
-            let mut group_len =
-                child_gt.group_lengths.get(processed_child_group_count);
-
-            let starts_new_parent =
-                child_gt.starts_new_parent_group[processed_child_group_count];
-
-            if !first_subgroup_found {
-                first_subgroup_found = true;
-                first_starts_new_parent = starts_new_parent;
-            }
-
-            end_reached = processed_field_count + group_len >= field_count;
-
-            if end_reached {
-                group_len = field_count - processed_field_count;
-                final_group_len = group_len;
-            }
-
-            processed_field_count += group_len;
-            processed_child_group_count += 1;
-            child_groups_sum += group_len;
-
-            if !starts_new_parent {
-                continue;
-            }
-
-            first_subgroup_found = false;
-
-            if parent_new_gt.group_lengths.is_empty()
-                || (first_starts_new_parent
-                    && parent_group_id_stable
-                        != parent_new_gt.last_group_idx_stable())
-            {
-                parent_new_gt.group_lengths.push_back(child_groups_sum);
-                parent_new_gt.starts_new_parent_group.push_back(
-                    parent_prev_gt.starts_new_parent_group
-                        [prev_parent_group_idx],
-                );
-            } else {
-                debug_assert!(
-                    parent_new_gt.last_group_idx_stable()
-                        == parent_group_id_stable
-                );
-                let last_index = parent_new_gt.group_lengths.len() - 1;
-                parent_new_gt
-                    .group_lengths
-                    .add_value(last_index, child_groups_sum);
-            }
-
-            if first_starts_new_parent {
-                prev_parent_group_idx += 1;
-                parent_group_id_stable = parent_group_id_stable.next();
-            }
-
-            child_groups_sum = 0;
-        }
-
-        if first_subgroup_found {
-            if parent_new_gt.group_lengths.is_empty()
-                || (first_starts_new_parent
-                    && parent_group_id_stable
-                        != parent_new_gt.last_group_idx_stable())
-            {
-                parent_new_gt.group_lengths.push_back(child_groups_sum);
-                parent_new_gt.starts_new_parent_group.push_back(
-                    parent_prev_gt.starts_new_parent_group
-                        [prev_parent_group_idx],
-                );
-            } else {
-                let last_index = parent_new_gt.group_lengths.len() - 1;
-                parent_new_gt
-                    .group_lengths
-                    .add_value(last_index, child_groups_sum);
-            }
-        }
-
-        let lgts = if end_of_input {
-            LeadingGroupTrackSlice {
-                full_group_count: processed_child_group_count,
-                full_group_field_count: field_count,
-                partial_group_len: None,
-            }
-        } else {
-            LeadingGroupTrackSlice {
-                full_group_count: processed_child_group_count
-                    .saturating_sub(1),
-                full_group_field_count: field_count - final_group_len,
-                partial_group_len: Some(final_group_len),
-            }
-        };
-        child_gt.drop_leading_groups(true, lgts, end_of_input);
+        merge_leading_groups_into_parent_raw(
+            &parent_prev_gt,
+            &mut child_gt,
+            &mut parent_new_gt,
+            field_count,
+            end_of_input,
+        )
     }
 }
 
@@ -1359,6 +1387,10 @@ impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
 
     pub fn group_track(&self) -> &GroupTrack {
         &self.group_track
+    }
+
+    fn is_invalid(&self) -> bool {
+        self.group_idx >= self.group_track.group_lengths.len()
     }
 }
 
@@ -1792,8 +1824,15 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         count
     }
 
-    pub fn group_starts_new_parent(&self) -> bool {
-        self.base.group_track.starts_new_parent_group[self.base.group_idx]
+    pub fn parent_group_advancement(&self) -> usize {
+        self.base
+            .group_track
+            .parent_group_advancement
+            .get(self.base.group_idx)
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        self.base.is_invalid()
     }
 }
 
@@ -1825,9 +1864,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> Drop for GroupTrackIterMut<'a, T> {
 }
 
 #[cfg(test)]
-mod test {
-    use std::{cell::Cell, collections::VecDeque};
-
+mod test_action_lists {
     use crate::{
         record_data::{
             field_action::{FieldAction, FieldActionKind},
@@ -1837,6 +1874,7 @@ mod test {
             size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
         },
     };
+    use std::{cell::Cell, collections::VecDeque};
 
     #[cfg(feature = "debug_state")]
     use crate::record_data::iter_hall::IterKind;
@@ -1981,6 +2019,117 @@ mod test {
                 #[cfg(feature = "debug_state")]
                 kind: IterKind::Undefined
             }
+        );
+    }
+}
+
+#[cfg(test)]
+mod test_merge {
+    use std::iter;
+
+    use crate::{
+        record_data::group_track::{
+            merge_leading_groups_into_parent_raw, GroupTrack,
+        },
+        utils::size_classed_vec_deque::SizeClassedVecDeque,
+    };
+
+    #[track_caller]
+    fn test_merge_leading_groups(
+        prev_parent_advancements: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        child_parent_advancements: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        child_groups: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        new_parent_advancements: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        new_parent_groups: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        new_parent_advancements_result: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        new_parent_groups_result: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        field_count: usize,
+        end_of_input: bool,
+    ) {
+        let prev_parent_advancements =
+            SizeClassedVecDeque::from_iter(prev_parent_advancements);
+        let prev_parent = GroupTrack {
+            // this never matters
+            group_lengths: SizeClassedVecDeque::from_iter(
+                iter::repeat(0).take(prev_parent_advancements.len()),
+            ),
+            parent_group_advancement: prev_parent_advancements,
+            ..Default::default()
+        };
+        let mut child = GroupTrack {
+            group_lengths: SizeClassedVecDeque::from_iter(child_groups),
+            parent_group_advancement: SizeClassedVecDeque::from_iter(
+                child_parent_advancements,
+            ),
+            ..Default::default()
+        };
+        let mut new_parent = GroupTrack {
+            group_lengths: SizeClassedVecDeque::from_iter(new_parent_groups),
+            parent_group_advancement: SizeClassedVecDeque::from_iter(
+                new_parent_advancements,
+            ),
+            ..Default::default()
+        };
+        merge_leading_groups_into_parent_raw(
+            &prev_parent,
+            &mut child,
+            &mut new_parent,
+            field_count,
+            end_of_input,
+        );
+        let group_lengths_res =
+            SizeClassedVecDeque::from_iter(new_parent_groups_result);
+        let parent_group_advancement_res =
+            SizeClassedVecDeque::from_iter(new_parent_advancements_result);
+
+        assert_eq!(new_parent.group_lengths, group_lengths_res);
+        assert_eq!(
+            new_parent.parent_group_advancement,
+            parent_group_advancement_res
+        );
+    }
+
+    #[test]
+    fn test_simple_merge() {
+        test_merge_leading_groups(
+            [42],
+            [0, 0, 0],
+            [1, 1, 1],
+            [],
+            [],
+            [42],
+            [3],
+            3,
+            true,
+        );
+    }
+
+    #[test]
+    fn test_simple_skip() {
+        test_merge_leading_groups(
+            [1, 22, 333],
+            [0, 2],
+            [1, 2],
+            [],
+            [],
+            [1, 22, 333],
+            [1, 0, 2],
+            3,
+            true,
         );
     }
 }

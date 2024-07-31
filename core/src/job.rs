@@ -444,11 +444,7 @@ impl<'a> Job<'a> {
         let rgt = &mut self.job_data.group_track_manager;
         let input_group_track =
             rgt.add_group_track(None, ms_id, ActorRef::default());
-        rgt.append_group_to_track(
-            input_group_track,
-            input_record_count,
-            false,
-        );
+        rgt.append_group_to_track(input_group_track, input_record_count, 0);
 
         #[cfg(feature = "debug_logging")]
         for (i, f) in input_data_fields.iter().enumerate() {

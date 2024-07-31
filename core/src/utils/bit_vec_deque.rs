@@ -340,6 +340,7 @@ impl<O: BitOrder> From<BitVec<usize, O>> for BitVecDeque {
     }
 }
 
+#[derive(Clone)]
 pub struct Iter<'a> {
     i1: bitvec::slice::Iter<'a, usize, LocalBits>,
     i2: bitvec::slice::Iter<'a, usize, LocalBits>,

@@ -151,10 +151,7 @@ fn add_field_data_dead_slots<'a>(
     }
 }
 
-fn add_group_track_dead_slots<'a>(
-    gt: &GroupTrack,
-    dead_slots: &mut Vec<usize>,
-) {
+fn add_group_track_dead_slots(gt: &GroupTrack, dead_slots: &mut Vec<usize>) {
     let mut iter = gt.iter();
 
     loop {
@@ -894,13 +891,13 @@ fn group_track_to_json(
         let mut dead_slot_count = 0;
         let is_curr_group_start = is_next_group_start;
         let group_idx;
-        let starts_new_parent_group;
+        let parent_group_advancement;
         let group_len_rem;
         if passed {
             group_idx = -1;
             group_len_rem = passed_count;
             passed_count -= 1;
-            starts_new_parent_group = false;
+            parent_group_advancement = 0;
             is_next_group_start = passed_count == 0;
             dead_slot_count = 0;
         } else {
@@ -908,8 +905,10 @@ fn group_track_to_json(
                 break;
             }
             group_idx = iter.group_idx_stable().into_usize() as isize;
-            starts_new_parent_group =
-                iter.group_track().starts_new_parent_group[iter.group_idx()];
+            parent_group_advancement = iter
+                .group_track()
+                .parent_group_advancement
+                .get(iter.group_idx());
 
             group_len_rem = iter.group_len_rem();
 
@@ -944,7 +943,7 @@ fn group_track_to_json(
         }
 
         rows.push(json!({
-            "starts_new_parent_group": starts_new_parent_group,
+            "parent_group_advancement": parent_group_advancement,
             "group_idx": group_idx,
             "passed": passed_count,
             "dead_slots": dead_slot_count,
