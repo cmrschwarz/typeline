@@ -233,6 +233,10 @@ pub fn handle_tf_chunks_header(
         }
     }
 
+    group_track
+        .group_lengths
+        .promote_to_size_class_of_value(ch.stride);
+
     loop {
         let gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
         parent_record_group_iter.next_n_fields(gs_rem);

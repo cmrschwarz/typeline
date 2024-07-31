@@ -1,4 +1,9 @@
-use std::{alloc::Layout, ops::Index, ptr::NonNull};
+use std::{
+    alloc::Layout,
+    fmt::{Debug, Write},
+    ops::Index,
+    ptr::NonNull,
+};
 
 use bitvec::{
     order::{BitOrder, LocalBits},
@@ -213,6 +218,10 @@ impl BitVecDeque {
             None
         }
     }
+    pub fn set(&mut self, idx: usize, value: bool) {
+        assert!(idx < self.len);
+        unsafe { self.set_unchecked(idx, value) }
+    }
     pub fn slices(
         &self,
     ) -> (&BitSlice<usize, LocalBits>, &BitSlice<usize, LocalBits>) {
@@ -346,6 +355,21 @@ pub struct Iter<'a> {
     i2: bitvec::slice::Iter<'a, usize, LocalBits>,
 }
 
+impl<'a> ExactSizeIterator for Iter<'a> {
+    fn len(&self) -> usize {
+        self.i1.len() + self.i2.len()
+    }
+}
+
+impl<'a> DoubleEndedIterator for Iter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if let Some(v) = self.i2.next_back() {
+            return Some(*v);
+        }
+        self.i1.next_back().map(|v| *v)
+    }
+}
+
 impl<'a> Iterator for Iter<'a> {
     type Item = bool;
 
@@ -395,6 +419,26 @@ impl Drop for BitVecDeque {
                     .unwrap_unchecked(),
             );
         }
+    }
+}
+
+impl PartialEq for BitVecDeque {
+    fn eq(&self, other: &Self) -> bool {
+        self.slices() == other.slices()
+    }
+}
+
+impl Debug for BitVecDeque {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_char('[')?;
+        for (i, b) in self.iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            f.write_char(if b { '1' } else { '0' })?;
+        }
+        f.write_char(']')?;
+        Ok(())
     }
 }
 

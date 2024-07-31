@@ -1,15 +1,14 @@
 use std::{
-    collections::VecDeque,
+    collections::{vec_deque, VecDeque},
     fmt::Debug,
-    marker::PhantomData,
-    ops::{Range, RangeBounds},
 };
 
 use metamatch::metamatch;
 
-use super::pointer_range_len;
+use super::bit_vec_deque::{self, BitVecDeque};
 
 pub enum SizeClassedVecDeque {
+    Sc1(BitVecDeque),
     Sc8(VecDeque<u8>),
     Sc16(VecDeque<u16>),
     Sc32(VecDeque<u32>),
@@ -24,10 +23,13 @@ impl Default for SizeClassedVecDeque {
 
 impl SizeClassedVecDeque {
     pub const fn new() -> Self {
-        SizeClassedVecDeque::Sc8(VecDeque::new())
+        SizeClassedVecDeque::Sc1(BitVecDeque::new())
     }
     fn required_size_class_for_value(value: usize) -> u32 {
-        let bytes = (usize::BITS - value.max(1).leading_zeros() + 7) / 8;
+        if value < 2 {
+            return 1;
+        }
+        let bytes = (usize::BITS - value.leading_zeros() + 7) / 8;
         match bytes {
             1 => 8,
             2 => 16,
@@ -51,18 +53,22 @@ impl SizeClassedVecDeque {
                 let v = v.get(index);
                 *unsafe { v.unwrap_unchecked() } as usize
             }
+            SizeClassedVecDeque::Sc1(v) =>
+                unsafe { v.get_unchecked(index) }.into(),
         })
     }
     pub fn try_get(&self, index: usize) -> Option<usize> {
         metamatch!(match self {
             #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDeque::SC(v) => v.get(index).map(|v| *v as usize),
+            SizeClassedVecDeque::Sc1(v) => v.get(index).map(usize::from),
         })
     }
     pub fn get(&self, index: usize) -> usize {
         metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            #[expand(SC in [ Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDeque::SC(v) => v[index] as usize,
+            SizeClassedVecDeque::Sc1(v) => usize::from(v[index]),
         })
     }
     pub fn first(&self) -> Option<usize> {
@@ -77,7 +83,7 @@ impl SizeClassedVecDeque {
     }
     pub fn len(&self) -> usize {
         metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDeque::SC(v) => v.len(),
         })
     }
@@ -86,6 +92,7 @@ impl SizeClassedVecDeque {
     }
     pub fn size_class(&self) -> u32 {
         match self {
+            SizeClassedVecDeque::Sc1(_) => 1,
             SizeClassedVecDeque::Sc8(_) => 8,
             SizeClassedVecDeque::Sc16(_) => 16,
             SizeClassedVecDeque::Sc32(_) => 32,
@@ -98,6 +105,7 @@ impl SizeClassedVecDeque {
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(_) => T::MAX as usize,
+            SizeClassedVecDeque::Sc1(_) => 1,
         })
     }
     pub fn set_truncated(&mut self, index: usize, value: usize) {
@@ -106,6 +114,7 @@ impl SizeClassedVecDeque {
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(v) => v[index] = value as T,
+            SizeClassedVecDeque::Sc1(v) => v.set(index, value & 1 == 1),
         })
     }
     pub fn set(&mut self, index: usize, value: usize) {
@@ -130,103 +139,39 @@ impl SizeClassedVecDeque {
         self.map_value(index, |v| v - value)
     }
     pub fn promote_to_size_class(&mut self, sc: u32) {
-        match sc {
-            8 => (),
-            16 => match self {
-                SizeClassedVecDeque::Sc8(v) => {
-                    *self = SizeClassedVecDeque::Sc16(
-                        v.iter().copied().map(u16::from).collect(),
+        metamatch!(match sc {
+            1 => (),
+            #[expand( (SIZE, T_TGT, SC_TGT, PROMOTE, KEEP) in [
+                (8,  u8,  Sc8,  [],                [Sc8, Sc16, Sc32, Sc64]),
+                (16, u16, Sc16, [Sc8],             [Sc16, Sc32, Sc64]),
+                (32, u32, Sc32, [Sc8, Sc16],       [Sc32, Sc64]),
+                (64, u64, Sc64, [Sc8, Sc16, Sc32], [Sc64]),
+            ])]
+            SIZE => metamatch!(match self {
+                SizeClassedVecDeque::Sc1(v) => {
+                    *self = SizeClassedVecDeque::SC_TGT(
+                        v.iter().map(T_TGT::from).collect(),
+                    )
+                }
+
+                #[expand(SC in PROMOTE)]
+                SizeClassedVecDeque::SC(v) => {
+                    *self = SizeClassedVecDeque::SC_TGT(
+                        v.iter().copied().map(T_TGT::from).collect(),
                     );
                 }
-                SizeClassedVecDeque::Sc16(_)
-                | SizeClassedVecDeque::Sc32(_)
-                | SizeClassedVecDeque::Sc64(_) => (),
-            },
-            32 => match self {
-                SizeClassedVecDeque::Sc8(v) => {
-                    *self = SizeClassedVecDeque::Sc32(
-                        v.iter().copied().map(u32::from).collect(),
-                    );
-                }
-                SizeClassedVecDeque::Sc16(v) => {
-                    *self = SizeClassedVecDeque::Sc32(
-                        v.iter().copied().map(u32::from).collect(),
-                    );
-                }
-                SizeClassedVecDeque::Sc32(_)
-                | SizeClassedVecDeque::Sc64(_) => (),
-            },
-            64 => match self {
-                SizeClassedVecDeque::Sc8(v) => {
-                    *self = SizeClassedVecDeque::Sc64(
-                        v.iter().copied().map(u64::from).collect(),
-                    );
-                }
-                SizeClassedVecDeque::Sc16(v) => {
-                    *self = SizeClassedVecDeque::Sc64(
-                        v.iter().copied().map(u64::from).collect(),
-                    );
-                }
-                SizeClassedVecDeque::Sc32(v) => {
-                    *self = SizeClassedVecDeque::Sc64(
-                        v.iter().copied().map(u64::from).collect(),
-                    );
-                }
-                SizeClassedVecDeque::Sc64(_) => (),
-            },
+
+                #[expand_pattern(SC in KEEP)]
+                SizeClassedVecDeque::SC(_) => (),
+            }),
             _ => panic!("invalid size class: {sc}"),
-        }
-    }
-    pub fn as_ptr_ranges(&self) -> (Range<*const u8>, Range<*const u8>) {
-        fn slices2ranges<T>(
-            slices: (&[T], &[T]),
-        ) -> (Range<*const u8>, Range<*const u8>) {
-            (
-                Range {
-                    start: slices.0.as_ptr().cast(),
-                    end: slices.0.as_ptr_range().end.cast(),
-                },
-                Range {
-                    start: slices.1.as_ptr().cast(),
-                    end: slices.1.as_ptr_range().end.cast(),
-                },
-            )
-        }
-        metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
-            SizeClassedVecDeque::SC(v) => slices2ranges(v.as_slices()),
-        })
-    }
-    pub fn as_mut_ptr_ranges(&mut self) -> (Range<*mut u8>, Range<*mut u8>) {
-        #[allow(clippy::needless_pass_by_value)]
-        fn slices2ranges<T>(
-            slices: (&mut [T], &mut [T]),
-        ) -> (Range<*mut u8>, Range<*mut u8>) {
-            (
-                Range {
-                    start: slices.0.as_mut_ptr().cast(),
-                    end: slices.0.as_mut_ptr_range().end.cast(),
-                },
-                Range {
-                    start: slices.1.as_mut_ptr().cast(),
-                    end: slices.1.as_mut_ptr_range().end.cast(),
-                },
-            )
-        }
-        metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
-            SizeClassedVecDeque::SC(v) => slices2ranges(v.as_mut_slices()),
         })
     }
     pub fn iter(&self) -> SizeClassedVecDequeIter {
-        let (range_1, range_2) = self.as_ptr_ranges();
-        let stride = (self.size_class() / 8) as u8;
-        SizeClassedVecDequeIter {
-            range_1,
-            range_2,
-            stride,
-            _phantom_data: PhantomData,
-        }
+        metamatch!(match self {
+            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
+            Self::SC(v) => SizeClassedVecDequeIter::SC(v.iter()),
+        })
     }
     pub fn push_back_truncated(&mut self, value: usize) {
         metamatch!(match self {
@@ -234,6 +179,7 @@ impl SizeClassedVecDeque {
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(v) => v.push_back(value as T),
+            SizeClassedVecDeque::Sc1(v) => v.push_back(value & 1 == 1),
         })
     }
     pub fn push_back(&mut self, value: usize) {
@@ -248,6 +194,7 @@ impl SizeClassedVecDeque {
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(v) => v.push_front(value as T),
+            SizeClassedVecDeque::Sc1(v) => v.push_front(value & 1 == 1),
         })
     }
     pub fn push_front(&mut self, value: usize) {
@@ -256,12 +203,13 @@ impl SizeClassedVecDeque {
         }
         self.push_front_truncated(value);
     }
-    pub fn drain(&mut self, range: impl RangeBounds<usize>) {
+    pub fn drop_front(&mut self, count: usize) {
         metamatch!(match self {
             #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDeque::SC(v) => {
-                v.drain(range);
+                v.drain(0..count);
             }
+            SizeClassedVecDeque::Sc1(v) => v.drop_front(count),
         })
     }
     pub fn extend(
@@ -282,6 +230,9 @@ impl SizeClassedVecDeque {
             ])]
             SizeClassedVecDeque::SC(v) =>
                 v.extend(values.into_iter().map(|v| v as T)),
+
+            SizeClassedVecDeque::Sc1(v) =>
+                v.extend(values.into_iter().map(|v| v & 1 == 1)),
         })
     }
 
@@ -307,101 +258,66 @@ impl<'a> IntoIterator for &'a SizeClassedVecDeque {
 }
 
 #[derive(Clone)]
-pub struct SizeClassedVecDequeIter<'a> {
-    range_1: Range<*const u8>,
-    range_2: Range<*const u8>,
-    stride: u8,
-    _phantom_data: PhantomData<&'a usize>,
+pub enum SizeClassedVecDequeIter<'a> {
+    Sc1(bit_vec_deque::Iter<'a>),
+    Sc8(vec_deque::Iter<'a, u8>),
+    Sc16(vec_deque::Iter<'a, u16>),
+    Sc32(vec_deque::Iter<'a, u32>),
+    Sc64(vec_deque::Iter<'a, u64>),
 }
 
 impl<'a> Iterator for SizeClassedVecDequeIter<'a> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.range_1.start == self.range_1.end {
-            if self.range_2.is_empty() {
-                return None;
-            }
-            std::mem::swap(&mut self.range_1, &mut self.range_2);
-        }
-        let res = unsafe {
-            #[allow(clippy::cast_ptr_alignment)]
-            match self.stride {
-                1 => *(self.range_1.start.cast::<u8>()) as usize,
-                2 => *(self.range_1.start.cast::<u16>()) as usize,
-                4 => *(self.range_1.start.cast::<u32>()) as usize,
-                8 => *(self.range_1.start.cast::<u64>()) as usize,
-                _ => std::hint::unreachable_unchecked(),
-            }
-        };
-        unsafe {
-            self.range_1.start = self.range_1.start.add(self.stride as usize);
-        }
-        Some(res)
+        metamatch!(match self {
+            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            SizeClassedVecDequeIter::SC(it) => it.next().map(|v| *v as usize),
+            SizeClassedVecDequeIter::Sc1(it) => it.next().map(usize::from),
+        })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.len();
-        (len, Some(len))
+        metamatch!(match self {
+            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
+            SizeClassedVecDequeIter::SC(it) => it.size_hint(),
+        })
     }
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        let stride_shift = self.stride.ilog2() as usize;
-        if pointer_range_len(&self.range_1) >> stride_shift > n {
-            self.range_1.start =
-                unsafe { self.range_1.start.add(n << stride_shift) };
-            return self.next();
-        }
-        self.range_1.start = self.range_1.end;
-        if pointer_range_len(&self.range_2) >> stride_shift > n {
-            self.range_2.start =
-                unsafe { self.range_2.start.add(n << stride_shift) };
-            return self.next();
-        }
-        self.range_2.start = self.range_2.end;
-        None
+        metamatch!(match self {
+            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            SizeClassedVecDequeIter::SC(it) => it.nth(n).map(|v| *v as usize),
+            SizeClassedVecDequeIter::Sc1(it) => it.nth(n).map(usize::from),
+        })
     }
 }
 
 impl<'a> ExactSizeIterator for SizeClassedVecDequeIter<'a> {
     fn len(&self) -> usize {
-        let size = pointer_range_len(&self.range_1)
-            + pointer_range_len(&self.range_2);
-        let shift = self.stride.ilog2() as usize;
-        size >> shift
+        metamatch!(match self {
+            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            SizeClassedVecDequeIter::SC(it) => it.len(),
+            SizeClassedVecDequeIter::Sc1(it) => it.len(),
+        })
     }
 }
 
 impl<'a> DoubleEndedIterator for SizeClassedVecDequeIter<'a> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.range_2.end == self.range_2.start {
-            if self.range_1.is_empty() {
-                return None;
-            }
-            std::mem::swap(&mut self.range_1, &mut self.range_2);
-        }
-        unsafe {
-            self.range_2.end = self.range_2.end.sub(self.stride as usize);
-        }
-        let res = unsafe {
-            #[allow(clippy::cast_ptr_alignment)]
-            match self.stride {
-                1 => *(self.range_2.end.cast::<u8>()) as usize,
-                2 => *(self.range_2.end.cast::<u16>()) as usize,
-                4 => *(self.range_2.end.cast::<u32>()) as usize,
-                8 => *(self.range_2.end.cast::<u64>()) as usize,
-                _ => std::hint::unreachable_unchecked(),
-            }
-        };
-        Some(res)
+    fn next_back(&mut self) -> Option<usize> {
+        metamatch!(match self {
+            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            Self::SC(it) => it.next_back().map(|v| *v as usize),
+            Self::Sc1(it) => it.next_back().map(usize::from),
+        })
     }
 }
 
 impl Debug for SizeClassedVecDeque {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
-            SizeClassedVecDeque::SC(v) => Debug::fmt(v, f),
+            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
+            Self::SC(v) => Debug::fmt(v, f),
         })
     }
 }
@@ -409,7 +325,7 @@ impl Debug for SizeClassedVecDeque {
 impl PartialEq for SizeClassedVecDeque {
     fn eq(&self, other: &Self) -> bool {
         metamatch!(match (self, other) {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
             (Self::SC(lhs), Self::SC(rhs)) => lhs == rhs,
             _ => false,
         })

@@ -621,14 +621,14 @@ impl GroupTrack {
             self.eprint_iter_states(8);
             eprintln!();
         }
-        self.group_lengths.drain(0..lgts.full_group_count);
+        self.group_lengths.drop_front(lgts.full_group_count);
         let parent_starts_dropped = self
             .parent_group_advancement
             .iter()
             .take(lgts.full_group_count)
             .sum();
         self.parent_group_advancement
-            .drain(0..lgts.full_group_count);
+            .drop_front(lgts.full_group_count);
         self.parent_group_index_offset = self
             .parent_group_index_offset
             .wrapping_add(parent_starts_dropped);

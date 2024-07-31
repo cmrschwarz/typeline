@@ -10,12 +10,14 @@ use indexing_type::IndexingType;
 pub mod index_vec;
 
 pub mod aligned_buf;
+pub mod bit_vec_deque;
 pub mod counting_writer;
 pub mod debuggable_nonmax;
 pub mod dynamic_freelist;
 pub mod encoding;
 pub mod escaped_writer;
 pub mod identity_hasher;
+pub mod index_slice;
 pub mod indexing_type;
 pub mod int_string_conversions;
 pub mod integer_sum;
@@ -36,10 +38,8 @@ pub mod string_store;
 pub mod temp_vec;
 pub mod test_utils;
 pub mod text_write;
-pub mod universe;
 pub mod type_list;
-pub mod index_slice;
-pub mod bit_vec_deque;
+pub mod universe;
 
 pub const fn ilog2_usize(v: usize) -> usize {
     (std::mem::size_of::<usize>() * 8) - v.leading_zeros() as usize
@@ -198,7 +198,7 @@ pub fn range_contains<I: PartialOrd>(
     range.start <= subrange.start && range.end >= subrange.end
 }
 
-fn pointer_range_len<T>(range: &Range<*const T>) -> usize {
+pub fn pointer_range_len<T>(range: &Range<*const T>) -> usize {
     unsafe { range.end.offset_from(range.start) as usize }
 }
 
