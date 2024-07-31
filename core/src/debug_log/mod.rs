@@ -23,7 +23,7 @@ use crate::{
             FormatOptions, Formattable, FormattingContext, RealizedFormatKey,
             TypeReprFormat,
         },
-        group_track::{GroupTrackId, GroupTrackIterState},
+        group_track::{GroupTrack, GroupTrackId, GroupTrackIterState},
         iter_hall::{CowVariant, IterKind, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
@@ -151,6 +151,29 @@ fn add_field_data_dead_slots<'a>(
     }
 }
 
+fn add_group_track_dead_slots<'a>(
+    gt: &GroupTrack,
+    dead_slots: &mut Vec<usize>,
+) {
+    let mut iter = gt.iter();
+
+    loop {
+        if iter.field_pos() >= dead_slots.len() {
+            dead_slots.push(0);
+        }
+        let ds = &mut dead_slots[iter.field_pos()];
+        *ds = (*ds).max(iter.skip_empty_groups());
+        #[cfg(feature = "debug_log_lenient")]
+        if !iter.is_last_group() && iter.is_end_of_group(true) {
+            break;
+        }
+        iter.next_n_fields(1);
+        if iter.is_end_of_group(true) && !iter.try_next_group() {
+            break;
+        }
+    }
+}
+
 fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
     for mc in &mut tc.match_chains {
         for env in &mc.tf_envs {
@@ -169,8 +192,14 @@ fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
                 let fc = cfr.destructured_field_ref().field_count();
 
                 mc.dead_slots.resize(mc.dead_slots.len().max(fc), 0);
+                // if we don't apply, dead fields won't line up anyways
+                // so we don't use dead slots
                 #[cfg(not(feature = "debug_log_no_apply"))]
                 add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
+            }
+            for &gt_id in &env.group_tracks {
+                let gt = jd.group_track_manager.group_tracks[gt_id].borrow();
+                add_group_track_dead_slots(&gt, &mut mc.dead_slots)
             }
         }
     }
@@ -616,9 +645,7 @@ pub fn field_data_to_json<'a>(
             iters_end += 1;
         }
         let h = fd.headers()[iter.get_next_header_index()];
-        let dead_slot_count = if cfg!(feature = "debug_log_no_apply") {
-            0
-        } else if h.deleted() {
+        let dead_slot_count = if h.deleted() {
             del_count += 1;
             0
         } else {
@@ -859,33 +886,41 @@ fn group_track_to_json(
     let mut field_pos = 0;
     let mut is_next_group_start = true;
     let mut group_len = 0;
+
+    let mut del_count = 0;
+
     loop {
         let passed = passed_count > 0;
-
-        let zero_size_groups;
-
+        let mut dead_slot_count = 0;
         let is_curr_group_start = is_next_group_start;
         let group_idx;
         let starts_new_parent_group;
         let group_len_rem;
         if passed {
             group_idx = -1;
-            zero_size_groups = 0;
             group_len_rem = passed_count;
             passed_count -= 1;
             starts_new_parent_group = false;
             is_next_group_start = passed_count == 0;
+            dead_slot_count = 0;
         } else {
-            if iter.is_end(true) {
+            if iter.group_track().group_lengths.is_empty() {
                 break;
             }
-            zero_size_groups = iter.skip_empty_groups();
             group_idx = iter.group_idx_stable().into_usize() as isize;
             starts_new_parent_group =
                 iter.group_track().starts_new_parent_group[iter.group_idx()];
 
             group_len_rem = iter.group_len_rem();
-            iter.next_n_fields(1);
+
+            if group_len_rem == 0 {
+                del_count += 1;
+            } else {
+                dead_slot_count = dead_slots[iter.field_pos()] - del_count;
+                iter.next_n_fields(1);
+                del_count = 0;
+            }
+
             is_next_group_start = iter.is_end_of_group(true);
         }
 
@@ -912,14 +947,16 @@ fn group_track_to_json(
             "starts_new_parent_group": starts_new_parent_group,
             "group_idx": group_idx,
             "passed": passed_count,
-            "zero_sized_groups": zero_size_groups,
-            "dead_slots": dead_slots.get(field_pos).unwrap_or(&0),
+            "dead_slots": dead_slot_count,
             "group_len": group_len,
             "is_group_start": is_curr_group_start,
             "iters": row_iters,
         }));
 
         field_pos += 1;
+        if is_next_group_start && !iter.try_next_group() {
+            break;
+        }
     }
 
     json!({
