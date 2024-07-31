@@ -992,6 +992,9 @@ pub fn merge_leading_groups_into_parent_raw(
     let mut processed_child_group_count = 0;
 
     let mut first_subgroup_found = false;
+
+    let mut subgroup_finished = false;
+
     let mut first_parent_advancement = 0;
 
     let mut child_groups_sum = 0;
@@ -1000,78 +1003,79 @@ pub fn merge_leading_groups_into_parent_raw(
 
     let mut end_reached = field_count == 0;
     loop {
-        if !end_reached {
-            let mut group_len =
-                child_gt.group_lengths.get(processed_child_group_count);
+        if subgroup_finished || end_reached {
+            let mut group_idx_present =
+                !parent_new_gt.group_lengths.is_empty()
+                    && parent_group_id_stable
+                        == parent_new_gt.last_group_idx_stable();
 
-            let parent_advancement = child_gt
-                .parent_group_advancement
-                .get(processed_child_group_count);
-
-            if !first_subgroup_found {
-                first_subgroup_found = true;
-                first_parent_advancement = parent_advancement;
+            if group_idx_present && first_parent_advancement > 0 {
+                group_idx_present = false;
+                prev_parent_group_idx += 1;
             }
 
-            end_reached = processed_field_count + group_len >= field_count;
-
-            if end_reached {
-                group_len = field_count - processed_field_count;
-                final_group_len = group_len;
-            }
-
-            processed_field_count += group_len;
-            processed_child_group_count += 1;
-            child_groups_sum += group_len;
-
-            if parent_advancement == 0 {
-                continue;
-            }
-
-            first_subgroup_found = false;
-        }
-
-        if parent_new_gt.group_lengths.is_empty()
-            || (first_parent_advancement != 0
-                && parent_group_id_stable
-                    != parent_new_gt.last_group_idx_stable())
-        {
-            for i in 1..first_parent_advancement {
+            if group_idx_present {
+                let last_index = parent_new_gt.group_lengths.len() - 1;
+                parent_new_gt
+                    .group_lengths
+                    .add_value(last_index, child_groups_sum);
+            } else {
+                for i in 1..first_parent_advancement {
+                    parent_new_gt.group_lengths.push_back(0);
+                    parent_new_gt.parent_group_advancement.push_back(
+                        parent_prev_gt
+                            .parent_group_advancement
+                            .get(prev_parent_group_idx + i - 1),
+                    );
+                }
                 parent_new_gt.group_lengths.push_back(child_groups_sum);
                 parent_new_gt.parent_group_advancement.push_back(
-                    parent_prev_gt
-                        .parent_group_advancement
-                        .get(prev_parent_group_idx + i - 1),
+                    parent_prev_gt.parent_group_advancement.get(
+                        prev_parent_group_idx
+                            + first_parent_advancement.saturating_sub(1),
+                    ),
                 );
             }
-            parent_new_gt.group_lengths.push_back(child_groups_sum);
-            parent_new_gt.parent_group_advancement.push_back(
-                parent_prev_gt.parent_group_advancement.get(
-                    prev_parent_group_idx
-                        + first_parent_advancement.saturating_sub(1),
-                ),
-            );
-        } else {
-            debug_assert!(
-                parent_new_gt.last_group_idx_stable()
-                    == parent_group_id_stable
-            );
-            let last_index = parent_new_gt.group_lengths.len() - 1;
-            parent_new_gt
-                .group_lengths
-                .add_value(last_index, child_groups_sum);
+            first_subgroup_found = false;
+
+            if first_parent_advancement != 0 {
+                prev_parent_group_idx += first_parent_advancement;
+                parent_group_id_stable = parent_group_id_stable
+                    .wrapping_add(first_parent_advancement);
+            }
+
+            child_groups_sum = 0;
         }
+
         if end_reached {
             break;
         }
 
-        if first_parent_advancement != 0 {
-            prev_parent_group_idx += first_parent_advancement;
-            parent_group_id_stable =
-                parent_group_id_stable.wrapping_add(first_parent_advancement);
+        let mut group_len =
+            child_gt.group_lengths.get(processed_child_group_count);
+
+        let parent_advancement = child_gt
+            .parent_group_advancement
+            .get(processed_child_group_count);
+
+        if !first_subgroup_found {
+            first_subgroup_found = true;
+            first_parent_advancement = parent_advancement;
+        } else if parent_advancement != 0 {
+            subgroup_finished = true;
+            continue;
         }
 
-        child_groups_sum = 0;
+        end_reached = processed_field_count + group_len >= field_count;
+
+        if end_reached {
+            group_len = field_count - processed_field_count;
+            final_group_len = group_len;
+        }
+
+        processed_field_count += group_len;
+        processed_child_group_count += 1;
+        child_groups_sum += group_len;
     }
 
     let lgts = if end_of_input {
