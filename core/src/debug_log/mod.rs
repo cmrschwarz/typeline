@@ -541,8 +541,8 @@ pub fn iters_to_json(iters: &[IterState]) -> Value {
                 iter_kind_to_json(
                     &i.kind,
                     &format!(
-                        "HID: {}, HOFF: {}, FP: {}",
-                        i.header_idx, i.header_rl_offset, i.field_pos
+                        "HID: {}, HOFF: {}, FP: {}, D: {}",
+                        i.header_idx, i.header_rl_offset, i.field_pos, i.data
                     ),
                 )
             })
@@ -594,20 +594,13 @@ pub fn field_data_to_json<'a>(
     let mut iters_start = iters_before_start;
 
     while iter.is_next_valid() && iter.get_next_field_pos() < field_count_cap {
-        let is_end_of_curr_header = iter.field_run_length_fwd() == 0;
+        let is_end_of_curr_header = iter.field_run_length_fwd() == 1;
         let header_idx = iter.get_next_header_index();
         let header_offs = iter.field_run_length_bwd();
         let mut iters_end = iters_start;
         while iters_end < iters.len() {
             let it = &iters[iters_end];
-            // special case for iters that sit on the next header but the
-            // current field pos
-            if it.field_pos == iter.get_next_field_pos() + 1
-                && !iter.get_next_header().deleted()
-            {
-                iters_end += 1;
-                continue;
-            }
+
             if it.header_rl_offset > header_offs + 1 {
                 break;
             }
