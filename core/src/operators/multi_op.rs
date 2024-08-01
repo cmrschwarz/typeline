@@ -129,19 +129,10 @@ impl Operator for OpMultiOp {
 
     fn output_field_kind(
         &self,
-        sess: &SessionData,
+        _sess: &SessionData,
         _op_id: OperatorId,
     ) -> super::operator::OutputFieldKind {
-        // TODO: this is not correct, if the last one says same as
-        let mut ofk = OutputFieldKind::SameAsInput;
-        for &op_id in self.sub_op_ids.iter().rev() {
-            ofk = sess.operator_data[sess.op_data_id(op_id)]
-                .output_field_kind(sess, op_id);
-            if ofk != OutputFieldKind::SameAsInput {
-                return ofk;
-            }
-        }
-        ofk
+        OutputFieldKind::Unconfigured
     }
 
     fn on_subchains_added(&mut self, _current_subchain_count: SubchainIndex) {}
