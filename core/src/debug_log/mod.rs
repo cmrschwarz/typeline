@@ -135,7 +135,6 @@ fn unwrap_render_error(re: RenderError) -> std::io::Error {
     }
 }
 
-#[cfg_attr(feature = "debug_log_no_apply", allow(unused))]
 fn add_field_data_dead_slots<'a>(
     fd: impl FieldDataRef<'a>,
     dead_slots: &mut [usize],
@@ -174,27 +173,33 @@ fn add_group_track_dead_slots(gt: &GroupTrack, dead_slots: &mut Vec<usize>) {
 fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
     for mc in &mut tc.match_chains {
         for env in &mc.tf_envs {
-            for field_id in &env.fields {
-                #[cfg(not(feature = "debug_log_no_apply"))]
-                {
+            for &field_id in &env.fields {
+                if !cfg!(feature = "debug_log_no_apply") {
                     // we have to do this here because doing json in a second
                     // phase means that the fields have not been touched yet
                     jd.field_mgr.apply_field_actions(
                         &jd.match_set_mgr,
-                        *field_id,
+                        field_id,
                         true,
                     );
                 }
-                let cfr = jd.field_mgr.get_cow_field_ref_raw(*field_id);
+                let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);
                 let fc = cfr.destructured_field_ref().field_count();
 
                 mc.dead_slots.resize(mc.dead_slots.len().max(fc), 0);
                 // if we don't apply, dead fields won't line up anyways
                 // so we don't use dead slots
-                #[cfg(not(feature = "debug_log_no_apply"))]
-                add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
+                if !cfg!(feature = "debug_log_no_apply") {
+                    add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
+                }
             }
             for &gt_id in &env.group_tracks {
+                if !cfg!(feature = "debug_log_no_apply") {
+                    // we have to do this here because doing json in a second
+                    // phase means that the fields have not been touched yet
+                    jd.group_track_manager
+                        .apply_actions_to_track(&jd.match_set_mgr, gt_id);
+                }
                 let gt = jd.group_track_manager.group_tracks[gt_id].borrow();
                 add_group_track_dead_slots(&gt, &mut mc.dead_slots)
             }
@@ -866,7 +871,7 @@ fn group_track_to_json(
     dead_slots: &[usize],
 ) -> serde_json::Value {
     jd.group_track_manager
-        .apply_actions_to_list(&jd.match_set_mgr, group_track_id);
+        .apply_actions_to_track(&jd.match_set_mgr, group_track_id);
     let mut gt =
         jd.group_track_manager.group_tracks[group_track_id].borrow_mut();
     gt.sort_iters();
@@ -880,7 +885,6 @@ fn group_track_to_json(
         .unwrap_or(gt.iter_states.len());
     let mut iters_start = iters_before_start;
     let mut passed_count = gt.passed_fields_count;
-    let mut field_pos = 0;
     let mut is_next_group_start = true;
     let mut group_len = 0;
 
@@ -925,10 +929,10 @@ fn group_track_to_json(
 
         let mut iters_end = iters_start;
         loop {
-            let Some(iter) = gt.iter_states.get(iters_end) else {
+            let Some(it) = gt.iter_states.get(iters_end) else {
                 break;
             };
-            if iter.get().field_pos > field_pos + 1 {
+            if it.get().field_pos > iter.field_pos() + 1 {
                 break;
             }
             iters_end += 1;
@@ -952,7 +956,6 @@ fn group_track_to_json(
             "iters": row_iters,
         }));
 
-        field_pos += 1;
         if is_next_group_start && !iter.try_next_group() {
             break;
         }

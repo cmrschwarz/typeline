@@ -1188,7 +1188,7 @@ impl GroupTrackManager {
             .store_iter(iter_ref.iter_id, iter);
     }
 
-    pub fn apply_actions_to_list(
+    pub fn apply_actions_to_track(
         &self,
         msm: &MatchSetManager,
         group_track_id: GroupTrackId,

@@ -236,21 +236,19 @@ body {
     gap: 0.2em;
 }
 
-.field .header-row {
+:is(.field, .group-track) .header-row {
     padding: 0.15em;
 }
-.group-track .header-row {
-    padding: 0.15em;
+:is(.field, .group-track) tr:not(.dead-row) td {
+    border: 1px solid black;
 }
 
-.field-row.dead-row td {
-    border-top: 0px;
-    border-bottom: 0px;
+.dead-row td {
+    border: 1px solid transparent;
 }
-
-.group-track-row.dead-row td {
-    border-top: 0px;
-    border-bottom: 0px;
+/* TODO: doesn't work in firefox :( */
+.dead-row:has(+ :not(.dead-row)) td {
+    border-bottom: 1px solid black;
 }
 
 .dead-row-placeholder {
@@ -347,25 +345,10 @@ body {
     background-color: lightgreen;
 }
 
-.field {
-    position: relative;
+:is(.field, .group-track) {
     background-color: lightgray;
     border-collapse: collapse;
     text-align: center;
-}
-
-.group-track {
-    background-color: lightgray;
-    border-collapse: collapse;
-    text-align: center;
-}
-
-.field td {
-    border: 1px solid black;
-}
-
-.group-track td {
-    border: 1px solid black;
 }
 
 .field th {
