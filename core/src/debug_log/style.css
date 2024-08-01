@@ -243,12 +243,12 @@ body {
     border: 1px solid black;
 }
 
-.dead-row td {
-    border: 1px solid transparent;
-}
-/* TODO: doesn't work in firefox :( */
-.dead-row:has(+ :not(.dead-row)) td {
-    border-bottom: 1px solid black;
+/* makes sure that consecutive dead-rows have the same height
+   as normal rows, while not impairing visuals
+   (at the seams, border-bottom wins because of border-collapse) */
+:is(.field, .group-track) tr.dead-row td {
+    border-top: 1px solid transparent;
+    border-inline: 1px solid black;
 }
 
 .dead-row-placeholder {
