@@ -380,6 +380,15 @@ impl<'a> Iterator for Iter<'a> {
         std::mem::swap(&mut self.i1, &mut self.i2);
         self.i1.next().map(|v| *v)
     }
+
+    fn nth(&mut self, count: usize) -> Option<Self::Item> {
+        let i1_len = self.i1.len();
+        if i1_len > count {
+            return self.i1.nth(count).map(|v| *v);
+        }
+        std::mem::swap(&mut self.i1, &mut self.i2);
+        self.i1.nth(count - i1_len).map(|v| *v)
+    }
 }
 
 impl<'a> IntoIterator for &'a BitVecDeque {

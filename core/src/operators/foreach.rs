@@ -28,7 +28,7 @@ pub struct OpForeach {
 }
 pub struct TfForeachHeader {
     parent_group_track_iter: GroupTrackIterId,
-    starting_new_group: bool,
+    unrealized_group_skips: usize,
 }
 pub struct TfForeachTrailer {}
 
@@ -89,7 +89,7 @@ pub fn insert_tf_foreach(
         tf_state,
         TransformData::ForeachHeader(TfForeachHeader {
             parent_group_track_iter,
-            starting_new_group: false,
+            unrealized_group_skips: 0,
         }),
     );
     debug_assert!(header_tf_id_peek == header_tf_id);
@@ -199,17 +199,24 @@ pub fn handle_tf_foreach_header(
 
     let mut size_rem = batch_size;
     loop {
-        let gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
+        let mut gs_rem =
+            parent_record_group_iter.group_len_rem().min(size_rem);
         if gs_rem == 0 {
-            break;
+            feh.unrealized_group_skips +=
+                parent_record_group_iter.skip_empty_groups();
+            if parent_record_group_iter.is_end(true) {
+                break;
+            }
+            gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
+            debug_assert!(gs_rem != 0);
         }
 
         parent_record_group_iter.next_n_fields(gs_rem);
 
         group_track
             .parent_group_advancement
-            .push_back_truncated(usize::from(feh.starting_new_group));
-        feh.starting_new_group = false;
+            .push_back(feh.unrealized_group_skips);
+        feh.unrealized_group_skips = 0;
         group_track
             .parent_group_advancement
             .extend_truncated(iter::repeat(0).take(gs_rem - 1));
@@ -221,8 +228,8 @@ pub fn handle_tf_foreach_header(
         if size_rem == 0 {
             break;
         }
-        parent_record_group_iter.try_next_group();
-        feh.starting_new_group = true;
+        parent_record_group_iter.next_group();
+        feh.unrealized_group_skips = 1;
     }
     parent_record_group_iter.store_iter(feh.parent_group_track_iter);
 

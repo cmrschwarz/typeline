@@ -1,5 +1,8 @@
 use scr::operators::{
-    chunks::create_op_chunks, count::create_op_count, sequence::create_op_seq,
+    chunks::create_op_chunks,
+    count::create_op_count,
+    regex::{create_op_regex_with_opts, RegexOptions},
+    sequence::create_op_seq,
 };
 use scr_core::{
     operators::{
@@ -136,5 +139,25 @@ fn chunks_counted() -> Result<(), ScrError> {
         .add_op(create_op_chunks(3, [create_op_count()])?)
         .run_collect_as::<i64>()?;
     assert_eq!(res, [3, 3, 3, 1]);
+    Ok(())
+}
+
+#[test]
+fn foreach_empty_group_skip() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(15, 25, 1)?)
+        .add_op(create_op_foreach([
+            create_op_regex_with_opts(
+                "2",
+                RegexOptions {
+                    multimatch: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+            create_op_foreach([create_op_count()]),
+        ]))
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, &[1, 1, 1, 1, 1, 1]);
     Ok(())
 }

@@ -989,6 +989,12 @@ pub fn merge_leading_groups_into_parent_raw(
     let mut prev_parent_group_idx =
         parent_prev_gt.group_idx_from_stable_idx(parent_group_id_stable);
 
+    parent_new_gt
+        .parent_group_advancement
+        .promote_to_size_class(
+            parent_prev_gt.parent_group_advancement.size_class(),
+        );
+
     let mut processed_child_group_count = 0;
 
     let mut first_subgroup_found = false;
@@ -1004,36 +1010,40 @@ pub fn merge_leading_groups_into_parent_raw(
     let mut end_reached = field_count == 0;
     loop {
         if subgroup_finished || end_reached {
-            let mut group_idx_present =
-                !parent_new_gt.group_lengths.is_empty()
-                    && parent_group_id_stable
-                        == parent_new_gt.last_group_idx_stable();
+            let group_idx_present = !parent_new_gt.group_lengths.is_empty()
+                && parent_group_id_stable
+                    == parent_new_gt.last_group_idx_stable();
 
-            if group_idx_present && first_parent_advancement > 0 {
-                group_idx_present = false;
-                prev_parent_group_idx += 1;
-            }
-
-            if group_idx_present {
+            if group_idx_present && first_parent_advancement == 0 {
                 let last_index = parent_new_gt.group_lengths.len() - 1;
                 parent_new_gt
                     .group_lengths
                     .add_value(last_index, child_groups_sum);
             } else {
-                for i in 1..first_parent_advancement {
-                    parent_new_gt.group_lengths.push_back(0);
-                    parent_new_gt.parent_group_advancement.push_back(
+                let zero_inserts = (first_parent_advancement
+                    + usize::from(!group_idx_present))
+                .saturating_sub(1);
+                if zero_inserts > 0 {
+                    parent_new_gt.group_lengths.extend_truncated(
+                        std::iter::repeat(0).take(zero_inserts),
+                    );
+                    parent_new_gt.parent_group_advancement.extend_truncated(
                         parent_prev_gt
                             .parent_group_advancement
-                            .get(prev_parent_group_idx + i - 1),
+                            .iter()
+                            .skip(
+                                prev_parent_group_idx
+                                    + usize::from(group_idx_present),
+                            )
+                            .take(zero_inserts),
                     );
                 }
+
                 parent_new_gt.group_lengths.push_back(child_groups_sum);
                 parent_new_gt.parent_group_advancement.push_back(
-                    parent_prev_gt.parent_group_advancement.get(
-                        prev_parent_group_idx
-                            + first_parent_advancement.saturating_sub(1),
-                    ),
+                    parent_prev_gt
+                        .parent_group_advancement
+                        .get(prev_parent_group_idx + first_parent_advancement),
                 );
             }
             first_subgroup_found = false;
@@ -1051,9 +1061,6 @@ pub fn merge_leading_groups_into_parent_raw(
             break;
         }
 
-        let mut group_len =
-            child_gt.group_lengths.get(processed_child_group_count);
-
         let parent_advancement = child_gt
             .parent_group_advancement
             .get(processed_child_group_count);
@@ -1065,6 +1072,9 @@ pub fn merge_leading_groups_into_parent_raw(
             subgroup_finished = true;
             continue;
         }
+
+        let mut group_len =
+            child_gt.group_lengths.get(processed_child_group_count);
 
         end_reached = processed_field_count + group_len >= field_count;
 
@@ -2133,6 +2143,22 @@ mod test_merge {
             [1, 22, 333],
             [1, 0, 2],
             3,
+            true,
+        );
+    }
+
+    // reduced from integration::foreach::foreach_empty_group_skip
+    #[test]
+    fn test_multi_skip() {
+        test_merge_leading_groups(
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            [5, 1, 1, 0, 1, 1],
+            [1, 1, 1, 1, 1, 1],
+            [],
+            [],
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+            [0, 0, 0, 0, 0, 1, 1, 2, 1, 1],
+            6,
             true,
         );
     }
