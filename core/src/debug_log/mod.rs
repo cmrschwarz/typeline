@@ -881,29 +881,30 @@ fn group_track_to_json(
     let iters_before_start = gt
         .iter_states
         .iter()
-        .position(|i| i.get().field_pos > 0)
+        .position(|i| i.get().field_pos > gt.passed_fields_count)
         .unwrap_or(gt.iter_states.len());
     let mut iters_start = iters_before_start;
-    let mut passed_count = gt.passed_fields_count;
+    let mut passed_count_rem = gt.passed_fields_count;
     let mut is_next_group_start = true;
     let mut group_len = 0;
 
     let mut del_count = 0;
 
     loop {
-        let passed = passed_count > 0;
+        let passed = passed_count_rem > 0;
         let mut dead_slot_count = 0;
         let is_curr_group_start = is_next_group_start;
         let group_idx;
         let parent_group_advancement;
         let group_len_rem;
         if passed {
+            dead_slot_count =
+                dead_slots[gt.passed_fields_count - passed_count_rem];
             group_idx = -1;
-            group_len_rem = passed_count;
-            passed_count -= 1;
+            group_len_rem = passed_count_rem;
+            passed_count_rem -= 1;
             parent_group_advancement = 0;
-            is_next_group_start = passed_count == 0;
-            dead_slot_count = 0;
+            is_next_group_start = passed_count_rem == 0;
         } else {
             if iter.group_track().group_lengths.is_empty() {
                 break;
@@ -949,7 +950,7 @@ fn group_track_to_json(
         rows.push(json!({
             "parent_group_advancement": parent_group_advancement,
             "group_idx": group_idx,
-            "passed": passed_count,
+            "passed": passed_count_rem,
             "dead_slots": dead_slot_count,
             "group_len": group_len,
             "is_group_start": is_curr_group_start,

@@ -1,4 +1,4 @@
-use std::{convert::identity, sync::Arc};
+use std::sync::Arc;
 
 use smallstr::SmallString;
 

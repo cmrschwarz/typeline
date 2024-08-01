@@ -435,7 +435,7 @@ impl GroupTrack {
     pub fn iter(&self) -> GroupTrackIter<&Self> {
         GroupTrackIter {
             group_track: self,
-            field_pos: 0,
+            field_pos: self.passed_fields_count,
             group_idx: 0,
             group_len_rem: self.group_lengths.try_get(0).unwrap_or(0),
         }
