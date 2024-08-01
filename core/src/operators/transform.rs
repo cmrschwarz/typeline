@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{convert::identity, sync::Arc};
 
 use smallstr::SmallString;
 
@@ -193,11 +193,8 @@ impl TransformData<'_> {
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_) => (),
 
-            TransformData::Regex(re) => fields.extend(
-                re.capture_group_fields
-                    .iter()
-                    .map(|cgf| cgf.unwrap_or(tf_state.output_field)),
-            ),
+            TransformData::Regex(re) => fields
+                .extend(re.capture_group_fields.iter().filter_map(|cgf| *cgf)),
             TransformData::Custom(custom) => {
                 custom.get_out_fields(tf_state, fields)
             }

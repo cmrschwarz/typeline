@@ -2,7 +2,7 @@ use arrayvec::ArrayString;
 use metamatch::metamatch;
 use regex::bytes;
 use smallvec::SmallVec;
-use std::{borrow::Cow, cell::RefMut};
+use std::{borrow::Cow, cell::RefMut, fmt::Write};
 
 use crate::{
     chain::ChainId,
@@ -37,6 +37,7 @@ use crate::{
     },
     scr_error::ScrError,
     utils::{
+        escaped_writer::EscapedFmtWriter,
         indexing_type::IndexingType,
         int_string_conversions::{
             i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
@@ -63,6 +64,7 @@ use super::{
 
 #[derive(Clone)]
 pub struct OpRegex {
+    pub regex_text: String,
     pub text_only_regex: Option<regex::Regex>,
     pub regex: bytes::Regex,
     pub opts: RegexOptions,
@@ -127,8 +129,7 @@ pub struct RegexOptions {
 }
 
 impl RegexOptions {
-    pub fn to_tf_string(&self, prefix: &str, regex: &str) -> String {
-        let mut res = String::from(prefix);
+    pub fn push_opts_arg(&self, res: &mut String) {
         if *self != RegexOptions::default() {
             res.push('-');
         }
@@ -165,26 +166,25 @@ impl RegexOptions {
         if self.invert_match {
             res.push('v');
         }
-        res.push('=');
-        res.push_str(regex);
-        res
     }
 }
 
 impl OpRegex {
     pub fn debug_op_name(&self) -> OperatorName {
-        self.opts
-            .to_tf_string("regex", &self.regex.to_string())
-            .into()
+        let mut res = String::from("regex");
+        self.opts.push_opts_arg(&mut res);
+        res.push_str("=\"");
+        let mut w = EscapedFmtWriter::new(res, b'\"');
+        w.write_str(&self.regex_text).unwrap();
+        let mut res = w.into_inner().unwrap();
+        res.push('\"');
+        res.into()
     }
 }
 
 impl TfRegex<'_> {
     pub fn display_name(&self) -> DefaultTransformName {
-        self.op
-            .opts
-            .to_tf_string("regex", &self.regex.to_string())
-            .into()
+        self.op.debug_op_name().to_string().into()
     }
 }
 
@@ -262,14 +262,14 @@ pub fn preparse_replace_empty_capture_group<'a>(
 }
 
 pub fn build_op_regex(
-    regex: &str,
+    regex_text: &str,
     opts: RegexOptions,
     span: Span,
 ) -> Result<OperatorData, ScrError> {
     let mut output_group_id = 0;
 
     let (re, empty_group_replacement) =
-        preparse_replace_empty_capture_group(regex, &opts)
+        preparse_replace_empty_capture_group(regex_text, &opts)
             .map_err(|e| OperatorCreationError { span, message: e })?;
 
     if empty_group_replacement.is_some() && opts.full {
@@ -312,6 +312,7 @@ pub fn build_op_regex(
     };
 
     Ok(OperatorData::Regex(OpRegex {
+        regex_text: regex_text.to_owned(),
         regex,
         text_only_regex,
         capture_group_names: Vec::new(),
@@ -464,26 +465,26 @@ pub fn setup_op_regex(
 ) -> Result<OperatorId, ScrError> {
     let mut unnamed_capture_groups: usize = 0;
 
-    op.capture_group_names
-        .extend(op.regex.capture_names().enumerate().map(|(i, name)| {
-            if let Some(name) = name {
-                if i == op.output_group_id {
-                    None
-                } else {
-                    Some(sess.string_store.intern_cloned(name))
-                }
+    for (i, name_str) in op.regex.capture_names().enumerate() {
+        let name_interned = if let Some(name) = name_str {
+            if i == op.output_group_id {
+                None
             } else {
-                unnamed_capture_groups += 1;
-                if i == 0 {
-                    None
-                } else {
-                    let id = sess
-                        .string_store
-                        .intern_moved(unnamed_capture_groups.to_string());
-                    Some(id)
-                }
+                Some(sess.string_store.intern_cloned(name))
             }
-        }));
+        } else {
+            unnamed_capture_groups += 1;
+            if i == 0 {
+                None
+            } else {
+                let id = sess
+                    .string_store
+                    .intern_moved(unnamed_capture_groups.to_string());
+                Some(id)
+            }
+        };
+        op.capture_group_names.push(name_interned);
+    }
 
     Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
 }
@@ -506,57 +507,50 @@ pub fn build_tf_regex<'a>(
     output_field.first_actor.set(next_actor_id);
     drop(output_field);
     let mut input_field_ref_offset = FieldRefOffset::MAX;
-    let cgfs: Vec<Option<FieldId>> = op
-        .capture_group_names
-        .iter()
-        .enumerate()
-        .map(|(i, name)| {
-            let field_id = if i == op.output_group_id {
-                Some(tf_state.output_field)
-            } else if let Some(name) = name {
-                let field_id = if let Some(field_id) =
-                    prebound_outputs.get(&OpOutputIdx::from_usize(
-                        op_base.outputs_start.into_usize() + i,
-                    )) {
-                    debug_assert_eq!(
-                        Some(*field_id),
-                        jd.scope_mgr.lookup_field(
-                            jd.match_set_mgr.match_sets[tf_state.match_set_id]
-                                .active_scope,
-                            *name
-                        )
-                    );
-                    *field_id
-                } else {
-                    let field_id = jd
-                        .field_mgr
-                        .add_field(tf_state.match_set_id, next_actor_id);
-                    jd.scope_mgr.insert_field_name(
-                        active_scope,
-                        *name,
-                        field_id,
-                    );
-                    field_id
-                };
-                Some(field_id)
-            } else {
-                None
-            };
-            if let Some(id) = field_id {
-                let fro = jd
-                    .field_mgr
-                    .register_field_reference(id, tf_state.input_field);
-                // all output fields should have the same
-                // field ref layout
-                debug_assert!(
-                    input_field_ref_offset == fro
-                        || input_field_ref_offset == FieldRefOffset::MAX
+    let mut capture_group_fields = Vec::new();
+    for (i, name) in op.capture_group_names.iter().enumerate() {
+        let field_id = if i == op.output_group_id {
+            Some(tf_state.output_field)
+        } else if let Some(name) = name {
+            let field_id = if let Some(field_id) =
+                prebound_outputs.get(&OpOutputIdx::from_usize(
+                    op_base.outputs_start.into_usize() + i,
+                )) {
+                debug_assert_eq!(
+                    Some(*field_id),
+                    jd.scope_mgr.lookup_field(
+                        jd.match_set_mgr.match_sets[tf_state.match_set_id]
+                            .active_scope,
+                        *name
+                    )
                 );
-                input_field_ref_offset = fro;
-            }
-            field_id
-        })
-        .collect();
+                *field_id
+            } else {
+                let field_id = jd
+                    .field_mgr
+                    .add_field(tf_state.match_set_id, next_actor_id);
+                jd.scope_mgr
+                    .insert_field_name(active_scope, *name, field_id);
+                field_id
+            };
+            Some(field_id)
+        } else {
+            None
+        };
+        if let Some(id) = field_id {
+            let fro = jd
+                .field_mgr
+                .register_field_reference(id, tf_state.input_field);
+            // all output fields should have the same
+            // field ref layout
+            debug_assert!(
+                input_field_ref_offset == fro
+                    || input_field_ref_offset == FieldRefOffset::MAX
+            );
+            input_field_ref_offset = fro;
+        }
+        capture_group_fields.push(field_id);
+    }
 
     TransformData::Regex(TfRegex {
         regex: op.regex.clone(),
@@ -564,7 +558,7 @@ pub fn build_tf_regex<'a>(
             .text_only_regex
             .as_ref()
             .map(|r| (r.clone(), r.capture_locations())),
-        capture_group_fields: cgfs,
+        capture_group_fields,
         capture_locs: op.regex.capture_locations(),
         input_field_iter_id: jd.field_mgr.claim_iter_non_cow(
             tf_state.input_field,
@@ -1399,6 +1393,14 @@ pub fn handle_tf_regex_stream_value_update(
     debug_assert!(jd.sv_mgr.stream_values[sv_id].done);
     jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
     jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+}
+
+pub fn regex_output_counts(op: &OpRegex) -> usize {
+    op.capture_group_names
+        .iter()
+        .filter(|f| f.is_some())
+        .count()
+        + 1
 }
 
 #[cfg(test)]

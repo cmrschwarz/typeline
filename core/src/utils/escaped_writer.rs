@@ -119,7 +119,7 @@ impl<F: std::fmt::Write> TextWrite for EscapedWriterFmtAdapter<F> {
     }
 
     fn flush_text(&mut self) -> std::io::Result<()> {
-        todo!()
+        Ok(())
     }
 }
 

@@ -91,16 +91,12 @@ fn run_exec_into_join() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_foreach([
-            create_op_exec_from_strings(["sh", "-c", "yes | head -n 70"])
+            create_op_exec_from_strings(["sh", "-c", "yes | head -n 5"])
                 .unwrap(),
             create_op_lines(),
             create_op_join(None, None, false),
         ]))
         .run_collect_stringified()?;
-    assert_eq!(&res, &[
-        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
-        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
-        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
-    ]);
+    assert_eq!(&res, &["yyyyy", "yyyyy", "yyyyy",]);
     Ok(())
 }

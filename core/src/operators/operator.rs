@@ -61,7 +61,7 @@ use super::{
         build_tf_nop_copy, on_op_nop_copy_liveness_computed, OpNopCopy,
     },
     print::{build_tf_print, OpPrint},
-    regex::{build_tf_regex, setup_op_regex, OpRegex},
+    regex::{build_tf_regex, regex_output_counts, setup_op_regex, OpRegex},
     select::{setup_op_select, OpSelect},
     sequence::{
         build_tf_sequence, setup_op_sequence_concurrent_liveness_data,
@@ -477,13 +477,7 @@ impl OperatorData {
                     .output_count(sess, op_id)
             }
             OperatorData::Select(_) => 0,
-            OperatorData::Regex(re) => {
-                re.capture_group_names
-                    .iter()
-                    .map(|n| n.map(|_| 1).unwrap_or(0))
-                    .sum::<usize>()
-                    + 1
-            }
+            OperatorData::Regex(re) => regex_output_counts(re),
             OperatorData::Format(_) => 1,
             OperatorData::StringSink(_) => 1,
             OperatorData::FieldValueSink(_) => 1,
