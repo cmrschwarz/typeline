@@ -40,7 +40,7 @@ pub struct BasicUpdateData<'a, 'b, 'c> {
 fn basic_transform_update_with_batch(
     jd: &mut JobData,
     tf_id: TransformId,
-    extra_output_fields: impl IntoIterator<Item = u32>,
+    extra_output_fields: impl IntoIterator<Item = FieldId>,
     input_iter_id: IterId,
     mut f: impl FnMut(BasicUpdateData) -> (usize, bool),
     batch_size: usize,

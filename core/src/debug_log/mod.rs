@@ -556,7 +556,7 @@ pub fn iter_kind_to_json(
         }),
         IterKind::CowField(cow_field_id) => json!({
             "transform_id": Value::Null,
-            "cow_field_id": cow_field_id,
+            "cow_field_id": cow_field_id.into_usize(),
             "display_text": format!("cow {cow_field_id}"),
             "tooltip_text": tooltip_text
         }),
@@ -720,18 +720,18 @@ pub fn field_data_to_json<'a>(
         };
         json!({
             "variant": variant,
-            "source": info.source,
+            "source": info.source.map(IndexingType::into_usize),
         })
     } else {
         Value::Null
     };
 
     let mut res = json!({
-        "id": field_info.id,
+        "id": field_info.id.map(IndexingType::into_usize),
         "name": field_info.name,
         "producing_arg": field_info.producing_arg,
         "cow": cow,
-        "field_refs": field_refs,
+        "field_refs": field_refs.iter().map(|v|v.into_usize()).collect::<Vec<_>>(),
         "rows": rows,
         "iters":  iters_to_json(&iters),
         "iters_before_start": iters_to_json(&iters[..iters_before_start]),

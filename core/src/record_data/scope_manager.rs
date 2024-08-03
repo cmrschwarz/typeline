@@ -147,7 +147,7 @@ impl ScopeManager {
         &self,
         scope_id: ScopeId,
         name: StringStoreEntry,
-    ) -> Option<u32> {
+    ) -> Option<FieldId> {
         self.lookup_value_cell(scope_id, name, |v| v.field)
     }
 

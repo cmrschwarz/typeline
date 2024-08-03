@@ -221,7 +221,7 @@ fn setup_fork_subchain(
     subchain_index: SubchainIndex,
     tf_id: TransformId,
     fork_ms_id: MatchSetId,
-    fork_input_field_id: u32,
+    fork_input_field_id: FieldId,
 ) -> ForkTarget {
     // actual chain id as opposed to the index to the nth subchain
     let subchain_id = job.job_data.session_data.chains[fork_chain_id]

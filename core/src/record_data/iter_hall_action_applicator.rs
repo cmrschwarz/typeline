@@ -96,7 +96,7 @@ impl IterHallActionApplicator {
     // returns the target index of the field and whether or not it is data cow
     fn push_cow_field<'a>(
         fm: &'a FieldManager,
-        tgt_field_id: u32,
+        tgt_field_id: FieldId,
         through_data_cow: bool,
         field: &Field,
         data_cow_field_refs: &mut Vec<DataCowFieldRef<'a>>,
@@ -657,7 +657,7 @@ impl IterHallActionApplicator {
         &mut self,
         fm: &'a FieldManager,
         msm: &MatchSetManager,
-        field_id: u32,
+        field_id: FieldId,
         actor_id: u32,
         update_cow_ms: Option<MatchSetId>,
         actions: impl Iterator<Item = FieldAction> + Clone,
@@ -807,7 +807,7 @@ impl IterHallActionApplicator {
         &mut self,
         fm: &FieldManager,
         msm: &MatchSetManager,
-        field_id: u32,
+        field_id: FieldId,
         actor_id: u32,
         update_cow_ms: Option<MatchSetId>,
         actions: impl Iterator<Item = FieldAction> + Clone,

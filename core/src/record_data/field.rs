@@ -6,7 +6,7 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::utils::universe::Universe;
+use crate::{index_newtype, utils::universe::Universe};
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
@@ -59,7 +59,9 @@ pub struct Field {
     pub producing_transform_arg: String,
 }
 
-pub type FieldId = u32;
+index_newtype! {
+    pub struct FieldId(u32);
+}
 
 // Field references don't contain the `FieldId` of their target field directly,
 // but an index into the `field_references` Vec of the Field they reside in.

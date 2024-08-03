@@ -2,11 +2,6 @@ use std::fmt::{Debug, Write};
 
 use static_assertions::const_assert;
 
-use crate::utils::{
-    dynamic_freelist::DynamicArrayFreelist, launder_slice,
-    offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
-};
-
 use super::{
     field::{Field, FieldId, FieldManager},
     field_action::{merge_action_lists, FieldAction, FieldActionKind},
@@ -15,6 +10,11 @@ use super::{
     iter_hall_action_applicator::IterHallActionApplicator,
     match_set::{MatchSetId, MatchSetManager},
 };
+use crate::utils::{
+    dynamic_freelist::DynamicArrayFreelist, launder_slice,
+    offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
+};
+use std::mem::size_of;
 pub type ActorId = u32;
 pub type ActionGroupId = u32;
 pub type ActionId = usize;
