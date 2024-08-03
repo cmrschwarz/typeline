@@ -14,6 +14,7 @@ use crate::{
 use super::{
     action_buffer::{ActionBuffer, ActorRef},
     field::{FieldId, FieldManager},
+    iter_hall_action_applicator::IterHallActionApplicator,
     scope_manager::{ScopeId, ScopeManager},
 };
 
@@ -145,7 +146,7 @@ impl MatchSetManager {
 
             fm.apply_field_actions(self, src, true);
 
-            ActionBuffer::update_cow_fields_post_exec(
+            IterHallActionApplicator::update_cow_fields_post_exec(
                 fm,
                 src,
                 ms_id,

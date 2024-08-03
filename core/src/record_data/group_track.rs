@@ -248,7 +248,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
         self.group_len = self.gl.group_len(self.group_idx);
         self.group_len_rem = self.group_len;
     }
-    fn apply_action(&mut self, a: &FieldAction) {
+    fn apply_action(&mut self, a: FieldAction) {
         let mut action_run_len = a.run_len as usize;
         self.move_to_field_pos(a.field_idx);
         match a.kind {
@@ -482,9 +482,9 @@ impl GroupTrack {
     pub fn get_group_len(&self, group_index: GroupIdx) -> Option<usize> {
         self.group_lengths.try_get(group_index)
     }
-    fn apply_field_actions_list<'a>(
+    fn apply_field_actions_list(
         &mut self,
-        action_list: impl IntoIterator<Item = &'a FieldAction>,
+        action_list: impl IntoIterator<Item = FieldAction>,
     ) {
         let action_list = action_list.into_iter();
 
@@ -537,7 +537,7 @@ impl GroupTrack {
         if let Some(agi) = &agi {
             let (s1, s2) = ab.get_action_group_slices(agi);
 
-            let actions = s1.iter().chain(s2.iter());
+            let actions = s1.iter().chain(s2.iter()).copied();
 
             #[cfg(feature = "debug_logging_field_actions")]
             {
@@ -1900,7 +1900,7 @@ mod test_action_lists {
             ..Default::default()
         };
 
-        gl.apply_field_actions_list(&[FieldAction::new(
+        gl.apply_field_actions_list([FieldAction::new(
             FieldActionKind::Drop,
             1,
             1,
@@ -1926,7 +1926,7 @@ mod test_action_lists {
             ..Default::default()
         };
 
-        gl.apply_field_actions_list(&[FieldAction::new(
+        gl.apply_field_actions_list([FieldAction::new(
             FieldActionKind::Drop,
             0,
             1,
@@ -1972,7 +1972,7 @@ mod test_action_lists {
             ..Default::default()
         };
 
-        gl.apply_field_actions_list(&[FieldAction::new(
+        gl.apply_field_actions_list([FieldAction::new(
             FieldActionKind::Drop,
             2,
             1,
@@ -2018,7 +2018,7 @@ mod test_action_lists {
             ..Default::default()
         };
 
-        gl.apply_field_actions_list(&[
+        gl.apply_field_actions_list([
             FieldAction::new(FieldActionKind::Drop, 0, 1),
             FieldAction::new(FieldActionKind::Dup, 1, 2),
         ]);

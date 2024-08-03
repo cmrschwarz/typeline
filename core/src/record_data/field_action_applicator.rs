@@ -523,9 +523,9 @@ impl FieldActionApplicator {
     }
 
     // returns the field_count delta
-    fn generate_commands_from_actions<'a>(
+    fn generate_commands_from_actions(
         &mut self,
-        actions: impl Iterator<Item = &'a FieldAction>,
+        actions: impl Iterator<Item = FieldAction>,
         headers: &mut VecDeque<FieldValueHeader>,
         iterators: &mut [&mut IterState],
     ) -> isize {
@@ -556,7 +556,7 @@ impl FieldActionApplicator {
         let mut curr_action;
         let mut actions = actions.peekable();
         'consume_actions: loop {
-            curr_action = actions.next().copied();
+            curr_action = actions.next();
             let Some(action) = curr_action else {
                 break;
             };
@@ -675,7 +675,7 @@ impl FieldActionApplicator {
             }
         }
 
-        for a in curr_action.iter().copied().chain(actions.copied()) {
+        for a in curr_action.iter().copied().chain(actions) {
             assert!(a.field_idx == faas.field_pos);
             let FieldActionKind::InsertZst(repr) = a.kind else {
                 unreachable!()
@@ -832,7 +832,7 @@ impl FieldActionApplicator {
 
     pub fn run<'a>(
         &mut self,
-        actions: impl Iterator<Item = &'a FieldAction>,
+        actions: impl Iterator<Item = FieldAction>,
         headers: &mut VecDeque<FieldValueHeader>,
         field_count: &mut usize,
         iterators: impl Iterator<Item = &'a mut IterState>,
@@ -907,7 +907,7 @@ mod test {
     #[track_caller]
     fn test_actions_on_headers(
         input: impl IntoIterator<Item = FieldValueHeader>,
-        actions: impl IntoIterator<Item = FieldAction>,
+        actions: impl IntoIterator<Item = FieldAction> + Clone,
         output: impl IntoIterator<Item = FieldValueHeader>,
         iter_states_in: impl IntoIterator<Item = IterStateDummy>,
         iter_states_out: impl IntoIterator<Item = IterStateDummy>,
@@ -925,9 +925,8 @@ mod test {
             .into_iter()
             .map(iter_state_dummy_to_iter_state)
             .collect::<Vec<_>>();
-        let actions = actions.into_iter().collect::<Vec<_>>();
         faa.run(
-            actions.iter(),
+            actions.into_iter(),
             &mut headers,
             &mut field_count,
             iter_states.iter_mut(),
@@ -939,10 +938,10 @@ mod test {
     }
 
     #[track_caller]
-    fn test_actions_on_range(
+    fn test_actions_on_values(
         input: impl IntoIterator<Item = (FieldValue, RunLength)>,
         header_rle: bool,
-        actions: impl IntoIterator<Item = FieldAction>,
+        actions: impl IntoIterator<IntoIter = impl Iterator<Item = FieldAction>>,
         output: impl IntoIterator<Item = (FieldValue, RunLength)>,
         iter_states_in: impl IntoIterator<Item = IterStateDummy>,
         iter_states_out: impl IntoIterator<Item = IterStateDummy>,
@@ -962,9 +961,8 @@ mod test {
             .into_iter()
             .map(iter_state_dummy_to_iter_state)
             .collect::<Vec<_>>();
-        let actions = actions.into_iter().collect::<Vec<_>>();
         let fc_delta = faa.run(
-            actions.iter(),
+            actions.into_iter(),
             &mut fd.headers,
             &mut fd.field_count,
             iter_states_in.iter_mut(),
@@ -992,7 +990,7 @@ mod test {
         //    2         0
         //              1
         //              2
-        test_actions_on_range(
+        test_actions_on_values(
             (0..=2).map(|v| (FieldValue::Int(v), 1)),
             false,
             [FieldAction::new(FieldActionKind::Dup, 0, 2)],
@@ -1011,7 +1009,7 @@ mod test {
         //    1         1
         //    2         1
         //              2
-        test_actions_on_range(
+        test_actions_on_values(
             [(0, 1), (1, 3), (2, 1)].map(|(v, rl)| (FieldValue::Int(v), rl)),
             true,
             [FieldAction::new(
@@ -1040,7 +1038,7 @@ mod test {
         //    2         0           1
         //              1           2
         //              2
-        test_actions_on_range(
+        test_actions_on_values(
             (0i64..3).map(|v| (FieldValue::Int(v), 1)),
             true,
             [
@@ -1059,7 +1057,7 @@ mod test {
         //    0           0
         //    1           2
         //    2
-        test_actions_on_range(
+        test_actions_on_values(
             (0i64..3).map(|v| (FieldValue::Int(v), 1)),
             false,
             [FieldAction::new(FieldActionKind::Drop, 1, 1)],
@@ -1075,7 +1073,7 @@ mod test {
         //    0           0
         //    0           0
         //    0
-        test_actions_on_range(
+        test_actions_on_values(
             [(FieldValue::Int(0), 3)],
             false,
             [FieldAction::new(FieldActionKind::Drop, 1, 1)],
@@ -1083,7 +1081,7 @@ mod test {
             [],
             [],
         );
-        test_actions_on_range(
+        test_actions_on_values(
             std::iter::repeat((FieldValue::Int(0), 1)).take(3),
             false,
             [FieldAction::new(FieldActionKind::Drop, 1, 1)],
@@ -1103,7 +1101,7 @@ mod test {
         //    1
         //    2
         //    3
-        test_actions_on_range(
+        test_actions_on_values(
             [(0i64, 3), (1, 2), (2, 1), (3, 1)]
                 .map(|(v, rl)| (FieldValue::Int(v), rl)),
             false,
@@ -1165,7 +1163,7 @@ mod test {
 
     #[test]
     fn iter_on_drop_header_before_drop() {
-        test_actions_on_range(
+        test_actions_on_values(
             [(FieldValue::Int(42), 4)],
             false,
             [FieldAction::new(FieldActionKind::Drop, 2, 2)],
@@ -1189,7 +1187,7 @@ mod test {
 
     #[test]
     fn lean_affects_iters_on_insert() {
-        test_actions_on_range(
+        test_actions_on_values(
             [(FieldValue::Undefined, 42)],
             false,
             [FieldAction::new(
@@ -1235,7 +1233,7 @@ mod test {
 
     #[test]
     fn insert_on_start_should_move_iters() {
-        test_actions_on_range(
+        test_actions_on_values(
             [(FieldValue::Int(42), 2)],
             false,
             [FieldAction::new(
@@ -1263,7 +1261,7 @@ mod test {
 
     #[test]
     fn insert_after_end_affects_iters() {
-        test_actions_on_range(
+        test_actions_on_values(
             [(FieldValue::Int(42), 1)],
             false,
             [FieldAction::new(
@@ -1308,7 +1306,7 @@ mod test {
     }
     #[test]
     fn insert_after_end_affects_iters_on_empty() {
-        test_actions_on_range(
+        test_actions_on_values(
             [],
             false,
             [FieldAction::new(
@@ -1353,7 +1351,7 @@ mod test {
     }
     #[test]
     fn insert_after_end_moves_iters_forwards_past_dead_fields() {
-        test_actions_on_range(
+        test_actions_on_values(
             [
                 (FieldValue::Int(0), 1),
                 (FieldValue::Int(1), 1),
