@@ -178,6 +178,9 @@ macro_rules! index_newtype {
             pub const fn new(v: $base_type) -> Self {
                 $name(v)
             }
+            pub fn into_inner(self) -> $base_type {
+                self.0
+            }
         }
 
         impl From<usize> for $name {

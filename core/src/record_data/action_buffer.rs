@@ -10,12 +10,18 @@ use super::{
     iter_hall_action_applicator::IterHallActionApplicator,
     match_set::{MatchSetId, MatchSetManager},
 };
-use crate::utils::{
-    dynamic_freelist::DynamicArrayFreelist, launder_slice,
-    offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
+use crate::{
+    index_newtype,
+    utils::{
+        dynamic_freelist::DynamicArrayFreelist, indexing_type::IndexingType,
+        launder_slice, offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
+    },
 };
 use std::mem::size_of;
-pub type ActorId = u32;
+
+index_newtype! {
+    pub struct ActorId (u32);
+}
 pub type ActionGroupId = u32;
 pub type ActionId = usize;
 
@@ -107,12 +113,12 @@ pub struct ActionGroupIdentifier {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActionGroupLocation {
     Regular {
-        actor_id: u32,
+        actor_id: ActorId,
         pow2: u8,
     },
     #[allow(unused)] // TODO
     LocalMerge {
-        actor_id: u32,
+        actor_id: ActorId,
         merge_pow2: u8,
     },
     TempBuffer {
@@ -122,7 +128,7 @@ enum ActionGroupLocation {
 
 impl Default for ActorRef {
     fn default() -> Self {
-        ActorRef::Unconfirmed(0)
+        ActorRef::Unconfirmed(ActorId::ZERO)
     }
 }
 impl Debug for ActorRef {
@@ -286,7 +292,7 @@ pub fn eprint_action_list(actions: impl Iterator<Item = FieldAction>) {
 }
 
 impl ActionBuffer {
-    pub const MAX_ACTOR_ID: ActorId = ActorId::MAX;
+    pub const MAX_ACTOR_ID: ActorId = ActorId::MAX_VALUE;
 
     pub fn new(
         #[cfg_attr(not(feature = "debug_state"), allow(unused))]
@@ -304,7 +310,7 @@ impl ActionBuffer {
             iter_hall_action_applicator: IterHallActionApplicator::default(),
         }
     }
-    pub fn begin_action_group(&mut self, actor_id: u32) {
+    pub fn begin_action_group(&mut self, actor_id: ActorId) {
         assert!(self.pending_action_group_actor_id.is_none());
         self.pending_action_group_actor_id = Some(actor_id)
     }
@@ -330,7 +336,7 @@ impl ActionBuffer {
         self.pending_action_group_field_count_delta
     }
     pub fn end_action_group(&mut self) {
-        let ai = self.pending_action_group_actor_id.take().unwrap();
+        let actor_id = self.pending_action_group_actor_id.take().unwrap();
         let action_count = self.pending_action_group_action_count;
         let field_count_delta = self.pending_action_group_field_count_delta;
         if action_count == 0 {
@@ -338,13 +344,13 @@ impl ActionBuffer {
         }
         self.pending_action_group_action_count = 0;
         self.pending_action_group_field_count_delta = 0;
-        let mut agq = &mut self.actors[ai].action_group_queues[0];
+        let mut agq = &mut self.actors[actor_id].action_group_queues[0];
         let actions_start =
             agq.actions.next_free_index().wrapping_sub(action_count);
         #[cfg(feature = "debug_logging_field_action_groups")]
         {
             eprintln!(
-                "added action group {}, ms {}, actor {ai}:",
+                "added action group {}, ms {}, actor {actor_id}:",
                 agq.action_groups.next_free_index(),
                 self.match_set_id,
             );
@@ -352,13 +358,14 @@ impl ActionBuffer {
                 agq.actions.data.range(actions_start..).copied(),
             );
         }
-        let next_action_group_id_succ = if ai == self.actors.max_index() {
+        let next_action_group_id_succ = if actor_id == self.actors.max_index()
+        {
             0
         } else {
-            let next_agq = &self.actors[ai].action_group_queues[0];
+            let next_agq = &self.actors[actor_id].action_group_queues[0];
             next_agq.action_groups.next_free_index() as ActionGroupId
         };
-        agq = &mut self.actors[ai].action_group_queues[0];
+        agq = &mut self.actors[actor_id].action_group_queues[0];
         agq.action_groups.data.push_back(ActionGroupWithRefs {
             group: ActionGroup {
                 start: actions_start,
@@ -371,13 +378,13 @@ impl ActionBuffer {
             next_action_group_id_succ,
         });
         for (i, pow2) in Pow2InsertStepsIter::new(
-            ai,
-            self.actors.offset,
-            self.actors.next_free_index(),
+            actor_id.into_inner(),
+            self.actors.offset.into_inner(),
+            self.actors.next_free_index().into_inner(),
         )
         .skip(1)
         {
-            let actor = &mut self.actors[i];
+            let actor = &mut self.actors[ActorId::new(i)];
             let agq = &mut actor.action_group_queues[pow2 as usize];
             if agq.dirty {
                 break;
@@ -443,9 +450,10 @@ impl ActionBuffer {
     pub fn add_actor(&mut self) -> ActorId {
         let actor_id = self.actors.next_free_index();
         if actor_id != self.actors.offset {
-            let pow2_to_add = actor_id.trailing_zeros() + 1;
-            let tgt_actor_id = actor_id - (1 << (pow2_to_add - 1));
-            let tgt_actor = &mut self.actors[tgt_actor_id];
+            let pow2_to_add = actor_id.into_inner().trailing_zeros() + 1;
+            let tgt_actor_id =
+                actor_id.into_inner() - (1 << (pow2_to_add - 1));
+            let tgt_actor = &mut self.actors[ActorId::new(tgt_actor_id)];
             debug_assert_eq!(
                 tgt_actor.action_group_queues.len(),
                 pow2_to_add as usize
@@ -820,7 +828,8 @@ impl ActionBuffer {
             self_prev,
             self_next,
         );
-        let succ_id = actor_id + (1 << children_pow2);
+        let succ_id =
+            ActorId::new(actor_id.into_inner() + (1 << children_pow2));
         let succ_pow2 = children_pow2
             .min(self.actors[succ_id].action_group_queues.len() as u8 - 1);
         let succ_next = self.refresh_action_group(succ_id, succ_pow2);
@@ -847,7 +856,10 @@ impl ActionBuffer {
     fn generate_snapshot(&mut self, actor_id: ActorId) -> SnapshotRef {
         let next_actor_index = self.actors.next_free_index();
         // PERF: find a O(1) way to calculate this
-        let iter = Pow2LookupStepsIter::new(actor_id, next_actor_index);
+        let iter = Pow2LookupStepsIter::new(
+            actor_id.into_inner(),
+            next_actor_index.into_inner(),
+        );
         let snapshot_len = iter.clone().count();
         while snapshot_len >= self.snapshot_freelists.len() + SNAPSHOT_LEN_MIN
         {
@@ -860,9 +872,10 @@ impl ActionBuffer {
         let (freelist_id, ss) =
             self.snapshot_freelists[snapshot_len - SNAPSHOT_LEN_MIN].claim();
         ss[SNAPSHOT_REFCOUNT_OFFSET] = 1;
-        ss[SNAPSHOT_ACTOR_COUNT_OFFSET] = next_actor_index as SnapshotEntry;
+        ss[SNAPSHOT_ACTOR_COUNT_OFFSET] =
+            next_actor_index.into_inner() as SnapshotEntry;
         for (i, (actor_id, pow2)) in iter.enumerate() {
-            let actor = &self.actors[actor_id];
+            let actor = &self.actors[ActorId::new(actor_id)];
             let agq = &actor.action_group_queues[pow2 as usize];
             ss[i + SNAPSHOT_PREFIX_LEN] =
                 agq.action_groups.next_free_index() as SnapshotEntry;
@@ -887,14 +900,18 @@ impl ActionBuffer {
                 [snapshot.snapshot_len as usize - SNAPSHOT_LEN_MIN]
                 [snapshot.snapshot_id];
             let ss_actor_count = ss[SNAPSHOT_ACTOR_COUNT_OFFSET];
-            if ss_actor_count != actor_count {
+            if ss_actor_count != actor_count.into_inner() {
                 snapshot_valid = false;
             }
         }
-        for (i, (actor_id, pow2)) in
-            Pow2LookupStepsIter::new(actor_id, actor_count).enumerate()
+        for (i, (actor_id, pow2)) in Pow2LookupStepsIter::new(
+            actor_id.into_inner(),
+            actor_count.into_inner(),
+        )
+        .enumerate()
         {
-            let next_ag = self.refresh_action_group(actor_id, pow2);
+            let next_ag =
+                self.refresh_action_group(ActorId::new(actor_id), pow2);
             if snapshot_valid && i < snapshot_len {
                 let ss = &self.snapshot_freelists
                     [snapshot_len - SNAPSHOT_LEN_MIN][snapshot.snapshot_id];
@@ -943,19 +960,26 @@ impl ActionBuffer {
         ssr: SnapshotRef,
     ) -> Option<ActionGroupIdentifier> {
         let mut res = None;
-        for (i, (ai, pow2)) in
-            Pow2LookupStepsIter::new(actor_id, self.actors.next_free_index())
-                .enumerate()
+        for (i, (ai, pow2)) in Pow2LookupStepsIter::new(
+            actor_id.into_inner(),
+            self.actors.next_free_index().into_inner(),
+        )
+        .enumerate()
         {
             let ss = &self.snapshot_freelists
                 [ssr.snapshot_len as usize - SNAPSHOT_LEN_MIN]
                 [ssr.snapshot_id];
             let prev = ss[SNAPSHOT_PREFIX_LEN + i];
-            let next = self.actors[ai].action_group_queues[pow2 as usize]
+            let next = self.actors[ActorId::new(ai)].action_group_queues
+                [pow2 as usize]
                 .action_groups
                 .next_free_index();
-            let next_ag =
-                self.merge_action_groups_of_single_pow2(ai, pow2, prev, next);
+            let next_ag = self.merge_action_groups_of_single_pow2(
+                ActorId::new(ai),
+                pow2,
+                prev,
+                next,
+            );
             res = self.merge_action_groups_into_temp_buffer_release_inputs(
                 res, next_ag,
             );
@@ -968,11 +992,13 @@ impl ActionBuffer {
         ssr: SnapshotRef,
     ) -> Option<ActionGroupIdentifier> {
         let prev_ss_actor_iter = Pow2LookupStepsIter::new(
-            actor_id,
+            actor_id.into_inner(),
             self.get_snapshot_actor_count(ssr),
         );
-        let mut iter =
-            Pow2LookupStepsIter::new(actor_id, self.actors.next_free_index());
+        let mut iter = Pow2LookupStepsIter::new(
+            actor_id.into_inner(),
+            self.actors.next_free_index().into_inner(),
+        );
         let mut i = 0;
         let mut res = None;
         for (ai, pow2) in prev_ss_actor_iter {
@@ -982,12 +1008,15 @@ impl ActionBuffer {
             let (n_ai, n_pow2) = iter.next().unwrap();
             debug_assert!(n_ai == ai && n_pow2 >= pow2);
             if prev == 0 || n_pow2 == pow2 {
-                let next = self.actors[ai].action_group_queues
+                let next = self.actors[ActorId::new(ai)].action_group_queues
                     [n_pow2 as usize]
                     .action_groups
                     .next_free_index();
                 let next_ag = self.merge_action_groups_of_single_pow2(
-                    n_ai, n_pow2, prev, next,
+                    ActorId::new(n_ai),
+                    n_pow2,
+                    prev,
+                    next,
                 );
                 res = self
                     .merge_action_groups_into_temp_buffer_release_inputs(
@@ -999,7 +1028,8 @@ impl ActionBuffer {
             let mut succ_prev = 0;
             for i_pow2 in pow2 + 1..=n_pow2 {
                 let children_pow2 = i_pow2 - 1;
-                let ag = &self.actors[ai].action_group_queues[i_pow2 as usize]
+                let ag = &self.actors[ActorId::new(ai)].action_group_queues
+                    [i_pow2 as usize]
                     .action_groups
                     .data
                     .front()
@@ -1009,14 +1039,14 @@ impl ActionBuffer {
                     ag.next_action_group_id_succ,
                 );
                 let self_ag = self.merge_action_groups_of_single_pow2(
-                    ai,
+                    ActorId::new(ai),
                     children_pow2,
                     self_prev,
                     self_min,
                 );
                 self_prev = 1;
                 let succ_ag = self.merge_action_groups_of_single_pow2(
-                    ai + (1 << children_pow2),
+                    ActorId::new(ai + (1 << children_pow2)),
                     i_pow2 - 1,
                     succ_prev,
                     succ_min,
@@ -1032,22 +1062,32 @@ impl ActionBuffer {
                         combined_ag,
                     );
             }
-            let next = self.actors[ai].action_group_queues[n_pow2 as usize]
+            let next = self.actors[ActorId::new(ai)].action_group_queues
+                [n_pow2 as usize]
                 .action_groups
                 .next_free_index();
-            let self_ag =
-                self.merge_action_groups_of_single_pow2(ai, n_pow2, 1, next);
+            let self_ag = self.merge_action_groups_of_single_pow2(
+                ActorId::new(ai),
+                n_pow2,
+                1,
+                next,
+            );
             res = self.merge_action_groups_into_temp_buffer_release_inputs(
                 res, self_ag,
             );
             i += 1;
         }
         for (ai, pow2) in iter {
-            let next = self.actors[ai].action_group_queues[pow2 as usize]
+            let next = self.actors[ActorId::new(ai)].action_group_queues
+                [pow2 as usize]
                 .action_groups
                 .next_free_index();
-            let next_ag =
-                self.merge_action_groups_of_single_pow2(ai, pow2, 0, next);
+            let next_ag = self.merge_action_groups_of_single_pow2(
+                ActorId::new(ai),
+                pow2,
+                0,
+                next,
+            );
             res = self.merge_action_groups_into_temp_buffer_release_inputs(
                 res, next_ag,
             );
@@ -1069,7 +1109,7 @@ impl ActionBuffer {
         let data = &ss[SNAPSHOT_PREFIX_LEN..];
 
         let mut res = format!("Snapshot {{ ac: {ac}, rc: {rc}, [ ");
-        let iter = Pow2LookupStepsIter::new(actor_id, ac);
+        let iter = Pow2LookupStepsIter::new(actor_id.into_inner(), ac);
         for (i, (ai, pow2)) in iter.enumerate() {
             res.write_fmt(format_args!(
                 "(ai: {ai}, pow2: {pow2}, gi: {}) ",
@@ -1104,7 +1144,7 @@ impl ActionBuffer {
         snapshot: SnapshotRef,
     ) -> Option<ActionGroupIdentifier> {
         let field_ss_actor_count = self.get_snapshot_actor_count(snapshot);
-        if field_ss_actor_count == self.actors.next_free_index() {
+        if field_ss_actor_count == self.actors.next_free_index().into_inner() {
             self.apply_from_snapshot_with_same_actor_count(actor_id, snapshot)
         } else {
             self.apply_from_snapshot_with_different_actor_count(

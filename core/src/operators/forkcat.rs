@@ -277,7 +277,7 @@ pub fn insert_tf_forkcat<'a>(
     let cont_group_track = job.job_data.group_track_manager.add_group_track(
         gt_parent,
         cont_ms_id,
-        ActorRef::Unconfirmed(0),
+        ActorRef::Unconfirmed(ActorId::ZERO),
     );
 
     #[cfg(feature = "debug_state")]
@@ -416,7 +416,7 @@ fn setup_subchain<'a>(
     let group_track = job.job_data.group_track_manager.add_group_track(
         None,
         sc_ms_id,
-        ActorRef::Unconfirmed(0),
+        ActorRef::Unconfirmed(ActorId::ZERO),
     );
 
     #[cfg(feature = "debug_state")]

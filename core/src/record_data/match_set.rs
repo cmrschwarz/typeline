@@ -6,13 +6,13 @@ use crate::{
     record_data::iter_hall::FieldDataSource,
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
-        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
-        universe::Universe,
+        identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
+        string_store::StringStoreEntry, universe::Universe,
     },
 };
 
 use super::{
-    action_buffer::{ActionBuffer, ActorRef},
+    action_buffer::{ActionBuffer, ActorId, ActorRef},
     field::{FieldId, FieldManager},
     iter_hall_action_applicator::IterHallActionApplicator,
     scope_manager::{ScopeId, ScopeManager},
@@ -87,7 +87,8 @@ impl MatchSetManager {
         scope: ScopeId,
     ) -> MatchSetId {
         let ms_id = self.match_sets.peek_claim_id();
-        let dummy_field = fm.add_field(ms_id, ActorRef::Unconfirmed(0));
+        let dummy_field =
+            fm.add_field(ms_id, ActorRef::Unconfirmed(ActorId::ZERO));
         let ms = MatchSet {
             dummy_field,
             active_scope: scope,

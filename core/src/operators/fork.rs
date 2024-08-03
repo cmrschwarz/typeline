@@ -16,8 +16,11 @@ use crate::{
     operators::operator::OffsetInChain,
     options::session_setup::SessionSetupData,
     record_data::{
-        action_buffer::ActorRef, field::FieldId, group_track::GroupTrackId,
-        iter_hall::IterId, match_set::MatchSetId,
+        action_buffer::{ActorId, ActorRef},
+        field::FieldId,
+        group_track::GroupTrackId,
+        iter_hall::IterId,
+        match_set::MatchSetId,
     },
     scr_error::ScrError,
     utils::{
@@ -251,7 +254,7 @@ fn setup_fork_subchain(
     let target_group_track = job.job_data.group_track_manager.add_group_track(
         None,
         target_ms_id,
-        ActorRef::Unconfirmed(0),
+        ActorRef::Unconfirmed(ActorId::new(0)),
     );
 
     let field_access_mapping =
