@@ -68,7 +68,7 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
     pub fn as_slice_mut(&mut self) -> &mut [T] {
         &mut self.data
     }
-    pub fn ref_cast_box(slice_box: Box<[T]>) -> Box<Self> {
+    pub fn from_boxed_slice(slice_box: Box<[T]>) -> Box<Self> {
         unsafe {
             let base_box_raw = Box::into_raw(slice_box);
             let index_box_raw = IndexSlice::ref_cast_mut(&mut *base_box_raw)

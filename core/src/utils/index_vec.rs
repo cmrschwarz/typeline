@@ -104,7 +104,7 @@ impl<I: IndexingType, T> IndexVec<I, T> {
         &mut self.data
     }
     pub fn into_boxed_slice(self) -> Box<IndexSlice<I, T>> {
-        IndexSlice::ref_cast_box(self.data.into_boxed_slice())
+        IndexSlice::from_boxed_slice(self.data.into_boxed_slice())
     }
     pub fn push_get_id(&mut self, v: T) -> I {
         let id = self.next_idx();
