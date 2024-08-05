@@ -54,8 +54,6 @@ enum ActionGroupLocation {
     },
     TempBuffer {
         idx: u32,
-        offset: u32,
-        len: u32,
     },
 }
 
@@ -64,10 +62,6 @@ pub struct ActionGroupIdentifier {
     location: ActionGroupLocation,
     field_count_delta: isize,
 }
-
-// we need 3 temp buffers in order to always have a free one as a target
-// when merging from two others
-const ACTION_TEMP_BUFFER_COUNT: usize = 3;
 
 pub struct ActionGroup {
     actions_begin: ActionGroupDataOffset,
@@ -85,14 +79,13 @@ pub struct ActionBuffer {
     action_groups: OffsetVecDeque<ActionGroupId, ActionGroup>,
     action_group_data: OffsetVecDeque<ActionGroupDataOffset, FieldAction>,
 
-    action_temp_buffers: [Vec<FieldAction>; ACTION_TEMP_BUFFER_COUNT],
-
     pending_action_group_actor_id: Option<ActorId>,
     pending_actions_start: ActionGroupDataOffset,
     pending_action_group_field_count_delta: isize,
 
     iter_hall_action_applicator: IterHallActionApplicator,
 
+    action_temp_buffers: Vec<Vec<FieldAction>>,
     merges: Vec<ActionGroupIdentifier>,
 
     latest_snapshot_ref_count: SnapshotRefCount,
@@ -130,13 +123,16 @@ impl ActionGroupLocation {
             ActionGroupLocation::TempBuffer { idx, .. } => Some(*idx as usize),
         }
     }
-    fn is_emtpy(&self) -> bool {
+
+    fn is_emtpy(&self, action_temp_buffers: &[Vec<FieldAction>]) -> bool {
         match self {
             ActionGroupLocation::Regular {
                 actions_begin,
                 actions_end,
             } => actions_begin == actions_end,
-            ActionGroupLocation::TempBuffer { len, .. } => *len == 0,
+            ActionGroupLocation::TempBuffer { idx } => {
+                action_temp_buffers[*idx as usize].is_empty()
+            }
         }
     }
 }
@@ -171,7 +167,7 @@ impl ActionBuffer {
             #[cfg(feature = "debug_state")]
             match_set_id: ms_id,
             actors: OffsetVecDeque::default(),
-            action_temp_buffers: Default::default(),
+            action_temp_buffers: Vec::new(),
             pending_action_group_actor_id: None,
             pending_actions_start: ActionGroupDataOffset::ZERO,
             pending_action_group_field_count_delta: 0,
@@ -290,41 +286,18 @@ impl ActionBuffer {
         &mut self,
         agi: &ActionGroupIdentifier,
     ) {
-        let ActionGroupLocation::TempBuffer { idx, offset, len } =
-            agi.location
-        else {
+        let ActionGroupLocation::TempBuffer { idx } = agi.location else {
             return;
         };
-        let (idx, offset, len) = (idx as usize, offset as usize, len as usize);
-        let tb = &mut self.action_temp_buffers[idx];
-        debug_assert!(tb.len() == offset + len);
-        tb.truncate(offset);
-    }
-    fn get_free_temp_idx(
-        lhs: &ActionGroupIdentifier,
-        rhs: &ActionGroupIdentifier,
-    ) -> usize {
-        let mut lhs_idx =
-            lhs.location.temp_idx().unwrap_or(ACTION_TEMP_BUFFER_COUNT);
-        let mut rhs_idx =
-            rhs.location.temp_idx().unwrap_or(ACTION_TEMP_BUFFER_COUNT);
-        debug_assert!(lhs_idx <= ACTION_TEMP_BUFFER_COUNT);
-        debug_assert!(rhs_idx <= ACTION_TEMP_BUFFER_COUNT);
-        if lhs_idx > rhs_idx {
-            std::mem::swap(&mut lhs_idx, &mut rhs_idx);
-        }
-        match (lhs_idx, rhs_idx) {
-            (0, 0) | (0, 2) => 1,
-            (0, 1) | (1, 1) => 2,
-            _ => 0,
-        }
+        let tb = &mut self.action_temp_buffers[idx as usize];
+        tb.clear();
     }
     fn get_action_group_slices_raw<'a>(
         field_action_data: &'a OffsetVecDeque<
             ActionGroupDataOffset,
             FieldAction,
         >,
-        action_temp_buffers: &'a [Vec<FieldAction>; 3],
+        action_temp_buffers: &'a [Vec<FieldAction>],
         agi: &ActionGroupIdentifier,
     ) -> (&'a [FieldAction], &'a [FieldAction]) {
         match agi.location {
@@ -336,10 +309,8 @@ impl ActionBuffer {
                 let end = field_action_data.index_to_phys(actions_end);
                 subslice_slice_pair(field_action_data.as_slices(), start..end)
             }
-            ActionGroupLocation::TempBuffer { idx, offset, len } => {
-                let (idx, offset, len) =
-                    (idx as usize, offset as usize, len as usize);
-                (&action_temp_buffers[idx][offset..offset + len], &[])
+            ActionGroupLocation::TempBuffer { idx } => {
+                (&action_temp_buffers[idx as usize], &[])
             }
         }
     }
@@ -365,14 +336,8 @@ impl ActionBuffer {
         &mut self,
         lhs: &ActionGroupIdentifier,
         rhs: &ActionGroupIdentifier,
+        temp_idx: usize,
     ) -> ActionGroupIdentifier {
-        if rhs.location.is_emtpy() {
-            return *lhs;
-        }
-        if lhs.location.is_emtpy() {
-            return *rhs;
-        }
-
         let (l1, l2) = self.get_action_group_slices(lhs);
         let (r1, r2) = self.get_action_group_slices(rhs);
 
@@ -385,26 +350,27 @@ impl ActionBuffer {
             eprint_action_list(r1.iter().chain(r2.iter()).copied());
         }
 
-        let idx = Self::get_free_temp_idx(lhs, rhs);
-        let (start, length) = unsafe {
-            // SAFETY: get_free_temp_idx makes sure that
-            // action_temp_buffers[idx] is neither
+        unsafe {
+            assert!(lhs.location.temp_idx() != Some(temp_idx));
+            assert!(rhs.location.temp_idx() != Some(temp_idx));
+            // SAFETY: the asserts above make sure that
+            // action_temp_buffers[temp_idx] is neither
             // used by lhs nor by rhs. Therefore we can take
             // a mutable reference to it
             let (l1, l2) = (launder_slice(l1), launder_slice(l2));
             let (r1, r2) = (launder_slice(r1), launder_slice(r2));
 
-            let buff = &mut self.action_temp_buffers[idx];
-            let start = buff.len();
-            merge_action_lists(l1.iter().chain(l2), r1.iter().chain(r2), buff);
+            if self.action_temp_buffers.len() <= temp_idx {
+                self.action_temp_buffers.resize(temp_idx + 1, Vec::new());
+            }
 
-            (start, buff.len() - start)
+            let buff = &mut self.action_temp_buffers[temp_idx];
+            debug_assert!(buff.is_empty());
+            merge_action_lists(l1.iter().chain(l2), r1.iter().chain(r2), buff);
         };
         let res = ActionGroupIdentifier {
             location: ActionGroupLocation::TempBuffer {
-                idx: idx as u32,
-                offset: start as u32,
-                len: length as u32,
+                idx: temp_idx as u32,
             },
             field_count_delta: lhs.field_count_delta + rhs.field_count_delta,
         };
@@ -419,14 +385,18 @@ impl ActionBuffer {
         &mut self,
         lhs: &ActionGroupIdentifier,
         rhs: &ActionGroupIdentifier,
+        temp_idx: usize,
     ) -> ActionGroupIdentifier {
-        let res = self.merge_action_groups_into_temp_buffer(lhs, rhs);
-        if res != *rhs {
-            self.release_temp_action_group(rhs);
+        if rhs.location.is_emtpy(&self.action_temp_buffers) {
+            return *lhs;
         }
-        if res != *lhs {
-            self.release_temp_action_group(lhs);
+        if lhs.location.is_emtpy(&self.action_temp_buffers) {
+            return *rhs;
         }
+        let res =
+            self.merge_action_groups_into_temp_buffer(lhs, rhs, temp_idx);
+        self.release_temp_action_group(lhs);
+        self.release_temp_action_group(rhs);
         res
     }
 
@@ -613,7 +583,6 @@ impl ActionBuffer {
         }
 
         self.bump_snapshot_refcount(latest_snapshot);
-
         self.drop_snapshot_refcount(field_snapshot);
 
         field.snapshot.set(latest_snapshot);
@@ -658,6 +627,7 @@ impl ActionBuffer {
                     .merge_action_groups_into_temp_buffer_release_inputs(
                         &prev_merge,
                         &rhs,
+                        if i + 1 == pow2 { pow2 } else { i },
                     );
             }
             if self.merges.len() == pow2 {
@@ -677,17 +647,26 @@ impl ActionBuffer {
 
         let mut pow2 = highest_pow2;
         let mut lhs = self.merges[highest_pow2];
+        let mut temp_idx = highest_pow2 + 1;
         while pow2 != 0 {
             pow2 /= 2;
-            if highest_pow2_count + (1 << pow2) >= count {
+            if highest_pow2_count + (1 << pow2) > count {
                 continue;
             }
             let rhs = self.merges[pow2];
             lhs = self.merge_action_groups_into_temp_buffer_release_inputs(
-                &lhs, &rhs,
+                &lhs, &rhs, temp_idx,
             );
+            temp_idx -= 1;
         }
 
+        if cfg!(debug_assertions) {
+            for (i, b) in self.action_temp_buffers.iter().enumerate() {
+                if Some(i) != lhs.location.temp_idx() {
+                    debug_assert!(b.is_empty());
+                }
+            }
+        }
         self.merges.clear();
         Some(lhs)
     }

@@ -922,7 +922,9 @@ fn group_track_to_json(
             if group_len_rem == 0 {
                 del_count += 1;
             } else {
-                dead_slot_count = dead_slots[iter.field_pos()] - del_count;
+                dead_slot_count =
+                    dead_slots.get(iter.field_pos()).copied().unwrap_or(0)
+                        - del_count;
                 iter.next_n_fields(1);
                 del_count = 0;
             }
