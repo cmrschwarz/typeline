@@ -25,7 +25,7 @@ index_newtype! {
     pub struct ActionGroupDataOffset(u32);
 }
 
-pub type SnapshotLookupId = u32;
+pub type SnapshotRefCount = u32;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ActorSubscriber {
@@ -73,7 +73,7 @@ pub struct ActionGroup {
     actions_begin: ActionGroupDataOffset,
     actions_end: ActionGroupDataOffset,
     actor_id: ActorId,
-    refcount: u32,
+    refcount: SnapshotRefCount,
     field_count_delta: isize,
 }
 
@@ -94,6 +94,8 @@ pub struct ActionBuffer {
     iter_hall_action_applicator: IterHallActionApplicator,
 
     merges: Vec<ActionGroupIdentifier>,
+
+    latest_snapshot_ref_count: SnapshotRefCount,
 }
 
 impl Default for ActorRef {
@@ -128,6 +130,15 @@ impl ActionGroupLocation {
             ActionGroupLocation::TempBuffer { idx, .. } => Some(*idx as usize),
         }
     }
+    fn is_emtpy(&self) -> bool {
+        match self {
+            ActionGroupLocation::Regular {
+                actions_begin,
+                actions_end,
+            } => actions_begin == actions_end,
+            ActionGroupLocation::TempBuffer { len, .. } => *len == 0,
+        }
+    }
 }
 
 pub fn eprint_action_list(actions: impl Iterator<Item = FieldAction>) {
@@ -156,7 +167,7 @@ impl ActionBuffer {
         #[cfg_attr(not(feature = "debug_state"), allow(unused))]
         ms_id: MatchSetId,
     ) -> Self {
-        let mut ab = Self {
+        Self {
             #[cfg(feature = "debug_state")]
             match_set_id: ms_id,
             actors: OffsetVecDeque::default(),
@@ -168,15 +179,8 @@ impl ActionBuffer {
             action_groups: OffsetVecDeque::default(),
             action_group_data: OffsetVecDeque::default(),
             merges: Vec::new(),
-        };
-        ab.action_groups.push_back(ActionGroup {
-            actions_begin: ActionGroupDataOffset::ZERO,
-            actions_end: ActionGroupDataOffset::ZERO,
-            actor_id: ActorId::ZERO,
-            refcount: 0,
-            field_count_delta: 0,
-        });
-        ab
+            latest_snapshot_ref_count: 0,
+        }
     }
     pub fn begin_action_group(&mut self, actor_id: ActorId) {
         debug_assert!(self.pending_action_group_actor_id.is_none());
@@ -196,9 +200,10 @@ impl ActionBuffer {
             actions_begin: self.pending_actions_start,
             actions_end: pending_actions_end,
             actor_id,
-            refcount: 0,
+            refcount: self.latest_snapshot_ref_count,
             field_count_delta,
         });
+        self.latest_snapshot_ref_count = 0;
         self.pending_action_group_field_count_delta = 0;
         #[cfg(feature = "debug_logging_field_action_groups")]
         {
@@ -361,6 +366,13 @@ impl ActionBuffer {
         lhs: &ActionGroupIdentifier,
         rhs: &ActionGroupIdentifier,
     ) -> ActionGroupIdentifier {
+        if rhs.location.is_emtpy() {
+            return *lhs;
+        }
+        if lhs.location.is_emtpy() {
+            return *rhs;
+        }
+
         let (l1, l2) = self.get_action_group_slices(lhs);
         let (r1, r2) = self.get_action_group_slices(rhs);
 
@@ -419,26 +431,26 @@ impl ActionBuffer {
     }
 
     pub(super) fn drop_snapshot_refcount(&mut self, snapshot: SnapshotRef) {
+        if snapshot == self.get_latest_snapshot() {
+            self.latest_snapshot_ref_count -= 1;
+            return;
+        }
+
         let ag_id = snapshot.into_inner();
 
         let ag = &mut self.action_groups[ag_id];
 
         ag.refcount -= 1;
 
-        #[cfg(feature = "debug_logging_field_action_group_accel")]
-        eprintln!(
-            "@ dropped refcount for snapshot {}: {} -> {}",
-            snapshot.into_usize(),
-            ag.refcount + 1,
-            ag.refcount
-        );
+        let mut actions_end = ag.actions_end;
 
         if ag.refcount > 0 || self.action_groups.offset() != ag_id {
             return;
         }
-        let mut actions_end = self.action_group_data.offset();
-        let mut ag_pos = 0;
-        while ag_pos + 1 < self.action_groups.len() {
+
+        let mut ag_pos = 1;
+
+        while ag_pos < self.action_groups.len() {
             let ag = self.action_groups.get_phys(ag_pos);
             if ag.refcount != 0 {
                 break;
@@ -450,20 +462,16 @@ impl ActionBuffer {
         self.action_group_data.drop_front_until(actions_end);
     }
     pub(super) fn bump_snapshot_refcount(&mut self, snapshot: SnapshotRef) {
+        if snapshot == self.get_latest_snapshot() {
+            self.latest_snapshot_ref_count += 1;
+            return;
+        }
         let ag = &mut self.action_groups[snapshot.into_inner()];
         ag.refcount += 1;
-
-        #[cfg(feature = "debug_logging_field_action_group_accel")]
-        eprintln!(
-            "@ bumped refcount for snapshot {}: {} -> {}",
-            snapshot.into_usize(),
-            ag.refcount - 1,
-            ag.refcount
-        );
     }
 
     pub fn get_latest_snapshot(&self) -> SnapshotRef {
-        SnapshotRef(self.action_groups.last_used_index())
+        SnapshotRef(self.action_groups.next_free_index())
     }
 
     pub fn update_field(
