@@ -1887,6 +1887,33 @@ impl<'a, T: DerefMut<Target = GroupTrack>> Drop for GroupTrackIterMut<'a, T> {
 }
 
 #[cfg(test)]
+pub(crate) mod testing_helpers {
+
+    use super::{GroupIdx, GroupTrackIterId, GroupTrackIterState};
+
+    #[derive(Clone, Copy)]
+    pub struct GroupTrackIterStateDummy {
+        pub field_pos: usize,
+        pub group_idx: GroupIdx,
+        pub group_offset: GroupIdx,
+        pub iter_id: GroupTrackIterId,
+    }
+
+    impl GroupTrackIterStateDummy {
+        pub fn into_iter_state(self) -> GroupTrackIterState {
+            GroupTrackIterState {
+                field_pos: self.field_pos,
+                group_idx: self.group_idx,
+                group_offset: self.group_offset,
+                iter_id: self.iter_id,
+                #[cfg(feature = "debug_state")]
+                kind: crate::record_data::iter_hall::IterKind::Undefined,
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod test_action_lists {
     use crate::{
         record_data::{
@@ -1902,146 +1929,157 @@ mod test_action_lists {
     #[cfg(feature = "debug_state")]
     use crate::record_data::iter_hall::IterKind;
 
-    #[test]
-    fn drop_on_passed_fields() {
+    use super::testing_helpers::GroupTrackIterStateDummy;
+
+    #[track_caller]
+    fn test_apply_field_actions(
+        passed_fields_before: usize,
+        group_lengths_before: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        iter_states_before: impl IntoIterator<Item = GroupTrackIterStateDummy>,
+        field_actions: impl IntoIterator<Item = FieldAction>,
+        passed_fields_after: usize,
+        group_lengths_after: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        iter_states_after: impl IntoIterator<Item = GroupTrackIterStateDummy>,
+    ) {
+        let group_lengths_before = group_lengths_before.into_iter();
+        let group_lengths_after = group_lengths_after.into_iter();
+
         let mut gl = GroupTrack {
-            passed_fields_count: 2,
-            ..Default::default()
-        };
-
-        gl.apply_field_actions_list([FieldAction::new(
-            FieldActionKind::Drop,
-            1,
-            1,
-        )]);
-
-        assert_eq!(gl.passed_fields_count, 1);
-    }
-
-    #[test]
-    fn drop_in_passed_affects_iterator_correctly() {
-        let mut gl = GroupTrack {
-            passed_fields_count: 2,
-            group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([2])),
-            iter_states: vec![Cell::new(GroupTrackIterState {
-                field_pos: 3,
-                group_idx: 0,
-                group_offset: 1,
-                iter_id: 0,
-                #[cfg(feature = "debug_state")]
-                kind: IterKind::Undefined,
-            })],
+            passed_fields_count: passed_fields_before,
+            parent_group_advancement: SizeClassedVecDeque::from_iter(
+                group_lengths_before.clone(),
+            ),
+            group_lengths: SizeClassedVecDeque::from_iter(
+                group_lengths_before,
+            ),
+            iter_states: iter_states_before
+                .into_iter()
+                .map(|i| Cell::new(i.into_iter_state()))
+                .collect::<Vec<_>>(),
             iter_lookup_table: Universe::from([0].into_iter()),
             ..Default::default()
         };
 
-        gl.apply_field_actions_list([FieldAction::new(
-            FieldActionKind::Drop,
-            0,
-            1,
-        )]);
+        gl.apply_field_actions_list(field_actions);
+
+        assert_eq!(gl.passed_fields_count, passed_fields_after);
 
         assert_eq!(
-            gl.iter_states[0].get(),
-            GroupTrackIterState {
+            gl.group_lengths,
+            SizeClassedVecDeque::from_iter(group_lengths_after)
+        );
+        assert_eq!(
+            gl.iter_states,
+            iter_states_after
+                .into_iter()
+                .map(|i| Cell::new(i.into_iter_state()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn drop_on_passed_fields() {
+        test_apply_field_actions(
+            2,
+            [],
+            [],
+            [FieldAction::new(FieldActionKind::Drop, 1, 1)],
+            1,
+            [],
+            [],
+        );
+    }
+
+    #[test]
+    fn drop_in_passed_affects_iterator_correctly() {
+        test_apply_field_actions(
+            2,
+            [2],
+            [GroupTrackIterStateDummy {
+                field_pos: 3,
+                group_idx: 0,
+                group_offset: 1,
+                iter_id: 0,
+            }],
+            [FieldAction::new(FieldActionKind::Drop, 0, 1)],
+            1,
+            [2],
+            [GroupTrackIterStateDummy {
                 field_pos: 2,
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
-                #[cfg(feature = "debug_state")]
-                kind: IterKind::Undefined
-            }
+            }],
         );
     }
 
     #[test]
     fn drop_in_group_affects_iterator_correctly() {
-        let mut gl = GroupTrack {
-            passed_fields_count: 1,
-            group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([3])),
-            iter_states: vec![
-                Cell::new(GroupTrackIterState {
+        // TODO: iter_id 1 crashes this?
+        test_apply_field_actions(
+            1,
+            [3],
+            [
+                GroupTrackIterStateDummy {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
-                    #[cfg(feature = "debug_state")]
-                    kind: IterKind::Undefined,
-                }),
-                Cell::new(GroupTrackIterState {
+                },
+                GroupTrackIterStateDummy {
                     field_pos: 3,
                     group_idx: 0,
                     group_offset: 2,
                     iter_id: 0,
-                    #[cfg(feature = "debug_state")]
-                    kind: IterKind::Undefined,
-                }),
-            ],
-            iter_lookup_table: Universe::from([0].into_iter()),
-            ..Default::default()
-        };
-
-        gl.apply_field_actions_list([FieldAction::new(
-            FieldActionKind::Drop,
-            2,
-            1,
-        )]);
-
-        assert_eq!(
-            &gl.iter_states.iter().map(Cell::get).collect::<Vec<_>>(),
-            &[
-                GroupTrackIterState {
-                    field_pos: 2,
-                    group_idx: 0,
-                    group_offset: 1,
-                    iter_id: 0,
-                    #[cfg(feature = "debug_state")]
-                    kind: IterKind::Undefined
                 },
-                GroupTrackIterState {
+            ],
+            [FieldAction::new(FieldActionKind::Drop, 2, 1)],
+            1,
+            [2],
+            [
+                GroupTrackIterStateDummy {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
-                    #[cfg(feature = "debug_state")]
-                    kind: IterKind::Undefined
-                }
-            ]
+                },
+                GroupTrackIterStateDummy {
+                    field_pos: 2,
+                    group_idx: 0,
+                    group_offset: 1,
+                    iter_id: 0,
+                },
+            ],
         );
     }
 
     #[test]
     fn dup_after_drop_does_not_affect_iterator() {
-        let mut gl = GroupTrack {
-            passed_fields_count: 0,
-            group_lengths: SizeClassedVecDeque::Sc8(VecDeque::from([3])),
-            iter_states: vec![Cell::new(GroupTrackIterState {
+        test_apply_field_actions(
+            0,
+            [3],
+            [GroupTrackIterStateDummy {
                 field_pos: 2,
                 group_idx: 0,
                 group_offset: 2,
                 iter_id: 0,
-                #[cfg(feature = "debug_state")]
-                kind: IterKind::Undefined,
-            })],
-            iter_lookup_table: Universe::from([0].into_iter()),
-            ..Default::default()
-        };
-
-        gl.apply_field_actions_list([
-            FieldAction::new(FieldActionKind::Drop, 0, 1),
-            FieldAction::new(FieldActionKind::Dup, 1, 2),
-        ]);
-
-        assert_eq!(
-            gl.iter_states[0].get(),
-            GroupTrackIterState {
+            }],
+            [
+                FieldAction::new(FieldActionKind::Drop, 0, 1),
+                FieldAction::new(FieldActionKind::Dup, 1, 2),
+            ],
+            0,
+            [4],
+            [GroupTrackIterStateDummy {
                 field_pos: 1,
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
-                #[cfg(feature = "debug_state")]
-                kind: IterKind::Undefined
-            }
+            }],
         );
     }
 }
