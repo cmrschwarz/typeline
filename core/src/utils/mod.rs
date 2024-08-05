@@ -174,7 +174,24 @@ pub fn valid_utf8_codepoint_begins(buf: &[u8]) -> usize {
         .sum()
 }
 
-pub fn range_bounds_to_range<I: IndexingType>(
+pub fn range_bounds_to_range_wrapping<I: IndexingType>(
+    rb: impl RangeBounds<I>,
+    len: I,
+) -> Range<I> {
+    let start = match rb.start_bound() {
+        std::ops::Bound::Included(i) => *i,
+        std::ops::Bound::Excluded(i) => i.wrapping_add(I::one()),
+        std::ops::Bound::Unbounded => I::ZERO,
+    };
+    let end = match rb.end_bound() {
+        std::ops::Bound::Included(i) => i.wrapping_add(I::one()),
+        std::ops::Bound::Excluded(i) => *i,
+        std::ops::Bound::Unbounded => len,
+    };
+    start..end
+}
+
+pub fn range_bounds_to_range_usize<I: IndexingType>(
     rb: impl RangeBounds<I>,
     len: usize,
 ) -> Range<usize> {
@@ -258,7 +275,7 @@ pub fn slice_cow<'a>(
     cow: &Cow<'a, [u8]>,
     range: impl RangeBounds<usize>,
 ) -> Cow<'a, [u8]> {
-    let range = range_bounds_to_range(range, cow.len());
+    let range = range_bounds_to_range_usize(range, cow.len());
     match cow {
         Cow::Borrowed(v) => Cow::Borrowed(&v[range]),
         Cow::Owned(v) => Cow::Owned(v[range].to_vec()),

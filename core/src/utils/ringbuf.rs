@@ -13,7 +13,7 @@ use std::ops::Range;
 //   logical align, modulo `ALIGN`. For example, the logical index 8 is
 //   guaranteed to be at least 8 bytes aligned, assuming `ALIGN >= 8`.
 // - it has less strict ownership guarantees (the data pointer is not `Unique`)
-pub struct RingBuf<const ALIGN: usize> {
+pub struct RingBuf<const ALIGN: usize = 16> {
     data: NonNull<u8>,
     head: usize,
     len: usize,

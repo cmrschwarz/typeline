@@ -861,7 +861,7 @@ impl FieldManager {
         //}
         eprint!(", ms {}", field.match_set);
         eprint!(", rc {:>2}", field.ref_count);
-        eprint!(", actor {:?}", field.first_actor);
+        eprint!(", actor {:?}", field.first_actor.get());
         eprint!(", fc {}", field.iter_hall.field_data.field_count);
         eprint!(", hc {}", field.iter_hall.field_data.headers.len());
         eprint!(", ds {:>2}", field.iter_hall.field_data.data.len());

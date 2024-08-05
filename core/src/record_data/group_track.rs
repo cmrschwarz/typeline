@@ -9,8 +9,8 @@ use crate::{
     index_newtype,
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32, indexing_type::IndexingType,
-        range_bounds_to_range, size_classed_vec_deque::SizeClassedVecDeque,
-        universe::Universe,
+        range_bounds_to_range_usize,
+        size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
     },
 };
 
@@ -523,7 +523,7 @@ impl GroupTrack {
         };
 
         let snapshot_prev = self.snapshot;
-        let snapshot_new = ab.update_actor_snapshot(actor_id);
+        let snapshot_new = ab.get_latest_snapshot();
 
         if snapshot_new == snapshot_prev {
             return;
@@ -561,9 +561,9 @@ impl GroupTrack {
                 self.eprint_iter_states(4);
                 eprintln!();
             }
+            ab.release_temp_action_group(agi);
         };
         ab.drop_snapshot_refcount(snapshot_prev);
-        ab.release_temp_action_group(agi);
     }
 
     pub fn count_leading_groups(
@@ -853,10 +853,12 @@ impl GroupTrack {
         group_index_range: impl RangeBounds<GroupIdx>,
         field_pos_range: impl RangeBounds<usize>,
     ) -> Range<GroupTrackIterSortedIndex> {
-        let group_index_range =
-            range_bounds_to_range(group_index_range, self.iter_states.len());
+        let group_index_range = range_bounds_to_range_usize(
+            group_index_range,
+            self.iter_states.len(),
+        );
         let field_pos_range =
-            range_bounds_to_range(field_pos_range, usize::MAX);
+            range_bounds_to_range_usize(field_pos_range, usize::MAX);
 
         let mut start = self
             .iter_states
@@ -1859,14 +1861,17 @@ impl<'a, T: DerefMut<Target = GroupTrack>> Drop for GroupTrackIterMut<'a, T> {
 
         let list = &mut *self.base.group_track;
 
-        let Some(actor_id) = ab.initialize_actor_ref(
-            Some(ActorSubscriber::GroupTrack(list.id)),
-            &mut list.actor_ref,
-        ) else {
+        if ab
+            .initialize_actor_ref(
+                Some(ActorSubscriber::GroupTrack(list.id)),
+                &mut list.actor_ref,
+            )
+            .is_none()
+        {
             return;
         };
 
-        let snapshot = ab.update_actor_snapshot(actor_id);
+        let snapshot = ab.get_latest_snapshot();
         if snapshot == list.snapshot {
             return;
         }

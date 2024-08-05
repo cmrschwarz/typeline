@@ -19,6 +19,8 @@ pub trait IndexingType:
     // (might conflict in future if `From` is added ...).
     fn from_usize(v: usize) -> Self;
     fn into_usize(self) -> usize;
+    fn wrapping_add(self, other: Self) -> Self;
+    fn wrapping_sub(self, other: Self) -> Self;
     fn zero() -> Self {
         <Self as IndexingType>::from_usize(0)
     }
@@ -98,6 +100,13 @@ impl IndexingType for usize {
     fn from_usize(v: usize) -> Self {
         v
     }
+
+    fn wrapping_add(self, other: Self) -> Self {
+        usize::wrapping_add(self, other)
+    }
+    fn wrapping_sub(self, other: Self) -> Self {
+        usize::wrapping_sub(self, other)
+    }
 }
 
 impl IndexingType for u32 {
@@ -111,6 +120,12 @@ impl IndexingType for u32 {
     #[inline(always)]
     fn from_usize(v: usize) -> Self {
         v as Self
+    }
+    fn wrapping_add(self, other: Self) -> Self {
+        u32::wrapping_add(self, other)
+    }
+    fn wrapping_sub(self, other: Self) -> Self {
+        u32::wrapping_sub(self, other)
     }
 }
 
@@ -126,6 +141,12 @@ impl IndexingType for u64 {
     #[inline(always)]
     fn from_usize(v: usize) -> Self {
         v as Self
+    }
+    fn wrapping_add(self, other: Self) -> Self {
+        u64::wrapping_add(self, other)
+    }
+    fn wrapping_sub(self, other: Self) -> Self {
+        u64::wrapping_sub(self, other)
     }
 }
 
@@ -143,6 +164,12 @@ macro_rules! indexing_type_for_nonmax {
             #[inline(always)]
             fn from_usize(v: usize) -> Self {
                 $nonmax::new(v as $primitive).unwrap()
+            }
+            fn wrapping_add(self, other: Self) -> Self {
+                $nonmax::wrapping_add(&self, other)
+            }
+            fn wrapping_sub(self, other: Self) -> Self {
+                $nonmax::wrapping_add(&self, other)
             }
         }
     };
@@ -171,6 +198,12 @@ macro_rules! index_newtype {
             #[inline(always)]
             fn from_usize(v: usize) -> Self {
                 $name(<$base_type as $crate::utils::indexing_type::IndexingType>::from_usize(v))
+            }
+            fn wrapping_add(self, other: Self) -> Self {
+               $name(<$base_type as  $crate::utils::indexing_type::IndexingType>::wrapping_add(self.0, other.0))
+            }
+            fn wrapping_sub(self, other: Self) -> Self {
+                $name(<$base_type as $crate::utils::indexing_type::IndexingType>::wrapping_sub(self.0, other.0))
             }
         }
 
