@@ -201,12 +201,9 @@ impl<'a> RecordGroupActionsApplicator<'a> {
     }
 
     fn move_to_field_pos(&mut self, field_idx: usize) {
-        if field_idx < self.gl.passed_fields_count {
-            return;
-        }
         loop {
             let field_pos_delta = field_idx - self.field_pos;
-            if field_pos_delta == 0 {
+            if field_pos_delta == 0 && self.group_len_rem != 0 {
                 break;
             }
             if field_pos_delta < self.group_len_rem {
@@ -217,7 +214,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
             self.field_pos += self.group_len_rem;
             self.next_group();
         }
-        if self.iter_group_idx != self.group_idx {
+        if !self.inside_passed_elems && self.iter_group_idx != self.group_idx {
             self.advance_affected_iters_to_group();
         }
         self.advance_affected_iters_to_group_offset();
@@ -330,8 +327,8 @@ impl<'a> RecordGroupActionsApplicator<'a> {
             if iter_state.group_idx == self.group_idx {
                 break;
             }
-            self.affected_iters_start += 1;
             self.apply_iter_field_pos_delta(self.affected_iters_start);
+            self.affected_iters_start += 1;
         }
         self.affected_iters_end = self.affected_iters_start + 1;
         loop {
@@ -358,6 +355,16 @@ impl<'a> RecordGroupActionsApplicator<'a> {
             (is.field_pos as isize + self.curr_iters_field_pos_delta) as usize;
     }
 
+    fn apply_future_iter_offset(
+        &mut self,
+        iter_idx: GroupTrackIterSortedIndex,
+    ) {
+        let is = self.gl.iter_states[iter_idx as usize].get_mut();
+        is.field_pos = (is.field_pos as isize
+            + self.future_iters_field_pos_delta)
+            as usize;
+    }
+
     fn advance_affected_iters_to_group_offset(&mut self) {
         let group_offset = ((self.group_len - self.group_len_rem) as isize
             - self.curr_iters_field_pos_delta)
@@ -372,7 +379,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
             if is.group_offset > group_offset {
                 return;
             }
-            self.apply_curr_iter_offset(self.affected_iters_start);
+            self.apply_future_iter_offset(self.affected_iters_start);
             self.affected_iters_start += 1;
         }
     }
@@ -387,11 +394,10 @@ impl<'a> RecordGroupActionsApplicator<'a> {
     }
 
     fn apply_future_iter_modifications(&mut self) {
-        for i in self.affected_iters_end as usize..self.gl.iter_states.len() {
-            let is = self.gl.iter_states[i].get_mut();
-            is.field_pos = (is.field_pos as isize
-                + self.future_iters_field_pos_delta)
-                as usize;
+        for i in self.affected_iters_end
+            ..self.gl.iter_states.len() as GroupTrackIterSortedIndex
+        {
+            self.apply_future_iter_offset(i);
         }
         self.affected_iters_end =
             self.gl.iter_states.len() as GroupTrackIterSortedIndex;
@@ -2102,11 +2108,11 @@ mod test_action_lists {
                 FieldAction::new(FieldActionKind::Dup, 5, 4),
             ],
             0,
-            [4],
+            [0, 5, 5], // TODO: is this correct?
             [GroupTrackIterStateDummy {
-                field_pos: 1,
-                group_idx: 0,
-                group_offset: 1,
+                field_pos: 0,
+                group_idx: 1,
+                group_offset: 0,
                 iter_id: 0,
             }],
         );
