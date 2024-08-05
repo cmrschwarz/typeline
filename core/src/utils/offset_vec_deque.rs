@@ -99,6 +99,7 @@ impl<I: IndexingType, T> OffsetVecDeque<I, T> {
     }
 
     pub fn pop_front(&mut self) -> Option<T> {
+        self.offset = self.offset.wrapping_add(I::one());
         self.data.pop_front()
     }
     pub fn pop_back(&mut self) -> Option<T> {
@@ -106,6 +107,7 @@ impl<I: IndexingType, T> OffsetVecDeque<I, T> {
     }
 
     pub fn drop_front(&mut self, count: usize) {
+        self.offset = self.offset.wrapping_add(I::from_usize(count));
         self.data.drain(0..count);
     }
     pub fn truncate(&mut self, len: usize) {

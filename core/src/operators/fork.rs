@@ -252,6 +252,7 @@ fn setup_fork_subchain(
     );
 
     let target_group_track = job.job_data.group_track_manager.add_group_track(
+        &job.job_data.match_set_mgr,
         None,
         target_ms_id,
         ActorRef::Unconfirmed(ActorId::new(0)),

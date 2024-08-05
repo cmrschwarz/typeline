@@ -324,6 +324,7 @@ impl Transform<'_> for TfExplode {
         let scope_id = jd.match_set_mgr.match_sets[match_set_id].active_scope;
         for (field, index) in &mut iter {
             let field_id = jd.field_mgr.add_field_with_data(
+                &jd.match_set_mgr,
                 match_set_id,
                 first_actor,
                 field.take(),

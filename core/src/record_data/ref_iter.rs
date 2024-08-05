@@ -1061,10 +1061,18 @@ mod ref_iter_tests {
             scope_id,
         );
 
-        let field_id =
-            field_mgr.add_field_with_data(ms_id, ActorRef::default(), fd);
-        let refs_field_id =
-            field_mgr.add_field_with_data(ms_id, ActorRef::default(), fd_refs);
+        let field_id = field_mgr.add_field_with_data(
+            &match_set_mgr,
+            ms_id,
+            ActorRef::default(),
+            fd,
+        );
+        let refs_field_id = field_mgr.add_field_with_data(
+            &match_set_mgr,
+            ms_id,
+            ActorRef::default(),
+            fd_refs,
+        );
         field_mgr.register_field_reference(refs_field_id, field_id);
 
         {

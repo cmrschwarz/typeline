@@ -422,6 +422,7 @@ impl<'a> Job<'a> {
                 fd.data.push_null(1, true);
             }
             let field_id = self.job_data.field_mgr.add_field_with_data(
+                &self.job_data.match_set_mgr,
                 ms_id,
                 ActorRef::default(),
                 fd.data,
@@ -442,8 +443,12 @@ impl<'a> Job<'a> {
             .push_undefined(input_record_count, false);
         let input_field = input_field.unwrap_or(dummy_field);
         let rgt = &mut self.job_data.group_track_manager;
-        let input_group_track =
-            rgt.add_group_track(None, ms_id, ActorRef::default());
+        let input_group_track = rgt.add_group_track(
+            &self.job_data.match_set_mgr,
+            None,
+            ms_id,
+            ActorRef::default(),
+        );
         rgt.append_group_to_track(input_group_track, input_record_count, 0);
 
         #[cfg(feature = "debug_logging")]
@@ -630,8 +635,11 @@ impl<'a> Job<'a> {
                         let actor = ActorRef::Unconfirmed(
                             ms.action_buffer.borrow().peek_next_actor_id(),
                         );
-                        input_field =
-                            self.job_data.field_mgr.add_field(ms_id, actor);
+                        input_field = self.job_data.field_mgr.add_field(
+                            &self.job_data.match_set_mgr,
+                            ms_id,
+                            actor,
+                        );
                         self.job_data.scope_mgr.insert_field_name(
                             ms.active_scope,
                             op.key_interned.unwrap(),
@@ -715,7 +723,11 @@ impl<'a> Job<'a> {
                         f.match_set = ms_id;
                         *field_idx
                     } else {
-                        self.job_data.field_mgr.add_field(ms_id, first_actor)
+                        self.job_data.field_mgr.add_field(
+                            &self.job_data.match_set_mgr,
+                            ms_id,
+                            first_actor,
+                        )
                     }
                 }
                 OutputFieldKind::Unconfigured => {

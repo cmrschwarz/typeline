@@ -437,8 +437,11 @@ pub fn setup_callee_concurrent(
         job.job_data.match_set_mgr.match_sets[ms_id].active_scope;
     let mut buf_data = callee.buffer.fields.lock().unwrap();
     for field in &buf_data.fields {
-        let field_id =
-            job.job_data.field_mgr.add_field(ms_id, ActorRef::default());
+        let field_id = job.job_data.field_mgr.add_field(
+            &job.job_data.match_set_mgr,
+            ms_id,
+            ActorRef::default(),
+        );
         job.job_data.scope_mgr.insert_field_name_opt(
             tgt_scope_id,
             field.name,

@@ -526,9 +526,11 @@ pub fn build_tf_regex<'a>(
                 );
                 *field_id
             } else {
-                let field_id = jd
-                    .field_mgr
-                    .add_field(tf_state.match_set_id, next_actor_id);
+                let field_id = jd.field_mgr.add_field(
+                    &jd.match_set_mgr,
+                    tf_state.match_set_id,
+                    next_actor_id,
+                );
                 jd.scope_mgr
                     .insert_field_name(active_scope, *name, field_id);
                 field_id

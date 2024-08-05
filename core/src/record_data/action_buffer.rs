@@ -156,7 +156,7 @@ impl ActionBuffer {
         #[cfg_attr(not(feature = "debug_state"), allow(unused))]
         ms_id: MatchSetId,
     ) -> Self {
-        Self {
+        let mut ab = Self {
             #[cfg(feature = "debug_state")]
             match_set_id: ms_id,
             actors: OffsetVecDeque::default(),
@@ -168,7 +168,15 @@ impl ActionBuffer {
             action_groups: OffsetVecDeque::default(),
             action_group_data: OffsetVecDeque::default(),
             merges: Vec::new(),
-        }
+        };
+        ab.action_groups.push_back(ActionGroup {
+            actions_begin: ActionGroupDataOffset::ZERO,
+            actions_end: ActionGroupDataOffset::ZERO,
+            actor_id: ActorId::ZERO,
+            refcount: 0,
+            field_count_delta: 0,
+        });
+        ab
     }
     pub fn begin_action_group(&mut self, actor_id: ActorId) {
         debug_assert!(self.pending_action_group_actor_id.is_none());
@@ -184,7 +192,6 @@ impl ActionBuffer {
         if pending_actions_end == self.pending_actions_start {
             return;
         }
-        let action_list_index = self.action_groups.next_free_index();
         self.action_groups.push_back(ActionGroup {
             actions_begin: self.pending_actions_start,
             actions_end: pending_actions_end,
@@ -195,6 +202,7 @@ impl ActionBuffer {
         self.pending_action_group_field_count_delta = 0;
         #[cfg(feature = "debug_logging_field_action_groups")]
         {
+            let action_list_index = self.action_groups.last_used_index();
             eprintln!(
                 "added action group {}, ms {}, actor {actor_id}:",
                 action_list_index, self.match_set_id,
@@ -417,25 +425,45 @@ impl ActionBuffer {
 
         ag.refcount -= 1;
 
+        #[cfg(feature = "debug_logging_field_action_group_accel")]
+        eprintln!(
+            "@ dropped refcount for snapshot {}: {} -> {}",
+            snapshot.into_usize(),
+            ag.refcount + 1,
+            ag.refcount
+        );
+
         if ag.refcount > 0 || self.action_groups.offset() != ag_id {
             return;
         }
         let mut actions_end = self.action_group_data.offset();
-        while let Some(ag) = self.action_groups.front() {
+        let mut ag_pos = 0;
+        while ag_pos + 1 < self.action_groups.len() {
+            let ag = self.action_groups.get_phys(ag_pos);
             if ag.refcount != 0 {
                 break;
             }
             actions_end = ag.actions_end;
-            self.action_groups.pop_front();
+            ag_pos += 1;
         }
+        self.action_groups.drop_front(ag_pos);
         self.action_group_data.drop_front_until(actions_end);
     }
     pub(super) fn bump_snapshot_refcount(&mut self, snapshot: SnapshotRef) {
-        self.action_groups[snapshot.into_inner()].refcount += 1;
+        let ag = &mut self.action_groups[snapshot.into_inner()];
+        ag.refcount += 1;
+
+        #[cfg(feature = "debug_logging_field_action_group_accel")]
+        eprintln!(
+            "@ bumped refcount for snapshot {}: {} -> {}",
+            snapshot.into_usize(),
+            ag.refcount - 1,
+            ag.refcount
+        );
     }
 
     pub fn get_latest_snapshot(&self) -> SnapshotRef {
-        SnapshotRef(self.action_groups.next_free_index())
+        SnapshotRef(self.action_groups.last_used_index())
     }
 
     pub fn update_field(
@@ -469,13 +497,6 @@ impl ActionBuffer {
         field.snapshot.set(latest_snapshot);
         self.bump_snapshot_refcount(latest_snapshot);
         drop(field);
-
-        #[cfg(feature = "debug_logging_field_action_group_accel")]
-        eprintln!(
-            "@ updated snapshot for of actor {actor_id} for field {field_id}: \n - prev: {}\n - next: {}",
-            field_snapshot,
-            latest_snapshot,
-        );
 
         let res = self.build_actions_from_snapshot(actor_id, field_snapshot);
         self.drop_snapshot_refcount(field_snapshot);
@@ -546,10 +567,13 @@ impl ActionBuffer {
         let mut first_actor = field.first_actor.get();
         let field_snapshot = field.snapshot.get();
 
-        let Some(actor_id) = self.initialize_actor_ref(
-            Some(ActorSubscriber::Field(field_id)),
-            &mut first_actor,
-        ) else {
+        if self
+            .initialize_actor_ref(
+                Some(ActorSubscriber::Field(field_id)),
+                &mut first_actor,
+            )
+            .is_none()
+        {
             return;
         };
         field.first_actor.set(first_actor);
@@ -563,16 +587,14 @@ impl ActionBuffer {
         {
             eprintln!(
                 "dropping actions for field {} (ms: {}, first actor: {})",
-                field_id, self.match_set_id, actor_id,
+                field_id,
+                self.match_set_id,
+                first_actor.unwrap(),
             );
         }
-        #[cfg(feature = "debug_logging_field_action_group_accel")]
-        eprintln!(
-            "@ updated snapshot for field {field_id}: \n - prev: {}\n - next: {}",
-            field_snapshot,
-            latest_snapshot,
-        );
+
         self.bump_snapshot_refcount(latest_snapshot);
+
         self.drop_snapshot_refcount(field_snapshot);
 
         field.snapshot.set(latest_snapshot);
@@ -595,10 +617,11 @@ impl ActionBuffer {
                     break 'find_groups;
                 }
                 action_group = self.action_groups.get_phys(ag_idx);
-                if action_group.actor_id.into_usize() > actor_id.into_usize() {
+                ag_idx += 1;
+                if action_group.actor_id.into_usize() >= actor_id.into_usize()
+                {
                     break;
                 }
-                ag_idx += 1;
             }
             count += 1;
             let pow2 = count.trailing_zeros() as usize;
@@ -618,7 +641,7 @@ impl ActionBuffer {
                         &rhs,
                     );
             }
-            if self.merges.len() < pow2 {
+            if self.merges.len() == pow2 {
                 self.merges.push(rhs);
             } else {
                 self.merges[pow2] = rhs;
@@ -630,11 +653,11 @@ impl ActionBuffer {
         }
 
         let highest_pow2 = count.ilog2() as usize;
-        debug_assert!(self.merges.len() == highest_pow2);
-        let highest_pow2_count = 1 << count;
+        debug_assert!(self.merges.len() == highest_pow2 + 1);
+        let highest_pow2_count = 1 << highest_pow2;
 
         let mut pow2 = highest_pow2;
-        let mut lhs = self.merges[highest_pow2 - 1];
+        let mut lhs = self.merges[highest_pow2];
         while pow2 != 0 {
             pow2 /= 2;
             if highest_pow2_count + (1 << pow2) >= count {

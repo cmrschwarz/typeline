@@ -275,6 +275,7 @@ pub fn insert_tf_forkcat<'a>(
         .parent_group_track_id();
 
     let cont_group_track = job.job_data.group_track_manager.add_group_track(
+        &job.job_data.match_set_mgr,
         gt_parent,
         cont_ms_id,
         ActorRef::Unconfirmed(ActorId::ZERO),
@@ -293,10 +294,11 @@ pub fn insert_tf_forkcat<'a>(
         IndexVec::<ContinuationVarIdx, FieldId>::new();
 
     for cv in &op.continuation_vars {
-        let field_id = job
-            .job_data
-            .field_mgr
-            .add_field(cont_ms_id, ActorRef::default());
+        let field_id = job.job_data.field_mgr.add_field(
+            &job.job_data.match_set_mgr,
+            cont_ms_id,
+            ActorRef::default(),
+        );
         job.job_data.scope_mgr.insert_field_name_opt(
             cont_scope_id,
             cv.get_name(),
@@ -414,6 +416,7 @@ fn setup_subchain<'a>(
     );
 
     let group_track = job.job_data.group_track_manager.add_group_track(
+        &job.job_data.match_set_mgr,
         None,
         sc_ms_id,
         ActorRef::Unconfirmed(ActorId::ZERO),

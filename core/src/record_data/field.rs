@@ -302,28 +302,31 @@ impl FieldManager {
         let field = self.fields[field_id].borrow();
         field.first_actor.get()
     }
-    // TODO: take the field name out here completely.
-    // only use scopes to give fields names
     pub fn add_field(
         &mut self,
+        msm: &MatchSetManager,
         ms_id: MatchSetId,
         first_actor: ActorRef,
     ) -> FieldId {
-        self.add_field_with_data(ms_id, first_actor, FieldData::default())
+        self.add_field_with_data(msm, ms_id, first_actor, FieldData::default())
     }
     pub fn add_field_with_data(
         &mut self,
+        msm: &MatchSetManager,
         ms_id: MatchSetId,
         first_actor: ActorRef,
         data: FieldData,
     ) -> FieldId {
+        let mut ab = msm.match_sets[ms_id].action_buffer.borrow_mut();
+        let snapshot = ab.get_latest_snapshot();
+        ab.bump_snapshot_refcount(snapshot);
         let mut field = Field {
             ref_count: 1,
             shadowed_since: ActionBuffer::MAX_ACTOR_ID,
             shadowed_by: None,
             match_set: ms_id,
             first_actor: Cell::new(first_actor),
-            snapshot: Cell::new(SnapshotRef::default()),
+            snapshot: Cell::new(snapshot),
             iter_hall: IterHall::new_with_data(data),
             field_refs: SmallVec::new(),
             #[cfg(feature = "debug_logging")]
@@ -455,7 +458,8 @@ impl FieldManager {
             self.bump_field_refcount(tgt_field_id);
             return tgt_field_id;
         }
-        let tgt_field_id = self.add_field(tgt_match_set, ActorRef::default());
+        let tgt_field_id =
+            self.add_field(msm, tgt_match_set, ActorRef::default());
         self.setup_cow_between_fields(msm, src_field_id, tgt_field_id);
         tgt_field_id
     }
@@ -520,7 +524,7 @@ impl FieldManager {
         let src_field = self.fields[src_field_id].borrow();
         let ms_id = src_field.match_set;
         drop(src_field);
-        let tgt_field_id = self.add_field(ms_id, ActorRef::default());
+        let tgt_field_id = self.add_field(msm, ms_id, ActorRef::default());
         self.setup_cow_between_fields(msm, src_field_id, tgt_field_id);
         tgt_field_id
     }

@@ -188,6 +188,7 @@ impl Operator for OpPy {
                     id
                 } else {
                     let field_id = jd.field_mgr.add_field(
+                        &jd.match_set_mgr,
                         tf_state.match_set_id,
                         jd.field_mgr.get_first_actor(tf_state.input_field),
                     );

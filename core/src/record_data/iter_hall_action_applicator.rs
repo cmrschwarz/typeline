@@ -921,7 +921,7 @@ mod test_dead_data_drop {
         let mut msm = MatchSetManager::default();
         let scope_id = sm.add_scope(None);
         let ms_id = msm.add_match_set(&mut fm, &mut sm, scope_id);
-        let field_id = fm.add_field(ms_id, ActorRef::default());
+        let field_id = fm.add_field(&msm, ms_id, ActorRef::default());
 
         {
             let mut field = fm.fields[field_id].borrow_mut();

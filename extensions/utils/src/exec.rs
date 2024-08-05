@@ -277,15 +277,21 @@ impl Operator for OpExec {
         }
 
         drop(ab);
-        let stderr_field =
-            jd.field_mgr.add_field(tf_state.match_set_id, actor_ref);
+        let stderr_field = jd.field_mgr.add_field(
+            &jd.match_set_mgr,
+            tf_state.match_set_id,
+            actor_ref,
+        );
         jd.scope_mgr.insert_field_name(
             scope_id,
             self.stderr_field_name,
             stderr_field,
         );
-        let exit_code_field =
-            jd.field_mgr.add_field(tf_state.match_set_id, actor_ref);
+        let exit_code_field = jd.field_mgr.add_field(
+            &jd.match_set_mgr,
+            tf_state.match_set_id,
+            actor_ref,
+        );
         jd.scope_mgr.insert_field_name(
             scope_id,
             self.exit_code_field_name,

@@ -65,7 +65,7 @@ impl MatchSetManager {
         // PERF: if the field has no name, and no actor was added
         // after between it's first_actor and the last,
         // we can just set it's name instead of adding an alias field
-        let alias_id = fm.add_field(ms_id, first_actor);
+        let alias_id = fm.add_field(self, ms_id, first_actor);
         sm.insert_field_name(scope_id, name, alias_id);
         let mut field = fm.fields[field_id].borrow_mut();
         field.shadowed_by = Some(alias_id);
@@ -87,22 +87,26 @@ impl MatchSetManager {
         scope: ScopeId,
     ) -> MatchSetId {
         let ms_id = self.match_sets.peek_claim_id();
-        let dummy_field =
-            fm.add_field(ms_id, ActorRef::Unconfirmed(ActorId::ZERO));
         let ms = MatchSet {
-            dummy_field,
+            dummy_field: FieldId::MAX_VALUE,
             active_scope: scope,
             stream_participants: Vec::new(),
             action_buffer: RefCell::new(ActionBuffer::new(ms_id)),
             fields_cow_map: HashMap::default(),
         };
+
+        self.match_sets.claim_with_value(ms);
+        let dummy_field =
+            fm.add_field(self, ms_id, ActorRef::Unconfirmed(ActorId::ZERO));
+
+        let ms = &mut self.match_sets[ms_id];
         #[cfg(feature = "debug_logging")]
         {
             fm.fields[dummy_field].borrow_mut().producing_transform_arg =
                 format!("<MS {ms_id} Dummy>");
             ms.action_buffer.borrow_mut().match_set_id = ms_id;
         }
-        self.match_sets.claim_with_value(ms);
+        ms.dummy_field = dummy_field;
         ms_id
     }
     pub fn remove_match_set(&mut self, _ms_id: MatchSetId) {

@@ -1109,11 +1109,15 @@ pub fn merge_leading_groups_into_parent_raw(
 impl GroupTrackManager {
     pub fn add_group_track(
         &mut self,
+        ms: &MatchSetManager,
         parent_track: Option<GroupTrackId>,
         ms_id: MatchSetId,
         actor: ActorRef,
     ) -> GroupTrackId {
         let id = self.group_tracks.peek_claim_id();
+        let mut ab = ms.match_sets[ms_id].action_buffer.borrow_mut();
+        let snapshot = ab.get_latest_snapshot();
+        ab.bump_snapshot_refcount(snapshot);
         self.group_tracks.claim_with_value(RefCell::new(GroupTrack {
             id,
             ms_id,
@@ -1126,7 +1130,7 @@ impl GroupTrackManager {
             parent_group_advancement: SizeClassedVecDeque::new(),
             iter_states: Vec::default(),
             iter_lookup_table: Universe::default(),
-            snapshot: SnapshotRef::default(),
+            snapshot,
             iter_states_sorted: Cell::new(true),
             #[cfg(feature = "debug_state")]
             alias_source: None,
@@ -1871,14 +1875,14 @@ impl<'a, T: DerefMut<Target = GroupTrack>> Drop for GroupTrackIterMut<'a, T> {
             return;
         };
 
-        let snapshot = ab.get_latest_snapshot();
-        if snapshot == list.snapshot {
+        let latest_snapshot = ab.get_latest_snapshot();
+        if latest_snapshot == list.snapshot {
             return;
         }
 
         ab.drop_snapshot_refcount(list.snapshot);
-        ab.bump_snapshot_refcount(snapshot);
-        list.snapshot = snapshot;
+        ab.bump_snapshot_refcount(latest_snapshot);
+        list.snapshot = latest_snapshot;
     }
 }
 

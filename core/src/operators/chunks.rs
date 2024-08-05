@@ -81,6 +81,7 @@ pub fn insert_tf_chunks(
             IterKind::Transform(header_tf_id_peek),
         );
     let group_track = job.job_data.group_track_manager.add_group_track(
+        &job.job_data.match_set_mgr,
         Some(parent_group_track),
         ms_id,
         next_actor_id,
@@ -143,6 +144,7 @@ pub fn insert_tf_chunks(
             .parent_group_track_id();
     trailer_tf_state.output_group_track_id =
         job.job_data.group_track_manager.add_group_track(
+            &job.job_data.match_set_mgr,
             parent_group_track_parent,
             out_ms_id,
             job.job_data.match_set_mgr.match_sets[out_ms_id]
