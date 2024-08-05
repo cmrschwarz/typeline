@@ -134,15 +134,16 @@ pub fn insert_tf_foreach(
         job.job_data.group_track_manager.group_tracks[parent_group_track]
             .borrow()
             .parent_group_track_id();
+    let next_actor_ref = job.job_data.match_set_mgr.match_sets[out_ms_id]
+        .action_buffer
+        .borrow()
+        .next_actor_ref();
     trailer_tf_state.output_group_track_id =
         job.job_data.group_track_manager.add_group_track(
             &job.job_data.match_set_mgr,
             parent_group_track_parent,
             out_ms_id,
-            job.job_data.match_set_mgr.match_sets[out_ms_id]
-                .action_buffer
-                .borrow()
-                .next_actor_ref(),
+            next_actor_ref,
         );
 
     #[cfg(feature = "debug_state")]

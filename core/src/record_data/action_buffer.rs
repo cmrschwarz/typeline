@@ -314,8 +314,8 @@ impl ActionBuffer {
             std::mem::swap(&mut lhs_idx, &mut rhs_idx);
         }
         match (lhs_idx, rhs_idx) {
-            (0, 1) => 2,
-            (0, 2) => 1,
+            (0, 0) | (0, 2) => 1,
+            (0, 1) | (1, 1) => 2,
             _ => 0,
         }
     }
@@ -421,11 +421,11 @@ impl ActionBuffer {
         rhs: &ActionGroupIdentifier,
     ) -> ActionGroupIdentifier {
         let res = self.merge_action_groups_into_temp_buffer(lhs, rhs);
-        if res != *lhs {
-            self.release_temp_action_group(lhs);
-        }
         if res != *rhs {
             self.release_temp_action_group(rhs);
+        }
+        if res != *lhs {
+            self.release_temp_action_group(lhs);
         }
         res
     }
@@ -458,6 +458,17 @@ impl ActionBuffer {
             actions_end = ag.actions_end;
             ag_pos += 1;
         }
+
+        #[cfg(feature = "debug_logging_field_action_group_accel")]
+        {
+            eprintln!("@ dropping snapshots: action groups {} - {}, action offsets {} - {}",
+                self.action_groups.index_from_phys(0),
+                self.action_groups.index_from_phys(ag_pos),
+                self.action_group_data.index_from_phys(0),
+                actions_end
+            )
+        }
+
         self.action_groups.drop_front(ag_pos);
         self.action_group_data.drop_front_until(actions_end);
     }
@@ -507,7 +518,6 @@ impl ActionBuffer {
         drop(field);
 
         let res = self.build_actions_from_snapshot(actor_id, field_snapshot);
-        self.drop_snapshot_refcount(field_snapshot);
 
         let Some(agi) = res else {
             return;
@@ -537,6 +547,7 @@ impl ActionBuffer {
             first_action_index,
         );
         self.release_temp_action_group(&agi);
+        self.drop_snapshot_refcount(field_snapshot);
     }
 
     pub fn get_actor_id_from_ref(
@@ -594,7 +605,7 @@ impl ActionBuffer {
         #[cfg(feature = "debug_logging")]
         {
             eprintln!(
-                "dropping actions for field {} (ms: {}, first actor: {})",
+                "@ dropping actions for field {} (ms: {}, first actor: {})",
                 field_id,
                 self.match_set_id,
                 first_actor.unwrap(),
