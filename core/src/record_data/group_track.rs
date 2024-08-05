@@ -1918,16 +1918,13 @@ mod test_action_lists {
     use crate::{
         record_data::{
             field_action::{FieldAction, FieldActionKind},
-            group_track::{GroupTrack, GroupTrackIterState},
+            group_track::{GroupTrack, GroupTrackIterSortedIndex},
         },
         utils::{
             size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
         },
     };
-    use std::{cell::Cell, collections::VecDeque};
-
-    #[cfg(feature = "debug_state")]
-    use crate::record_data::iter_hall::IterKind;
+    use std::cell::Cell;
 
     use super::testing_helpers::GroupTrackIterStateDummy;
 
@@ -1937,7 +1934,9 @@ mod test_action_lists {
         group_lengths_before: impl IntoIterator<
             IntoIter = impl Iterator<Item = usize> + Clone,
         >,
-        iter_states_before: impl IntoIterator<Item = GroupTrackIterStateDummy>,
+        iter_states_before: impl IntoIterator<
+            IntoIter = impl Iterator<Item = GroupTrackIterStateDummy> + Clone,
+        >,
         field_actions: impl IntoIterator<Item = FieldAction>,
         passed_fields_after: usize,
         group_lengths_after: impl IntoIterator<
@@ -1947,6 +1946,7 @@ mod test_action_lists {
     ) {
         let group_lengths_before = group_lengths_before.into_iter();
         let group_lengths_after = group_lengths_after.into_iter();
+        let iter_states_before = iter_states_before.into_iter();
 
         let mut gl = GroupTrack {
             passed_fields_count: passed_fields_before,
@@ -1957,10 +1957,12 @@ mod test_action_lists {
                 group_lengths_before,
             ),
             iter_states: iter_states_before
-                .into_iter()
+                .clone()
                 .map(|i| Cell::new(i.into_iter_state()))
                 .collect::<Vec<_>>(),
-            iter_lookup_table: Universe::from([0].into_iter()),
+            iter_lookup_table: Universe::from(
+                0..iter_states_before.count() as GroupTrackIterSortedIndex,
+            ),
             ..Default::default()
         };
 
@@ -2019,7 +2021,6 @@ mod test_action_lists {
 
     #[test]
     fn drop_in_group_affects_iterator_correctly() {
-        // TODO: iter_id 1 crashes this?
         test_apply_field_actions(
             1,
             [3],
@@ -2034,7 +2035,7 @@ mod test_action_lists {
                     field_pos: 3,
                     group_idx: 0,
                     group_offset: 2,
-                    iter_id: 0,
+                    iter_id: 1,
                 },
             ],
             [FieldAction::new(FieldActionKind::Drop, 2, 1)],
@@ -2051,7 +2052,7 @@ mod test_action_lists {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
-                    iter_id: 0,
+                    iter_id: 1,
                 },
             ],
         );
@@ -2071,6 +2072,34 @@ mod test_action_lists {
             [
                 FieldAction::new(FieldActionKind::Drop, 0, 1),
                 FieldAction::new(FieldActionKind::Dup, 1, 2),
+            ],
+            0,
+            [4],
+            [GroupTrackIterStateDummy {
+                field_pos: 1,
+                group_idx: 0,
+                group_offset: 1,
+                iter_id: 0,
+            }],
+        );
+    }
+
+    #[test]
+    fn test_iter_state_adjustment() {
+        // reduced from integration::exec::run_exec_into_join
+        test_apply_field_actions(
+            1,
+            [0, 1, 1],
+            [GroupTrackIterStateDummy {
+                field_pos: 1,
+                group_idx: 1,
+                group_offset: 0,
+                iter_id: 0,
+            }],
+            [
+                FieldAction::new(FieldActionKind::Drop, 0, 1),
+                FieldAction::new(FieldActionKind::Dup, 0, 4),
+                FieldAction::new(FieldActionKind::Dup, 5, 4),
             ],
             0,
             [4],
