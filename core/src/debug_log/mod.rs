@@ -201,6 +201,9 @@ fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
                         .apply_actions_to_track(&jd.match_set_mgr, gt_id);
                 }
                 let gt = jd.group_track_manager.group_tracks[gt_id].borrow();
+                let fc = gt.group_lengths.iter().sum::<usize>()
+                    + gt.passed_fields_count;
+                mc.dead_slots.resize(mc.dead_slots.len().max(fc), 0);
                 add_group_track_dead_slots(&gt, &mut mc.dead_slots)
             }
         }
@@ -961,7 +964,7 @@ fn group_track_to_json(
             "iters": row_iters,
         }));
 
-        if is_next_group_start && !iter.try_next_group() {
+        if is_next_group_start && (!passed && !iter.try_next_group()) {
             break;
         }
     }
