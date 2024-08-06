@@ -297,15 +297,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
             }
         }
     }
-    fn apply_iter_field_pos_delta(
-        &mut self,
-        iter_idx: GroupTrackIterSortedIndex,
-    ) {
-        let is = self.gl.iter_states[iter_idx as usize].get_mut();
-        is.field_pos = (is.field_pos as isize
-            + self.future_iters_field_pos_delta)
-            as usize;
-    }
+
     fn advance_affected_iters_to_group(&mut self) {
         debug_assert!(self.iter_group_idx != self.group_idx);
         self.iter_group_idx = self.group_idx;
@@ -320,14 +312,15 @@ impl<'a> RecordGroupActionsApplicator<'a> {
             let iter_state = self.gl.iter_states
                 [self.affected_iters_start as usize]
                 .get_mut();
-            if iter_state.group_idx > self.group_idx {
+            let group_idx = iter_state.group_idx;
+            if group_idx > self.group_idx {
                 self.affected_iters_end = self.affected_iters_start;
                 return;
             }
-            if iter_state.group_idx == self.group_idx {
+            self.apply_future_iter_offset(self.affected_iters_start);
+            if group_idx == self.group_idx {
                 break;
             }
-            self.apply_iter_field_pos_delta(self.affected_iters_start);
             self.affected_iters_start += 1;
         }
         self.affected_iters_end = self.affected_iters_start + 1;
@@ -341,7 +334,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
             if iter_state.group_idx > self.group_idx {
                 return;
             }
-            self.apply_iter_field_pos_delta(self.affected_iters_end);
+            self.apply_future_iter_offset(self.affected_iters_end);
             self.affected_iters_end += 1
         }
     }
@@ -379,7 +372,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
             if is.group_offset > group_offset {
                 return;
             }
-            self.apply_future_iter_offset(self.affected_iters_start);
+            self.apply_curr_iter_offset(self.affected_iters_start);
             self.affected_iters_start += 1;
         }
     }
@@ -2091,7 +2084,7 @@ mod test_action_lists {
     }
 
     #[test]
-    fn test_iter_state_adjustment() {
+    fn test_empty_group_skip_and_iter_adjustment() {
         // reduced from integration::exec::run_exec_into_join
         test_apply_field_actions(
             1,
