@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Debug};
+use std::{borrow::Cow, fmt::Debug, sync::Arc};
 
 use thiserror::Error;
 
@@ -120,6 +120,12 @@ impl ContextualizedScrError {
 impl From<ContextualizedScrError> for ScrError {
     fn from(value: ContextualizedScrError) -> Self {
         value.err
+    }
+}
+
+impl From<Arc<OperatorApplicationError>> for ScrError {
+    fn from(value: Arc<OperatorApplicationError>) -> Self {
+        ScrError::from(Arc::try_unwrap(value).unwrap_or_else(|v| (*v).clone()))
     }
 }
 

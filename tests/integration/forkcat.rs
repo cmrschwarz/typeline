@@ -234,17 +234,16 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
 fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_batch_size(2)
-        .unwrap()
-        .add_op(create_op_seqn(1, 5, 1).unwrap())
+        .set_batch_size(2)?
+        .add_op(create_op_seqn(1, 5, 1)?)
         .add_op(create_op_forkcat([
-            [create_op_regex("[24]").unwrap()],
+            [create_op_regex("[24]")?],
             [create_op_nop()],
         ]))
         .add_op(create_op_join(None, None, false))
         .add_op(create_op_string_sink(&ss))
         .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["2412345"]);
+    assert_eq!(ss.get_data()?.as_slice(), ["2412345"]);
     Ok(())
 }
 
