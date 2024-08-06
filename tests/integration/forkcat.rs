@@ -230,11 +230,17 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[test]
-fn forkcat_with_batches_into_join() -> Result<(), ScrError> {
+#[rstest]
+#[case(1)]
+#[case(2)]
+#[case(3)]
+#[case(5)]
+fn forkcat_with_batches_into_join(
+    #[case] batch_size: usize,
+) -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
-        .set_batch_size(2)?
+        .set_batch_size(batch_size)?
         .add_op(create_op_seqn(1, 5, 1)?)
         .add_op(create_op_forkcat([
             [create_op_regex("[24]")?],
