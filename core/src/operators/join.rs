@@ -603,7 +603,8 @@ pub fn handle_tf_join<'a>(
     let mut groups_emitted = 0;
     let mut batch_size_rem = batch_size;
     let mut last_group_end = field_pos_start;
-    let mut prebuffered_record = join.first_record_added;
+    let started_with_prebuffered_record = join.first_record_added;
+    let mut prebuffered_record = started_with_prebuffered_record;
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
 
     let mut record_group_iter =
@@ -851,11 +852,6 @@ pub fn handle_tf_join<'a>(
         record_group_iter.next_n_fields(fc);
     }
 
-    jd.field_mgr.store_iter(input_field_id, join.iter_id, iter);
-    record_group_iter.store_iter(join.group_track_iter_ref.iter_id);
-
-    drop(input_field);
-
     if let Some(sv_id) = join.active_stream_value {
         if !join.active_stream_value_submitted {
             join.active_stream_value_submitted = true;
@@ -877,6 +873,16 @@ pub fn handle_tf_join<'a>(
             }
         }
     }
+
+    let drop_count = (iter.get_next_field_pos() - last_group_end
+        + usize::from(started_with_prebuffered_record && groups_emitted == 0))
+    .saturating_sub(1);
+    record_group_iter.drop_backwards(drop_count);
+
+    jd.field_mgr.store_iter(input_field_id, join.iter_id, iter);
+    record_group_iter.store_iter(join.group_track_iter_ref.iter_id);
+
+    drop(input_field);
 
     if ps.next_batch_ready {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
