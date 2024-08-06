@@ -681,15 +681,26 @@ impl FieldActionApplicator {
                 unreachable!()
             };
 
+            let mut run_len = a.run_len;
+
             let zst_header_idx = faas.header_idx_new;
-            self.push_insert_command(
+            if let Some(h) = headers.back_mut() {
+                if h.repr == repr && !h.deleted() && h.shared_value_or_rl_one()
+                {
+                    let appendable =
+                        (RunLength::MAX - h.run_length).min(run_len);
+                    run_len -= appendable;
+                    h.run_length += appendable;
+                }
+            }
+            self.push_insert_command_if_rl_gt_0(
                 &mut faas,
                 FieldValueFormat {
                     repr,
                     flags: field_value_flags::SHARED_VALUE,
                     size: 0,
                 },
-                a.run_len,
+                run_len,
             );
 
             faas.curr_header_iters_end = iterators.len();
@@ -1459,6 +1470,68 @@ mod test {
                             | field_value_flags::SHARED_VALUE,
                     },
                     run_length: 1,
+                },
+            ],
+            [],
+            [],
+        );
+    }
+
+    // / FieldAction { kind: Drop, field_idx: 0, run_len: 4 } (src_idx: 0)
+    // / FieldAction { kind: InsertZst(Undefined), field_idx: 1, run_len: 2 }
+    // (src_idx: 5)
+    // + before: [
+    // FieldValueHeader { fmt: FieldValueFormat { repr: TextInline, size: 1,
+    // flags: Flags { pad: 0, del: 0, shared_val: 0, same_as_prev: 0 } },
+    // run_length: 2 }, FieldValueHeader { fmt: FieldValueFormat { repr:
+    // Undefined, size: 0, flags: Flags { pad: 0, del: 0, shared_val: 1,
+    // same_as_prev: 0 } }, run_length: 3 }, ]
+
+    #[test]
+    fn test_insert_into_drop_interaction() {
+        test_actions_on_headers(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 3,
+                },
+            ],
+            [
+                FieldAction::new(FieldActionKind::Drop, 0, 4),
+                FieldAction::new(
+                    FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                    1,
+                    2,
+                ),
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 3,
                 },
             ],
             [],
