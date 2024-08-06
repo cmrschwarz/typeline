@@ -652,6 +652,9 @@ pub fn handle_tf_forkcat(
     );
 }
 
+// TODO: pass groups from subchains
+// TODO: make sure last group gets field ref'ed correctly, see
+// `forkcat_build_sql_insert`, third invocation of this method
 pub fn propagate_forkcat(
     jd: &mut JobData,
     cont_state: &mut FcContinuationState,
