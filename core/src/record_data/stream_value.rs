@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     io::{BufRead, Read, Write},
+    iter::Peekable,
     ops::Range,
     slice::SliceIndex,
     string::FromUtf8Error,
@@ -322,8 +323,10 @@ impl<'s, 'd> StreamValueDataCursor<'s, 'd> {
 
 #[derive(Clone)]
 pub struct StreamValueDataIter<'s, 'd> {
-    iter: std::collections::vec_deque::Iter<'d, StreamValueData<'s>>,
+    iter: Peekable<std::collections::vec_deque::Iter<'d, StreamValueData<'s>>>,
     data_offset: StreamValueDataOffset,
+    prev_chunk_data_size: Option<usize>,
+    sv_done: bool,
 }
 
 impl<'s, 'd> StreamValueDataIter<'s, 'd> {
@@ -336,21 +339,33 @@ impl<'s, 'd> StreamValueDataIter<'s, 'd> {
             iter.next();
         }
         StreamValueDataIter {
-            iter,
+            iter: iter.peekable(),
             data_offset: offset,
+            prev_chunk_data_size: None,
+            sv_done: sv.done,
         }
     }
-    pub fn peek(&self) -> Option<StreamValueDataRef<'s, 'd>> {
-        self.clone().next()
+    pub fn peek(&mut self) -> Option<StreamValueDataRef<'s, 'd>> {
+        self.iter.peek().map(|v| v.as_ref())
     }
     pub fn set_next_offset(&mut self, offset: usize) {
         self.data_offset.current_value_offset = offset;
     }
-    pub fn get_offset(&self) -> StreamValueDataOffset {
+    pub fn get_offset_at_end(&self) -> StreamValueDataOffset {
+        if self.data_offset.current_value_offset == 0 {
+            if let Some(prev_len) = self.prev_chunk_data_size {
+                return StreamValueDataOffset {
+                    current_value_offset: prev_len,
+                    values_consumed: self.data_offset.values_consumed - 1,
+                };
+            }
+        }
         self.data_offset
     }
-    pub fn is_end(&self) -> bool {
-        self.data_offset.current_value_offset == 0 && self.peek().is_none()
+    pub fn is_end(&mut self) -> bool {
+        self.sv_done
+            && self.data_offset.current_value_offset == 0
+            && self.peek().is_none()
     }
 }
 
@@ -361,7 +376,9 @@ impl<'s, 'd> Iterator for StreamValueDataIter<'s, 'd> {
         let offset = self.data_offset.current_value_offset;
         self.data_offset.current_value_offset = 0;
         self.data_offset.values_consumed += 1;
-        self.iter.next().map(|d| match d {
+        let value = self.iter.next()?;
+        self.prev_chunk_data_size = Some(value.len());
+        Some(match value {
             StreamValueData::StaticText(t) => {
                 StreamValueDataRef::StaticText(&t[offset..])
             }
@@ -394,6 +411,7 @@ impl<'s, 'd> Read for StreamValueDataIter<'s, 'd> {
             buf[buf_offset..buf_offset + elem_data.len()]
                 .copy_from_slice(elem_data);
             buf_offset += elem_data.len();
+            self.prev_chunk_data_size = Some(elem.len());
             self.iter.next();
             self.data_offset.current_value_offset = 0;
             self.data_offset.values_consumed += 1;

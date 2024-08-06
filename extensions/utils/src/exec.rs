@@ -699,7 +699,7 @@ impl<'a> TfExec<'a> {
                 Err(e) => return Err(e),
             };
 
-            stdin_offset = iter.get_offset();
+            stdin_offset = iter.get_offset_at_end();
         }
 
         if let Some(stdin) = stdin.as_mut() {
@@ -998,7 +998,7 @@ impl<'a> TfExec<'a> {
                 return Err(e);
             }
         }
-        stream.stdin_offset = iter.get_offset();
+        stream.stdin_offset = iter.get_offset_at_end();
         if iter.is_end() {
             let _ = self
                 .poll
@@ -1009,6 +1009,9 @@ impl<'a> TfExec<'a> {
                 stream.sv_id.take().unwrap(),
                 Some(tf_id),
             )
+        } else {
+            sv_mgr.stream_values[stream.sv_id.unwrap()]
+                .set_subscriber_data_offset(tf_id, stream.stdin_offset);
         }
         Ok(())
     }
@@ -1481,11 +1484,16 @@ impl<'a> Transform<'a> for TfExec<'a> {
 
     fn handle_stream_value_update(
         &mut self,
-        jd: &mut JobData,
+        jd: &mut JobData<'a>,
         svu: StreamValueUpdate,
     ) {
-        jd.sv_mgr.stream_values[svu.sv_id]
-            .set_subscriber_data_offset(svu.tf_id, svu.data_offset);
+        let cmd_id = RunningCommandIdx::from_usize(svu.custom);
+        if let Err(e) =
+            self.handle_input_stream(svu.tf_id, &mut jd.sv_mgr, cmd_id)
+        {
+            let op_id = jd.tf_mgr.transforms[svu.tf_id].op_id.unwrap();
+            self.propagate_process_failure(jd, cmd_id, op_id, e);
+        }
     }
 }
 
