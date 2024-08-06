@@ -482,7 +482,7 @@ impl IterHallActionApplicator {
         }
         headers.drain(last_header_alive..);
         last_header_alive += self.preserved_headers.len();
-        headers.extend(self.preserved_headers.drain(0..));
+        headers.extend(self.preserved_headers.drain(0..).rev());
         let last_header = headers.back().copied().unwrap_or_default();
 
         let field_end_new = field_data_size
@@ -909,7 +909,6 @@ mod test_dead_data_drop {
             field_data_size_before,
             cow_data_end,
         );
-
         assert_eq!(headers, headers_after);
         assert_eq!(iters, iters_after);
     }
@@ -1253,6 +1252,60 @@ mod test_dead_data_drop {
                 header_rl_offset: 0,
                 lean_left_on_inserts: true,
             }],
+        );
+    }
+
+    #[test]
+    fn trailing_zero_sized_headers_skipped() {
+        test_drop_dead_data(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 2,
+                },
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 2,
+                },
+            ],
+            2,
+            2,
+            [],
+            [],
         );
     }
 }
