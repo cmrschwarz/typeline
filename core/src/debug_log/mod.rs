@@ -902,6 +902,8 @@ fn group_track_to_json(
         let group_idx;
         let parent_group_advancement;
         let group_len_rem;
+        let mut iters_end = iters_start;
+
         if passed {
             dead_slot_count =
                 dead_slots[gt.passed_fields_count - passed_count_rem];
@@ -922,6 +924,16 @@ fn group_track_to_json(
 
             group_len_rem = iter.group_len_rem();
 
+            loop {
+                let Some(it) = gt.iter_states.get(iters_end) else {
+                    break;
+                };
+                if it.get().field_pos > iter.field_pos() + 1 {
+                    break;
+                }
+                iters_end += 1;
+            }
+
             if group_len_rem == 0 {
                 del_count += 1;
             } else {
@@ -933,17 +945,6 @@ fn group_track_to_json(
             }
 
             is_next_group_start = iter.is_end_of_group(true);
-        }
-
-        let mut iters_end = iters_start;
-        loop {
-            let Some(it) = gt.iter_states.get(iters_end) else {
-                break;
-            };
-            if it.get().field_pos > iter.field_pos() + 1 {
-                break;
-            }
-            iters_end += 1;
         }
 
         let row_iters =
