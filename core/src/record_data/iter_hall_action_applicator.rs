@@ -466,9 +466,9 @@ impl IterHallActionApplicator {
         let mut dead_data_rem_trailing = drop_instructions
             .trailing_drop
             .saturating_sub(field_size_diff);
-        let mut last_header_alive = headers.len();
-        while last_header_alive > 0 {
-            let h = headers[last_header_alive - 1];
+        let mut first_dead_header = headers.len();
+        while first_dead_header > 0 {
+            let h = headers[first_dead_header - 1];
             let h_ds = h.total_size_unique();
             if dead_data_rem_trailing < h_ds {
                 break;
@@ -477,20 +477,21 @@ impl IterHallActionApplicator {
                 debug_assert_eq!(h_ds, 0);
                 self.preserved_headers.push(h);
             }
-            last_header_alive -= 1;
+            first_dead_header -= 1;
             dead_data_rem_trailing -= h_ds;
         }
         if dead_data_rem_trailing > 0 {
             let header_elem_size =
-                headers[last_header_alive].fmt.size as usize;
+                headers[first_dead_header - 1].fmt.size as usize;
             let elem_count = dead_data_rem_trailing / header_elem_size;
             debug_assert!(
                 elem_count * header_elem_size == dead_data_rem_trailing
             );
-            headers[last_header_alive].run_length -= elem_count as RunLength;
+            headers[first_dead_header - 1].run_length -=
+                elem_count as RunLength;
         }
-        headers.drain(last_header_alive..);
-        last_header_alive += self.preserved_headers.len();
+        headers.drain(first_dead_header..);
+        first_dead_header += self.preserved_headers.len();
         headers.extend(self.preserved_headers.drain(0..).rev());
         let last_header = headers.back().copied().unwrap_or_default();
 
@@ -504,7 +505,7 @@ impl IterHallActionApplicator {
         let drop_info = HeaderDropInfo {
             dead_headers_leading,
             first_header_dropped_elem_count,
-            header_count_rem: last_header_alive,
+            header_count_rem: first_dead_header,
             last_header_run_len: last_header.run_length,
             last_header_data_pos: field_end_new - last_header_size,
         };
@@ -520,8 +521,8 @@ impl IterHallActionApplicator {
     fn calc_dead_data(
         headers: &VecDeque<FieldValueHeader>,
         dead_data_max: DeadDataReport,
-        cow_data_end: usize,
         origin_field_data_size: usize,
+        cow_data_end: usize,
     ) -> DeadDataReport {
         let mut data = 0;
         let mut dead_data_leading = dead_data_max.dead_data_leading;
@@ -703,8 +704,8 @@ impl IterHallActionApplicator {
             dead_data = Self::calc_dead_data(
                 &dcf.field.as_ref().unwrap().iter_hall.field_data.headers,
                 dead_data,
-                dcf.data_end,
                 field_data_size,
+                dcf.data_end,
             );
         }
         debug_assert!(-actions_field_count_delta <= field_count as isize);
@@ -875,17 +876,15 @@ mod test_dead_data_drop {
     };
 
     #[track_caller]
-    fn test_drop_dead_data(
+    fn test_drop_dead_data_explicit(
         headers_before: impl IntoIterator<Item = FieldValueHeader>,
         headers_after: impl IntoIterator<Item = FieldValueHeader>,
         field_data_size_before: usize,
         cow_data_end: usize,
+        dead_data: DeadDataReport,
         iters_before: impl IntoIterator<Item = IterStateDummy>,
         iters_after: impl IntoIterator<Item = IterStateDummy>,
     ) {
-        let mut headers = headers_before.into_iter().collect::<VecDeque<_>>();
-        let headers_after = headers_after.into_iter().collect::<VecDeque<_>>();
-
         fn collect_iters(
             iters: impl IntoIterator<Item = IterStateDummy>,
         ) -> Vec<Cell<IterState>> {
@@ -899,14 +898,11 @@ mod test_dead_data_drop {
         let mut iters = collect_iters(iters_before);
         let iters_after = collect_iters(iters_after);
 
+        let mut headers = headers_before.into_iter().collect::<VecDeque<_>>();
+        let headers_after = headers_after.into_iter().collect::<VecDeque<_>>();
+
         let mut aa = IterHallActionApplicator::default();
 
-        let dead_data = IterHallActionApplicator::calc_dead_data(
-            &headers,
-            DeadDataReport::all_dead(field_data_size_before),
-            cow_data_end,
-            field_data_size_before,
-        );
         let header_drop_instructions =
             IterHallActionApplicator::build_header_drop_instructions(
                 dead_data,
@@ -922,6 +918,36 @@ mod test_dead_data_drop {
         );
         assert_eq!(headers, headers_after);
         assert_eq!(iters, iters_after);
+    }
+
+    #[track_caller]
+    fn test_drop_dead_data(
+        headers_before: impl IntoIterator<Item = FieldValueHeader>,
+        headers_after: impl IntoIterator<Item = FieldValueHeader>,
+        iters_before: impl IntoIterator<Item = IterStateDummy>,
+        iters_after: impl IntoIterator<Item = IterStateDummy>,
+    ) {
+        let headers_before =
+            headers_before.into_iter().collect::<VecDeque<_>>();
+        let field_data_size_before = headers_before
+            .iter()
+            .map(FieldValueHeader::data_size_unique)
+            .sum();
+        let dead_data = IterHallActionApplicator::calc_dead_data(
+            &headers_before,
+            DeadDataReport::all_dead(field_data_size_before),
+            field_data_size_before,
+            field_data_size_before,
+        );
+        test_drop_dead_data_explicit(
+            headers_before,
+            headers_after,
+            field_data_size_before,
+            field_data_size_before,
+            dead_data,
+            iters_before,
+            iters_after,
+        )
     }
 
     #[test]
@@ -997,7 +1023,7 @@ mod test_dead_data_drop {
             run_length: 1,
         }];
 
-        test_drop_dead_data(headers_in, headers_out, 6, 6, [], []);
+        test_drop_dead_data(headers_in, headers_out, [], []);
     }
 
     #[test]
@@ -1029,8 +1055,6 @@ mod test_dead_data_drop {
                 },
                 run_length: 2,
             }],
-            3,
-            3,
             [],
             [],
         );
@@ -1110,8 +1134,6 @@ mod test_dead_data_drop {
                     run_length: 2,
                 },
             ],
-            56,
-            56,
             [IterStateDummy {
                 field_pos: 1,
                 data: 40,
@@ -1187,8 +1209,6 @@ mod test_dead_data_drop {
                     run_length: 1,
                 },
             ],
-            3,
-            3,
             [IterStateDummy {
                 field_pos: 1,
                 data: 3,
@@ -1247,8 +1267,6 @@ mod test_dead_data_drop {
                 },
                 run_length: 1,
             }],
-            3,
-            3,
             [IterStateDummy {
                 field_pos: 0,
                 data: 1,
@@ -1313,8 +1331,56 @@ mod test_dead_data_drop {
                     run_length: 2,
                 },
             ],
+            [],
+            [],
+        );
+    }
+
+    #[test]
+    fn non_trailing_dead_header_partially_dropped() {
+        test_drop_dead_data_explicit(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 3,
+                },
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 3,
+                },
+            ],
             2,
             2,
+            DeadDataReport {
+                dead_data_leading: 0,
+                dead_data_trailing: 1,
+            },
             [],
             [],
         );
