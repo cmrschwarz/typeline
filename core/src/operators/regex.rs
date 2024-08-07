@@ -472,16 +472,14 @@ pub fn setup_op_regex(
             } else {
                 Some(sess.string_store.intern_cloned(name))
             }
+        } else if i == 0 {
+            None
         } else {
             unnamed_capture_groups += 1;
-            if i == 0 {
-                None
-            } else {
-                let id = sess
-                    .string_store
-                    .intern_moved(unnamed_capture_groups.to_string());
-                Some(id)
-            }
+            let id = sess
+                .string_store
+                .intern_moved(unnamed_capture_groups.to_string());
+            Some(id)
         };
         op.capture_group_names.push(name_interned);
     }

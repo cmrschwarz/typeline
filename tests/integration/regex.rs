@@ -32,6 +32,17 @@ fn lines_regex() -> Result<(), ScrError> {
 }
 
 #[test]
+fn index_capture_group() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .push_str("123", 1)
+        .add_op(create_op_regex("(.)(.)(.)")?)
+        .add_op(create_op_format("{}-{3}{2}{1}")?)
+        .run_collect_stringified()?;
+    assert_eq!(res, ["123-321"]);
+    Ok(())
+}
+
+#[test]
 fn regex_drop() -> Result<(), ScrError> {
     let ss1 = StringSinkHandle::default();
     let ss2 = StringSinkHandle::default();
