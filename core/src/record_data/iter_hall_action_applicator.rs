@@ -711,7 +711,14 @@ impl IterHallActionApplicator {
         debug_assert!(-actions_field_count_delta <= field_count as isize);
         let all_fields_dead =
             -actions_field_count_delta == field_count as isize;
-        if !all_fields_dead || !data_owned {
+
+        // the data is dead, but only for us not for the cows.
+        // we could just toggle all dead bits on manually, but for now
+        // we just execute, as that adjusts iters aswell
+        let cow_keepalive =
+            all_fields_dead && dead_data.dead_data_leading != field_data_size;
+
+        if !all_fields_dead || !data_owned || cow_keepalive {
             self.execute_actions(
                 fm,
                 field_id,

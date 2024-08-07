@@ -36,7 +36,8 @@ use crate::{
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::{
-        index_slice::IndexSlice, index_vec::IndexVec, universe::Universe,
+        index_slice::IndexSlice, index_vec::IndexVec,
+        indexing_type::IndexingType, universe::Universe,
     },
 };
 
@@ -1131,11 +1132,17 @@ impl<'a> JobData<'a> {
         let mut ab = self.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
             .borrow_mut();
-        let actor_id = ab.add_actor();
+        ab.add_actor()
+    }
+    pub fn add_actor_for_tf_state_apply_to_output_field(
+        &self,
+        tf_state: &TransformState,
+    ) -> ActorId {
+        let actor_id = self.add_actor_for_tf_state(tf_state);
         self.field_mgr.fields[tf_state.output_field]
             .borrow()
             .first_actor
-            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
+            .set(ActorRef::Unconfirmed(actor_id.wrapping_add(ActorId::one())));
         actor_id
     }
     pub fn add_iter_for_tf_state(&self, tf_state: &TransformState) -> IterId {

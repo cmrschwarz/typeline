@@ -238,7 +238,7 @@ pub fn build_tf_join<'a>(
             tf_state.input_field,
             IterKind::Transform(tf_id_peek),
         ),
-        actor_id: jd.add_actor_for_tf_state(tf_state),
+        actor_id: jd.add_actor_for_tf_state_apply_to_output_field(tf_state),
         first_record_added: false,
         buffer: MaybeText::default(),
         // TODO: add a separate setting for this

@@ -24,6 +24,7 @@ use crate::{
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::{CowFieldDataRef, FieldId, FieldIterRef, FieldRefOffset},
+        field_action::FieldActionKind,
         field_data::{FieldData, FieldValueRepr},
         group_track::{
             GroupTrack, GroupTrackId, GroupTrackIterMut, GroupTrackIterRef,
@@ -113,6 +114,7 @@ pub struct SubchainEntry {
 
 pub struct TfForkCat {
     pub continuation_state: Arc<Mutex<FcContinuationState>>,
+    pub actor_id: ActorId,
 }
 
 pub struct ContinuationFieldMapping {
@@ -334,6 +336,7 @@ pub fn insert_tf_forkcat<'a>(
 
     let tf_data = TransformData::ForkCat(TfForkCat {
         continuation_state: continuation_state.clone(),
+        actor_id: job.job_data.add_actor_for_tf_state(&tf_state),
     });
     let fc_tf_id = add_transform_to_job(
         &mut job.job_data,
@@ -625,7 +628,9 @@ pub fn handle_tf_forkcat(
 
     let mut cont_state = fc.continuation_state.lock().unwrap();
 
-    cont_state.continuation_tf_id = jd.tf_mgr.transforms[tf_id].successor;
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    cont_state.continuation_tf_id = tf.successor;
+    let ms_id = tf.match_set_id;
 
     // rev so the first subchain ends up at the top of the stack
     for sc in cont_state.subchains.iter().rev() {
@@ -650,6 +655,13 @@ pub fn handle_tf_forkcat(
             .iter()
             .map(|sc| sc.group_track_iter_ref.track_id),
     );
+
+    let mut ab = jd.match_set_mgr.match_sets[ms_id]
+        .action_buffer
+        .borrow_mut();
+    ab.begin_action_group(fc.actor_id);
+    ab.push_action(FieldActionKind::Drop, 0, batch_size);
+    ab.end_action_group();
 }
 
 // TODO: pass groups from subchains

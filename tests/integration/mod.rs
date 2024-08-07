@@ -9,6 +9,7 @@ mod join;
 mod regex;
 
 mod parsing;
+pub mod large;
 
 // TODO: reenable this once we fixed callcc
 // mod callcc;
