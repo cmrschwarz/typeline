@@ -1134,6 +1134,7 @@ pub fn write_update_to_html(
     let transform_chain = setup_transform_chain(jd, tf_data, root_tf);
 
     let update = &json!({
+        "transform_update_index": jd.transform_step_count,
         "transform_id": tf_id.map(TransformId::into_usize),
         "transform_update_text": update_text,
         "transform_chain": transform_chain_to_json(jd, tf_data, &transform_chain),

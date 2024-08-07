@@ -52,6 +52,7 @@ pub struct JobData<'a> {
     pub sv_mgr: StreamValueManager<'a>,
     pub start_tf: Option<TransformId>,
     pub temp_vec: Vec<u8>,
+    pub transform_step_count: usize,
 }
 
 pub struct Job<'a> {
@@ -1008,6 +1009,14 @@ impl<'a> Job<'a> {
         //      - it's own updates must have been processed
         //      - it's produced stream values must have been fully propagated
         loop {
+            self.job_data.transform_step_count += 1;
+
+            if option_env!("SCR_DEBUG_BREAK_ON_STEP")
+                .and_then(|v| v.parse().ok())
+                == Some(self.job_data.transform_step_count)
+            {
+                debugbreak!();
+            }
             if let Some(svu) = self.job_data.sv_mgr.updates.pop_back() {
                 self.handle_stream_value_update(svu);
                 continue;
@@ -1047,6 +1056,7 @@ impl<'a> Job<'a> {
         Ok(())
     }
 }
+
 impl<'a> JobData<'a> {
     pub fn new(sess: &'a SessionData) -> Self {
         Self {
@@ -1061,6 +1071,7 @@ impl<'a> JobData<'a> {
             sv_mgr: StreamValueManager::default(),
             temp_vec: Vec::default(),
             start_tf: None,
+            transform_step_count: 0,
         }
     }
     pub fn unlink_transform(

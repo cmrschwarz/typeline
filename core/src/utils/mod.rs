@@ -299,3 +299,27 @@ pub fn cow_to_str(cow: Cow<[u8]>) -> Result<Cow<str>, Utf8Error> {
 pub unsafe fn force_cast<T, Q>(v: T) -> Q {
     unsafe { std::ptr::read(std::ptr::addr_of!(v).cast::<Q>()) }
 }
+
+macro_rules! debugbreak {
+    () => {
+        unsafe {
+            #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+            std::arch::asm!("int3");
+
+            #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+            std::arch::asm!(".inst 0xd4200000");
+
+            #[cfg(not(any(
+                target_arch = "x86_64",
+                target_arch = "x86",
+                target_arch = "aarch64",
+                target_arch = "arm"
+            )))]
+            unimplemented!(
+                "debug breaks are not implemented for this architecture"
+            );
+        }
+        // better debugger ergonomics
+        let _ = 0;
+    };
+}
