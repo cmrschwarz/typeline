@@ -1477,16 +1477,6 @@ mod test {
         );
     }
 
-    // / FieldAction { kind: Drop, field_idx: 0, run_len: 4 } (src_idx: 0)
-    // / FieldAction { kind: InsertZst(Undefined), field_idx: 1, run_len: 2 }
-    // (src_idx: 5)
-    // + before: [
-    // FieldValueHeader { fmt: FieldValueFormat { repr: TextInline, size: 1,
-    // flags: Flags { pad: 0, del: 0, shared_val: 0, same_as_prev: 0 } },
-    // run_length: 2 }, FieldValueHeader { fmt: FieldValueFormat { repr:
-    // Undefined, size: 0, flags: Flags { pad: 0, del: 0, shared_val: 1,
-    // same_as_prev: 0 } }, run_length: 3 }, ]
-
     #[test]
     fn test_insert_into_drop_interaction() {
         test_actions_on_headers(
@@ -1536,6 +1526,61 @@ mod test {
             ],
             [],
             [],
+        );
+    }
+
+    #[test]
+    fn iter_nudged_back_after_trailing_drop() {
+        test_actions_on_headers(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    size: 1,
+                    flags: field_value_flags::DEFAULT,
+                },
+                run_length: 1,
+            }],
+            [FieldAction::new(FieldActionKind::Drop, 0, 1)],
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    size: 1,
+                    flags: field_value_flags::DELETED,
+                },
+                run_length: 1,
+            }],
+            [
+                IterStateDummy {
+                    field_pos: 0,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 0,
+                    lean_left_on_inserts: false,
+                },
+                IterStateDummy {
+                    field_pos: 1,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 1,
+                    lean_left_on_inserts: true,
+                },
+            ],
+            [
+                IterStateDummy {
+                    field_pos: 0,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 1,
+                    lean_left_on_inserts: false,
+                },
+                IterStateDummy {
+                    field_pos: 0,
+                    data: 0,
+                    header_idx: 0,
+                    header_rl_offset: 1,
+                    lean_left_on_inserts: true,
+                },
+            ],
         );
     }
 }
