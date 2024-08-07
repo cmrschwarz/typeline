@@ -478,6 +478,10 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         kinds: [FieldValueRepr; N],
         opts: FieldIterOpts,
     ) -> usize {
+        if n == 0 {
+            // edge case: allow advancing by zero even after the end
+            return 0;
+        }
         let mut stride_rem = n;
         let curr_header_rem =
             (self.header_rl_total - self.header_rl_offset) as usize;
