@@ -100,6 +100,8 @@ impl IterHallActionApplicator {
         tgt_field_id: FieldId,
         through_data_cow: bool,
         field: &Field,
+        // might be different in case of nested cow
+        field_headers: &VecDeque<FieldValueHeader>,
         data_cow_field_refs: &mut Vec<DataCowFieldRef<'a>>,
         update_cow_ms: Option<MatchSetId>,
         full_cow_field_refs: &mut Vec<FullCowFieldRef<'a>>,
@@ -130,7 +132,10 @@ impl IterHallActionApplicator {
                 #[cfg(feature = "debug_state")]
                 field_id: tgt_field_id,
                 field: None,
-                data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
+                data_end: Self::get_data_cow_data_end(
+                    field_headers,
+                    &tgt_cow_end,
+                ),
                 drop_info: HeaderDropInfo::default(),
             });
             return (data_cow_field_refs.len() - 1, true);
@@ -149,10 +154,9 @@ impl IterHallActionApplicator {
         if tgt_cow_end.field_pos > first_action_index {
             tgt_field.iter_hall.data_source = FieldDataSource::DataCow(*cds);
             debug_assert!(tgt_field.iter_hall.field_data.is_empty());
-            tgt_field.iter_hall.copy_headers_from_cow_src(
-                &field.iter_hall.field_data.headers,
-                tgt_cow_end,
-            );
+            tgt_field
+                .iter_hall
+                .copy_headers_from_cow_src(field_headers, tgt_cow_end);
             // TODO: we could optimize this case because we might
             // end up calculating the dead data multiple times because of
             // this, but we don't care for now
@@ -160,7 +164,10 @@ impl IterHallActionApplicator {
                 #[cfg(feature = "debug_state")]
                 field_id: tgt_field_id,
                 field: None,
-                data_end: Self::get_data_cow_data_end(field, &tgt_cow_end),
+                data_end: Self::get_data_cow_data_end(
+                    field_headers,
+                    &tgt_cow_end,
+                ),
                 drop_info: HeaderDropInfo::default(),
             });
             return (data_cow_field_refs.len() - 1, true);
@@ -189,6 +196,7 @@ impl IterHallActionApplicator {
         data_cow_idx: Option<usize>,
     ) {
         let field = fm.fields[field_id].borrow();
+        let field_headers = fm.get_field_headers(Ref::clone(&field));
         if !field.has_cow_targets() {
             return;
         }
@@ -198,6 +206,7 @@ impl IterHallActionApplicator {
                 tgt_field_id,
                 through_data_cow,
                 &field,
+                &field_headers.0,
                 data_cow_field_refs,
                 update_cow_ms,
                 full_cow_field_refs,
@@ -552,10 +561,12 @@ impl IterHallActionApplicator {
             dead_data_trailing,
         }
     }
-    fn get_data_cow_data_end(field: &Field, iter_state: &IterState) -> usize {
-        let headers = &field.iter_hall.field_data.headers;
+    fn get_data_cow_data_end(
+        field_headers: &VecDeque<FieldValueHeader>,
+        iter_state: &IterState,
+    ) -> usize {
         let mut data_end = iter_state.data;
-        let h = headers[iter_state.header_idx];
+        let h = field_headers[iter_state.header_idx];
         if !h.same_value_as_previous() {
             data_end += h.leading_padding();
             if h.shared_value() {
