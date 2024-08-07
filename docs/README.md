@@ -1,4 +1,4 @@
-# SCR User Guide
+# SCR Documentation
 
 ## Useful Snippets
 
@@ -8,5 +8,5 @@
 scr seq=10 sh="touch {}.txt"
 
 # rename
-scr sh-l=ls r="\d+" [ mv {}.txt {:02}.txt ]
+ls -1 | scr lines r="\d+" [ exec mv {}.txt {:02}.txt ]
 ```

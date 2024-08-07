@@ -5,7 +5,6 @@ use crate::{
         call_concurrent::parse_op_call_concurrent,
         chunks::parse_op_chunks,
         count::parse_op_count,
-        errors::OperatorCreationError,
         file_reader::{parse_op_file_reader, parse_op_stdin},
         foreach::parse_op_foreach,
         fork::parse_op_fork,
@@ -40,9 +39,11 @@ use crate::{
     utils::{maybe_text::MaybeText, text_write::ByteComparingStream},
 };
 pub mod call_expr;
+pub mod help;
 use bstr::ByteSlice;
 
 use call_expr::{Argument, CallExpr, CallExprEndKind, Label, MetaInfo, Span};
+use help::get_help_page;
 use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use unicode_ident::{is_xid_continue, is_xid_start};
@@ -154,164 +155,10 @@ fn try_parse_as_special_op<'a>(
     if [b"--help" as &[u8], b"-h", b"help", b"h"].contains(arg) {
         let (_, start_span) = src.next().unwrap();
 
-        const MAIN_HELP_PAGE: &str = include_str!("help_sections/main.txt");
-        let section = if let Some((help_section_arg, span)) = src.next() {
-            let section_name = String::from_utf8_lossy(help_section_arg);
-            match section_name.trim().to_lowercase().as_ref() {
-                "cast" => include_str!("help_sections/cast.txt"),
-                "format" | "f" => include_str!("help_sections/format.txt"),
-                "help" | "h" => include_str!("help_sections/help.txt"),
-                "join" | "j" => include_str!("help_sections/join.txt"),
-                "main" => MAIN_HELP_PAGE,
-                "print" | "p" => include_str!("help_sections/print.txt"),
-                "regex" | "r" => include_str!("help_sections/regex.txt"),
-                "types" | "int" | "str" | "~str" | "bytes" | "~bytes"
-                | "error" | "~error" | "null" | "undefined" | "array"
-                | "object" | "integer" | "float" | "rational" => {
-                    include_str!("help_sections/types.txt")
-                }
-                _ => {
-                    return Err(OperatorCreationError {
-                        message: format!(
-                            "no help section for '{section_name}'"
-                        )
-                        .into(),
-                        span: start_span.span_until(span).unwrap(),
-                    }
-                    .into())
-                }
-            }
-        } else {
-            MAIN_HELP_PAGE
-        };
+        let section = get_help_page(src.next(), start_span)?;
         return Err(PrintInfoAndExitError::Help(section.into()).into());
     }
     Ok(false)
-}
-
-// TODO: rewrite using scopes
-#[cfg(any())]
-fn try_parse_as_setting(
-    ctx_opts: &mut SessionOptions,
-    expr: &CallExpr,
-) -> Result<bool, ScrError> {
-    let chain = &mut ctx_opts.chains[ctx_opts.curr_chain];
-
-    match &*expr.op_name {
-        "exit" => {
-            if !ctx_opts.allow_repl {
-                return Err(ReplDisabledError {
-                    message: "exit cannot be requested outside of repl mode",
-                    span: expr.span,
-                }
-                .into());
-            }
-            let enabled = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
-            ctx_opts.exit_repl.set(enabled, expr.span)?;
-        }
-        "repl" => {
-            let enabled = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
-            if !ctx_opts.allow_repl && enabled {
-                return Err(ReplDisabledError {
-                    message: "REPL mode is not allowed",
-                    span: expr.span,
-                }
-                .into());
-            }
-            ctx_opts.repl.set(enabled, expr.span)?;
-        }
-        "tc" => {
-            ctx_opts
-                .max_threads
-                .set(expr.require_single_number_param()?, expr.span)?;
-        }
-        "debug_log" => {
-            let val = expr.require_single_plaintext_arg()?;
-            match val.to_str().ok().and_then(|v| PathBuf::from_str(v).ok()) {
-                Some(path) => {
-                    ctx_opts.debug_log_path.set(path, expr.span)?;
-                }
-                None => {
-                    return Err(CliArgumentError::new(
-                        "invalid path for debug log",
-                        expr.span,
-                    )
-                    .into());
-                }
-            }
-        }
-        "denc" => {
-            let _val = expr.require_single_string_arg()?;
-            todo!("parse text encoding");
-        }
-        "ppenc" => {
-            let ppte = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
-            chain.prefer_parent_text_encoding.set(ppte, expr.span)?;
-        }
-        "fenc" => {
-            let fte = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
-            chain.force_text_encoding.set(fte, expr.span)?;
-        }
-        "fpm" => {
-            let fpm = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
-            chain.floating_point_math.set(fpm, expr.span)?;
-        }
-        "prr" => {
-            let prr = expr.require_at_most_one_bool_arg()?.unwrap_or(true);
-            chain.print_rationals_raw.set(prr, expr.span)?;
-        }
-        "bs" => {
-            let bs = expr.require_single_number_param()?;
-            chain.default_batch_size.set(bs, expr.span)?;
-        }
-        "sbs" => {
-            let bs = expr.require_single_number_param()?;
-            chain.stream_buffer_size.set(bs, expr.span)?;
-        }
-        "sst" => {
-            let bs = expr.require_single_number_param()?;
-            chain.stream_size_threshold.set(bs, expr.span)?;
-        }
-        "lb" => {
-            let mut buffering_mode = BufferingMode::LineBuffer;
-            if !expr.args.is_empty() {
-                let val = expr.require_single_string_arg()?;
-                buffering_mode = if let Some(v) =
-                    try_parse_bool(val.as_bytes())
-                {
-                    if v {
-                        BufferingMode::LineBuffer
-                    } else {
-                        BufferingMode::BlockBuffer
-                    }
-                } else {
-                    let res = match val {
-                        "stdin" => Some(BufferingMode::LineBufferStdin),
-                        "tty" => Some(BufferingMode::LineBufferIfTTY),
-                        "stdin-if-tty" => {
-                            Some(BufferingMode::LineBufferStdinIfTTY)
-                        }
-                        _ => None,
-                    };
-                    if let Some(bm) = res {
-                        bm
-                    } else {
-                        return Err(CliArgumentError{
-                            message: Cow::Owned(
-                                format!(
-                                    "unknown line buffering mode '{val}', options are yes, no, stdin, tty, and stdin-if-tty"
-                                )
-                            ),
-                            span: expr.span
-                        }.into());
-                    }
-                }
-            }
-            chain.buffering_mode.set(buffering_mode, expr.span)?;
-        }
-        _ => return Ok(false),
-    }
-    Ok(true)
 }
 
 pub fn parse_operator_data(
