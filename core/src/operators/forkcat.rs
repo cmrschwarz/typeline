@@ -656,12 +656,14 @@ pub fn handle_tf_forkcat(
             .map(|sc| sc.group_track_iter_ref.track_id),
     );
 
-    let mut ab = jd.match_set_mgr.match_sets[ms_id]
-        .action_buffer
-        .borrow_mut();
-    ab.begin_action_group(fc.actor_id);
-    ab.push_action(FieldActionKind::Drop, 0, batch_size);
-    ab.end_action_group();
+    if !cfg!(feature = "debug_disable_terminator") {
+        let mut ab = jd.match_set_mgr.match_sets[ms_id]
+            .action_buffer
+            .borrow_mut();
+        ab.begin_action_group(fc.actor_id);
+        ab.push_action(FieldActionKind::Drop, 0, batch_size);
+        ab.end_action_group();
+    }
 }
 
 // TODO: pass groups from subchains
