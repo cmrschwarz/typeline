@@ -207,6 +207,7 @@ macro_rules! index_newtype {
             }
         }
 
+        #[allow(unused)]
         impl $name {
             pub const fn new(v: $base_type) -> Self {
                 $name(v)
