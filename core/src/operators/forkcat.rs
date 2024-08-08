@@ -665,9 +665,11 @@ struct ScVisitResult {
     field_pos_cont_start: usize,
     field_pos_cont_end: usize,
     scs_visited: usize,
-    sc_index_after: FcSubchainIdx,
 }
 
+/// visits the subchains in a round robin fashion starting form the currently
+/// active one until batch size records have been produced or a subchain
+/// has an unfinished group
 fn visit_subchains(
     jd: &mut JobData,
     cont_state: &mut FcContinuationState,
@@ -845,6 +847,7 @@ fn visit_subchains(
 
     let scs_visited = field_iters.len();
 
+    // insert trailing padding into visited scs and store back the iters
     for rr_idx in (0..scs_visited).rev() {
         let sc_idx = FcSubchainIdx::from_usize(
             (rr_idx + cont_state.current_sc.into_usize()) % sc_count,
@@ -866,39 +869,30 @@ fn visit_subchains(
         group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);
     }
 
+    cont_state.current_sc = curr_sc;
+
     ScVisitResult {
         field_pos_cont_start,
         field_pos_cont_end: field_pos_cont,
-        sc_index_after: curr_sc,
         scs_visited,
     }
 }
 
-// TODO: pass groups from subchains
-// TODO: make sure last group gets field ref'ed correctly, see
-// `forkcat_build_sql_insert`, third invocation of this method
-pub fn propagate_forkcat(
+// even if we did not visit a subchain, we still have to make sure that
+// the field count in the continuation lines up correctly for cow'ed fields
+fn pad_non_visited_subchains(
     jd: &mut JobData,
     cont_state: &mut FcContinuationState,
-    batch_size: usize,
-) -> bool {
-    let visit_res = visit_subchains(jd, cont_state, batch_size);
-
-    let ScVisitResult {
-        field_pos_cont_start,
-        field_pos_cont_end,
-        sc_index_after,
-        scs_visited,
-    } = visit_res;
-
+    sc_idx_before: FcSubchainIdx,
+    scs_visited: usize,
+    field_pos_cont_start: usize,
+    field_pos_cont_end: usize,
+) -> usize {
     let sc_count = cont_state.subchains.len();
-    let fields_produced = field_pos_cont_end - field_pos_cont_start;
 
     for rr_idx in scs_visited..sc_count {
-        // we gotta pad all the scs that we didn't visit too
-        // PERF: sadface :/
         let sc_idx = FcSubchainIdx::from_usize(
-            (rr_idx + cont_state.current_sc.into_usize()) % sc_count,
+            (rr_idx + sc_idx_before.into_usize()) % sc_count,
         );
         let sc_entry = &mut cont_state.subchains[sc_idx];
         let mut group_iter =
@@ -918,12 +912,33 @@ pub fn propagate_forkcat(
         group_iter.insert_fields(FieldValueRepr::Undefined, padding_needed);
         group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);
     }
+    sc_count
+}
 
+// We aquire the subchain field iters before any padding is introduced,
+// so it's impossible to store them back at the correct position before
+// those insert actions are applied.
+// This method reaquires them after the actions have been committed and
+// advances them accordingly.
+// PERF: this reiterates through the fields that were added by this sc this
+// round unneccessarily, we could avoid that, blerg.
+fn advance_subchain_field_iters(
+    jd: &mut JobData,
+    cont_state: &mut FcContinuationState,
+    sc_idx_before: FcSubchainIdx,
+    scs_visited: usize,
+    fields_produced: usize,
+) {
+    let sc_count = cont_state.subchains.len();
     for rr_idx in (0..scs_visited).rev() {
         let sc_idx = FcSubchainIdx::from_usize(
-            (rr_idx + cont_state.current_sc.into_usize()) % sc_count,
+            (rr_idx + sc_idx_before.into_usize()) % sc_count,
         );
         let sc_entry = &mut cont_state.subchains[sc_idx];
+        // These iters are right leaning (they aren't cow marker iters),
+        // therefore they were already nudged by the leading padding.
+        // We therefore only have to advance them by the actually inserted
+        // fields.
         let iter_advancement =
             fields_produced - sc_entry.leading_padding_introduced;
         sc_entry.leading_padding_introduced = 0;
@@ -948,33 +963,71 @@ pub fn propagate_forkcat(
             );
         }
     }
+}
 
-    cont_state.current_sc = sc_index_after;
+fn pad_continuation_dummy_field(
+    jd: &mut JobData,
+    cont_state: &mut FcContinuationState,
+    fields_produced: usize,
+) {
+    jd.field_mgr.apply_field_actions(
+        &jd.match_set_mgr,
+        cont_state.continuation_dummy_iter.field_id,
+        true,
+    );
+    jd.field_mgr.fields[cont_state.continuation_dummy_iter.field_id]
+        .borrow_mut()
+        .iter_hall
+        .push_undefined(fields_produced, true);
+    let cont_field = jd.field_mgr.get_cow_field_ref(
+        &jd.match_set_mgr,
+        cont_state.continuation_dummy_iter.field_id,
+    );
+    let mut cont_iter = jd
+        .field_mgr
+        .lookup_iter_from_ref(cont_state.continuation_dummy_iter, &cont_field);
+    cont_iter.next_n_fields(fields_produced, true);
+    jd.field_mgr
+        .store_iter_from_ref(cont_state.continuation_dummy_iter, cont_iter);
+    drop(cont_field);
+}
 
-    {
-        jd.field_mgr.apply_field_actions(
-            &jd.match_set_mgr,
-            cont_state.continuation_dummy_iter.field_id,
-            true,
-        );
-        jd.field_mgr.fields[cont_state.continuation_dummy_iter.field_id]
-            .borrow_mut()
-            .iter_hall
-            .push_undefined(fields_produced, true);
-        let cont_field = jd.field_mgr.get_cow_field_ref(
-            &jd.match_set_mgr,
-            cont_state.continuation_dummy_iter.field_id,
-        );
-        let mut cont_iter = jd.field_mgr.lookup_iter_from_ref(
-            cont_state.continuation_dummy_iter,
-            &cont_field,
-        );
-        cont_iter.next_n_fields(fields_produced, true);
-        jd.field_mgr.store_iter_from_ref(
-            cont_state.continuation_dummy_iter,
-            cont_iter,
-        );
-    };
+// TODO: pass groups from subchains
+// TODO: make sure last group gets field ref'ed correctly, see
+// `forkcat_build_sql_insert`, third invocation of this method
+pub fn propagate_forkcat(
+    jd: &mut JobData,
+    cont_state: &mut FcContinuationState,
+    batch_size: usize,
+) -> bool {
+    let sc_idx_before = cont_state.current_sc;
+
+    let ScVisitResult {
+        field_pos_cont_start,
+        field_pos_cont_end,
+        scs_visited,
+    } = visit_subchains(jd, cont_state, batch_size);
+
+    let fields_produced = field_pos_cont_end - field_pos_cont_start;
+
+    pad_non_visited_subchains(
+        jd,
+        cont_state,
+        sc_idx_before,
+        scs_visited,
+        field_pos_cont_start,
+        field_pos_cont_end,
+    );
+
+    pad_continuation_dummy_field(jd, cont_state, fields_produced);
+
+    advance_subchain_field_iters(
+        jd,
+        cont_state,
+        sc_idx_before,
+        scs_visited,
+        fields_produced,
+    );
 
     let done = cont_state.subchains.iter().all(|sc| sc.input_done);
 
