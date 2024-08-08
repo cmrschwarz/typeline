@@ -16,7 +16,7 @@ type Chunk<T, const CHUNK_SIZE: usize> = [MaybeUninit<T>; CHUNK_SIZE];
 /// - always `!Sync` because of the interior mutabiltiy
 /// + never has to copy elements, only the chunk pointer buffer has to grow
 /// - no Deref to `&[T]`, because it's not contiguous
-/// - many of `Vec<T>`'sconvenience methods are missing
+/// - many of `Vec<T>`'s convenience methods are missing
 pub struct StableVec<T, const CHUNK_SIZE: usize = 64> {
     data: Cell<NonNull<*mut Chunk<T, CHUNK_SIZE>>>,
     chunk_capacity: Cell<usize>,
@@ -189,6 +189,13 @@ impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
     pub fn iter_mut(&mut self) -> StableVecIterMut<T, CHUNK_SIZE> {
         StableVecIterMut::new(self)
     }
+
+    fn extend(&self, iter: impl IntoIterator<Item = T>) {
+        // PERF: optimize this
+        for elem in iter {
+            self.push(elem)
+        }
+    }
 }
 
 impl<T, const CHUNK_SIZE: usize> Drop for StableVec<T, CHUNK_SIZE> {
@@ -203,6 +210,25 @@ impl<T, const CHUNK_SIZE: usize> Drop for StableVec<T, CHUNK_SIZE> {
                 Self::layout(self.chunk_capacity.get()),
             );
         }
+    }
+}
+
+impl<T: Clone, const CHUNK_SIZE: usize> Clone for StableVec<T, CHUNK_SIZE> {
+    fn clone(&self) -> Self {
+        if Self::holds_zsts() {
+            return Self {
+                data: self.data.clone(),
+                chunk_capacity: self.chunk_capacity.clone(),
+                len: self.len.clone(),
+            };
+        }
+        if self.is_empty() {
+            return Self::new();
+        }
+        // PERF: we could optimize this
+        let res = Self::with_capacity(self.capacity());
+        res.extend(self.iter().cloned());
+        res
     }
 }
 

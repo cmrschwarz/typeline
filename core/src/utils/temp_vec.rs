@@ -41,6 +41,10 @@ pub trait TransmutableContainer: Default {
     ) -> <Self as TransmutableContainer>::ContainerType<Q> {
         std::mem::take(self).transmute()
     }
+
+    fn borrow_container<Q>(&mut self) -> BorrowedContainer<Q, Self> {
+        BorrowedContainer::new(self)
+    }
 }
 
 #[inline]
@@ -74,16 +78,16 @@ pub fn transmute_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
 }
 
 #[derive(derive_more::Deref, derive_more::DerefMut)]
-pub struct BorrowedVec<'a, T, V: TransmutableContainer> {
-    source: &'a mut V,
+pub struct BorrowedContainer<'a, T, C: TransmutableContainer> {
+    source: &'a mut C,
     #[deref]
     #[deref_mut]
-    vec: <V as TransmutableContainer>::ContainerType<T>,
+    vec: <C as TransmutableContainer>::ContainerType<T>,
 }
 
-impl<'a, T, V: TransmutableContainer> BorrowedVec<'a, T, V> {
+impl<'a, T, C: TransmutableContainer> BorrowedContainer<'a, T, C> {
     #[inline]
-    pub fn new(origin: &'a mut V) -> Self {
+    pub fn new(origin: &'a mut C) -> Self {
         Self {
             vec: origin.take_transmute(),
             source: origin,
@@ -91,7 +95,7 @@ impl<'a, T, V: TransmutableContainer> BorrowedVec<'a, T, V> {
     }
 }
 
-impl<'a, T, V: TransmutableContainer> Drop for BorrowedVec<'a, T, V> {
+impl<'a, T, C: TransmutableContainer> Drop for BorrowedContainer<'a, T, C> {
     #[inline]
     fn drop(&mut self) {
         self.source.reclaim_temp::<T>(std::mem::take(&mut self.vec));

@@ -36,7 +36,7 @@ use scr_core::{
     smallbox,
     utils::{
         stable_vec::StableVec, string_store::StringStoreEntry,
-        temp_vec::BorrowedVec,
+        temp_vec::BorrowedContainer,
     },
 };
 
@@ -205,7 +205,7 @@ impl Transform<'_> for TfExplode {
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-        let mut inserters = BorrowedVec::new(&mut self.inserters);
+        let mut inserters = BorrowedContainer::new(&mut self.inserters);
         let present_fields = self.target_fields.values().map(|v| {
             let TargetField::Present(f) = v else {
                 unreachable!()

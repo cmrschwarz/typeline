@@ -175,13 +175,8 @@ fn sc_index_offset(
     )
 }
 
-impl FcContinuationState {
-    fn sc_count(&self) -> usize {
-        self.subchains.len()
-    }
-    fn next_sc(&self, sc_idx: FcSubchainIdx) -> FcSubchainIdx {
-        sc_index_offset(self.sc_count(), sc_idx, 1)
-    }
+fn sc_next(fc_sc_count: usize, sc_idx: FcSubchainIdx) -> FcSubchainIdx {
+    sc_index_offset(fc_sc_count, sc_idx, 1)
 }
 
 pub fn setup_op_forkcat(
@@ -666,30 +661,50 @@ pub fn handle_tf_forkcat(
     }
 }
 
-// TODO: pass groups from subchains
-// TODO: make sure last group gets field ref'ed correctly, see
-// `forkcat_build_sql_insert`, third invocation of this method
-pub fn propagate_forkcat(
+struct ScVisitResult {
+    field_pos_cont_start: usize,
+    field_pos_cont_end: usize,
+    scs_visited: usize,
+    sc_index_after: FcSubchainIdx,
+}
+
+fn visit_subchains(
     jd: &mut JobData,
     cont_state: &mut FcContinuationState,
     batch_size: usize,
-) -> bool {
-    let sc_count = cont_state.sc_count();
-    let last_sc = FcSubchainIdx::from_usize(sc_count - 1);
+) -> ScVisitResult {
+    let mut cont_field_inserters =
+        cont_state.cont_field_inserters.take_transmute();
+    for cvm in &cont_state.subchains[FcSubchainIdx::zero()]
+        .continuation_field_mappings
+    {
+        let field = jd.field_mgr.fields[cvm.cont_field_id].borrow_mut();
+        let inserter = VaryingTypeInserter::new(RefMut::map(field, |f| {
+            f.iter_hall.get_owned_data_mut()
+        }));
+        cont_field_inserters.push(inserter);
+    }
 
+    let sc_count = cont_state.subchains.len();
+
+    let fields = cont_state.fields_temp.borrow_container();
+    let mut field_iters = cont_state.field_iters_temp.borrow_container();
+    let mut group_iters = cont_state.group_iters_temp.borrow_container();
+
+    let last_sc = FcSubchainIdx::from_usize(sc_count - 1);
     let mut curr_sc = cont_state.current_sc;
+
+    let mut scs_in_flight = 0;
+
+    let mut sc_round_robin_index = FcSubchainRoundRobinIdx::zero();
+
+    let mut batch_size_rem = batch_size;
 
     let mut cont_group_track = jd.group_track_manager.group_tracks
         [cont_state.continuation_input_group_track]
         .borrow_mut();
     let mut cont_group_track_next_group_id =
         cont_group_track.next_group_index_stable();
-
-    let fields = cont_state.fields_temp.take_transmute();
-    let mut field_iters = cont_state.field_iters_temp.take_transmute();
-    let mut group_iters = cont_state.group_iters_temp.take_transmute();
-    let mut cont_field_inserters =
-        cont_state.cont_field_inserters.take_transmute();
 
     let field_pos_cont_start = {
         let cont_field = jd.field_mgr.get_cow_field_ref(
@@ -703,22 +718,6 @@ pub fn propagate_forkcat(
         cont_iter.get_next_field_pos()
     };
     let mut field_pos_cont = field_pos_cont_start;
-
-    for cvm in &cont_state.subchains[FcSubchainIdx::zero()]
-        .continuation_field_mappings
-    {
-        let field = jd.field_mgr.fields[cvm.cont_field_id].borrow_mut();
-        let inserter = VaryingTypeInserter::new(RefMut::map(field, |f| {
-            f.iter_hall.get_owned_data_mut()
-        }));
-        cont_field_inserters.push(inserter);
-    }
-
-    let mut scs_in_flight = 0;
-
-    let mut sc_round_robin_index = FcSubchainRoundRobinIdx::zero();
-
-    let mut batch_size_rem = batch_size;
 
     loop {
         let sc_entry = &mut cont_state.subchains[curr_sc];
@@ -838,20 +837,17 @@ pub fn propagate_forkcat(
             break;
         }
 
-        curr_sc = cont_state.next_sc(curr_sc);
+        curr_sc = sc_next(sc_count, curr_sc);
         sc_round_robin_index = FcSubchainRoundRobinIdx::from_usize(
             (sc_round_robin_index.into_usize() + 1) % sc_count,
         );
     }
 
-    let fields_produced = field_pos_cont - field_pos_cont_start;
-
     let scs_visited = field_iters.len();
 
     for rr_idx in (0..scs_visited).rev() {
         let sc_idx = FcSubchainIdx::from_usize(
-            (rr_idx + cont_state.current_sc.into_usize())
-                % cont_state.sc_count(),
+            (rr_idx + cont_state.current_sc.into_usize()) % sc_count,
         );
         let sc_entry = &mut cont_state.subchains[sc_idx];
 
@@ -870,19 +866,39 @@ pub fn propagate_forkcat(
         group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);
     }
 
-    cont_state.field_iters_temp.reclaim_temp(field_iters);
-    cont_state.group_iters_temp.reclaim_temp(group_iters);
-    cont_state
-        .cont_field_inserters
-        .reclaim_temp(cont_field_inserters);
-    cont_state.fields_temp.reclaim_temp(fields);
+    ScVisitResult {
+        field_pos_cont_start,
+        field_pos_cont_end: field_pos_cont,
+        sc_index_after: curr_sc,
+        scs_visited,
+    }
+}
+
+// TODO: pass groups from subchains
+// TODO: make sure last group gets field ref'ed correctly, see
+// `forkcat_build_sql_insert`, third invocation of this method
+pub fn propagate_forkcat(
+    jd: &mut JobData,
+    cont_state: &mut FcContinuationState,
+    batch_size: usize,
+) -> bool {
+    let visit_res = visit_subchains(jd, cont_state, batch_size);
+
+    let ScVisitResult {
+        field_pos_cont_start,
+        field_pos_cont_end,
+        sc_index_after,
+        scs_visited,
+    } = visit_res;
+
+    let sc_count = cont_state.subchains.len();
+    let fields_produced = field_pos_cont_end - field_pos_cont_start;
 
     for rr_idx in scs_visited..sc_count {
         // we gotta pad all the scs that we didn't visit too
         // PERF: sadface :/
         let sc_idx = FcSubchainIdx::from_usize(
-            (rr_idx + cont_state.current_sc.into_usize())
-                % cont_state.sc_count(),
+            (rr_idx + cont_state.current_sc.into_usize()) % sc_count,
         );
         let sc_entry = &mut cont_state.subchains[sc_idx];
         let mut group_iter =
@@ -897,7 +913,7 @@ pub fn propagate_forkcat(
         group_iter.drop_with_field_pos(0, fields_dropped_by_cont);
 
         let padding_needed =
-            field_pos_cont - (field_pos_sc - fields_dropped_by_cont);
+            field_pos_cont_end - (field_pos_sc - fields_dropped_by_cont);
 
         group_iter.insert_fields(FieldValueRepr::Undefined, padding_needed);
         group_iter.store_iter(sc_entry.group_track_iter_ref.iter_id);
@@ -905,8 +921,7 @@ pub fn propagate_forkcat(
 
     for rr_idx in (0..scs_visited).rev() {
         let sc_idx = FcSubchainIdx::from_usize(
-            (rr_idx + cont_state.current_sc.into_usize())
-                % cont_state.sc_count(),
+            (rr_idx + cont_state.current_sc.into_usize()) % sc_count,
         );
         let sc_entry = &mut cont_state.subchains[sc_idx];
         let iter_advancement =
@@ -934,7 +949,7 @@ pub fn propagate_forkcat(
         }
     }
 
-    cont_state.current_sc = curr_sc;
+    cont_state.current_sc = sc_index_after;
 
     {
         jd.field_mgr.apply_field_actions(
