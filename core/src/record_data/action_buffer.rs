@@ -411,8 +411,8 @@ impl ActionBuffer {
         }
         let res =
             self.merge_action_groups_into_temp_buffer(lhs, rhs, temp_idx);
-        self.release_temp_action_group(lhs);
         self.release_temp_action_group(rhs);
+        self.release_temp_action_group(lhs);
         res
     }
 
@@ -660,15 +660,17 @@ impl ActionBuffer {
 
         let highest_pow2 = count.ilog2() as usize;
         debug_assert!(self.merges.len() == highest_pow2 + 1);
-        let highest_pow2_count = 1 << highest_pow2;
+        let mut aggregated_count = 1 << highest_pow2;
 
         let mut pow2 = highest_pow2;
         let mut lhs = self.merges[highest_pow2];
         while pow2 != 0 {
-            pow2 /= 2;
-            if highest_pow2_count + (1 << pow2) > count {
+            pow2 -= 1;
+            let pow2_count = 1 << pow2;
+            if aggregated_count + pow2_count > count {
                 continue;
             }
+            aggregated_count += pow2_count;
             let rhs = self.merges[pow2];
             let temp_idx = self.claim_temp_buffer_index();
             lhs = self.merge_action_groups_into_temp_buffer_release_inputs(
@@ -786,6 +788,9 @@ mod test {
     #[case(7)]
     #[case(8)]
     #[case(9)]
+    #[case(10)]
+    #[case(11)]
+    #[case(12)]
     fn merge_n(#[case] count: usize) {
         test_action_merge(
             std::iter::repeat(0).take(count),
