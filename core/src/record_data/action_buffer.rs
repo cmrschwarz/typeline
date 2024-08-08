@@ -691,3 +691,96 @@ impl ActionBuffer {
         self.release_temp_action_group(&agi);
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::iter;
+
+    use rstest::rstest;
+
+    use crate::{
+        record_data::{
+            action_buffer::{ActorId, ActorRef},
+            field_action::{FieldAction, FieldActionKind},
+            field_data::RunLength,
+            match_set::MatchSetId,
+        },
+        utils::indexing_type::IndexingType,
+    };
+
+    use super::ActionBuffer;
+
+    #[track_caller]
+    fn test_action_merge(
+        ag_actors: impl IntoIterator<Item = usize>,
+        ags: impl IntoIterator<Item = impl IntoIterator<Item = FieldAction>>,
+        actor: usize,
+        output: impl IntoIterator<Item = FieldAction>,
+    ) {
+        let mut ab = ActionBuffer::new(MatchSetId::ZERO);
+        let initial_snapshot = ab.get_latest_snapshot();
+        let actors = ag_actors.into_iter().collect::<Vec<_>>();
+        for a in actors.iter().copied().chain(iter::once(actor)) {
+            while a >= ab.actors.len() {
+                ab.add_actor();
+            }
+        }
+        let action_groups = ags
+            .into_iter()
+            .map(|ag| ag.into_iter().collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        assert_eq!(action_groups.len(), actors.len());
+        for (&a, ag) in actors.iter().zip(&action_groups) {
+            ab.begin_action_group(ActorId::from_usize(a));
+            for a in ag {
+                ab.push_action(a.kind, a.field_idx, a.run_len as usize);
+            }
+            ab.end_action_group();
+        }
+        let output = output.into_iter().collect::<Vec<_>>();
+        let mut pending = Vec::new();
+        ab.gather_pending_actions(
+            &mut pending,
+            ActorRef::Present(ActorId::from_usize(actor)),
+            initial_snapshot, // TODO: maybe test other variants here
+        );
+        assert_eq!(pending, output);
+    }
+
+    #[test]
+    fn simple_merge() {
+        test_action_merge(
+            [0, 0],
+            [
+                [FieldAction::new(FieldActionKind::Dup, 0, 2)],
+                [FieldAction::new(FieldActionKind::Drop, 0, 1)],
+            ],
+            0,
+            [FieldAction::new(FieldActionKind::Dup, 0, 1)],
+        )
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(3)]
+    #[case(4)]
+    #[case(5)]
+    #[case(6)]
+    #[case(7)]
+    #[case(8)]
+    #[case(9)]
+    fn merge_n(#[case] count: usize) {
+        test_action_merge(
+            std::iter::repeat(0).take(count),
+            std::iter::repeat([FieldAction::new(FieldActionKind::Dup, 0, 1)])
+                .take(count),
+            0,
+            [FieldAction::new(
+                FieldActionKind::Dup,
+                0,
+                count as RunLength,
+            )],
+        )
+    }
+}
