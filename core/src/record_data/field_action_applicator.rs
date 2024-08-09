@@ -681,15 +681,16 @@ impl FieldActionApplicator {
                 unreachable!()
             };
 
-            let mut run_len = a.run_len;
+            let mut run_len_rem = a.run_len;
 
             let zst_header_idx = faas.header_idx_new;
+            let mut appendable = 0;
             if let Some(h) = headers.back_mut() {
                 if h.repr == repr && !h.deleted() && h.shared_value_or_rl_one()
                 {
-                    let appendable =
-                        (RunLength::MAX - h.run_length).min(run_len);
-                    run_len -= appendable;
+                    appendable =
+                        (RunLength::MAX - h.run_length).min(run_len_rem);
+                    run_len_rem -= appendable;
                     h.run_length += appendable;
                 }
             }
@@ -700,7 +701,7 @@ impl FieldActionApplicator {
                     flags: field_value_flags::SHARED_VALUE,
                     size: 0,
                 },
-                run_len,
+                run_len_rem,
             );
 
             faas.curr_header_iters_end = iterators.len();
@@ -714,9 +715,13 @@ impl FieldActionApplicator {
                     break;
                 }
                 it.data = faas.data_end;
-                it.header_idx = zst_header_idx;
                 it.field_pos += a.run_len as usize;
-                it.header_rl_offset = a.run_len;
+                if appendable == a.run_len {
+                    it.header_rl_offset += appendable;
+                } else {
+                    it.header_idx = zst_header_idx;
+                    it.header_rl_offset = a.run_len - appendable;
+                }
             }
 
             faas.field_pos += a.run_len as usize;
@@ -1581,6 +1586,47 @@ mod test {
                     lean_left_on_inserts: true,
                 },
             ],
+        );
+    }
+
+    #[test]
+    fn test_iter_nudges_on_trailing_appending_insert() {
+        test_actions_on_headers(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Undefined,
+                    size: 0,
+                    flags: field_value_flags::DEFAULT,
+                },
+                run_length: 1,
+            }],
+            [FieldAction::new(
+                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                1,
+                1,
+            )],
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Undefined,
+                    size: 0,
+                    flags: field_value_flags::DEFAULT,
+                },
+                run_length: 2,
+            }],
+            [IterStateDummy {
+                field_pos: 1,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 1,
+                lean_left_on_inserts: false,
+            }],
+            [IterStateDummy {
+                field_pos: 2,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 2,
+                lean_left_on_inserts: false,
+            }],
         );
     }
 }

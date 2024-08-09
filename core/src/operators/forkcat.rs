@@ -693,7 +693,7 @@ fn visit_subchains(
     let mut field_iters = cont_state.field_iters_temp.borrow_container();
     let mut group_iters = cont_state.group_iters_temp.borrow_container();
 
-    let last_sc = FcSubchainIdx::from_usize(sc_count - 1);
+    let final_sc = FcSubchainIdx::from_usize(sc_count - 1);
     let mut curr_sc = cont_state.current_sc;
 
     let mut scs_in_flight = 0;
@@ -754,6 +754,10 @@ fn visit_subchains(
 
             let fields_dropped_by_cont =
                 field_pos_sc.saturating_sub(field_pos_cont_start);
+            // PERF: maybe we should drop from the start to increase
+            // our changes of ringbuffering the data?
+            // we already cow'ed these fields, so this is essentially just
+            // padding anyways. can't we drop everything?
             group_iter.drop_with_field_pos(0, fields_dropped_by_cont);
 
             group_iters.push(group_iter);
@@ -820,6 +824,7 @@ fn visit_subchains(
                     cim.sc_field_refs_offsets_start_in_cont_field,
                 );
             }
+            debug_assert_eq!(range_rem, 0);
         }
 
         field_pos_cont += fields_to_consume;
@@ -835,7 +840,7 @@ fn visit_subchains(
             group_track_iter.next_group();
         }
 
-        if batch_size_rem == 0 || (curr_sc == last_sc && is_end) {
+        if batch_size_rem == 0 || (curr_sc == final_sc && is_end) {
             break;
         }
 
