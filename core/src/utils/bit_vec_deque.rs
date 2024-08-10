@@ -235,7 +235,13 @@ impl BitVecDeque {
                 self.data.as_ptr(),
                 l2.div_ceil(BITS_PER_WORD),
             );
-            let bs1 = &BitSlice::from_slice(s1)[self.head % BITS_PER_WORD..l1];
+            let bit_offset_first = self.head % BITS_PER_WORD;
+            let bs1 = if l1 == 0 {
+                BitSlice::from_slice(&[])
+            } else {
+                &BitSlice::from_slice(s1)
+                    [bit_offset_first..bit_offset_first + l1]
+            };
             let bs2 = &BitSlice::from_slice(s2)[..l2];
             (bs1, bs2)
         }
@@ -326,6 +332,7 @@ impl BitVecDeque {
         } else {
             self.head = count - headspace;
         }
+        self.len -= count;
     }
     pub fn drop_back(&mut self, count: usize) {
         assert!(self.len >= count);
@@ -485,6 +492,14 @@ mod test {
             assert_eq!(foo.pop_front(), i % 2 == 0);
         }
         assert!(foo.is_empty());
+    }
+
+    #[test]
+    fn drop_front_slice() {
+        let mut foo = BitVecDeque::from(bitvec![0, 1, 0, 1, 0, 1]);
+        foo.drop_front(3);
+        assert_eq!(foo.len(), 3);
+        assert_eq!(foo, BitVecDeque::from(bitvec![1, 0, 1]));
     }
 
     #[test]

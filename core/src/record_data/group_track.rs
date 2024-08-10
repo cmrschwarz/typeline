@@ -122,8 +122,10 @@ impl GroupIdxStable {
 impl Display for GroupTrack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "{} + {:?}",
-            self.passed_fields_count, self.group_lengths
+            "{} + {:?} ({:?})",
+            self.passed_fields_count,
+            self.group_lengths,
+            self.parent_group_advancement
         ))
     }
 }
