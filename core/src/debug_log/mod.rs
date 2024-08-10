@@ -151,14 +151,23 @@ fn add_field_data_dead_slots<'a>(
 }
 
 fn add_group_track_dead_slots(gt: &GroupTrack, dead_slots: &mut Vec<usize>) {
+    let passed_field_count = gt.passed_fields_count;
+
     let mut iter = gt.iter();
 
     loop {
-        if iter.field_pos() >= dead_slots.len() {
+        let pos = iter.field_pos();
+
+        let mut empty_groups = iter.skip_empty_groups();
+        if pos == passed_field_count {
+            empty_groups += passed_field_count;
+        }
+        if pos >= dead_slots.len() {
             dead_slots.push(0);
         }
-        let ds = &mut dead_slots[iter.field_pos()];
-        *ds = (*ds).max(iter.skip_empty_groups());
+        let ds = &mut dead_slots[pos];
+        *ds = (*ds).max(empty_groups);
+
         #[cfg(feature = "debug_log_lenient")]
         if !iter.is_last_group() && iter.is_end_of_group(true) {
             break;
