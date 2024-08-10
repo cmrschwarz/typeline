@@ -39,10 +39,13 @@ struct DeadDataReport {
 
 #[derive(Clone, Copy)]
 struct HeaderDropInstructions {
-    // the new padding to *set* (not add) to the first header
-    // alive after droppage
+    // the new padding to *set* (not add) to the first header alive after
+    // droppage
     first_header_padding: usize,
+    // leading dead data that we would like to drop. includes padding
     leading_drop: usize,
+    // trailing dead data that we would like to drop (for this cow)
+    // in case of full droppage, we prefer trailing over leading
     trailing_drop: usize,
 }
 
@@ -325,14 +328,18 @@ impl IterHallActionApplicator {
     fn build_header_drop_instructions(
         dead_data: DeadDataReport,
         field_data_size: usize,
+        cow_data_end: usize,
     ) -> HeaderDropInstructions {
         let mut lead = dead_data.dead_data_leading;
-        let trail = dead_data.dead_data_trailing;
+        let trail = dead_data
+            .dead_data_trailing
+            .saturating_sub(field_data_size - cow_data_end);
+
         let mut padding = 0;
-        if field_data_size == trail {
+        if cow_data_end == trail {
             lead = 0;
         } else {
-            lead = lead.min(field_data_size - trail);
+            debug_assert!(lead + trail <= cow_data_end);
             // the first value in a field is always maximally aligned
             padding = lead % MAX_FIELD_ALIGN;
         }
@@ -759,18 +766,26 @@ impl IterHallActionApplicator {
             field.iter_hall.field_data.clear();
         }
         if data_partially_dead {
-            let header_drop_instructions =
-                Self::build_header_drop_instructions(
-                    dead_data,
-                    field_data_size,
-                );
+            let root_drop_instructions = Self::build_header_drop_instructions(
+                dead_data,
+                field_data_size,
+                field_data_size,
+            );
             let root_drop_info = self.drop_dead_field_data(
                 fm,
                 &mut field,
-                header_drop_instructions,
+                root_drop_instructions,
             );
             for dcf in &mut *data_cow_fields {
                 let cow_field = &mut **dcf.field.as_mut().unwrap();
+
+                let cow_drop_instructions =
+                    Self::build_header_drop_instructions(
+                        dead_data,
+                        field_data_size,
+                        dcf.data_end,
+                    );
+
                 #[cfg(feature = "debug_logging_field_actions")]
                 {
                     eprintln!(
@@ -789,7 +804,7 @@ impl IterHallActionApplicator {
                 dcf.drop_info = self.drop_dead_headers(
                     &mut cow_field.iter_hall.field_data.headers,
                     &mut cow_field.iter_hall.iters,
-                    header_drop_instructions,
+                    cow_drop_instructions,
                     field_data_size,
                     dcf.data_end,
                 );
@@ -816,7 +831,7 @@ impl IterHallActionApplicator {
                     .unwrap_or(&root_drop_info);
                 Self::adjust_iters_to_data_drop(
                     &mut fcf.field.as_mut().unwrap().iter_hall.iters,
-                    header_drop_instructions.leading_drop,
+                    root_drop_instructions.leading_drop,
                     drop_info,
                 )
             }
@@ -914,6 +929,7 @@ mod test_dead_data_drop {
             IterHallActionApplicator::build_header_drop_instructions(
                 dead_data,
                 field_data_size_before,
+                cow_data_end,
             );
 
         aa.drop_dead_headers(
@@ -1386,6 +1402,36 @@ mod test_dead_data_drop {
             2,
             DeadDataReport {
                 dead_data_leading: 0,
+                dead_data_trailing: 1,
+            },
+            [],
+            [],
+        );
+    }
+
+    #[test]
+    fn test_dead_data_after_cow_end() {
+        test_drop_dead_data_explicit(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    size: 1,
+                    flags: field_value_flags::padding(1),
+                },
+                run_length: 1,
+            }],
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    size: 1,
+                    flags: field_value_flags::padding(1),
+                },
+                run_length: 1,
+            }],
+            4,
+            2,
+            DeadDataReport {
+                dead_data_leading: 1,
                 dead_data_trailing: 1,
             },
             [],
