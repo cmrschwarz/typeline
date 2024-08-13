@@ -218,10 +218,12 @@ impl BitVecDeque {
             None
         }
     }
+
     pub fn set(&mut self, idx: usize, value: bool) {
         assert!(idx < self.len);
         unsafe { self.set_unchecked(idx, value) }
     }
+
     pub fn slices(
         &self,
     ) -> (&BitSlice<usize, LocalBits>, &BitSlice<usize, LocalBits>) {
@@ -246,6 +248,7 @@ impl BitVecDeque {
             (bs1, bs2)
         }
     }
+
     pub fn slices_mut(
         &mut self,
     ) -> (

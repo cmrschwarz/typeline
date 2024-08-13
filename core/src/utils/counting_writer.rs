@@ -1,3 +1,5 @@
+use std::io::{BufRead, Read};
+
 use bstr::ByteSlice;
 
 use super::{
@@ -296,5 +298,39 @@ impl TextInfoWriter {
     }
     pub fn text_info(&self) -> TextInfo {
         self.clone().into_text_info()
+    }
+}
+
+pub struct CountingReader<R> {
+    pub offset: usize,
+    pub reader: R,
+}
+
+impl<R: BufRead> CountingReader<R> {
+    pub fn into_inner(self) -> R {
+        self.reader
+    }
+
+    pub fn new(reader: R) -> Self {
+        Self { offset: 0, reader }
+    }
+}
+
+impl<R: BufRead> BufRead for CountingReader<R> {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        self.reader.fill_buf()
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.offset += amt;
+        self.reader.consume(amt)
+    }
+}
+
+impl<R: Read> Read for CountingReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let len = self.reader.read(buf)?;
+        self.offset += len;
+        Ok(len)
     }
 }

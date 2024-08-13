@@ -7,8 +7,6 @@ use crate::{
 
 index_newtype! {
     pub struct ChainId (pub(crate) u32);
-
-    #[derive(derive_more::Add, derive_more::Sub, derive_more::AddAssign, derive_more::SubAssign)]
     pub struct SubchainIndex(pub(crate) u32);
 }
 

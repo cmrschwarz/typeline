@@ -78,14 +78,8 @@ use super::{
 index_newtype! {
     pub struct OperatorId(u32);
     pub struct OperatorDataId(u32);
-
-    #[derive(derive_more::Add, derive_more::Sub)]
     pub struct OffsetInChain(u32);
-
-    #[derive(derive_more::Add, derive_more::Sub)]
     pub struct OffsetInAggregation(u32);
-
-    #[derive(derive_more::Add, derive_more::Sub)]
     pub struct OffsetInChainOptions(u32);
 }
 

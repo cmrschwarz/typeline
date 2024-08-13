@@ -1,13 +1,27 @@
 #![allow(clippy::inline_always)]
 
-use std::{hash::Hash, ops::Range};
+use std::{
+    hash::Hash,
+    ops::{Add, AddAssign, Range, Sub, SubAssign},
+};
 
 use super::debuggable_nonmax::{
     DebuggableNonMaxU32, DebuggableNonMaxU64, DebuggableNonMaxUsize,
 };
 
 pub trait IndexingType:
-    Default + Clone + Copy + PartialEq + Eq + PartialOrd + Ord + Hash
+    Default
+    + Clone
+    + Copy
+    + PartialEq
+    + Eq
+    + PartialOrd
+    + Ord
+    + Hash
+    + Add
+    + Sub
+    + AddAssign
+    + SubAssign
 {
     type IndexBaseType;
     const ZERO: Self;
@@ -106,6 +120,26 @@ impl IndexingType for usize {
     }
     fn wrapping_sub(self, other: Self) -> Self {
         usize::wrapping_sub(self, other)
+    }
+}
+
+impl IndexingType for u8 {
+    type IndexBaseType = Self;
+    const ZERO: u8 = 0;
+    const MAX_VALUE: u8 = u8::MAX;
+    #[inline(always)]
+    fn into_usize(self) -> usize {
+        self as usize
+    }
+    #[inline(always)]
+    fn from_usize(v: usize) -> Self {
+        v as Self
+    }
+    fn wrapping_add(self, other: Self) -> Self {
+        u8::wrapping_add(self, other)
+    }
+    fn wrapping_sub(self, other: Self) -> Self {
+        u8::wrapping_sub(self, other)
     }
 }
 
@@ -244,5 +278,27 @@ macro_rules! index_newtype {
             }
         }
 
+        impl std::ops::Add for $name {
+            type Output = Self;
+            fn add(self, other: Self) -> Self {
+                $name(self.0 + other.0)
+            }
+        }
+        impl std::ops::Sub for $name {
+            type Output = Self;
+            fn sub(self, other: Self) -> Self {
+                $name(self.0 - other.0)
+            }
+        }
+        impl std::ops::AddAssign for $name {
+            fn add_assign(&mut self, other: Self) {
+                self.0 += other.0;
+            }
+        }
+        impl std::ops::SubAssign for $name {
+            fn sub_assign(&mut self, other: Self) {
+                self.0 -= other.0;
+            }
+        }
     )*};
 }

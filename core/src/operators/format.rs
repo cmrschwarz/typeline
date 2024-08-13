@@ -118,9 +118,7 @@ pub enum FormatPart {
 }
 
 index_newtype! {
-    #[derive(derive_more::Add, derive_more::AddAssign, derive_more::Sub)]
     pub struct FormatKeyRefId(u32);
-    #[derive(derive_more::Add, derive_more::AddAssign, derive_more::Sub)]
     pub struct FormatPartIndex(u32);
 }
 

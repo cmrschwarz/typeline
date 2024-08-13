@@ -192,6 +192,16 @@ macro_rules! debuggable_nonmax {
                 self.checked_sub(rhs).unwrap()
             }
         }
+        impl std::ops::AddAssign for $nonmax {
+            fn add_assign(&mut self, rhs: Self) {
+                *self = std::ops::Add::add(*self, rhs);
+            }
+        }
+        impl std::ops::SubAssign for $nonmax {
+            fn sub_assign(&mut self, rhs: Self) {
+                *self = std::ops::Sub::sub(*self, rhs);
+            }
+        }
     };
 }
 

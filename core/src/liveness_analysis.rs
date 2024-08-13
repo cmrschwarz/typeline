@@ -40,7 +40,6 @@ use derive_more::{Deref, DerefMut};
 index_newtype! {
     pub struct BasicBlockId(usize);
     pub struct VarId(u32);
-    #[derive(derive_more::Add, derive_more::Sub, derive_more::AddAssign)]
     pub struct OpOutputIdx(u32);
 }
 

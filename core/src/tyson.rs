@@ -209,7 +209,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         };
         Ok(v)
     }
-    fn parse_string_after_quote(
+    pub fn parse_string_after_quote(
         &mut self,
         quote_kind: u8,
         binary: bool,
