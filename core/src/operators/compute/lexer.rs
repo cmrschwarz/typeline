@@ -1,9 +1,18 @@
-use std::char::REPLACEMENT_CHARACTER;
+use std::{char::REPLACEMENT_CHARACTER, fmt::Display};
 
 use crate::{
-    record_data::field_value::FieldValue,
+    record_data::{
+        field_value::FieldValue,
+        formattable::{
+            FormatOptions, FormattingContext, RealizedFormatKey,
+            TypeReprFormat,
+        },
+    },
     tyson::{TysonParseError, TysonParser},
-    utils::counting_writer::CountingReader,
+    utils::{
+        counting_writer::CountingReader,
+        text_write::{MaybeTextWritePanicAdapter, TextWriteFormatAdapter},
+    },
 };
 
 use super::parser::{ComputeExprParseError, ParseErrorKind};
@@ -14,6 +23,8 @@ use unicode_ident::{is_xid_continue, is_xid_start};
 pub struct ComputeExprLexer<'a> {
     input: &'a [u8],
     offset: usize,
+    line: u32,
+    col: u16,
     lookahead: Option<ComputeExprToken<'a>>,
 }
 
@@ -93,8 +104,10 @@ pub struct ComputeExprToken<'a> {
 
 #[derive(Clone, Copy)]
 pub struct ComputeExprSpan {
-    pub begin: u32,
-    pub end: u32,
+    pub begin_line: u32,
+    pub end_line: u32,
+    pub begin_col: u16,
+    pub end_col: u16,
 }
 
 impl<'a> ComputeExprLexer<'a> {
@@ -102,13 +115,17 @@ impl<'a> ComputeExprLexer<'a> {
         Self {
             input,
             offset: 0,
+            line: 0,
+            col: 0,
             lookahead: None,
         }
     }
     pub fn next_token_start(&self) -> ComputeExprSpan {
         ComputeExprSpan {
-            begin: self.offset as u32,
-            end: self.offset as u32,
+            begin_line: self.line,
+            end_line: self.line,
+            begin_col: self.col,
+            end_col: self.col,
         }
     }
     pub fn empty_error(&self) -> ComputeExprParseError<'static> {
@@ -177,10 +194,7 @@ impl<'a> ComputeExprLexer<'a> {
             return Ok(None);
         };
 
-        let mut span = ComputeExprSpan {
-            begin: begin as u32,
-            end: end as u32,
-        };
+        let mut span = self.next_token_start();
 
         let simple_kind = metamatch!(match c {
             '{' => Some(TokenKind::LBrace),
@@ -200,18 +214,21 @@ impl<'a> ComputeExprLexer<'a> {
             C => {
                 match &self.input[begin..(begin + 2).min(self.input.len())] {
                     [BC, BC, b'='] => {
-                        self.offset += 2;
+                        self.offset += 3;
                         Some(TokenKind::C_DOUBLE_EQ)
                     }
                     [BC, BC] | [BC, BC, _] => {
-                        self.offset += 1;
+                        self.offset += 2;
                         Some(TokenKind::C_DOUBLE)
                     }
                     [BC, b'='] | [BC, b'=', _] => {
-                        self.offset += 1;
+                        self.offset += 2;
                         Some(TokenKind::C_EQ)
                     }
-                    _ => Some(TokenKind::C_PLAIN),
+                    _ => {
+                        self.offset += 1;
+                        Some(TokenKind::C_PLAIN)
+                    }
                 }
             }
 
@@ -226,9 +243,10 @@ impl<'a> ComputeExprLexer<'a> {
             ])]
             C => {
                 if self.input.get(self.offset) == Some(&b'=') {
-                    self.offset += 1;
+                    self.offset += 2;
                     Some(TokenKind::CEQ)
                 } else {
+                    self.offset += 1;
                     Some(TokenKind::CNEQ)
                 }
             }
@@ -260,8 +278,15 @@ impl<'a> ComputeExprLexer<'a> {
         }
 
         if is_string_start || is_digit {
-            let mut r = CountingReader::new(&self.input[self.offset..]);
-            let mut p = TysonParser::new(&mut r, true, None);
+            let mut cr =
+                CountingReader::new_with_offset(self.input, self.offset);
+            let mut p = TysonParser::new_with_position(
+                &mut cr,
+                true,
+                self.line as usize,
+                self.col as usize,
+                None,
+            );
 
             let res = if is_string_start {
                 p.parse_string_after_quote(c as u8, binary)
@@ -269,7 +294,12 @@ impl<'a> ComputeExprLexer<'a> {
                 debug_assert!(is_digit);
                 p.parse_number(c as u8)
             };
-            span.end = r.offset as u32;
+            self.line = p.get_line().try_into().unwrap_or(u32::MAX);
+            self.col = p.get_col().try_into().unwrap_or(u16::MAX);
+            self.offset = cr.offset;
+
+            span.end_line = self.line;
+            span.end_col = self.col;
             return match res {
                 Ok(v) => Ok(Some(ComputeExprToken {
                     span,
@@ -295,8 +325,9 @@ impl<'a> ComputeExprLexer<'a> {
                 }
                 ident_end = end;
             }
+            self.col +=
+                (ident_end - self.offset).try_into().unwrap_or(u16::MAX);
             self.offset = ident_end;
-            span.end = ident_end as u32;
 
             let ident = &self.input[begin..ident_end];
 
@@ -324,5 +355,94 @@ impl<'a> ComputeExprLexer<'a> {
             span,
             kind: ParseErrorKind::UnexpectedCharacter(c),
         })
+    }
+}
+
+impl<'a> TokenKind<'a> {
+    fn to_static_str(&self) -> Option<&'static str> {
+        Some(match self {
+            TokenKind::Literal(_) | TokenKind::Identifier(_) => return None,
+            TokenKind::Let => "let",
+            TokenKind::If => "if",
+            TokenKind::Else => "else",
+            TokenKind::LParen => "(",
+            TokenKind::RParen => ")",
+            TokenKind::LBrace => "{",
+            TokenKind::RBrace => "}",
+            TokenKind::LBracket => "[",
+            TokenKind::RBracket => "]",
+            TokenKind::LAngleBracket => "<",
+            TokenKind::LShift => "<<",
+            TokenKind::LessThanEquals => "<=",
+            TokenKind::LShiftEquals => "<<=",
+            TokenKind::RAngleBracket => ">",
+            TokenKind::RShift => ">>",
+            TokenKind::GreaterThanEquals => ">=",
+            TokenKind::RShiftEquals => ">>=",
+            TokenKind::Plus => "+",
+            TokenKind::PlusEquals => "+=",
+            TokenKind::Minus => "-",
+            TokenKind::MinusEquals => "-=",
+            TokenKind::Star => "*",
+            TokenKind::StarEquals => "*=",
+            TokenKind::Slash => "/",
+            TokenKind::SlashEquals => "/=",
+            TokenKind::Percent => "%",
+            TokenKind::PercentEquals => "%=",
+            TokenKind::Tilde => "~",
+            TokenKind::TildeEquals => "~=",
+            TokenKind::Exclamation => "!",
+            TokenKind::ExclamationEquals => "!=",
+            TokenKind::Pipe => "|",
+            TokenKind::PipeEquals => "|=",
+            TokenKind::DoublePipe => "||",
+            TokenKind::DoublePipeEquals => "||=",
+            TokenKind::Caret => "^",
+            TokenKind::CaretEquals => "^=",
+            TokenKind::DoubleCaret => "^^",
+            TokenKind::DoubleCaretEquals => "^^=",
+            TokenKind::Ampersand => "&",
+            TokenKind::AmpersandEquals => "&=",
+            TokenKind::DoubleAmpersand => "&&",
+            TokenKind::DoubleAmpersandEquals => "&&=",
+            TokenKind::Equals => "=",
+            TokenKind::DoubleEquals => "==",
+            TokenKind::Colon => ":",
+            TokenKind::Comma => ",",
+            TokenKind::Semicolon => ";",
+        })
+    }
+}
+
+impl<'a> Display for TokenKind<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(ss) = self.to_static_str() {
+            f.write_fmt(format_args!("`{ss}`"))
+        } else {
+            match self {
+                TokenKind::Literal(v) => {
+                    let mut ctx = FormattingContext {
+                        rfk: RealizedFormatKey {
+                            opts: FormatOptions {
+                                type_repr: TypeReprFormat::Typed,
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    };
+                    v.format(
+                        &mut ctx,
+                        &mut MaybeTextWritePanicAdapter(
+                            TextWriteFormatAdapter(f),
+                        ),
+                    )
+                    .unwrap();
+                    Ok(())
+                }
+                TokenKind::Identifier(v) => f.write_fmt(format_args!("`{v}`")),
+                _ => unreachable!(),
+            }
+        }
     }
 }

@@ -314,6 +314,10 @@ impl<R: BufRead> CountingReader<R> {
     pub fn new(reader: R) -> Self {
         Self { offset: 0, reader }
     }
+
+    pub fn new_with_offset(reader: R, offset: usize) -> Self {
+        Self { offset, reader }
+    }
 }
 
 impl<R: BufRead> BufRead for CountingReader<R> {

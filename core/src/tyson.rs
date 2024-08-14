@@ -108,10 +108,19 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         use_floating_point: bool,
         exts: Option<&'a ExtensionRegistry>,
     ) -> Self {
+        Self::new_with_position(stream, use_floating_point, 1, 1, exts)
+    }
+    pub fn new_with_position(
+        stream: S,
+        use_floating_point: bool,
+        line: usize,
+        col: usize,
+        exts: Option<&'a ExtensionRegistry>,
+    ) -> Self {
         Self {
             stream,
-            line: 1,
-            col: 1,
+            line,
+            col,
             use_floating_point,
             extension_registry: exts,
         }
@@ -726,6 +735,12 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
 
     pub fn end_of_input(&mut self) -> Result<bool, std::io::Error> {
         Ok(self.peek_byte_raw()?.is_none())
+    }
+    pub fn get_line(&self) -> usize {
+        self.line
+    }
+    pub fn get_col(&self) -> usize {
+        self.col
     }
 }
 

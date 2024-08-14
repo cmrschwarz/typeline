@@ -1,4 +1,7 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    fmt::Display,
+};
 
 use crate::{
     index_newtype,
@@ -35,6 +38,66 @@ pub struct ComputeExprParseError<'a> {
     pub span: ComputeExprSpan,
     pub kind: ParseErrorKind<'a>,
 }
+
+impl<'a> Display for ParseErrorKind<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseErrorKind::Empty => {
+                f.write_str("expected expression, found empty input")
+            }
+            ParseErrorKind::UnexpectedCharacter(c) => {
+                f.write_fmt(format_args!("unexpected character `{c}`"))
+            }
+            ParseErrorKind::InvalidUTF8(_) => {
+                // TODO: display character bytes
+                f.write_str("invalid utf-8 ")
+            }
+            ParseErrorKind::LiteralError(e) => e.fmt(f),
+            ParseErrorKind::UnmatchedParenthesis {
+                kind,
+                expected_closing_paren: _,
+            } => {
+                let kind = match kind {
+                    ParenthesisKind::Brace => "brace",
+                    ParenthesisKind::Bracket => "bracket",
+                    ParenthesisKind::Parenthesis => "parenthesis",
+                };
+                f.write_fmt(format_args!("unmatched {kind}"))
+            }
+            ParseErrorKind::DoubleComma {
+                context,
+                first_comma: _,
+            } => {
+                let kind = match context {
+                    DoubleCommaContext::Object => "object",
+                    DoubleCommaContext::Array => "array",
+                };
+                f.write_fmt(format_args!("doubled comma in {kind}"))
+            }
+            ParseErrorKind::UnexpectedToken { got, expected } => f.write_fmt(
+                format_args!("unexpected token {got}, expected {expected}"),
+            ),
+            ParseErrorKind::EndOfInputWhileExpectingToken { expected } => f
+                .write_fmt(format_args!(
+                    "unexpected end of input, expected {expected}"
+                )),
+            ParseErrorKind::TrailingToken(tok) => f.write_fmt(format_args!(
+                "unexpected token {tok} after end of expression"
+            )),
+        }
+    }
+}
+
+impl ComputeExprParseError<'_> {
+    pub fn stringify_error(&self, file_path: &str) -> String {
+        format!(
+            "{file_path}:{}:{}: {}",
+            self.span.begin_line + 1,
+            self.span.begin_col + 1,
+            self.kind
+        )
+    }
+}
 pub enum ParseErrorKind<'a> {
     Empty,
     UnexpectedCharacter(char),
@@ -58,22 +121,22 @@ pub enum ParseErrorKind<'a> {
     TrailingToken(TokenKind<'a>),
 }
 
-pub struct ComputeExprParser<'a> {
+pub struct ComputeExprParser<'a, 't> {
     scope_stack: SmallVec<[HashMap<&'a str, IdentRefId>; 1]>,
     lexer: ComputeExprLexer<'a>,
-    unbound_idents: &'a mut IndexVec<UnboundRefId, ComputeIdentRefData>,
-    temporaries: &'a mut IndexVec<TemporaryRefId, ComputeTemporaryRefData>,
+    unbound_idents: &'t mut IndexVec<UnboundRefId, ComputeIdentRefData>,
+    temporaries: &'t mut IndexVec<TemporaryRefId, ComputeTemporaryRefData>,
 }
 
 index_newtype! {
     pub struct Precedence(u8);
 }
 
-impl<'a> ComputeExprParser<'a> {
+impl<'i, 't> ComputeExprParser<'i, 't> {
     pub fn new(
-        lexer: ComputeExprLexer<'a>,
-        unbound_idents: &'a mut IndexVec<UnboundRefId, ComputeIdentRefData>,
-        temporaries: &'a mut IndexVec<TemporaryRefId, ComputeTemporaryRefData>,
+        lexer: ComputeExprLexer<'i>,
+        unbound_idents: &'t mut IndexVec<UnboundRefId, ComputeIdentRefData>,
+        temporaries: &'t mut IndexVec<TemporaryRefId, ComputeTemporaryRefData>,
     ) -> Self {
         Self {
             lexer,
@@ -86,7 +149,7 @@ impl<'a> ComputeExprParser<'a> {
     fn parse_expression(
         &mut self,
         min_prec: Precedence,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let lhs = self.parse_value()?;
         self.parse_expression_after_value(lhs, min_prec)
     }
@@ -95,7 +158,7 @@ impl<'a> ComputeExprParser<'a> {
         &mut self,
         lhs: Expr,
         min_prec: Precedence,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let Some(tok) = self.lexer.peek_token()? else {
             return Ok(lhs);
         };
@@ -168,7 +231,7 @@ impl<'a> ComputeExprParser<'a> {
     fn parse_parenthesized_expr(
         &mut self,
         open_paren: ComputeExprSpan,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let res = self.parse_expression(Precedence::ZERO)?;
         let trailing_token = self.lexer.munch_token()?;
         let trailing_token_span = if let Some(trailing) = trailing_token {
@@ -191,7 +254,7 @@ impl<'a> ComputeExprParser<'a> {
         &mut self,
         matching: fn(&TokenKind) -> bool,
         expected_err_msg: &'static str,
-    ) -> Result<ComputeExprToken<'a>, ComputeExprParseError<'a>> {
+    ) -> Result<ComputeExprToken<'i>, ComputeExprParseError<'i>> {
         let Some(tok) = self.lexer.munch_token()? else {
             return Err(self.lexer.eof_error(expected_err_msg));
         };
@@ -209,7 +272,7 @@ impl<'a> ComputeExprParser<'a> {
     fn expect_to_parse_block(
         &mut self,
         expected_err_msg: &'static str,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let open_brace_tok = self.expect_to_munch_token_kind(
             |k| matches!(k, TokenKind::LBrace),
             expected_err_msg,
@@ -220,7 +283,7 @@ impl<'a> ComputeExprParser<'a> {
         &mut self,
         open_brace_span: ComputeExprSpan,
         first_expr: Option<Expr>,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let mut block_stmts = Vec::new();
         if let Some(first_expr) = first_expr {
             block_stmts.push(first_expr);
@@ -259,7 +322,7 @@ impl<'a> ComputeExprParser<'a> {
         &mut self,
         open_brace_span: ComputeExprSpan,
         first_key_expr: Expr,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let mut kv_pairs = Vec::new();
 
         let mut trailing_comma_observed = None;
@@ -315,7 +378,7 @@ impl<'a> ComputeExprParser<'a> {
     fn parse_braced_expr(
         &mut self,
         open_brace_span: ComputeExprSpan,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let first_expr = self.parse_expression(Precedence::ZERO)?;
         let Some(next_tok) = self.lexer.peek_token()? else {
             return Err(ComputeExprParseError {
@@ -357,7 +420,7 @@ impl<'a> ComputeExprParser<'a> {
     fn parse_bracketed_expr(
         &mut self,
         open_brace_span: ComputeExprSpan,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let mut array = Vec::new();
         let mut trailing_comma_observed: Option<ComputeExprSpan> = None;
         loop {
@@ -398,7 +461,7 @@ impl<'a> ComputeExprParser<'a> {
     fn parse_if_expr(
         &mut self,
         _if_span: ComputeExprSpan,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let cond = self.parse_expression(Precedence::ZERO)?;
         let then_expr = self.expect_to_parse_block("`{` to start if block")?;
         self.expect_to_munch_token_kind(
@@ -417,7 +480,7 @@ impl<'a> ComputeExprParser<'a> {
     fn parse_let_expr(
         &mut self,
         _let_kw_span: ComputeExprSpan,
-    ) -> Result<Expr, ComputeExprParseError<'a>> {
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
         let ident_tok =
             self.lexer.munch_or_eof_err("identifier after `let`")?;
         let TokenKind::Identifier(ident) = ident_tok.kind else {
@@ -441,7 +504,7 @@ impl<'a> ComputeExprParser<'a> {
         Ok(Expr::LetExpression(temp_id, Box::new(value_expr)))
     }
 
-    fn parse_value(&mut self) -> Result<Expr, ComputeExprParseError<'a>> {
+    fn parse_value(&mut self) -> Result<Expr, ComputeExprParseError<'i>> {
         let Some(tok) = self.lexer.munch_token()? else {
             return Err(self.lexer.empty_error());
         };
@@ -496,7 +559,7 @@ impl<'a> ComputeExprParser<'a> {
         ))
     }
 
-    pub fn parse(&mut self) -> Result<Expr, ComputeExprParseError<'a>> {
+    pub fn parse(&mut self) -> Result<Expr, ComputeExprParseError<'i>> {
         let res = self.parse_expression(Precedence::ZERO)?;
         if let Some(tok) = self.lexer.munch_token()? {
             return Err(ComputeExprParseError {
@@ -505,5 +568,63 @@ impl<'a> ComputeExprParser<'a> {
             });
         }
         Ok(res)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        operators::compute::{
+            ast::{BinaryOpKind, Expr},
+            lexer::ComputeExprLexer,
+        },
+        record_data::field_value::FieldValue,
+        utils::index_vec::IndexVec,
+    };
+
+    use super::ComputeExprParser;
+
+    #[track_caller]
+    #[allow(clippy::needless_pass_by_value)]
+    fn test_parse(
+        input: &str,
+        unbound: impl IntoIterator<Item = String>,
+        temporaries: impl IntoIterator<Item = String>,
+        output: Expr,
+    ) {
+        let mut unbound_out = IndexVec::new();
+        let mut temporaries_out = IndexVec::new();
+        let mut p = ComputeExprParser::new(
+            ComputeExprLexer::new(input.as_bytes()),
+            &mut unbound_out,
+            &mut temporaries_out,
+        );
+        let res = p.parse();
+        let expr = res
+            .map_err(|e| e.stringify_error("<expr>"))
+            .expect("input parses successfully");
+        assert_eq!(expr, output);
+        assert_eq!(
+            unbound_out.into_iter().map(|i| i.name).collect::<Vec<_>>(),
+            unbound.into_iter().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            temporaries_out
+                .into_iter()
+                .map(|i| i.name)
+                .collect::<Vec<_>>(),
+            temporaries.into_iter().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_compue_expr_parse_add() {
+        let one = Expr::Literal(FieldValue::Int(1));
+        test_parse(
+            "1+1",
+            [],
+            [],
+            Expr::OpBinary(BinaryOpKind::Add, Box::new([one.clone(), one])),
+        )
     }
 }

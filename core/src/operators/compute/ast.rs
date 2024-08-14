@@ -30,7 +30,7 @@ pub struct ComputeTemporaryRefData {
     pub name_interned: Option<StringStoreEntry>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum UnaryOpKind {
     LogicalNot,
     BitwiseNot,
@@ -38,7 +38,7 @@ pub enum UnaryOpKind {
     UnaryMinus,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum BinaryOpKind {
     Equals,
     NotEquals,
@@ -89,18 +89,20 @@ pub enum BinaryOpKind {
     Assign,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum IdentRefId {
     Temporary(TemporaryRefId),
     Unbound(UnboundRefId),
 }
 
+#[derive(Clone, PartialEq, Debug)]
 pub struct IfExpr {
     pub cond: Expr,
     pub then_expr: Expr,
     pub else_expr: Expr,
 }
 
+#[derive(Clone, PartialEq, Debug)]
 pub enum Expr {
     Literal(FieldValue),
     Reference(IdentRefId),

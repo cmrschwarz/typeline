@@ -9,6 +9,3 @@ pub struct OpCompute {
     expr: Expr,
     ident_refs: IndexVec<UnboundRefId, ComputeIdentRefData>,
 }
-
-#[cfg(test)]
-mod test {}

@@ -125,6 +125,16 @@ impl<I: IndexingType, T> IndexVec<I, T> {
     }
 }
 
+impl<I: IndexingType, T> IntoIterator for IndexVec<I, T> {
+    type Item = T;
+
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data.into_iter()
+    }
+}
+
 impl<'a, I: IndexingType, T> IntoIterator for &'a IndexVec<I, T> {
     type Item = &'a T;
 
