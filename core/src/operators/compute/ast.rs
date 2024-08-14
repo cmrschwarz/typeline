@@ -7,7 +7,7 @@ use crate::{
 use super::parser::Precedence;
 
 index_newtype! {
-    pub struct IdentRefId(u32);
+    pub struct UnboundRefId(u32);
     pub struct TemporaryRefId(u32);
 }
 
@@ -20,19 +20,14 @@ pub enum ComputeValueRefType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComputeIdentRefData {
     pub ref_type: ComputeValueRefType,
-    pub name: Option<String>,
+    pub name: String,
     pub name_interned: Option<StringStoreEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComputeTemporaryRefData {
-    pub name: Option<String>,
+    pub name: String,
     pub name_interned: Option<StringStoreEntry>,
-}
-
-pub enum ComputeExprValue {
-    Literal(FieldValue),
-    Reference(IdentRefId),
 }
 
 #[derive(Clone, Copy)]
@@ -94,16 +89,37 @@ pub enum BinaryOpKind {
     Assign,
 }
 
-pub enum ComputeExpr {
-    Value(ComputeExprValue),
-    OpUnary(UnaryOpKind, Box<ComputeExpr>),
-    OpBinary(BinaryOpKind, Box<[ComputeExpr; 2]>),
-    FunctionCall(IdentRefId, Box<[ComputeExpr]>),
-    LetExpression(TemporaryRefId, Box<ComputeExpr>),
+#[derive(Clone, Copy)]
+pub enum IdentRefId {
+    Temporary(TemporaryRefId),
+    Unbound(UnboundRefId),
+}
+
+pub struct IfExpr {
+    pub cond: Expr,
+    pub then_expr: Expr,
+    pub else_expr: Expr,
+}
+
+pub enum Expr {
+    Literal(FieldValue),
+    Reference(IdentRefId),
+    OpUnary(UnaryOpKind, Box<Expr>),
+    OpBinary(BinaryOpKind, Box<[Expr; 2]>),
+    IfExpr(Box<IfExpr>),
+    Block {
+        stmts: Box<[Expr]>,
+        trailing_semicolon: bool,
+    },
+    Object(Box<[(Expr, Option<Expr>)]>),
+    Array(Vec<Expr>),
+    FunctionCall(UnboundRefId, Box<[Expr]>),
+    LetExpression(TemporaryRefId, Box<Expr>),
 }
 
 impl UnaryOpKind {
     pub fn prec(self) -> super::parser::Precedence {
+        #[allow(clippy::match_same_arms)]
         let v = match self {
             UnaryOpKind::LogicalNot => 14,
             UnaryOpKind::BitwiseNot => 14,
@@ -116,6 +132,7 @@ impl UnaryOpKind {
 
 impl BinaryOpKind {
     pub fn prec(self) -> super::parser::Precedence {
+        #[allow(clippy::match_same_arms)]
         let v = match self {
             BinaryOpKind::Access => 16,
 

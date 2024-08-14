@@ -6,7 +6,7 @@ use crate::{
     utils::counting_writer::CountingReader,
 };
 
-use super::parser::{ComputeExprParseError, ComputeExprParseErrorKind};
+use super::parser::{ComputeExprParseError, ParseErrorKind};
 use bstr::ByteSlice;
 use metamatch::metamatch;
 use unicode_ident::{is_xid_continue, is_xid_start};
@@ -17,12 +17,14 @@ pub struct ComputeExprLexer<'a> {
     lookahead: Option<ComputeExprToken<'a>>,
 }
 
-#[derive(Clone)]
-pub enum ComputeExprTokenKind<'a> {
+#[derive(Clone, PartialEq)]
+pub enum TokenKind<'a> {
     Literal(FieldValue),
     Identifier(&'a str),
 
     Let,
+    If,
+    Else,
 
     LParen,
     RParen,
@@ -75,17 +77,22 @@ pub enum ComputeExprTokenKind<'a> {
     DoubleAmpersand,
     DoubleAmpersandEquals,
 
+    Equals,
+    DoubleEquals,
+
     Colon,
+    Comma,
+    Semicolon,
 }
 
 #[derive(Clone)]
 pub struct ComputeExprToken<'a> {
-    pub span: ComputeExpressionSpan,
-    pub kind: ComputeExprTokenKind<'a>,
+    pub span: ComputeExprSpan,
+    pub kind: TokenKind<'a>,
 }
 
 #[derive(Clone, Copy)]
-pub struct ComputeExpressionSpan {
+pub struct ComputeExprSpan {
     pub begin: u32,
     pub end: u32,
 }
@@ -98,14 +105,36 @@ impl<'a> ComputeExprLexer<'a> {
             lookahead: None,
         }
     }
+    pub fn next_token_start(&self) -> ComputeExprSpan {
+        ComputeExprSpan {
+            begin: self.offset as u32,
+            end: self.offset as u32,
+        }
+    }
     pub fn empty_error(&self) -> ComputeExprParseError<'static> {
         ComputeExprParseError {
-            span: ComputeExpressionSpan {
-                begin: self.offset as u32,
-                end: self.offset as u32,
-            },
-            kind: ComputeExprParseErrorKind::Empty,
+            span: self.next_token_start(),
+            kind: ParseErrorKind::Empty,
         }
+    }
+    pub fn eof_error(
+        &self,
+        expected: &'static str,
+    ) -> ComputeExprParseError<'static> {
+        ComputeExprParseError {
+            span: self.next_token_start(),
+            kind: ParseErrorKind::EndOfInputWhileExpectingToken { expected },
+        }
+    }
+
+    pub fn munch_or_eof_err(
+        &mut self,
+        expected: &'static str,
+    ) -> Result<ComputeExprToken<'a>, ComputeExprParseError<'a>> {
+        let Some(tok) = self.munch_token()? else {
+            return Err(self.eof_error(expected));
+        };
+        Ok(tok)
     }
     pub fn peek_token(
         &mut self,
@@ -148,18 +177,18 @@ impl<'a> ComputeExprLexer<'a> {
             return Ok(None);
         };
 
-        let mut span = ComputeExpressionSpan {
+        let mut span = ComputeExprSpan {
             begin: begin as u32,
             end: end as u32,
         };
 
         let simple_kind = metamatch!(match c {
-            '{' => Some(ComputeExprTokenKind::LBrace),
-            '}' => Some(ComputeExprTokenKind::RBrace),
-            '(' => Some(ComputeExprTokenKind::LParen),
-            ')' => Some(ComputeExprTokenKind::RParen),
-            '[' => Some(ComputeExprTokenKind::LBracket),
-            ']' => Some(ComputeExprTokenKind::RBracket),
+            '{' => Some(TokenKind::LBrace),
+            '}' => Some(TokenKind::RBrace),
+            '(' => Some(TokenKind::LParen),
+            ')' => Some(TokenKind::RParen),
+            '[' => Some(TokenKind::LBracket),
+            ']' => Some(TokenKind::RBracket),
 
             #[expand((C, BC, C_PLAIN, C_EQ, C_DOUBLE, C_DOUBLE_EQ) in [
                 ('<', b'<', LAngleBracket, LessThanEquals, LShift, LShiftEquals),
@@ -172,34 +201,35 @@ impl<'a> ComputeExprLexer<'a> {
                 match &self.input[begin..(begin + 2).min(self.input.len())] {
                     [BC, BC, b'='] => {
                         self.offset += 2;
-                        Some(ComputeExprTokenKind::C_DOUBLE_EQ)
+                        Some(TokenKind::C_DOUBLE_EQ)
                     }
                     [BC, BC] | [BC, BC, _] => {
                         self.offset += 1;
-                        Some(ComputeExprTokenKind::C_DOUBLE)
+                        Some(TokenKind::C_DOUBLE)
                     }
                     [BC, b'='] | [BC, b'=', _] => {
                         self.offset += 1;
-                        Some(ComputeExprTokenKind::C_EQ)
+                        Some(TokenKind::C_EQ)
                     }
-                    _ => Some(ComputeExprTokenKind::C_PLAIN),
+                    _ => Some(TokenKind::C_PLAIN),
                 }
             }
 
             #[expand((C, CNEQ, CEQ) in [
                 ('+', Plus, PlusEquals),
-                ('-', Plus, PlusEquals),
-                ('*', Plus, PlusEquals),
-                ('/', Plus, PlusEquals),
+                ('-', Minus, MinusEquals),
+                ('*', Star, StarEquals),
+                ('/', Slash, SlashEquals),
                 ('~', Tilde, TildeEquals),
                 ('!', Exclamation, ExclamationEquals),
+                ('=', Equals, DoubleEquals),
             ])]
             C => {
                 if self.input.get(self.offset) == Some(&b'=') {
                     self.offset += 1;
-                    Some(ComputeExprTokenKind::CEQ)
+                    Some(TokenKind::CEQ)
                 } else {
-                    Some(ComputeExprTokenKind::CNEQ)
+                    Some(TokenKind::CNEQ)
                 }
             }
             _ => None,
@@ -243,16 +273,14 @@ impl<'a> ComputeExprLexer<'a> {
             return match res {
                 Ok(v) => Ok(Some(ComputeExprToken {
                     span,
-                    kind: ComputeExprTokenKind::Literal(v),
+                    kind: TokenKind::Literal(v),
                 })),
                 Err(e) => match e {
                     TysonParseError::Io(_) => unreachable!(),
                     TysonParseError::InvalidSyntax { kind, .. } => {
                         Err(ComputeExprParseError {
                             span,
-                            kind: ComputeExprParseErrorKind::LiteralError(
-                                kind,
-                            ),
+                            kind: ParseErrorKind::LiteralError(kind),
                         })
                     }
                 },
@@ -273,12 +301,12 @@ impl<'a> ComputeExprLexer<'a> {
             let ident = &self.input[begin..ident_end];
 
             let kind = match ident {
-                b"let" => ComputeExprTokenKind::Let,
-                b"null" => ComputeExprTokenKind::Literal(FieldValue::Null),
-                b"undefined" => {
-                    ComputeExprTokenKind::Literal(FieldValue::Undefined)
-                }
-                _ => ComputeExprTokenKind::Identifier(ident.to_str().unwrap()),
+                b"let" => TokenKind::Let,
+                b"if" => TokenKind::If,
+                b"else" => TokenKind::Else,
+                b"null" => TokenKind::Literal(FieldValue::Null),
+                b"undefined" => TokenKind::Literal(FieldValue::Undefined),
+                _ => TokenKind::Identifier(ident.to_str().unwrap()),
             };
 
             return Ok(Some(ComputeExprToken { span, kind }));
@@ -288,13 +316,13 @@ impl<'a> ComputeExprLexer<'a> {
             let bytes = self.input[begin..end].try_into().unwrap();
             return Err(ComputeExprParseError {
                 span,
-                kind: ComputeExprParseErrorKind::InvalidUTF8(bytes),
+                kind: ParseErrorKind::InvalidUTF8(bytes),
             });
         }
 
         Err(ComputeExprParseError {
             span,
-            kind: ComputeExprParseErrorKind::UnexpectedCharacter(c),
+            kind: ParseErrorKind::UnexpectedCharacter(c),
         })
     }
 }

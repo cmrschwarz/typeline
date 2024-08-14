@@ -3,11 +3,11 @@ mod lexer;
 pub mod parser;
 
 use crate::utils::index_vec::IndexVec;
-use ast::{ComputeExpr, ComputeIdentRefData, IdentRefId};
+use ast::{ComputeIdentRefData, Expr, UnboundRefId};
 
 pub struct OpCompute {
-    expr: ComputeExpr,
-    ident_refs: IndexVec<IdentRefId, ComputeIdentRefData>,
+    expr: Expr,
+    ident_refs: IndexVec<UnboundRefId, ComputeIdentRefData>,
 }
 
 #[cfg(test)]
