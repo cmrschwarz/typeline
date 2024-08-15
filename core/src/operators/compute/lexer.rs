@@ -28,7 +28,7 @@ pub struct ComputeExprLexer<'a> {
     lookahead: Option<ComputeExprToken<'a>>,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum TokenKind<'a> {
     Literal(FieldValue),
     Identifier(&'a str),
@@ -96,18 +96,34 @@ pub enum TokenKind<'a> {
     Semicolon,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ComputeExprToken<'a> {
     pub span: ComputeExprSpan,
     pub kind: TokenKind<'a>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ComputeExprSpan {
     pub begin_line: u32,
     pub end_line: u32,
     pub begin_col: u16,
     pub end_col: u16,
+}
+
+impl ComputeExprSpan {
+    pub fn new(
+        begin_line: u32,
+        end_line: u32,
+        begin_col: u16,
+        end_col: u16,
+    ) -> Self {
+        Self {
+            begin_line,
+            end_line,
+            begin_col,
+            end_col,
+        }
+    }
 }
 
 impl<'a> ComputeExprLexer<'a> {
@@ -178,15 +194,22 @@ impl<'a> ComputeExprLexer<'a> {
         if self.lookahead.is_some() {
             return Ok(self.lookahead.take());
         }
-
+        let offset_prev = self.offset;
         let mut res = None;
         for (begin, end, c) in self.input[self.offset..].char_indices() {
-            if c.is_ascii_whitespace() {
-                self.offset = end;
+            if c == ' ' {
+                self.offset += 1;
+                self.col += 1;
+                continue;
+            }
+            if c == '\n' {
+                self.offset += 1;
+                self.col = 0;
+                self.line += 1;
                 continue;
             }
 
-            res = Some((c, begin, end));
+            res = Some((c, offset_prev + begin, offset_prev + end));
             break;
         }
 
@@ -254,6 +277,8 @@ impl<'a> ComputeExprLexer<'a> {
         });
 
         if let Some(kind) = simple_kind {
+            self.col = self.col.saturating_add((self.offset - begin) as u16);
+            span.end_col = self.col;
             return Ok(Some(ComputeExprToken { span, kind }));
         }
 
@@ -279,12 +304,12 @@ impl<'a> ComputeExprLexer<'a> {
 
         if is_string_start || is_digit {
             let mut cr =
-                CountingReader::new_with_offset(self.input, self.offset);
+                CountingReader::new_with_offset(&self.input[end..], end);
             let mut p = TysonParser::new_with_position(
                 &mut cr,
                 true,
                 self.line as usize,
-                self.col as usize,
+                self.col as usize + (end - begin),
                 None,
             );
 
@@ -319,11 +344,11 @@ impl<'a> ComputeExprLexer<'a> {
 
         if is_xid_start(c) {
             let mut ident_end = self.offset;
-            for (_, end, c) in self.input[self.offset..].char_indices() {
+            for (_, end, c) in self.input[end..].char_indices() {
                 if !is_xid_continue(c) {
                     break;
                 }
-                ident_end = end;
+                ident_end = self.offset + end;
             }
             self.col +=
                 (ident_end - self.offset).try_into().unwrap_or(u16::MAX);
@@ -444,5 +469,59 @@ impl<'a> Display for TokenKind<'a> {
                 _ => unreachable!(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::record_data::field_value::FieldValue;
+
+    use super::{
+        ComputeExprLexer, ComputeExprSpan, ComputeExprToken, TokenKind,
+    };
+
+    #[track_caller]
+    #[allow(clippy::needless_pass_by_value)]
+    fn test_lexer<'a>(
+        input: &str,
+        output: impl IntoIterator<Item = ComputeExprToken<'a>>,
+    ) {
+        let mut lx = ComputeExprLexer::new(input.as_bytes());
+        let mut tokens = Vec::new();
+        while let Some(tok) = lx.munch_token().unwrap() {
+            tokens.push(tok);
+        }
+        assert_eq!(tokens, output.into_iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_compute_expr_lex_number() {
+        test_lexer(
+            "1",
+            [ComputeExprToken {
+                span: ComputeExprSpan::new(0, 0, 0, 1),
+                kind: TokenKind::Literal(FieldValue::Int(1)),
+            }],
+        )
+    }
+    #[test]
+    fn test_compute_expr_lex_add() {
+        test_lexer(
+            " 1 + \n1",
+            [
+                ComputeExprToken {
+                    span: ComputeExprSpan::new(0, 0, 1, 2),
+                    kind: TokenKind::Literal(FieldValue::Int(1)),
+                },
+                ComputeExprToken {
+                    span: ComputeExprSpan::new(0, 0, 3, 4),
+                    kind: TokenKind::Plus,
+                },
+                ComputeExprToken {
+                    span: ComputeExprSpan::new(1, 1, 0, 1),
+                    kind: TokenKind::Literal(FieldValue::Int(1)),
+                },
+            ],
+        )
     }
 }

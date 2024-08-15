@@ -1,7 +1,4 @@
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    fmt::Display,
-};
+use std::collections::{hash_map::Entry, HashMap};
 
 use crate::{
     index_newtype,
@@ -39,7 +36,7 @@ pub struct ComputeExprParseError<'a> {
     pub kind: ParseErrorKind<'a>,
 }
 
-impl<'a> Display for ParseErrorKind<'a> {
+impl<'a> std::fmt::Display for ParseErrorKind<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ParseErrorKind::Empty => {
@@ -98,6 +95,18 @@ impl ComputeExprParseError<'_> {
         )
     }
 }
+
+impl std::fmt::Debug for ComputeExprParseError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "<unknown>:{}:{}: {}",
+            self.span.begin_line + 1,
+            self.span.begin_col + 1,
+            self.kind
+        ))
+    }
+}
+
 pub enum ParseErrorKind<'a> {
     Empty,
     UnexpectedCharacter(char),
