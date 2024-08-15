@@ -227,7 +227,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             | TokenKind::Equals
             | TokenKind::DoubleEquals => return Ok(lhs),
         };
-
+        let _ = self.lexer.munch_token();
         Ok(Expr::OpBinary(
             binary_op,
             Box::new([
@@ -584,7 +584,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
 mod test {
     use crate::{
         operators::compute::{
-            ast::{BinaryOpKind, Expr},
+            ast::{BinaryOpKind, Expr, UnaryOpKind},
             lexer::ComputeExprLexer,
         },
         record_data::field_value::FieldValue,
@@ -634,6 +634,50 @@ mod test {
             [],
             [],
             Expr::OpBinary(BinaryOpKind::Add, Box::new([one.clone(), one])),
+        )
+    }
+
+    #[test]
+    fn test_compue_expr_parse_add_unary_minus() {
+        test_parse(
+            "1+-2",
+            [],
+            [],
+            Expr::OpBinary(
+                BinaryOpKind::Add,
+                Box::new([
+                    Expr::Literal(FieldValue::Int(1)),
+                    Expr::OpUnary(
+                        UnaryOpKind::UnaryMinus,
+                        Box::new(Expr::Literal(FieldValue::Int(2))),
+                    ),
+                ]),
+            ),
+        )
+    }
+
+    #[test]
+    fn test_compue_expr_parse_add_mul_prec() {
+        test_parse(
+            "1+-2*3",
+            [],
+            [],
+            Expr::OpBinary(
+                BinaryOpKind::Add,
+                Box::new([
+                    Expr::Literal(FieldValue::Int(1)),
+                    Expr::OpUnary(
+                        UnaryOpKind::UnaryMinus,
+                        Box::new(Expr::OpBinary(
+                            BinaryOpKind::Multiply,
+                            Box::new([
+                                Expr::Literal(FieldValue::Int(2)),
+                                Expr::Literal(FieldValue::Int(3)),
+                            ]),
+                        )),
+                    ),
+                ]),
+            ),
         )
     }
 }
