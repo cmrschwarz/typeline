@@ -5,7 +5,8 @@ use crate::{
     operators::compute::ast::BinaryOpKind,
     tyson::TysonParseErrorKind,
     utils::{
-        index_vec::IndexVec, indexing_type::IndexingType, MAX_UTF8_CHAR_LEN,
+        index_vec::IndexVec, indexing_type::IndexingType,
+        string_store::INVALID_STRING_STORE_ENTRY, MAX_UTF8_CHAR_LEN,
     },
 };
 use arrayvec::ArrayVec;
@@ -508,7 +509,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         let value_expr = self.parse_expression(Precedence::ZERO)?;
         let temp_id = self.temporaries.push_get_id(ComputeTemporaryRefData {
             name: ident.to_owned(),
-            name_interned: None,
+            name_interned: INVALID_STRING_STORE_ENTRY,
         });
         Ok(Expr::LetExpression(temp_id, Box::new(value_expr)))
     }
@@ -532,7 +533,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                             ComputeIdentRefData {
                                 ref_type: ComputeValueRefType::Field,
                                 name: ident.to_owned(),
-                                name_interned: None,
+                                name_interned: INVALID_STRING_STORE_ENTRY,
                             },
                         );
                         let cref = IdentRefId::Unbound(id);

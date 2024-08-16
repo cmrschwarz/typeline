@@ -33,6 +33,10 @@ use super::{
         setup_op_call_concurrent_liveness_data, OpCallConcurrent,
     },
     chunks::{insert_tf_chunks, setup_op_chunks, OpChunks},
+    compute::{
+        build_tf_compute, compute_add_var_names, setup_op_compute,
+        update_op_compute_variable_liveness, OpCompute,
+    },
     count::{build_tf_count, OpCount},
     field_value_sink::{build_tf_field_value_sink, OpFieldValueSink},
     file_reader::{build_tf_file_reader, setup_op_file_reader, OpFileReader},
@@ -105,6 +109,7 @@ pub enum OperatorData {
     Select(OpSelect),
     Regex(OpRegex),
     Format(OpFormat),
+    Compute(OpCompute),
     StringSink(OpStringSink),
     FieldValueSink(OpFieldValueSink),
     FileReader(OpFileReader),
@@ -219,6 +224,14 @@ impl OperatorData {
                 span,
             ),
             OperatorData::Format(op) => setup_op_format(
+                op,
+                sess,
+                op_data_id,
+                chain_id,
+                offset_in_chain,
+                span,
+            ),
+            OperatorData::Compute(op) => setup_op_compute(
                 op,
                 sess,
                 op_data_id,
@@ -397,6 +410,7 @@ impl OperatorData {
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
+            | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
@@ -473,6 +487,7 @@ impl OperatorData {
             OperatorData::Select(_) => 0,
             OperatorData::Regex(re) => regex_output_counts(re),
             OperatorData::Format(_) => 1,
+            OperatorData::Compute(_) => 1,
             OperatorData::StringSink(_) => 1,
             OperatorData::FieldValueSink(_) => 1,
             OperatorData::FileReader(_) => 1,
@@ -563,6 +578,7 @@ impl OperatorData {
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
+            | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
@@ -599,6 +615,7 @@ impl OperatorData {
             OperatorData::Regex(_) => "regex".into(),
             OperatorData::FileReader(op) => op.default_op_name(),
             OperatorData::Format(_) => "f".into(),
+            OperatorData::Compute(_) => "c".into(),
             OperatorData::Select(_) => "select".into(),
             OperatorData::Literal(op) => op.default_op_name(),
             OperatorData::Count(_) => "count".into(),
@@ -668,6 +685,7 @@ impl OperatorData {
             | OperatorData::Regex(_)
             | OperatorData::FileReader(_)
             | OperatorData::Format(_)
+            | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
@@ -745,6 +763,7 @@ impl OperatorData {
                 ld.add_var_name(s.key_interned.unwrap());
             }
             OperatorData::Format(fmt) => format_add_var_names(fmt, ld),
+            OperatorData::Compute(c) => compute_add_var_names(c, ld),
             OperatorData::Aggregator(agg) => {
                 for &sub_op in &agg.sub_ops {
                     ld.setup_op_vars(sess, sub_op);
@@ -926,6 +945,16 @@ impl OperatorData {
                     op_offset_after_last_write,
                 );
             }
+             OperatorData::Compute(c) => {
+                update_op_compute_variable_liveness(
+                    sess,
+                    c,
+                    ld,
+                    op_id,
+                    flags,
+                    op_offset_after_last_write,
+                );
+            }
             OperatorData::FileReader(_) | OperatorData::Count(_) => {
                 // this only inserts if input is done, so no write flag
                 // neccessary
@@ -1084,6 +1113,7 @@ impl OperatorData {
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
+            | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
@@ -1153,6 +1183,9 @@ impl OperatorData {
                 build_tf_regex(jd, op_base, op, tfs, prebound_outputs)
             }
             OperatorData::Format(op) => build_tf_format(jd, op_base, op, tfs),
+            OperatorData::Compute(op) => {
+                build_tf_compute(jd, op_base, op, tfs)
+            }
             OperatorData::StringSink(op) => {
                 build_tf_string_sink(jd, op_base, op, tfs)
             }
@@ -1283,6 +1316,7 @@ impl OperatorData {
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
+            | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)

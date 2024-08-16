@@ -30,6 +30,9 @@ use super::{
         handle_tf_chunks_header, handle_tf_chunks_trailer, TfChunksHeader,
         TfChunksTrailer,
     },
+    compute::{
+        handle_tf_compute, handle_tf_compute_stream_value_update, TfCompute,
+    },
     count::{handle_tf_count, TfCount},
     field_value_sink::{
         handle_tf_field_value_sink,
@@ -99,6 +102,7 @@ pub enum TransformData<'a> {
     ForkCatSubchainTrailer(TfForkCatSubchainTrailer<'a>),
     Regex(TfRegex<'a>),
     Format(TfFormat<'a>),
+    Compute(TfCompute<'a>),
     FileReader(TfFileReader),
     Literal(TfLiteral<'a>),
     Sequence(TfSequence),
@@ -137,6 +141,7 @@ impl TransformData<'_> {
             TransformData::ForkCat(_) => "forkcat",
             TransformData::Regex(r) => return r.display_name(),
             TransformData::Format(_) => "format",
+            TransformData::Compute(_) => "compute",
             TransformData::FileReader(_) => "file_reader",
             TransformData::Literal(_) => "literal",
             TransformData::Sequence(s) => return s.display_name(),
@@ -168,6 +173,7 @@ impl TransformData<'_> {
             | TransformData::Join(_)
             | TransformData::StringSink(_)
             | TransformData::Format(_)
+            | TransformData::Compute(_)
             | TransformData::FileReader(_)
             | TransformData::Literal(_)
             | TransformData::Sequence(_)
@@ -330,6 +336,7 @@ pub fn transform_pre_update(
         | TransformData::FieldValueSink(_)
         | TransformData::Regex(_)
         | TransformData::Format(_)
+        | TransformData::Compute(_)
         | TransformData::FileReader(_)
         | TransformData::Literal(_)
         | TransformData::Sequence(_)
@@ -384,6 +391,7 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
         TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
         TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
+        TransformData::Compute(tf) => handle_tf_compute(jd, tf_id, tf),
         TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
         TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
         TransformData::ToStr(tf) => handle_tf_to_str(jd, tf_id, tf),
@@ -440,6 +448,7 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::Literal(_)
             | TransformData::Sequence(_)
             | TransformData::Format(_)
+            | TransformData::Compute(_)
             //these go straight to the sub transforms
             | TransformData::AggregatorHeader(_)
             | TransformData::AggregatorTrailer(_)
@@ -491,6 +500,11 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
             );
         }
         TransformData::Format(tf) => handle_tf_format_stream_value_update(
+            jd,
+            tf,
+            svu
+        ),
+        TransformData::Compute(tf) => handle_tf_compute_stream_value_update(
             jd,
             tf,
             svu

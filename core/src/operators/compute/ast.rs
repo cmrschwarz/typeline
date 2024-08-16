@@ -21,13 +21,13 @@ pub enum ComputeValueRefType {
 pub struct ComputeIdentRefData {
     pub ref_type: ComputeValueRefType,
     pub name: String,
-    pub name_interned: Option<StringStoreEntry>,
+    pub name_interned: StringStoreEntry,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComputeTemporaryRefData {
     pub name: String,
-    pub name_interned: Option<StringStoreEntry>,
+    pub name_interned: StringStoreEntry,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -184,3 +184,4 @@ impl BinaryOpKind {
         Precedence::from_usize(v)
     }
 }
+
