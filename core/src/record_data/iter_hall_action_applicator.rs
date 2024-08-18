@@ -880,15 +880,12 @@ mod test_dead_data_drop {
         action_buffer::ActorRef,
         field::{FieldManager, FIELD_REF_LOOKUP_ITER_ID},
         field_action::FieldActionKind,
-        field_action_applicator::testing_helpers::{
-            iter_state_dummy_to_iter_state, IterStateDummy,
-        },
         field_data::{
             field_value_flags, FieldValueFormat, FieldValueHeader,
             FieldValueRepr,
         },
         field_value::FieldValue,
-        iter_hall::IterState,
+        iter_hall::{IterState, IterStateRaw},
         iter_hall_action_applicator::{
             DeadDataReport, IterHallActionApplicator,
         },
@@ -904,15 +901,15 @@ mod test_dead_data_drop {
         field_data_size_before: usize,
         cow_data_end: usize,
         dead_data: DeadDataReport,
-        iters_before: impl IntoIterator<Item = IterStateDummy>,
-        iters_after: impl IntoIterator<Item = IterStateDummy>,
+        iters_before: impl IntoIterator<Item = IterStateRaw>,
+        iters_after: impl IntoIterator<Item = IterStateRaw>,
     ) {
         fn collect_iters(
-            iters: impl IntoIterator<Item = IterStateDummy>,
+            iters: impl IntoIterator<Item = IterStateRaw>,
         ) -> Vec<Cell<IterState>> {
             iters
                 .into_iter()
-                .map(iter_state_dummy_to_iter_state)
+                .map(IterState::from_raw_with_dummy_kind)
                 .map(Cell::new)
                 .collect::<Vec<_>>()
         }
@@ -947,8 +944,8 @@ mod test_dead_data_drop {
     fn test_drop_dead_data(
         headers_before: impl IntoIterator<Item = FieldValueHeader>,
         headers_after: impl IntoIterator<Item = FieldValueHeader>,
-        iters_before: impl IntoIterator<Item = IterStateDummy>,
-        iters_after: impl IntoIterator<Item = IterStateDummy>,
+        iters_before: impl IntoIterator<Item = IterStateRaw>,
+        iters_after: impl IntoIterator<Item = IterStateRaw>,
     ) {
         let headers_before =
             headers_before.into_iter().collect::<VecDeque<_>>();
@@ -1157,14 +1154,14 @@ mod test_dead_data_drop {
                     run_length: 2,
                 },
             ],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 1,
                 data: 40,
                 header_idx: 4,
                 header_rl_offset: 0,
                 lean_left_on_inserts: false,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 1,
                 data: 16,
                 header_idx: 2,
@@ -1232,14 +1229,14 @@ mod test_dead_data_drop {
                     run_length: 1,
                 },
             ],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 1,
                 data: 3,
                 header_idx: 2,
                 header_rl_offset: 0,
                 lean_left_on_inserts: true,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 1,
                 data: 3,
                 header_idx: 2,
@@ -1290,14 +1287,14 @@ mod test_dead_data_drop {
                 },
                 run_length: 1,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 0,
                 data: 1,
                 header_idx: 1,
                 header_rl_offset: 0,
                 lean_left_on_inserts: true,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 0,
                 data: 0,
                 header_idx: 0,

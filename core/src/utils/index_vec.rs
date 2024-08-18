@@ -7,7 +7,7 @@ use std::{
 use ref_cast::RefCast;
 
 use super::{
-    index_slice::{IndexSlice, IndexSliceIterEnumerated},
+    index_slice::{IndexIterEnumerated, IndexSlice},
     indexing_type::{IndexingType, IndexingTypeRange},
 };
 
@@ -114,8 +114,15 @@ impl<I: IndexingType, T> IndexVec<I, T> {
     pub fn truncate(&mut self, new_end_index: I) {
         self.data.truncate(new_end_index.into_usize());
     }
-    pub fn iter_enumerated(&self) -> IndexSliceIterEnumerated<I, T> {
-        IndexSliceIterEnumerated::new(self.data.iter(), I::default())
+    pub fn iter_enumerated(
+        &self,
+    ) -> IndexIterEnumerated<I, std::slice::Iter<T>> {
+        IndexIterEnumerated::new(I::ZERO, self.data.iter())
+    }
+    pub fn into_iter_enumerated(
+        self,
+    ) -> IndexIterEnumerated<I, std::vec::IntoIter<T>> {
+        IndexIterEnumerated::new(I::ZERO, self.data.into_iter())
     }
     pub fn indices(&self) -> IndexingTypeRange<I> {
         IndexingTypeRange::new(I::zero()..self.next_idx())

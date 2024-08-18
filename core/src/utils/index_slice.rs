@@ -16,19 +16,19 @@ pub struct IndexSlice<I, T> {
     data: [T],
 }
 
-pub struct IndexSliceIterEnumerated<'a, I, T> {
-    base_iter: std::slice::Iter<'a, T>,
+pub struct IndexIterEnumerated<I, IT> {
     pos: I,
+    base_iter: IT,
 }
 
-impl<'a, I: IndexingType, T> IndexSliceIterEnumerated<'a, I, T> {
-    pub fn new(base_iter: std::slice::Iter<'a, T>, pos: I) -> Self {
-        Self { base_iter, pos }
+impl<I: IndexingType, IT: Iterator> IndexIterEnumerated<I, IT> {
+    pub fn new(pos: I, base_iter: IT) -> Self {
+        Self { pos, base_iter }
     }
 }
 
-impl<'a, I: IndexingType, T> Iterator for IndexSliceIterEnumerated<'a, I, T> {
-    type Item = (I, &'a T);
+impl<I: IndexingType, IT: Iterator> Iterator for IndexIterEnumerated<I, IT> {
+    type Item = (I, IT::Item);
 
     fn next(&mut self) -> Option<Self::Item> {
         let value = self.base_iter.next()?;
@@ -42,8 +42,8 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
     pub fn iter_enumerated(
         &self,
         initial_offset: I,
-    ) -> IndexSliceIterEnumerated<I, T> {
-        IndexSliceIterEnumerated {
+    ) -> IndexIterEnumerated<I, std::slice::Iter<T>> {
+        IndexIterEnumerated {
             base_iter: self.data.iter(),
             pos: initial_offset,
         }

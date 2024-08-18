@@ -13,6 +13,7 @@ use super::{
         RefAwareInlineBytesIter, RefAwareInlineTextIter,
         RefAwareTextBufferIter,
     },
+    varying_type_inserter::VaryingTypeInserter,
 };
 use crate::{
     cli::call_expr::Argument,
@@ -926,6 +927,12 @@ impl FieldData {
     }
     pub fn field_count(&self) -> usize {
         self.field_count
+    }
+
+    pub fn varying_type_inserter(
+        &mut self,
+    ) -> VaryingTypeInserter<&mut FieldData> {
+        VaryingTypeInserter::new(self)
     }
 }
 

@@ -903,6 +903,13 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
             }
         }
     }
+    pub fn require_single_plaintext_arg_autoconvert(
+        &self,
+        sess: &mut SessionSetupData,
+    ) -> Result<MaybeTextCow, OperatorCreationError> {
+        let arg = self.require_single_arg()?;
+        Ok(arg.stringify(sess))
+    }
     pub fn require_single_string_arg(
         &self,
     ) -> Result<&str, OperatorCreationError> {

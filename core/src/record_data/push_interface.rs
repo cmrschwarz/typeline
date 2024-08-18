@@ -20,10 +20,11 @@ use super::{
     field_value_ref::{FieldValueSlice, ValidTypedRange},
     field_value_slice_iter::FieldValueRangeIter,
     formattable::{Formattable, FormattingContext, RealizedFormatKey},
+    iters::{FieldIterOpts, FieldIterator},
     match_set::MatchSetManager,
     ref_iter::{
-        AnyRefSliceIter, RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
-        RefAwareInlineTextIter, RefAwareTypedRange,
+        AnyRefSliceIter, AutoDerefIter, RefAwareFieldValueRangeIter,
+        RefAwareInlineBytesIter, RefAwareInlineTextIter, RefAwareTypedRange,
     },
     stream_value::{StreamValueId, StreamValueManager},
 };
@@ -557,6 +558,59 @@ pub unsafe trait PushInterface {
             }
         })
     }
+    fn push_field_value_ref(
+        &mut self,
+        v: &FieldValue,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        metamatch!(match v {
+            FieldValue::Null => self.push_null(run_length, try_header_rle),
+            FieldValue::Undefined => {
+                self.push_undefined(run_length, try_header_rle)
+            }
+            #[expand(REP in [
+                Float, Int, FieldReference, SlicedFieldReference, StreamValueId,
+            ])]
+            FieldValue::REP(v) => {
+                self.push_fixed_size_type(
+                    *v,
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
+            }
+            #[expand(REP in [
+                Array, Custom, Error,  Macro,
+            ])]
+            FieldValue::REP(v) => {
+                self.push_fixed_size_type(
+                    v.clone(),
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
+            }
+            #[expand((REP, PUSH_FN) in [
+                (Text, push_str),
+                (Bytes, push_bytes)
+            ])]
+            FieldValue::REP(v) => {
+                self.PUSH_FN(v, run_length, try_header_rle, try_data_rle)
+            }
+
+            #[expand(REP in [BigInt, BigRational, Argument, Object])]
+            FieldValue::REP(v) => {
+                self.push_fixed_size_type(
+                    (**v).clone(),
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
+            }
+        })
+    }
     fn extend_from_valid_range(
         &mut self,
         range: ValidTypedRange,
@@ -1045,6 +1099,43 @@ pub unsafe trait PushInterface {
                 );
             }
         }
+    }
+
+    fn extend_from_iter<'a>(
+        &mut self,
+        mut iter: impl FieldIterator<'a>,
+        mut count: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        while let Some(range) =
+            iter.typed_range_fwd(count, FieldIterOpts::default())
+        {
+            count -= range.field_count;
+            self.extend_from_valid_range(range, try_header_rle, try_data_rle);
+        }
+        debug_assert_eq!(count, 0);
+    }
+
+    fn extend_from_auto_deref_iter<'a, I: FieldIterator<'a>>(
+        &mut self,
+        msm: &MatchSetManager,
+        iter: &mut AutoDerefIter<'a, I>,
+        mut count: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        while let Some(range) =
+            iter.typed_range_fwd(msm, count, FieldIterOpts::default())
+        {
+            count -= range.base.field_count;
+            self.extend_from_ref_aware_range(
+                range,
+                try_header_rle,
+                try_data_rle,
+            );
+        }
+        debug_assert_eq!(count, 0);
     }
 }
 impl FieldData {

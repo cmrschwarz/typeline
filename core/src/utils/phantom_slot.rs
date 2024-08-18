@@ -1,10 +1,11 @@
 use std::{
-    mem::MaybeUninit,
+    mem::ManuallyDrop,
     panic::{RefUnwindSafe, UnwindSafe},
 };
 
 /// An alias type for `T` that
-/// - has the same size and align as T
+/// - cannot be constructed
+/// - has the same size, align and niches as T
 /// - has no Drop impl
 /// - implementis `Send`, `Sync`, `Unpin`, 'Clone', `UnwindSafe` and
 ///   `RefUnwindSafe` regardless of `T`
@@ -14,11 +15,7 @@ use std::{
 /// This type is mainly intended for usage with `transmute_vec`
 #[repr(C)]
 pub struct PhantomSlot<T> {
-    // field with the size of `T`
-    _size: MaybeUninit<T>,
-
-    // zero-sized field with the alignment of `T`
-    _alignment: [T; 0],
+    data: ManuallyDrop<T>,
 }
 
 unsafe impl<T> Send for PhantomSlot<T> {}
@@ -29,10 +26,7 @@ impl<T> UnwindSafe for PhantomSlot<T> {}
 
 impl<T> Clone for PhantomSlot<T> {
     fn clone(&self) -> Self {
-        Self {
-            _size: MaybeUninit::uninit(),
-            _alignment: [],
-        }
+        panic!("attempted to clone phantom slot")
     }
 }
 impl<T: Copy> Copy for PhantomSlot<T> {}

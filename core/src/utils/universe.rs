@@ -7,7 +7,7 @@ use arrayvec::ArrayVec;
 
 use super::{
     debuggable_nonmax::DebuggableNonMaxUsize, get_three_distinct_mut,
-    indexing_type::IndexingType,
+    indexing_type::IndexingType, temp_vec::TransmutableContainer,
 };
 
 use super::get_two_distinct_mut;
@@ -15,7 +15,7 @@ use super::get_two_distinct_mut;
 // mechainic
 
 #[derive(Clone)]
-enum UniverseEntry<T> {
+pub enum UniverseEntry<T> {
     Occupied(T),
     // PERF: maybe use the indexing type / a derived non max type
     // here instead to save memory for u32s, e.g. in `GroupList`
@@ -44,17 +44,20 @@ impl<T> UniverseEntry<T> {
 }
 
 // if we autoderive this, I would have to implement Default
-impl<I, T> Default for Universe<I, T> {
+impl<I: IndexingType, T> Default for Universe<I, T> {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<I: IndexingType, T> Universe<I, T> {
+    pub const fn new() -> Self {
         Self {
             data: Vec::new(),
             first_vacant_entry: None,
             _phantom_data: PhantomData,
         }
     }
-}
-
-impl<I: IndexingType, T> Universe<I, T> {
     pub fn multi_ref_handout<const CAP: usize>(
         &mut self,
     ) -> UniverseMultiRefMutHandout<I, T, CAP> {
@@ -420,6 +423,12 @@ pub struct CountedUniverse<I, T> {
 }
 
 impl<I: IndexingType, T> CountedUniverse<I, T> {
+    pub const fn new() -> Self {
+        Self {
+            universe: Universe::new(),
+            occupied_entries: 0,
+        }
+    }
     pub fn release(&mut self, id: I) {
         self.occupied_entries -= 1;
         self.universe.release(id)
@@ -493,12 +502,9 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
 }
 
 // autoderiving this currently fails on stable
-impl<I, T> Default for CountedUniverse<I, T> {
+impl<I: IndexingType, T> Default for CountedUniverse<I, T> {
     fn default() -> Self {
-        Self {
-            universe: Universe::default(),
-            occupied_entries: 0,
-        }
+        Self::new()
     }
 }
 
@@ -554,5 +560,31 @@ impl<I: IndexingType, T, II: IntoIterator<Item = T>> From<II>
             u.claim_with_value(i);
         }
         u
+    }
+}
+
+impl<I: IndexingType, T> TransmutableContainer for Universe<I, T> {
+    type ElementType = T;
+
+    type ContainerType<Q> = Universe<I, Q>;
+
+    fn transmute<Q>(
+        self,
+    ) -> <Self as TransmutableContainer>::ContainerType<Q> {
+        Universe {
+            data: self.data.transmute(),
+            first_vacant_entry: None,
+            _phantom_data: PhantomData,
+        }
+    }
+
+    fn transmute_from<Q>(
+        src: <Self as TransmutableContainer>::ContainerType<Q>,
+    ) -> Self {
+        Self {
+            data: src.data.transmute(),
+            first_vacant_entry: None,
+            _phantom_data: PhantomData,
+        }
     }
 }

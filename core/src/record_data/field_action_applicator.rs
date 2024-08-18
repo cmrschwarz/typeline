@@ -874,59 +874,29 @@ impl FieldActionApplicator {
 }
 
 #[cfg(test)]
-pub(crate) mod testing_helpers {
-    use crate::record_data::{field_data::RunLength, iter_hall::IterState};
-
-    #[derive(Clone, Copy)]
-    pub struct IterStateDummy {
-        pub field_pos: usize,
-        pub data: usize,
-        pub header_idx: usize,
-        pub header_rl_offset: RunLength,
-        pub lean_left_on_inserts: bool,
-    }
-
-    pub fn iter_state_dummy_to_iter_state(is: IterStateDummy) -> IterState {
-        IterState {
-            field_pos: is.field_pos,
-            data: is.data,
-            header_idx: is.header_idx,
-            header_rl_offset: is.header_rl_offset,
-            lean_left_on_inserts: is.lean_left_on_inserts,
-            #[cfg(feature = "debug_state")]
-            kind: crate::record_data::iter_hall::IterKind::Undefined,
-        }
-    }
-}
-
-#[cfg(test)]
 mod test {
     use std::collections::VecDeque;
 
     use crate::record_data::{
         field_action::{FieldAction, FieldActionKind},
-        field_action_applicator::{
-            testing_helpers::iter_state_dummy_to_iter_state,
-            FieldActionApplicator,
-        },
+        field_action_applicator::FieldActionApplicator,
         field_data::{
             field_value_flags, FieldData, FieldValueFormat, FieldValueHeader,
             FieldValueRepr, RunLength,
         },
         field_value::FieldValue,
+        iter_hall::{IterState, IterStateRaw},
         iters::FieldIterator,
         push_interface::PushInterface,
     };
-
-    use super::testing_helpers::IterStateDummy;
 
     #[track_caller]
     fn test_actions_on_headers(
         input: impl IntoIterator<Item = FieldValueHeader>,
         actions: impl IntoIterator<Item = FieldAction> + Clone,
         output: impl IntoIterator<Item = FieldValueHeader>,
-        iter_states_in: impl IntoIterator<Item = IterStateDummy>,
-        iter_states_out: impl IntoIterator<Item = IterStateDummy>,
+        iter_states_in: impl IntoIterator<Item = IterStateRaw>,
+        iter_states_out: impl IntoIterator<Item = IterStateRaw>,
     ) {
         let mut headers = input.into_iter().collect::<VecDeque<_>>();
         let mut field_count =
@@ -935,11 +905,11 @@ mod test {
         let mut faa = FieldActionApplicator::default();
         let mut iter_states = iter_states_in
             .into_iter()
-            .map(iter_state_dummy_to_iter_state)
+            .map(IterState::from_raw_with_dummy_kind)
             .collect::<Vec<_>>();
         let iter_states_out = iter_states_out
             .into_iter()
-            .map(iter_state_dummy_to_iter_state)
+            .map(IterState::from_raw_with_dummy_kind)
             .collect::<Vec<_>>();
         faa.run(
             actions.into_iter(),
@@ -959,8 +929,8 @@ mod test {
         header_rle: bool,
         actions: impl IntoIterator<IntoIter = impl Iterator<Item = FieldAction>>,
         output: impl IntoIterator<Item = (FieldValue, RunLength)>,
-        iter_states_in: impl IntoIterator<Item = IterStateDummy>,
-        iter_states_out: impl IntoIterator<Item = IterStateDummy>,
+        iter_states_in: impl IntoIterator<Item = IterStateRaw>,
+        iter_states_out: impl IntoIterator<Item = IterStateRaw>,
     ) {
         let mut fd = FieldData::default();
         let mut len_before = 0;
@@ -971,11 +941,11 @@ mod test {
         let mut faa = FieldActionApplicator::default();
         let mut iter_states_in = iter_states_in
             .into_iter()
-            .map(iter_state_dummy_to_iter_state)
+            .map(IterState::from_raw_with_dummy_kind)
             .collect::<Vec<_>>();
         let iter_states_out = iter_states_out
             .into_iter()
-            .map(iter_state_dummy_to_iter_state)
+            .map(IterState::from_raw_with_dummy_kind)
             .collect::<Vec<_>>();
         let fc_delta = faa.run(
             actions.into_iter(),
@@ -1160,14 +1130,14 @@ mod test {
                     run_length: 1,
                 },
             ],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 1,
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 1,
                 lean_left_on_inserts: false,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 0,
                 data: 2,
                 header_idx: 1,
@@ -1184,14 +1154,14 @@ mod test {
             false,
             [FieldAction::new(FieldActionKind::Drop, 2, 2)],
             [(FieldValue::Int(42), 2)],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 2,
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 2,
                 lean_left_on_inserts: false,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 2,
                 data: 0,
                 header_idx: 0,
@@ -1213,14 +1183,14 @@ mod test {
             )],
             [(FieldValue::Undefined, 44)],
             [
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 17,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 17,
                     lean_left_on_inserts: false,
                 },
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 17,
                     data: 0,
                     header_idx: 0,
@@ -1229,14 +1199,14 @@ mod test {
                 },
             ],
             [
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 19,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 19,
                     lean_left_on_inserts: false,
                 },
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 17,
                     data: 0,
                     header_idx: 0,
@@ -1258,14 +1228,14 @@ mod test {
                 2,
             )],
             [(FieldValue::Undefined, 2), (FieldValue::Int(42), 2)],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 0,
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 0,
                 lean_left_on_inserts: false,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 2,
                 data: 0,
                 header_idx: 1,
@@ -1287,14 +1257,14 @@ mod test {
             )],
             [(FieldValue::Int(42), 1), (FieldValue::Undefined, 2)],
             [
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 1,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
                     lean_left_on_inserts: false,
                 },
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 1,
                     data: 0,
                     header_idx: 0,
@@ -1303,14 +1273,14 @@ mod test {
                 },
             ],
             [
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 3,
                     data: 8,
                     header_idx: 1,
                     header_rl_offset: 2,
                     lean_left_on_inserts: false,
                 },
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 1,
                     data: 0,
                     header_idx: 0,
@@ -1332,14 +1302,14 @@ mod test {
             )],
             [(FieldValue::Undefined, 2)],
             [
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 0,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
                     lean_left_on_inserts: false,
                 },
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 0,
                     data: 0,
                     header_idx: 0,
@@ -1348,14 +1318,14 @@ mod test {
                 },
             ],
             [
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 2,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 2,
                     lean_left_on_inserts: false,
                 },
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 0,
                     data: 0,
                     header_idx: 0,
@@ -1383,14 +1353,14 @@ mod test {
                 ),
             ],
             [(FieldValue::Int(0), 1), (FieldValue::Undefined, 10)],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 1,
                 data: 8,
                 header_idx: 1,
                 header_rl_offset: 0,
                 lean_left_on_inserts: false,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 11,
                 data: 24,
                 header_idx: 3,
@@ -1555,14 +1525,14 @@ mod test {
                 run_length: 1,
             }],
             [
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 0,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
                     lean_left_on_inserts: false,
                 },
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 1,
                     data: 0,
                     header_idx: 0,
@@ -1571,14 +1541,14 @@ mod test {
                 },
             ],
             [
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 0,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
                     lean_left_on_inserts: false,
                 },
-                IterStateDummy {
+                IterStateRaw {
                     field_pos: 0,
                     data: 0,
                     header_idx: 0,
@@ -1613,14 +1583,14 @@ mod test {
                 },
                 run_length: 2,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 1,
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 1,
                 lean_left_on_inserts: false,
             }],
-            [IterStateDummy {
+            [IterStateRaw {
                 field_pos: 2,
                 data: 0,
                 header_idx: 0,

@@ -4,6 +4,7 @@ use crate::{
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
         chunks::parse_op_chunks,
+        compute::parse_op_compute,
         count::parse_op_count,
         file_reader::{parse_op_file_reader, parse_op_stdin},
         foreach::parse_op_foreach,
@@ -185,6 +186,7 @@ pub fn parse_operator_data(
         "to_str" => parse_op_to_str(sess, expr)?,
         "join" | "j" => parse_op_join(&expr)?,
         "r" | "regex" => parse_op_regex(sess, expr)?,
+        "c" | "compute" => parse_op_compute(sess, &expr)?,
         "print" | "p" => parse_op_print(&expr)?,
         "format" | "f" => parse_op_format(&expr)?,
         "file" => parse_op_file_reader(sess, expr)?,
@@ -207,8 +209,8 @@ pub fn parse_operator_data(
         "foreach" | "fe" => parse_op_foreach(sess, arg)?,
         "chunks" => parse_op_chunks(sess, &mut arg)?,
         "forkcat" | "fc" => parse_op_forkcat(sess, arg)?,
-        "call" | "c" => parse_op_call(&expr)?,
-        "callcc" | "cc" => parse_op_call_concurrent(&expr)?,
+        "call" => parse_op_call(&expr)?,
+        "callcc" => parse_op_call_concurrent(&expr)?,
         _ => {
             let ext_registry = sess.extensions.clone();
             for ext in &ext_registry.extensions {

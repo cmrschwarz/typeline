@@ -1893,14 +1893,14 @@ pub(crate) mod testing_helpers {
     use super::{GroupIdx, GroupTrackIterId, GroupTrackIterState};
 
     #[derive(Clone, Copy)]
-    pub struct GroupTrackIterStateDummy {
+    pub struct GroupTrackIterStateRaw {
         pub field_pos: usize,
         pub group_idx: GroupIdx,
         pub group_offset: GroupIdx,
         pub iter_id: GroupTrackIterId,
     }
 
-    impl GroupTrackIterStateDummy {
+    impl GroupTrackIterStateRaw {
         pub fn into_iter_state(self) -> GroupTrackIterState {
             GroupTrackIterState {
                 field_pos: self.field_pos,
@@ -1927,7 +1927,7 @@ mod test_action_lists {
     };
     use std::cell::Cell;
 
-    use super::testing_helpers::GroupTrackIterStateDummy;
+    use super::testing_helpers::GroupTrackIterStateRaw;
 
     #[track_caller]
     fn test_apply_field_actions(
@@ -1936,14 +1936,14 @@ mod test_action_lists {
             IntoIter = impl Iterator<Item = usize> + Clone,
         >,
         iter_states_before: impl IntoIterator<
-            IntoIter = impl Iterator<Item = GroupTrackIterStateDummy> + Clone,
+            IntoIter = impl Iterator<Item = GroupTrackIterStateRaw> + Clone,
         >,
         field_actions: impl IntoIterator<Item = FieldAction>,
         passed_fields_after: usize,
         group_lengths_after: impl IntoIterator<
             IntoIter = impl Iterator<Item = usize> + Clone,
         >,
-        iter_states_after: impl IntoIterator<Item = GroupTrackIterStateDummy>,
+        iter_states_after: impl IntoIterator<Item = GroupTrackIterStateRaw>,
     ) {
         let group_lengths_before = group_lengths_before.into_iter();
         let group_lengths_after = group_lengths_after.into_iter();
@@ -2002,7 +2002,7 @@ mod test_action_lists {
         test_apply_field_actions(
             2,
             [2],
-            [GroupTrackIterStateDummy {
+            [GroupTrackIterStateRaw {
                 field_pos: 3,
                 group_idx: 0,
                 group_offset: 1,
@@ -2011,7 +2011,7 @@ mod test_action_lists {
             [FieldAction::new(FieldActionKind::Drop, 0, 1)],
             1,
             [2],
-            [GroupTrackIterStateDummy {
+            [GroupTrackIterStateRaw {
                 field_pos: 2,
                 group_idx: 0,
                 group_offset: 1,
@@ -2026,13 +2026,13 @@ mod test_action_lists {
             1,
             [3],
             [
-                GroupTrackIterStateDummy {
+                GroupTrackIterStateRaw {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
                 },
-                GroupTrackIterStateDummy {
+                GroupTrackIterStateRaw {
                     field_pos: 3,
                     group_idx: 0,
                     group_offset: 2,
@@ -2043,13 +2043,13 @@ mod test_action_lists {
             1,
             [2],
             [
-                GroupTrackIterStateDummy {
+                GroupTrackIterStateRaw {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
                 },
-                GroupTrackIterStateDummy {
+                GroupTrackIterStateRaw {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
@@ -2064,7 +2064,7 @@ mod test_action_lists {
         test_apply_field_actions(
             0,
             [3],
-            [GroupTrackIterStateDummy {
+            [GroupTrackIterStateRaw {
                 field_pos: 2,
                 group_idx: 0,
                 group_offset: 2,
@@ -2076,7 +2076,7 @@ mod test_action_lists {
             ],
             0,
             [4],
-            [GroupTrackIterStateDummy {
+            [GroupTrackIterStateRaw {
                 field_pos: 1,
                 group_idx: 0,
                 group_offset: 1,
@@ -2091,7 +2091,7 @@ mod test_action_lists {
         test_apply_field_actions(
             1,
             [0, 1, 1],
-            [GroupTrackIterStateDummy {
+            [GroupTrackIterStateRaw {
                 field_pos: 1,
                 group_idx: 1,
                 group_offset: 0,
@@ -2104,7 +2104,7 @@ mod test_action_lists {
             ],
             0,
             [0, 5, 5], // TODO: is this correct?
-            [GroupTrackIterStateDummy {
+            [GroupTrackIterStateRaw {
                 field_pos: 0,
                 group_idx: 1,
                 group_offset: 0,

@@ -10,15 +10,14 @@ use crate::{
     },
 };
 use arrayvec::ArrayVec;
-use smallvec::SmallVec;
 
 use super::{
     ast::{
-        AccessIdx, Block, IdentRefId, IfExpr, LetBindingData, LetBindingId,
+        AccessIdx, Block, Expr, IdentId, IfExpr, LetBindingData, LetBindingId,
         UnaryOpKind,
     },
     lexer::{ComputeExprLexer, ComputeExprSpan, ComputeExprToken, TokenKind},
-    Expr, UnboundRefData, UnboundRefId,
+    UnboundIdentData, ExternIdentId,
 };
 
 pub enum ParenthesisKind {
@@ -132,9 +131,9 @@ pub enum ParseErrorKind<'a> {
 }
 
 pub struct ComputeExprParser<'a, 't> {
-    scope_stack: SmallVec<[HashMap<&'a str, IdentRefId>; 1]>,
+    symbol_table: HashMap<&'a str, IdentId>,
     lexer: ComputeExprLexer<'a>,
-    unbound_idents: &'t mut IndexVec<UnboundRefId, UnboundRefData>,
+    unbound_idents: &'t mut IndexVec<ExternIdentId, UnboundIdentData>,
     let_bindings: &'t mut IndexVec<LetBindingId, LetBindingData>,
 }
 
@@ -145,14 +144,14 @@ index_newtype! {
 impl<'i, 't> ComputeExprParser<'i, 't> {
     pub fn new(
         lexer: ComputeExprLexer<'i>,
-        unbound_idents: &'t mut IndexVec<UnboundRefId, UnboundRefData>,
+        unbound_idents: &'t mut IndexVec<ExternIdentId, UnboundIdentData>,
         let_bindings: &'t mut IndexVec<LetBindingId, LetBindingData>,
     ) -> Self {
         Self {
             lexer,
             unbound_idents,
             let_bindings,
-            scope_stack: SmallVec::from_iter([HashMap::new()]),
+            symbol_table: HashMap::new(),
         }
     }
 
@@ -529,32 +528,36 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             TokenKind::Exclamation => UnaryOpKind::LogicalNot,
             TokenKind::Tilde => UnaryOpKind::BitwiseNot,
             TokenKind::Identifier(ident) => {
-                match self.scope_stack.last_mut().unwrap().entry(ident) {
+                match self.symbol_table.entry(ident) {
                     Entry::Occupied(e) => {
-                        let ref_id = *e.get();
-                        let access_count = match ref_id {
-                            IdentRefId::LetBinding(ti) => {
-                                &mut self.let_bindings[ti].access_count
+                        let ident_id = *e.get();
+                        let access_count = match ident_id {
+                            IdentId::LetBinding(lb_id) => {
+                                &mut self.let_bindings[lb_id].access_count
                             }
-                            IdentRefId::Unbound(ubi) => {
+                            IdentId::Unbound(ubi) => {
                                 &mut self.unbound_idents[ubi].access_count
                             }
                         };
-                        let access_idx = *access_count;
+                        let access_index = *access_count;
                         *access_count += AccessIdx::one();
-                        return Ok(Expr::Reference { ref_id, access_idx });
+                        return Ok(Expr::Reference {
+                            ident_id,
+                            access_idx: access_index,
+                        });
                     }
                     Entry::Vacant(e) => {
-                        let id =
-                            self.unbound_idents.push_get_id(UnboundRefData {
+                        let id = self.unbound_idents.push_get_id(
+                            UnboundIdentData {
                                 name: ident.to_owned(),
                                 name_interned: INVALID_STRING_STORE_ENTRY,
                                 access_count: AccessIdx::one(),
-                            });
-                        let cref = IdentRefId::Unbound(id);
+                            },
+                        );
+                        let cref = IdentId::Unbound(id);
                         e.insert(cref);
                         return Ok(Expr::Reference {
-                            ref_id: cref,
+                            ident_id: cref,
                             access_idx: AccessIdx::ZERO,
                         });
                     }

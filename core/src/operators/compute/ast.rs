@@ -7,13 +7,13 @@ use crate::{
 use super::parser::Precedence;
 
 index_newtype! {
-    pub struct UnboundRefId(u32);
+    pub struct ExternIdentId(u32);
     pub struct LetBindingId(u32);
     pub struct AccessIdx(u32);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnboundRefData {
+pub struct UnboundIdentData {
     pub name: String,
     pub name_interned: StringStoreEntry,
     pub access_count: AccessIdx,
@@ -85,9 +85,15 @@ pub enum BinaryOpKind {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum IdentRefId {
+pub struct LetBindingRef {
+    pub index: LetBindingId,
+    pub access_idx: AccessIdx,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum IdentId {
     LetBinding(LetBindingId),
-    Unbound(UnboundRefId),
+    Unbound(ExternIdentId),
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -107,7 +113,7 @@ pub struct IfExpr {
 pub enum Expr {
     Literal(FieldValue),
     Reference {
-        ref_id: IdentRefId,
+        ident_id: IdentId,
         access_idx: AccessIdx,
     },
     OpUnary(UnaryOpKind, Box<Expr>),
@@ -116,7 +122,7 @@ pub enum Expr {
     Block(Block),
     Object(Box<[(Expr, Option<Expr>)]>),
     Array(Vec<Expr>),
-    FunctionCall(UnboundRefId, Box<[Expr]>),
+    FunctionCall(ExternIdentId, Box<[Expr]>),
     LetExpression(LetBindingId, Box<Expr>),
 }
 

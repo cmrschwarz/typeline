@@ -877,7 +877,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for MacroRef {
                 w.write_all_text(", ")?;
             }
             // TODO: do this properly
-            w.write_all_text(&op.debug_op_name());
+            w.write_all_text(&op.debug_op_name())?;
         }
         w.write_all_text("] ]")?;
         Ok(())

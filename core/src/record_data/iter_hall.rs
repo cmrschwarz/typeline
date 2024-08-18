@@ -114,12 +114,52 @@ pub struct IterState {
     pub kind: IterKind,
 }
 
+#[derive(Clone, Copy, Default, Debug)]
+pub struct IterStateRaw {
+    pub field_pos: usize,
+    pub data: usize,
+    pub header_idx: usize,
+    pub header_rl_offset: RunLength,
+    pub lean_left_on_inserts: bool,
+}
+
+impl From<IterState> for IterStateRaw {
+    fn from(is: IterState) -> Self {
+        IterStateRaw {
+            field_pos: is.field_pos,
+            data: is.data,
+            header_idx: is.header_idx,
+            header_rl_offset: is.header_rl_offset,
+            lean_left_on_inserts: is.lean_left_on_inserts,
+        }
+    }
+}
+
 impl IterState {
     pub fn is_valid(&self) -> bool {
         self.field_pos != usize::MAX
     }
     pub fn invalidate(&mut self) {
         self.field_pos = usize::MAX
+    }
+    pub fn from_raw_with_dummy_kind(is: IterStateRaw) -> Self {
+        IterState {
+            field_pos: is.field_pos,
+            data: is.data,
+            header_idx: is.header_idx,
+            header_rl_offset: is.header_rl_offset,
+            lean_left_on_inserts: is.lean_left_on_inserts,
+            #[cfg(feature = "debug_state")]
+            kind: IterKind::Undefined,
+        }
+    }
+
+    fn iter_kind(&self) -> IterKind {
+        #[cfg(feature = "debug_state")]
+        return self.kind;
+
+        #[cfg(not(feature = "debug_state"))]
+        return IterKind::Undefined;
     }
 }
 
@@ -334,16 +374,22 @@ impl IterHall {
         res.skip_dead_fields();
         res
     }
-    // SAFETY: caller must ensure that the iter uses the correct data source
-    pub unsafe fn store_iter_unchecked<'a, R: FieldDataRef<'a>>(
+    pub fn iter_to_iter_state<'a, R: FieldDataRef<'a>>(
         &self,
-        #[allow(unused)] field_id: FieldId,
-        iter_id: IterId,
         mut iter: FieldIter<'a, R>,
-    ) {
-        let mut state = self.iters[iter_id].get();
-        state.field_pos = iter.field_pos;
-        state.header_rl_offset = iter.header_rl_offset;
+        lean_left_on_inserts: bool,
+        #[cfg_attr(not(feature = "debug_state"), allow(unused_variables))]
+        kind: IterKind,
+    ) -> IterState {
+        let mut state = IterState {
+            field_pos: iter.field_pos,
+            data: iter.data,
+            header_idx: iter.header_idx,
+            header_rl_offset: iter.header_rl_offset,
+            lean_left_on_inserts,
+            #[cfg(feature = "debug_state")]
+            kind,
+        };
         // we use the field count from the iter becase the field might be cow
         if iter.header_rl_offset == 0
             && iter.field_pos == iter.fdr.field_count()
@@ -356,14 +402,31 @@ impl IterHall {
                 // are deleted. Calling `prev_field`, like in
                 // the other branch, would fail here, but
                 // having the iterator sit at 0/0 works out.
-                self.reset_iter(iter_id);
-                return;
+                state.data = 0;
+                state.header_idx = 0;
+                return state;
             }
             iter.prev_field();
             state.header_rl_offset = iter.field_run_length_bwd() + 1;
         }
         state.header_idx = iter.header_idx;
         state.data = iter.data - iter.header_fmt.leading_padding();
+        state
+    }
+
+    // SAFETY: caller must ensure that the iter uses the correct data source
+    pub unsafe fn store_iter_unchecked<'a, R: FieldDataRef<'a>>(
+        &self,
+        #[allow(unused)] field_id: FieldId,
+        iter_id: IterId,
+        iter: FieldIter<'a, R>,
+    ) {
+        let mut state = self.iters[iter_id].get();
+        state = self.iter_to_iter_state(
+            iter,
+            state.lean_left_on_inserts,
+            state.iter_kind(),
+        );
         // #[cfg(feature = "debug_logging_iter_states")]
         // eprintln!("storing iter for field {field_id:02}: {state:?}");
         self.iters[iter_id].set(state);
@@ -537,6 +600,12 @@ impl IterHall {
         &mut self,
     ) -> VaryingTypeInserter<&mut FieldData> {
         VaryingTypeInserter::new(self.get_owned_data_mut())
+    }
+    pub fn get_owned_data(&self) -> &FieldData {
+        match &self.data_source {
+            FieldDataSource::Owned => &self.field_data,
+            _ => panic!("IterHall uses COW!"),
+        }
     }
     pub fn get_owned_data_mut(&mut self) -> &mut FieldData {
         match &mut self.data_source {

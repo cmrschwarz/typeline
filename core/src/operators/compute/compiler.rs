@@ -8,36 +8,56 @@ use crate::{
 };
 
 use super::ast::{
-    AccessIdx, BinaryOpKind, Block, Expr, IdentRefId, LetBindingData,
-    LetBindingId, UnaryOpKind, UnboundRefId,
+    AccessIdx, BinaryOpKind, Block, Expr, IdentId, LetBindingData,
+    LetBindingId, UnaryOpKind, UnboundIdentData, ExternIdentId,
 };
 
 index_newtype! {
     pub struct InstructionId(u32);
-    pub struct TemporaryIdxRaw(u32);
+    pub struct TemporaryIdRaw(u32);
+    pub struct SsaTemporaryId(u32);
 }
 
 #[derive(Clone, Copy)]
 pub struct TemporaryId {
-    index: TemporaryIdxRaw,
-    generation: u32,
+    pub index: TemporaryIdRaw,
+    pub generation: u32,
+}
+
+#[derive(Clone, Copy)]
+pub struct TemporaryAccess {
+    pub index: TemporaryIdRaw,
+    pub access_index: AccessIdx,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct UnboundIdentAccess {
+    pub index: ExternIdentId,
+    pub access_idx: AccessIdx,
 }
 
 #[derive(Clone)]
-pub enum ValueRef {
-    Unbound(UnboundRefId),
+pub enum SsaValue {
+    Unbound(ExternIdentId),
+    Temporary(SsaTemporaryId),
+    Literal(FieldValue),
+}
+
+#[derive(Clone)]
+pub enum ValueAccess {
+    Unbound(UnboundIdentAccess),
     Temporary(TemporaryId),
     Literal(FieldValue),
 }
 
-struct IntermediateValueRef {
-    value: ValueRef,
+struct IntermediateValue {
+    value: SsaValue,
     release_after_use: bool,
 }
 
 #[derive(Clone, Copy)]
 pub enum TargetRef {
-    Temporary(TemporaryId),
+    Temporary(TemporaryIdRaw),
     Output,
     Discard,
 }
@@ -45,41 +65,48 @@ pub enum TargetRef {
 pub enum Instruction {
     OpUnary {
         kind: UnaryOpKind,
-        value: ValueRef,
+        value: ValueAccess,
         target: TargetRef,
     },
     OpBinary {
         kind: BinaryOpKind,
-        lhs: ValueRef,
-        rhs: ValueRef,
+        lhs: ValueAccess,
+        rhs: ValueAccess,
         target: TargetRef,
     },
     CondCall {
-        cond: ValueRef,
-        then_insn: InstructionId,
-        else_insn: Option<InstructionId>,
+        cond: ValueAccess,
+        else_start: Option<InstructionId>,
+        continuation: InstructionId,
     },
     Object {
-        mappings: Box<[(ValueRef, Option<ValueRef>)]>,
+        mappings: Box<[(ValueAccess, Option<ValueAccess>)]>,
         target: TargetRef,
     },
     Array {
-        elements: Box<[ValueRef]>,
+        elements: Box<[ValueAccess]>,
         target: TargetRef,
     },
     ClearTemporary(TemporaryId),
     Move {
-        src: ValueRef,
+        src: ValueAccess,
         tgt: TargetRef,
     },
-    Ret,
+}
+
+pub struct SsaTemporary {
+    value: TemporaryId,
+    access_count: AccessIdx,
+    let_binding_count: u32,
 }
 
 pub struct Compiler<'a> {
     let_bindings: &'a IndexSlice<LetBindingId, LetBindingData>,
-    let_value_mappings: IndexVec<LetBindingId, ValueRef>,
-    temporary_count: TemporaryIdxRaw,
+    unbound_idents: &'a mut IndexSlice<ExternIdentId, UnboundIdentData>,
+    let_value_mappings: IndexVec<LetBindingId, SsaValue>,
+    temporary_count: TemporaryIdRaw,
     unused_temporaries: Vec<TemporaryId>,
+    ssa_temporaries: IndexVec<SsaTemporaryId, SsaTemporary>,
     instructions: IndexVec<InstructionId, Instruction>,
     // used for object and array to delay clear instructions
     pending_clear_instructions: Vec<TemporaryId>,
@@ -87,20 +114,45 @@ pub struct Compiler<'a> {
 
 pub struct Compilation {
     pub instructions: IndexVec<InstructionId, Instruction>,
-    pub temporary_count: TemporaryIdxRaw,
+    pub temporary_slot_count: IndexVec<TemporaryIdRaw, AccessIdx>,
 }
 
-impl IntermediateValueRef {
-    fn take_value(&mut self) -> ValueRef {
-        match &mut self.value {
-            ValueRef::Unbound(ub_id) => ValueRef::Unbound(*ub_id),
-            ValueRef::Temporary(tid) => ValueRef::Temporary(*tid),
-            ValueRef::Literal(v) => ValueRef::Literal(std::mem::take(v)),
+impl SsaValue {
+    fn take_value_accessed(
+        &mut self,
+        ssa_map: &mut IndexSlice<SsaTemporaryId, SsaTemporary>,
+        unbound_idents: &mut IndexSlice<ExternIdentId, UnboundIdentData>,
+    ) -> ValueAccess {
+        match self {
+            SsaValue::Unbound(ub_id) => {
+                let ubd = &mut unbound_idents[*ub_id];
+                let access_idx = ubd.access_count;
+                ubd.access_count += AccessIdx::one();
+                ValueAccess::Unbound(UnboundIdentAccess {
+                    index: *ub_id,
+                    access_idx,
+                })
+            }
+            SsaValue::Temporary(ssa_tid) => {
+                ssa_map[*ssa_tid].access_count += AccessIdx::one();
+                ValueAccess::Temporary(ssa_map[*ssa_tid].value)
+            }
+            SsaValue::Literal(v) => ValueAccess::Literal(std::mem::take(v)),
         }
     }
+}
+
+impl IntermediateValue {
+    fn take_value_accessed(
+        &mut self,
+        ssa_map: &mut IndexSlice<SsaTemporaryId, SsaTemporary>,
+        unbound_idents: &mut IndexSlice<ExternIdentId, UnboundIdentData>,
+    ) -> ValueAccess {
+        self.value.take_value_accessed(ssa_map, unbound_idents)
+    }
     fn undef() -> Self {
-        IntermediateValueRef {
-            value: ValueRef::Literal(FieldValue::Undefined),
+        IntermediateValue {
+            value: SsaValue::Literal(FieldValue::Undefined),
             release_after_use: false,
         }
     }
@@ -113,7 +165,7 @@ impl Compiler<'_> {
         }
 
         let idx_raw = self.temporary_count;
-        self.temporary_count += TemporaryIdxRaw::one();
+        self.temporary_count += TemporaryIdRaw::one();
         TemporaryId {
             index: idx_raw,
             generation: 0,
@@ -123,30 +175,46 @@ impl Compiler<'_> {
         id.generation += 1;
         self.unused_temporaries.push(id);
     }
-    #[allow(clippy::needless_pass_by_value)]
-    fn release_intermediate(&mut self, v: IntermediateValueRef) {
-        match v.value {
-            ValueRef::Temporary(temp_id) => {
-                if v.release_after_use {
-                    self.release_temporary_id(temp_id);
-                    self.instructions
-                        .push(Instruction::ClearTemporary(temp_id));
-                }
+    fn claim_ssa_temporary(&mut self) -> (SsaTemporaryId, TemporaryId) {
+        let temp_id = self.claim_temporary_id();
+        let ssa_id = self.ssa_temporaries.push_get_id(SsaTemporary {
+            value: temp_id,
+            access_count: AccessIdx::ZERO,
+            let_binding_count: 0,
+        });
+        (ssa_id, temp_id)
+    }
+
+    fn release_ssa_value_raw(&mut self, value: &SsaValue) {
+        match value {
+            SsaValue::Temporary(ssa_temp_id) => {
+                let temporary_id = self.ssa_temporaries[*ssa_temp_id].value;
+                self.release_temporary_id(temporary_id);
+                self.instructions
+                    .push(Instruction::ClearTemporary(temporary_id));
             }
-            ValueRef::Unbound(_) | ValueRef::Literal(_) => {
-                debug_assert!(!v.release_after_use);
+            SsaValue::Unbound(_) | SsaValue::Literal(_) => {
+                unreachable!()
             }
         }
     }
+
     #[allow(clippy::needless_pass_by_value)]
-    fn defer_release_intermediate(&mut self, v: IntermediateValueRef) {
+    fn release_intermediate(&mut self, v: IntermediateValue) {
+        if v.release_after_use {
+            self.release_ssa_value_raw(&v.value)
+        }
+    }
+    #[allow(clippy::needless_pass_by_value)]
+    fn defer_release_intermediate(&mut self, v: IntermediateValue) {
         match v.value {
-            ValueRef::Temporary(temp_id) => {
+            SsaValue::Temporary(ssa_temp_id) => {
                 if v.release_after_use {
-                    self.pending_clear_instructions.push(temp_id);
+                    self.pending_clear_instructions
+                        .push(self.ssa_temporaries[ssa_temp_id].value);
                 }
             }
-            ValueRef::Unbound(_) | ValueRef::Literal(_) => {
+            SsaValue::Unbound(_) | SsaValue::Literal(_) => {
                 debug_assert!(!v.release_after_use);
             }
         }
@@ -159,12 +227,7 @@ impl Compiler<'_> {
         }
         self.pending_clear_instructions.clear();
     }
-    fn compile_block(
-        &mut self,
-        block: Block,
-        target: TargetRef,
-    ) -> InstructionId {
-        let first_insn = self.instructions.next_idx();
+    fn compile_block(&mut self, block: Block, target: TargetRef) {
         let stmt_count = block.stmts.len();
 
         for (i, expr) in block.stmts.into_vec().into_iter().enumerate() {
@@ -175,41 +238,71 @@ impl Compiler<'_> {
             };
             self.compile_expr_for_given_target(expr, target);
         }
-        self.instructions.push(Instruction::Ret);
-        first_insn
+    }
+    fn reference_to_intermediate(
+        &mut self,
+        ident_id: IdentId,
+        access_idx: AccessIdx,
+    ) -> IntermediateValue {
+        match ident_id {
+            IdentId::LetBinding(lb_id) => {
+                let last_access_through_let = access_idx + AccessIdx::one()
+                    == self.let_bindings[lb_id].access_count;
+
+                let value = self.let_value_mappings[lb_id].clone();
+
+                let release_after_use = if last_access_through_let {
+                    match &value {
+                        SsaValue::Temporary(ssa_id) => {
+                            let lbc = &mut self.ssa_temporaries[*ssa_id]
+                                .let_binding_count;
+                            *lbc -= 1;
+                            *lbc == 0
+                        }
+                        SsaValue::Unbound(_) | SsaValue::Literal(_) => true,
+                    }
+                } else {
+                    false
+                };
+                IntermediateValue {
+                    value,
+                    release_after_use,
+                }
+            }
+            IdentId::Unbound(ub_id) => IntermediateValue {
+                value: SsaValue::Unbound(ub_id),
+                release_after_use: false,
+            },
+        }
     }
     fn compile_expr_for_temp_target(
         &mut self,
         expr: Expr,
-    ) -> IntermediateValueRef {
+    ) -> IntermediateValue {
         match expr {
-            Expr::Literal(v) => IntermediateValueRef {
-                value: ValueRef::Literal(v),
+            Expr::Literal(v) => IntermediateValue {
+                value: SsaValue::Literal(v),
                 release_after_use: false,
             },
-            Expr::Reference { ref_id, access_idx } => match ref_id {
-                IdentRefId::LetBinding(lb_id) => IntermediateValueRef {
-                    value: self.let_value_mappings[lb_id].clone(),
-                    release_after_use: access_idx + AccessIdx::one()
-                        == self.let_bindings[lb_id].access_count,
-                },
-                IdentRefId::Unbound(ub_id) => IntermediateValueRef {
-                    value: ValueRef::Unbound(ub_id),
-                    release_after_use: false,
-                },
-            },
+            Expr::Reference {
+                ident_id,
+                access_idx: access_index,
+            } => self.reference_to_intermediate(ident_id, access_index),
             Expr::OpUnary(kind, subexpr) => {
                 let mut subexpr_v =
                     self.compile_expr_for_temp_target(*subexpr);
-                let temp_id = self.claim_temporary_id();
+                let (ssa_id, temp_id) = self.claim_ssa_temporary();
                 self.instructions.push(Instruction::OpUnary {
                     kind,
-                    value: subexpr_v.take_value(),
-                    target: TargetRef::Temporary(temp_id),
+                    value: subexpr_v.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    target: TargetRef::Temporary(temp_id.index),
                 });
                 self.release_intermediate(subexpr_v);
-                IntermediateValueRef {
-                    value: ValueRef::Temporary(temp_id),
+                IntermediateValue {
+                    value: SsaValue::Temporary(ssa_id),
                     release_after_use: true,
                 }
             }
@@ -217,17 +310,23 @@ impl Compiler<'_> {
                 let [lhs, rhs] = *sub_exprs;
                 let mut lhs = self.compile_expr_for_temp_target(lhs);
                 let mut rhs = self.compile_expr_for_temp_target(rhs);
-                let temp_id = self.claim_temporary_id();
+                let (ssa_id, temp_id) = self.claim_ssa_temporary();
                 self.instructions.push(Instruction::OpBinary {
                     kind,
-                    lhs: lhs.take_value(),
-                    rhs: rhs.take_value(),
-                    target: TargetRef::Temporary(temp_id),
+                    lhs: lhs.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    rhs: rhs.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    target: TargetRef::Temporary(temp_id.index),
                 });
                 self.release_intermediate(lhs);
                 self.release_intermediate(rhs);
-                IntermediateValueRef {
-                    value: ValueRef::Temporary(temp_id),
+                IntermediateValue {
+                    value: SsaValue::Temporary(ssa_id),
                     release_after_use: true,
                 }
             }
@@ -244,63 +343,84 @@ impl Compiler<'_> {
                         .unwrap_or(false)
                 );
                 let (target, result) = if has_result {
-                    let temp_id = self.claim_temporary_id();
-                    let target = TargetRef::Temporary(temp_id);
-                    let result = IntermediateValueRef {
-                        value: ValueRef::Temporary(temp_id),
+                    let (ssa_id, temp_id) = self.claim_ssa_temporary();
+                    let target = TargetRef::Temporary(temp_id.index);
+                    let result = IntermediateValue {
+                        value: SsaValue::Temporary(ssa_id),
                         release_after_use: true,
                     };
                     (target, result)
                 } else {
-                    (TargetRef::Discard, IntermediateValueRef::undef())
+                    (TargetRef::Discard, IntermediateValue::undef())
                 };
-                let then_insn = self.compile_block(if_expr.then_block, target);
-                let else_insn =
-                    if_expr.else_block.map(|b| self.compile_block(b, target));
+                self.compile_block(if_expr.then_block, target);
+
+                let else_start = if let Some(else_block) = if_expr.else_block {
+                    let start = self.instructions.next_idx();
+                    self.compile_block(else_block, target);
+                    Some(start)
+                } else {
+                    None
+                };
                 self.instructions.push(Instruction::CondCall {
-                    cond: cond_v.take_value(),
-                    then_insn,
-                    else_insn,
+                    cond: cond_v.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    else_start,
+                    continuation: self.instructions.next_idx(),
                 });
                 self.release_intermediate(cond_v);
                 result
             }
             Expr::Block(block) => {
                 if block.trailing_semicolon {
-                    let temp_id = self.claim_temporary_id();
-                    self.compile_block(block, TargetRef::Temporary(temp_id));
-                    IntermediateValueRef {
-                        value: ValueRef::Temporary(temp_id),
+                    let (ssa_id, temp_id) = self.claim_ssa_temporary();
+                    self.compile_block(
+                        block,
+                        TargetRef::Temporary(temp_id.index),
+                    );
+                    IntermediateValue {
+                        value: SsaValue::Temporary(ssa_id),
                         release_after_use: true,
                     }
                 } else {
                     self.compile_block(block, TargetRef::Discard);
-                    IntermediateValueRef::undef()
+                    IntermediateValue::undef()
                 }
             }
             Expr::Object(o) => {
                 let mut mappings = Vec::new();
                 for (key, value) in o.into_vec() {
                     let mut key = self.compile_expr_for_temp_target(key);
-                    let key_v = key.take_value();
+                    let key_v = key.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    );
                     self.defer_release_intermediate(key);
                     if let Some(value) = value {
                         let mut value =
                             self.compile_expr_for_temp_target(value);
-                        mappings.push((key_v, Some(value.take_value())));
+                        mappings.push((
+                            key_v,
+                            Some(value.take_value_accessed(
+                                &mut self.ssa_temporaries,
+                                self.unbound_idents,
+                            )),
+                        ));
                         self.defer_release_intermediate(value);
                     } else {
                         mappings.push((key_v, None));
                     }
                 }
-                let temp_id = self.claim_temporary_id();
+                let (ssa_id, temp_id) = self.claim_ssa_temporary();
                 self.instructions.push(Instruction::Object {
                     mappings: mappings.into_boxed_slice(),
-                    target: TargetRef::Temporary(temp_id),
+                    target: TargetRef::Temporary(temp_id.index),
                 });
                 self.emit_pending_clears();
-                IntermediateValueRef {
-                    value: ValueRef::Temporary(temp_id),
+                IntermediateValue {
+                    value: SsaValue::Temporary(ssa_id),
                     release_after_use: true,
                 }
             }
@@ -308,17 +428,20 @@ impl Compiler<'_> {
                 let mut elements = Vec::new();
                 for e in arr {
                     let mut v = self.compile_expr_for_temp_target(e);
-                    elements.push(v.take_value());
+                    elements.push(v.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ));
                     self.defer_release_intermediate(v);
                 }
-                let temp_id = self.claim_temporary_id();
+                let (ssa_id, temp_id) = self.claim_ssa_temporary();
                 self.instructions.push(Instruction::Array {
                     elements: elements.into_boxed_slice(),
-                    target: TargetRef::Temporary(temp_id),
+                    target: TargetRef::Temporary(temp_id.index),
                 });
                 self.emit_pending_clears();
-                IntermediateValueRef {
-                    value: ValueRef::Temporary(temp_id),
+                IntermediateValue {
+                    value: SsaValue::Temporary(ssa_id),
                     release_after_use: true,
                 }
             }
@@ -339,13 +462,12 @@ impl Compiler<'_> {
                         TargetRef::Discard,
                     );
                     self.let_value_mappings
-                        .push(ValueRef::Literal(FieldValue::Undefined));
+                        .push(SsaValue::Literal(FieldValue::Undefined));
                 } else {
-                    let mut v = self.compile_expr_for_temp_target(*expr);
-                    self.let_value_mappings.push(v.take_value());
-                    self.release_intermediate(v);
+                    let v = self.compile_expr_for_temp_target(*expr);
+                    self.let_value_mappings.push(v.value);
                 };
-                IntermediateValueRef::undef()
+                IntermediateValue::undef()
             }
         }
     }
@@ -362,43 +484,38 @@ impl Compiler<'_> {
                     return;
                 }
                 self.instructions.push(Instruction::Move {
-                    src: ValueRef::Literal(v),
+                    src: ValueAccess::Literal(v),
                     tgt: target,
                 })
             }
-            Expr::Reference { ref_id, access_idx } => {
-                let source = match ref_id {
-                    IdentRefId::LetBinding(lb_id) => {
-                        if access_idx + AccessIdx::one()
-                            == self.let_bindings[lb_id].access_count
-                        {
-                            let source = std::mem::replace(
-                                &mut self.let_value_mappings[lb_id],
-                                ValueRef::Literal(FieldValue::Undefined),
-                            );
-                            if let ValueRef::Temporary(temp_id) = source {
-                                self.release_temporary_id(temp_id);
-                            }
-                            source
-                        } else {
-                            self.let_value_mappings[lb_id].clone()
-                        }
-                    }
-                    IdentRefId::Unbound(ub_id) => ValueRef::Unbound(ub_id),
-                };
+            Expr::Reference {
+                ident_id,
+                access_idx: access_index,
+            } => {
+                // this might drop the let binding so we have to do this
+                // even if the intermediate is discarded
+                let mut source =
+                    self.reference_to_intermediate(ident_id, access_index);
                 if discard {
                     return;
                 }
                 self.instructions.push(Instruction::Move {
-                    src: source,
+                    src: source.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
                     tgt: target,
                 });
+                self.release_intermediate(source);
             }
             Expr::OpUnary(kind, subexpr) => {
                 let mut subexpr = self.compile_expr_for_temp_target(*subexpr);
                 self.instructions.push(Instruction::OpUnary {
                     kind,
-                    value: subexpr.take_value(),
+                    value: subexpr.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
                     target,
                 });
                 self.release_intermediate(subexpr);
@@ -409,8 +526,14 @@ impl Compiler<'_> {
                 let mut rhs = self.compile_expr_for_temp_target(rhs);
                 self.instructions.push(Instruction::OpBinary {
                     kind,
-                    lhs: lhs.take_value(),
-                    rhs: rhs.take_value(),
+                    lhs: lhs.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    rhs: rhs.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
                     target,
                 });
                 self.release_intermediate(lhs);
@@ -429,13 +552,20 @@ impl Compiler<'_> {
                             .trailing_semicolon
                     );
                 }
-                let then_insn = self.compile_block(if_expr.then_block, target);
-                let else_insn =
-                    if_expr.else_block.map(|b| self.compile_block(b, target));
+                let else_start = if let Some(else_block) = if_expr.else_block {
+                    let start = self.instructions.next_idx();
+                    self.compile_block(else_block, target);
+                    Some(start)
+                } else {
+                    None
+                };
                 self.instructions.push(Instruction::CondCall {
-                    cond: cond_v.take_value(),
-                    then_insn,
-                    else_insn,
+                    cond: cond_v.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    else_start,
+                    continuation: self.instructions.next_idx(),
                 });
                 self.release_intermediate(cond_v);
             }
@@ -459,12 +589,21 @@ impl Compiler<'_> {
                         }
                     } else {
                         let mut key = self.compile_expr_for_temp_target(key);
-                        let key_v = key.take_value();
+                        let key_v = key.take_value_accessed(
+                            &mut self.ssa_temporaries,
+                            self.unbound_idents,
+                        );
                         self.defer_release_intermediate(key);
                         if let Some(value) = value {
                             let mut value =
                                 self.compile_expr_for_temp_target(value);
-                            mappings.push((key_v, Some(value.take_value())));
+                            mappings.push((
+                                key_v,
+                                Some(value.take_value_accessed(
+                                    &mut self.ssa_temporaries,
+                                    self.unbound_idents,
+                                )),
+                            ));
                             self.defer_release_intermediate(value);
                         } else {
                             mappings.push((key_v, None));
@@ -489,7 +628,10 @@ impl Compiler<'_> {
                         )
                     } else {
                         let mut v = self.compile_expr_for_temp_target(e);
-                        elements.push(v.take_value());
+                        elements.push(v.take_value_accessed(
+                            &mut self.ssa_temporaries,
+                            self.unbound_idents,
+                        ));
                         self.defer_release_intermediate(v);
                     }
                 }
@@ -515,11 +657,10 @@ impl Compiler<'_> {
                         TargetRef::Discard,
                     );
                     self.let_value_mappings
-                        .push(ValueRef::Literal(FieldValue::Undefined));
+                        .push(SsaValue::Literal(FieldValue::Undefined));
                 } else {
-                    let mut v = self.compile_expr_for_temp_target(*expr);
-                    self.let_value_mappings.push(v.take_value());
-                    self.release_intermediate(v);
+                    let v = self.compile_expr_for_temp_target(*expr);
+                    self.let_value_mappings.push(v.value);
                 };
             }
         }
@@ -528,19 +669,31 @@ impl Compiler<'_> {
     pub fn compile(
         expr: Expr,
         let_bindings: &IndexSlice<LetBindingId, LetBindingData>,
+        unbound_idents: &mut IndexSlice<ExternIdentId, UnboundIdentData>,
     ) -> Compilation {
         let mut compiler = Compiler {
             let_bindings,
+            unbound_idents,
             let_value_mappings: IndexVec::new(),
-            temporary_count: TemporaryIdxRaw::ZERO,
+            temporary_count: TemporaryIdRaw::ZERO,
             unused_temporaries: Vec::new(),
             instructions: IndexVec::new(),
             pending_clear_instructions: Vec::new(),
+            ssa_temporaries: IndexVec::new(),
         };
         compiler.compile_expr_for_given_target(expr, TargetRef::Output);
+        let mut temporary_slot_count =
+            IndexVec::from(vec![
+                AccessIdx::ZERO;
+                compiler.temporary_count.into_usize()
+            ]);
+        for ssa_val in compiler.ssa_temporaries {
+            let sc = &mut temporary_slot_count[ssa_val.value.index];
+            *sc = (*sc).max(ssa_val.access_count);
+        }
         Compilation {
             instructions: compiler.instructions,
-            temporary_count: compiler.temporary_count,
+            temporary_slot_count,
         }
     }
 }
