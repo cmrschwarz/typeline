@@ -373,7 +373,7 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
 
         FieldValue::Error(v) => Literal::Error(v.message().to_owned()),
 
-        #[expand_pattern(REP in [StreamValueId, FieldReference, SlicedFieldReference])]
+        #[expand_pattern(REP in [Macro, StreamValueId, FieldReference, SlicedFieldReference])]
         FieldValue::REP(_) => {
             panic!("{} is not a valid literal", v.kind().to_str())
         }

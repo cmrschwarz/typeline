@@ -160,6 +160,7 @@ pub fn handle_tf_field_value_sink(
                 (BigInt, RefAwareFieldValueRangeIter, Box::new(v.clone())),
                 (BigRational, RefAwareFieldValueRangeIter, Box::new(v.clone())),
                 (Argument, RefAwareFieldValueRangeIter, Box::new(v.clone())),
+                (Macro, RefAwareFieldValueRangeIter, v.clone()),
                 (Array, RefAwareFieldValueRangeIter, v.clone()),
                 (Object, RefAwareFieldValueRangeIter, Box::new(v.clone())),
                 (Custom, RefAwareFieldValueRangeIter, v.clone()),

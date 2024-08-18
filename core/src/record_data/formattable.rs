@@ -11,7 +11,7 @@ use num::{
 
 use crate::{
     cli::call_expr::Argument,
-    operators::errors::OperatorApplicationError,
+    operators::{errors::OperatorApplicationError, macro_def::MacroRef},
     options::chain_settings::RationalsPrintMode,
     record_data::{
         array::Array,
@@ -495,6 +495,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
                 (BigInt, BigInt, &mut fc.rfk),
                 (BigRational, BigRational, fc),
                 (Argument, Argument, fc),
+                (Macro, MacroRef, fc),
                 (Error, OperatorApplicationError, &mut fc.value_formatting_opts()),
             ])]
             Array::REP(v) => {
@@ -695,6 +696,7 @@ pub fn with_formattable<'a, 'b: 'a, R>(
             (BigInt, &mut fc.rfk),
             (BigRational, fc),
             (Argument, fc),
+            (Macro, fc),
             (Text, &mut fc.value_formatting_opts()),
             (Bytes, &mut fc.value_formatting_opts()),
             (Error, &mut fc.value_formatting_opts()),
@@ -848,6 +850,37 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Argument {
         max_chars: usize,
     ) -> TextBounds {
         self.value.as_ref().char_bound_text_bounds(ctx, max_chars)
+    }
+}
+
+impl<'a, 'b: 'a> Formattable<'a, 'b> for MacroRef {
+    type Context = FormattingContext<'a, 'b>;
+
+    fn format<W: MaybeTextWrite>(
+        &self,
+        ctx: &mut Self::Context,
+        w: &mut W,
+    ) -> std::io::Result<()> {
+        w.write_all_text("[ \"")?;
+        let mut ew = EscapedWriter::new(w, b'\"');
+        let Some(ss) = &mut ctx.ss else {
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidInput,
+                "string store needed but not supplied",
+            ));
+        };
+        ew.write_all_text(ss.get().lookup(self.name))?;
+        let w = ew.into_inner()?;
+        w.write_all_text("\", [")?;
+        for (i, (op, _span)) in self.operations.iter().enumerate() {
+            if i != 0 {
+                w.write_all_text(", ")?;
+            }
+            // TODO: do this properly
+            w.write_all_text(&op.debug_op_name());
+        }
+        w.write_all_text("] ]")?;
+        Ok(())
     }
 }
 

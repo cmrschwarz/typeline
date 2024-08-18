@@ -27,6 +27,7 @@ use crate::{
         iter_hall::{CowVariant, IterKind, IterState},
         iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
+        scope_manager::ScopeValue,
         stream_value::{
             StreamValueData, StreamValueDataOffset, StreamValueUpdate,
         },
@@ -813,7 +814,7 @@ pub fn field_to_json(
         .iter()
         .enumerate()
     {
-        let Some(sym_field_id) = value.field else {
+        let &ScopeValue::Field(sym_field_id) = value else {
             continue;
         };
         if sym_field_id != field_id {

@@ -26,10 +26,29 @@ pub struct Macro {
     pub operations: Vec<(OperatorData, Span)>,
 }
 
+#[derive(Clone, derive_more::Deref, derive_more::DerefMut)]
+pub struct MacroRef(pub Arc<Macro>);
+
+impl PartialEq for MacroRef {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0)
+    }
+}
+
 pub struct OpMacroDef {
     pub name: String,
     pub operations: Vec<(OperatorData, Span)>,
-    pub macro_def: Option<Arc<Macro>>,
+    pub macro_def: Option<MacroRef>,
+}
+
+impl std::fmt::Debug for MacroRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "Macro{{ name: \"{}\", operations: [<{}>] }}",
+            self.name,
+            self.operations.len()
+        ))
+    }
 }
 
 pub fn setup_op_macro_def(
@@ -45,10 +64,10 @@ pub fn setup_op_macro_def(
     let macro_name =
         sess.string_store.intern_moved(std::mem::take(&mut op.name));
 
-    let macro_def = Arc::new(Macro {
+    let macro_def = MacroRef(Arc::new(Macro {
         name: macro_name,
         operations: std::mem::take(&mut op.operations),
-    });
+    }));
 
     op.macro_def = Some(macro_def.clone());
 

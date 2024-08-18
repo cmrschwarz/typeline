@@ -426,6 +426,7 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         }
                         FieldValueRef::Array(_) => todo!(),
                         FieldValueRef::Argument(_) => todo!(),
+                        FieldValueRef::Macro(_) => todo!(),
                         FieldValueRef::Object(_) => todo!(),
                         FieldValueRef::Custom(_) => todo!(),
                         FieldValueRef::StreamValueId(_) => todo!(),

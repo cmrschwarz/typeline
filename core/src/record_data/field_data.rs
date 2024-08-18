@@ -15,7 +15,8 @@ use super::{
     },
 };
 use crate::{
-    cli::call_expr::Argument, operators::errors::OperatorApplicationError,
+    cli::call_expr::Argument,
+    operators::{errors::OperatorApplicationError, macro_def::MacroRef},
     utils::ringbuf::RingBuf,
 };
 use metamatch::metamatch;
@@ -62,6 +63,7 @@ pub enum FieldValueRepr {
     Array,
     Custom,
     Error,
+    Macro,
     Argument,
     StreamValueId,
     FieldReference,
@@ -302,6 +304,10 @@ unsafe impl FixedSizeFieldValueType for Argument {
     const KIND: FieldValueKind = FieldValueKind::Argument;
     const FIELD_VALUE_BOXED: bool = true;
 }
+unsafe impl FixedSizeFieldValueType for MacroRef {
+    const REPR: FieldValueRepr = FieldValueRepr::Macro;
+    const KIND: FieldValueKind = FieldValueKind::Macro;
+}
 unsafe impl FixedSizeFieldValueType for CustomDataBox {
     const REPR: FieldValueRepr = FieldValueRepr::Custom;
     const KIND: FieldValueKind = FieldValueKind::Custom;
@@ -338,6 +344,7 @@ impl FieldValueRepr {
                 (StreamValueId, StreamValueId),
                 (FieldReference, FieldReference),
                 (SlicedFieldReference, SlicedFieldReference),
+                (Macro, MacroRef),
                 (Argument, Argument),
             ])]
             FieldValueRepr::REP => callable.call::<T>(),
@@ -414,6 +421,15 @@ impl FieldValueRepr {
     pub fn is_fixed_size_type(self) -> bool {
         !self.is_dst() && !self.is_zst()
     }
+    pub fn is_field_value_boxed(self) -> bool {
+        struct FieldValueBoxed;
+        impl WithFieldValueType<bool> for FieldValueBoxed {
+            fn call<T: FieldValueType + ?Sized>(&mut self) -> bool {
+                T::FIELD_VALUE_BOXED
+            }
+        }
+        self.with_repr_t(FieldValueBoxed)
+    }
     pub unsafe fn from_u8(v: u8) -> FieldValueRepr {
         unsafe { std::mem::transmute(v) }
     }
@@ -436,6 +452,7 @@ impl FieldValueRepr {
             FieldValueRepr::Object => "object",
             FieldValueRepr::Array => "array",
             FieldValueRepr::Argument => "argument",
+            FieldValueRepr::Macro => "macro",
             FieldValueRepr::Custom => "custom",
         }
     }
@@ -867,7 +884,8 @@ impl FieldData {
                 }
 
                 #[expand(REP in [
-                    BigInt, BigRational, Error, Object, Array, Argument, Custom
+                    BigInt, BigRational, Error, Object, Array,
+                    Argument, Macro, Custom
                 ])]
                 FieldValueSlice::REP(data) => {
                     for (v, rl) in
@@ -956,14 +974,16 @@ unsafe fn append_data(
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             FieldValueSlice::REP(v) => {
+                debug_assert!(FieldValueRepr::REP.is_trivially_copyable());
                 extend_raw(target_applicator, v)
             }
 
             #[expand(REP in [
                 BigInt, BigRational, TextBuffer, BytesBuffer,
-                Error, Object, Array, Argument, Custom
+                Error, Object, Array, Argument, Custom, Macro
             ])]
             FieldValueSlice::REP(v) => {
+                debug_assert!(!FieldValueRepr::REP.is_trivially_copyable());
                 extend_with_clones(target_applicator, v)
             }
         });

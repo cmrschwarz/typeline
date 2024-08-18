@@ -2,7 +2,7 @@ use num::{BigInt, BigRational};
 
 use crate::{
     cli::call_expr::Argument,
-    operators::errors::OperatorApplicationError,
+    operators::{errors::OperatorApplicationError, macro_def::MacroRef},
     record_data::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueBlock,
@@ -42,6 +42,7 @@ pub enum DynFieldValueRangeIter<'a> {
     Object(FieldValueRangeIter<'a, Object>),
     Array(FieldValueRangeIter<'a, Array>),
     Argument(FieldValueRangeIter<'a, Argument>),
+    Macro(FieldValueRangeIter<'a, MacroRef>),
     Custom(FieldValueRangeIter<'a, CustomDataBox>),
     Error(FieldValueRangeIter<'a, OperatorApplicationError>),
     StreamValueId(FieldValueRangeIter<'a, StreamValueId>),
@@ -76,7 +77,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
             #[expand(REP in [
                 Int, BigInt, Float, BigRational,
                 TextBuffer, BytesBuffer,
-                Object, Array, Argument, Custom, Error,
+                Object, Array, Argument, Custom, Error, Macro,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             FieldValueSlice::REP(vals) => DynFieldValueRangeIter::REP(
@@ -111,7 +112,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
 
             #[expand(REP in [
                 Int, BigInt, Float, BigRational,
-                Object, Array, Argument, Custom, Error,
+                Object, Array, Argument, Custom, Error, Macro,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             DynFieldValueRangeIter::REP(it) => {
@@ -134,7 +135,8 @@ impl<'a> DynFieldValueRangeIter<'a> {
             }
             #[expand(REP in [
                 Int, BigInt,Float, BigRational, TextInline, TextBuffer,
-                BytesInline, BytesBuffer, Object, Array, Argument, Custom, Error,
+                BytesInline, BytesBuffer, Object, Array,
+                Argument, Macro, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             DynFieldValueRangeIter::REP(it) => {
@@ -190,7 +192,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
 
             #[expand(REP in [
                 Int, BigInt, Float, BigRational,
-                Object, Array, Argument, Custom, Error,
+                Object, Array, Argument, Macro, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             DynFieldValueRangeIter::REP(it) => {
@@ -237,7 +239,7 @@ impl<'a> Iterator for DynFieldValueRangeIter<'a> {
 
             #[expand(REP in [
                 Int, BigInt, Float, BigRational,
-                Object, Array, Argument, Custom, Error,
+                Object, Array, Argument, Macro, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             DynFieldValueRangeIter::REP(it) => {
@@ -366,7 +368,7 @@ impl<'a> Iterator for FieldValueSliceIter<'a> {
             }
             #[expand(REP in [
                 Int, BigInt, Float, BigRational,
-                Object, Array, Argument, Custom, Error,
+                Object, Array, Argument, Macro, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference
             ])]
             FieldValueSlice::REP(v) => {

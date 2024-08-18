@@ -528,7 +528,7 @@ pub unsafe trait PushInterface {
             #[expand(REP in [
                 Float, Array, Custom, Error,
                 FieldReference, SlicedFieldReference, StreamValueId,
-                Int,
+                Int, Macro,
             ])]
             FieldValue::REP(v) => {
                 self.push_fixed_size_type(
@@ -606,6 +606,7 @@ pub unsafe trait PushInterface {
                 (Error, v.clone()),
                 (Object, v.clone()),
                 (Argument, v.clone()),
+                (Macro, v.clone()),
                 //TODO: support slicing
                 (Array, v.clone()),
             ])]
@@ -640,6 +641,7 @@ pub unsafe trait PushInterface {
             | FieldValueSlice::Null(_)
             | FieldValueSlice::Int(_)
             | FieldValueSlice::Float(_)
+            | FieldValueSlice::Macro(_)
             | FieldValueSlice::StreamValueId(_) => {
                 self.extend_from_ref_aware_range(
                     RefAwareTypedRange::without_refs(range),
@@ -712,6 +714,7 @@ pub unsafe trait PushInterface {
             | FieldValueSlice::Null(_)
             | FieldValueSlice::Int(_)
             | FieldValueSlice::Float(_)
+            | FieldValueSlice::Macro(_)
             | FieldValueSlice::StreamValueId(_) => {
                 self.extend_from_ref_aware_range(
                     range,
@@ -892,7 +895,7 @@ pub unsafe trait PushInterface {
                         .unwrap();
                 }
             }
-            #[expand(REP in [Object, Array, Argument])]
+            #[expand(REP in [Object, Array, Argument, Macro])]
             FieldValueSlice::REP(vals) => {
                 let mut fc = FormattingContext {
                     ss: Some(ss),

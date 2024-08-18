@@ -794,7 +794,7 @@ pub fn handle_tf_join<'a>(
                 todo!();
             }
 
-            #[expand(REP in [Object, Array, Argument, BigRational])]
+            #[expand(REP in [Object, Array, Argument, Macro, BigRational])]
             FieldValueSlice::REP(v) => {
                 let mut fc = FormattingContext {
                     ss: Some(&mut string_store),

@@ -1276,7 +1276,8 @@ pub fn handle_tf_regex(
             FieldValueSlice::BigInt(_)
             | FieldValueSlice::Float(_)
             | FieldValueSlice::BigRational(_)
-            | FieldValueSlice::Argument(_) => {
+            | FieldValueSlice::Argument(_)
+            | FieldValueSlice::Macro(_) => {
                 todo!();
             }
 

@@ -248,6 +248,7 @@ impl Transform<'_> for TfExplode {
                 | FieldValueSlice::TextBuffer(_)
                 | FieldValueSlice::BytesBuffer(_)
                 | FieldValueSlice::Array(_)
+                | FieldValueSlice::Macro(_)
                 | FieldValueSlice::Argument(_)
                 | FieldValueSlice::Custom(_)
                 | FieldValueSlice::Error(_) => {

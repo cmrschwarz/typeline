@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{
     chain::ChainId,
     cli::{
@@ -19,7 +17,7 @@ use crate::{
 
 use super::{
     errors::OperatorSetupError,
-    macro_def::{Macro, OpMacroDef},
+    macro_def::{MacroRef, OpMacroDef},
     multi_op::{create_multi_op_with_span, OpMultiOp},
     operator::{
         Operator, OperatorData, OperatorDataId, OperatorId,
@@ -29,7 +27,7 @@ use super::{
 
 pub struct OpMacroCall {
     pub name: String,
-    pub target: Option<Arc<Macro>>,
+    pub target: Option<MacroRef>,
     pub op_multi_op: OpMultiOp,
     pub span: Span,
 }
@@ -52,10 +50,7 @@ pub fn setup_op_macro_call(
     let macro_name = sess.string_store.intern_cloned(&op.name);
 
     let Some(macro_def) =
-        sess.scope_mgr
-            .lookup_value_cell(parent_scope_id, macro_name, |v| {
-                v.macro_def.clone()
-            })
+        sess.scope_mgr.lookup_macro(parent_scope_id, macro_name)
     else {
         return Err(OperatorSetupError::new_s(
             format!("call to undeclared symbol '{}'", op.name),

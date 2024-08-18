@@ -575,7 +575,7 @@ impl<'a> TfExec<'a> {
                     }
                 }
 
-                #[expand(REP in [Null, Undefined, Array, Object, Argument])]
+                #[expand(REP in [Null, Undefined, Array, Object, Argument, Macro])]
                 FieldValueSlice::REP(_) => {
                     let e = OperatorApplicationError::new_s(
                         format!(

@@ -6,7 +6,7 @@ use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
 
 use crate::{
     cli::call_expr::Argument,
-    operators::errors::OperatorApplicationError,
+    operators::{errors::OperatorApplicationError, macro_def::MacroRef},
     record_data::field_value_ref::FieldValueSlice,
     utils::{
         force_cast,
@@ -41,6 +41,7 @@ pub enum FieldValueKind {
     Object,
     Array,
     Argument,
+    Macro,
     FieldReference,
     SlicedFieldReference,
     StreamValueId,
@@ -75,6 +76,7 @@ pub enum FieldValue {
     Object(Box<Object>),
     Custom(CustomDataBox),
     Error(OperatorApplicationError),
+    Macro(MacroRef),
     Argument(Box<Argument>),
     StreamValueId(StreamValueId),
     FieldReference(FieldReference),
@@ -184,7 +186,7 @@ impl FieldValueKind {
 
             #[expand(T in [
                 Undefined, Null, Error, Object, Array,
-                Argument, FieldReference,
+                Argument, Macro, FieldReference,
                 SlicedFieldReference, StreamValueId, Custom
             ])]
             FieldValueKind::T => FieldValueRepr::T,
@@ -206,6 +208,7 @@ impl FieldValueKind {
             FieldValueKind::SlicedFieldReference => "sliced_field_reference",
             FieldValueKind::StreamValueId => "stream_value_id",
             FieldValueKind::Argument => "argument",
+            FieldValueKind::Macro => "macro",
         }
     }
     pub fn is_valid_utf8(self) -> bool {
@@ -217,7 +220,8 @@ impl FieldValueKind {
             | FieldValueKind::Error
             | FieldValueKind::Text
             | FieldValueKind::Object
-            | FieldValueKind::Array => true,
+            | FieldValueKind::Array
+            | FieldValueKind::Macro => true,
             FieldValueKind::Bytes
             | FieldValueKind::FieldReference
             | FieldValueKind::SlicedFieldReference
@@ -235,7 +239,7 @@ impl PartialEq for FieldValue {
             Self::REP => matches!(other, Self::REP),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Bytes, Text,
+                Int, Error, Array, Object, Bytes, Text, Macro,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -263,7 +267,7 @@ impl FieldValue {
             FieldValue::Bytes(_) => FieldValueRepr::BytesBuffer,
 
             #[expand(REP in [
-                Int, Error, Array, Object,
+                Int, Error, Array, Object, Macro,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -276,7 +280,7 @@ impl FieldValue {
             FieldValue::REP => <dyn Any>::downcast_ref(&REP),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Text, Bytes,
+                Int, Error, Array, Object, Text, Bytes, Macro,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -295,7 +299,7 @@ impl FieldValue {
             v @ FieldValue::T => <dyn Any>::downcast_mut(v),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Text, Bytes,
+                Int, Error, Array, Object, Text, Bytes, Macro,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -320,6 +324,7 @@ impl FieldValue {
             | FieldValue::Float(_)
             | FieldValue::BigRational(_)
             | FieldValue::Array(_)
+            | FieldValue::Macro(_)
             | FieldValue::Object(_)
             | FieldValue::Custom(_)
             | FieldValue::Error(_)
@@ -355,7 +360,7 @@ impl FieldValue {
             #[expand(REP in [
                 Int, Error, Array, Object, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, BigInt, BigRational, Argument
+                StreamValueId, BigInt, BigRational, Argument, Macro
             ])]
             FieldValue::REP(v) => FieldValueRef::REP(v),
         })
@@ -369,9 +374,9 @@ impl FieldValue {
             FieldValue::REP => FieldValueSlice::REP(1),
 
             #[expand(REP in [
-                Int, Error, Array, Object,
+                Int, Error, Array, Object, Macro,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, BigInt, BigRational, Argument
+                StreamValueId, BigInt, BigRational, Argument,
             ])]
             FieldValue::REP(v) =>
                 FieldValueSlice::REP(std::slice::from_ref(v)),
@@ -392,7 +397,7 @@ impl FieldValue {
             #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, BigInt, BigRational, Argument
+                StreamValueId, BigInt, BigRational, Argument, Macro
             ])]
             FieldValue::REP(v) => FieldValueRefMut::REP(v),
 
@@ -429,7 +434,7 @@ impl FieldValue {
             #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, BigInt, BigRational, Argument
+                StreamValueId, BigInt, BigRational, Argument, Macro
             ])]
             FieldValueRepr::REP => {
                 if T::FIELD_VALUE_BOXED {
@@ -500,6 +505,7 @@ impl FieldValue {
             | FieldValue::Null
             | FieldValue::Array(_)
             | FieldValue::Object(_)
+            | FieldValue::Macro(_)
             | FieldValue::Custom(_)
             | FieldValue::Error(_)
             | FieldValue::StreamValueId(_)
@@ -543,6 +549,7 @@ impl FieldValue {
             | FieldValue::Object(_)
             | FieldValue::Custom(_)
             | FieldValue::Error(_)
+            | FieldValue::Macro(_)
             | FieldValue::StreamValueId(_)
             | FieldValue::FieldReference(_)
             | FieldValue::SlicedFieldReference(_) => None,

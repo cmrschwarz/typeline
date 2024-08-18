@@ -13,14 +13,7 @@ index_newtype! {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UnboundRefKind {
-    Atom,
-    Field,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnboundRefData {
-    pub kind: UnboundRefKind,
     pub name: String,
     pub name_interned: StringStoreEntry,
     pub access_count: AccessIdx,

@@ -1,6 +1,6 @@
 use crate::{
     index_newtype,
-    record_data::field_value::{FieldValue, Object},
+    record_data::field_value::FieldValue,
     utils::{
         index_slice::IndexSlice, index_vec::IndexVec,
         indexing_type::IndexingType,
@@ -9,7 +9,7 @@ use crate::{
 
 use super::ast::{
     AccessIdx, BinaryOpKind, Block, Expr, IdentRefId, LetBindingData,
-    LetBindingId, UnaryOpKind, UnboundRefData, UnboundRefId,
+    LetBindingId, UnaryOpKind, UnboundRefId,
 };
 
 index_newtype! {
@@ -18,7 +18,7 @@ index_newtype! {
 }
 
 #[derive(Clone, Copy)]
-struct TemporaryId {
+pub struct TemporaryId {
     index: TemporaryIdxRaw,
     generation: u32,
 }
@@ -76,7 +76,6 @@ pub enum Instruction {
 }
 
 pub struct Compiler<'a> {
-    unbound_refs: &'a IndexSlice<UnboundRefId, UnboundRefData>,
     let_bindings: &'a IndexSlice<LetBindingId, LetBindingData>,
     let_value_mappings: IndexVec<LetBindingId, ValueRef>,
     temporary_count: TemporaryIdxRaw,
@@ -124,6 +123,7 @@ impl Compiler<'_> {
         id.generation += 1;
         self.unused_temporaries.push(id);
     }
+    #[allow(clippy::needless_pass_by_value)]
     fn release_intermediate(&mut self, v: IntermediateValueRef) {
         match v.value {
             ValueRef::Temporary(temp_id) => {
@@ -138,6 +138,7 @@ impl Compiler<'_> {
             }
         }
     }
+    #[allow(clippy::needless_pass_by_value)]
     fn defer_release_intermediate(&mut self, v: IntermediateValueRef) {
         match v.value {
             ValueRef::Temporary(temp_id) => {
@@ -527,10 +528,8 @@ impl Compiler<'_> {
     pub fn compile(
         expr: Expr,
         let_bindings: &IndexSlice<LetBindingId, LetBindingData>,
-        unbound_refs: &IndexSlice<UnboundRefId, UnboundRefData>,
     ) -> Compilation {
         let mut compiler = Compiler {
-            unbound_refs,
             let_bindings,
             let_value_mappings: IndexVec::new(),
             temporary_count: TemporaryIdxRaw::ZERO,

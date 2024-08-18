@@ -183,6 +183,7 @@ impl Argument {
             | FieldValue::Array(_)
             | FieldValue::Object(_)
             | FieldValue::Error(_)
+            | FieldValue::Macro(_)
             | FieldValue::Custom(_)
             | FieldValue::FieldReference(_)
             | FieldValue::SlicedFieldReference(_) => Err(OperatorCreationError::new_s(

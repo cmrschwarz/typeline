@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 use super::{
     ast::{
         AccessIdx, Block, IdentRefId, IfExpr, LetBindingData, LetBindingId,
-        UnaryOpKind, UnboundRefKind,
+        UnaryOpKind,
     },
     lexer::{ComputeExprLexer, ComputeExprSpan, ComputeExprToken, TokenKind},
     Expr, UnboundRefData, UnboundRefId,
@@ -547,7 +547,6 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                     Entry::Vacant(e) => {
                         let id =
                             self.unbound_idents.push_get_id(UnboundRefData {
-                                kind: UnboundRefKind::Field,
                                 name: ident.to_owned(),
                                 name_interned: INVALID_STRING_STORE_ENTRY,
                                 access_count: AccessIdx::one(),

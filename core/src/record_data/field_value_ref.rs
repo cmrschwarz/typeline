@@ -16,7 +16,8 @@ use super::{
     stream_value::StreamValueId,
 };
 use crate::{
-    cli::call_expr::Argument, operators::errors::OperatorApplicationError,
+    cli::call_expr::Argument,
+    operators::{errors::OperatorApplicationError, macro_def::MacroRef},
 };
 
 #[derive(Clone, Copy)]
@@ -35,6 +36,7 @@ pub enum FieldValueRef<'a> {
     StreamValueId(&'a StreamValueId),
     Error(&'a OperatorApplicationError),
     Argument(&'a Argument),
+    Macro(&'a MacroRef),
     FieldReference(&'a FieldReference),
     SlicedFieldReference(&'a SlicedFieldReference),
 }
@@ -56,6 +58,7 @@ pub enum FieldValueRefMut<'a> {
     StreamValueId(&'a mut StreamValueId),
     Error(&'a mut OperatorApplicationError),
     Argument(&'a mut Argument),
+    Macro(&'a mut MacroRef),
     FieldReference(&'a mut FieldReference),
     SlicedFieldReference(&'a mut SlicedFieldReference),
 }
@@ -77,6 +80,7 @@ pub enum FieldValueSlice<'a> {
     Custom(&'a [CustomDataBox]),
     Error(&'a [OperatorApplicationError]),
     Argument(&'a [Argument]),
+    Macro(&'a [MacroRef]),
     StreamValueId(&'a [StreamValueId]),
     FieldReference(&'a [FieldReference]),
     SlicedFieldReference(&'a [SlicedFieldReference]),
@@ -135,7 +139,7 @@ impl<'a> FieldValueRef<'a> {
 
                 #[expand(REP in [
                     Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
-                    SlicedFieldReference, Error,
+                    SlicedFieldReference, Error, Macro,
                     Object, Array, Custom, Argument
                 ])]
                 FieldValueRepr::REP => {
@@ -156,7 +160,7 @@ impl<'a> FieldValueRef<'a> {
 
             #[expand(REP in [
                 Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
-                SlicedFieldReference, Error, Argument,
+                SlicedFieldReference, Error, Argument, Macro,
                 Object, Array, Custom,
             ])]
             FieldValueRef::REP(v) => FieldValueSlice::REP(from_ref(v)),
@@ -173,7 +177,7 @@ impl<'a> FieldValueRef<'a> {
             ])]
             FieldValueRef::REP(v) => FieldValue::REP(*v),
 
-            #[expand(REP in [Error, Array, Custom])]
+            #[expand(REP in [Error, Array, Custom, Macro])]
             FieldValueRef::REP(v) => FieldValue::REP(v.clone()),
 
             #[expand((REP, CONV_FN) in [
@@ -201,7 +205,7 @@ impl<'a> FieldValueRef<'a> {
             FieldValueRef::Null | FieldValueRef::Undefined |
             #[expand_pattern(REP in [
                 Int, BigInt, Float, BigRational, Object, Custom, StreamValueId,
-                Error, FieldReference, SlicedFieldReference,
+                Error, FieldReference, SlicedFieldReference, Macro,
             ])]
             FieldValueRef::REP(_) => {
                 panic!("typed value kind {:?} is not slicable", self.repr(),)
@@ -222,6 +226,7 @@ impl<'a> FieldValueRef<'a> {
             | FieldValueRef::BigRational(_)
             | FieldValueRef::Array(_)
             | FieldValueRef::Object(_)
+            | FieldValueRef::Macro(_)
             | FieldValueRef::Custom(_)
             | FieldValueRef::StreamValueId(_)
             | FieldValueRef::Error(_)
@@ -305,7 +310,7 @@ impl<'a> FieldValueSlice<'a> {
                 #[expand(REP in [
                     Int, BigInt, Float, BigRational, TextBuffer, BytesInline,
                     BytesBuffer, Object, Array, Custom, Error, StreamValueId,
-                    FieldReference, SlicedFieldReference, Argument
+                    FieldReference, SlicedFieldReference, Argument, Macro
                 ])]
                 FieldValueRepr::REP => {
                     FieldValueSlice::REP(to_slice(fdr, data_begin, data_end))
@@ -325,7 +330,8 @@ impl<'a> FieldValueSlice<'a> {
                 #[expand(REP in [
                     Int, BigInt, Float, BigRational, StreamValueId,
                     FieldReference, SlicedFieldReference, Error,
-                    BytesBuffer, TextBuffer, Object, Array, Argument, Custom
+                    BytesBuffer, TextBuffer, Object, Array, Argument,
+                    Macro, Custom
                 ])]
                 FieldValueSlice::REP(v) => slice_as_bytes(v),
             })
@@ -337,7 +343,7 @@ impl<'a> FieldValueSlice<'a> {
                 Undefined, Null, BytesInline, TextInline,
                 Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
                 SlicedFieldReference, Error,
-                BytesBuffer, TextBuffer, Object, Array, Argument, Custom
+                BytesBuffer, TextBuffer, Object, Array, Argument, Macro, Custom
             ])]
             FieldValueSlice::REP(_) => FieldValueRepr::REP,
         })
@@ -349,7 +355,7 @@ impl<'a> FieldValueSlice<'a> {
                 BytesInline, TextInline,
                 Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
                 SlicedFieldReference, Error,
-                BytesBuffer, TextBuffer, Object, Array, Argument, Custom
+                BytesBuffer, TextBuffer, Object, Array, Argument, Macro, Custom
             ])]
             FieldValueSlice::REP(v) => v.len(),
         })
@@ -391,6 +397,7 @@ impl<'a> FieldValueSlice<'a> {
                     (Object, Object),
                     (Array, Array),
                     (Argument, Argument),
+                    (Macro, MacroRef),
                     (Custom, CustomDataBox),
                     (Error, OperatorApplicationError)
                 ])]

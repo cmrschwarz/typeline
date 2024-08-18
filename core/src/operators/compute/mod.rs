@@ -13,16 +13,20 @@ use crate::{
     liveness_analysis::{AccessFlags, LivenessData},
     options::session_setup::SessionSetupData,
     record_data::{
-        field::FieldIterRef, field_data::FieldData, iter_hall::IterKind,
-        scope_manager::Atom, stream_value::StreamValueUpdate,
+        field::FieldIterRef,
+        field_data::FieldData,
+        field_value::FieldValue,
+        iter_hall::IterKind,
+        scope_manager::{Atom, ScopeValue},
+        stream_value::StreamValueUpdate,
     },
     scr_error::ScrError,
     utils::{
         index_slice::IndexSlice, index_vec::IndexVec,
-        indexing_type::IndexingType, string_store::StringStoreEntry,
+        indexing_type::IndexingType,
     },
 };
-use ast::{Expr, UnboundRefData, UnboundRefId, UnboundRefKind};
+use ast::{Expr, UnboundRefData, UnboundRefId};
 use compiler::{Compilation, Compiler, TemporaryIdxRaw};
 use lexer::ComputeExprLexer;
 use parser::ComputeExprParser;
@@ -45,6 +49,7 @@ pub struct OpCompute {
 pub enum ComputeVarRef {
     Atom(Arc<Atom>),
     Field(FieldIterRef),
+    Literal(FieldValue),
 }
 
 pub struct TfCompute<'a> {
@@ -119,7 +124,7 @@ pub fn build_op_compute(
         OperatorCreationError::new_s(e.stringify_error("<expr>"), span)
     })?;
 
-    let compilation = Compiler::compile(expr, &let_bindings, &unbound_refs);
+    let compilation = Compiler::compile(expr, &let_bindings);
 
     Ok(OperatorData::Compute(OpCompute {
         unbound_refs,
@@ -139,20 +144,6 @@ pub fn build_tf_compute<'a>(
         jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
 
     for key_ref in &op.unbound_refs {
-        match key_ref.kind {
-            UnboundRefKind::Atom => {
-                let atom =
-                    jd.scope_mgr.lookup_atom(scope_id, key_ref.name_interned);
-                let atom = match atom {
-                    Some(v) => v.clone(),
-                    None => todo!(),
-                };
-                idents.push(ComputeVarRef::Atom(atom));
-                continue;
-            }
-            UnboundRefKind::Field => (),
-        };
-
         let field_id = if &key_ref.name == "_" {
             let mut f = jd.field_mgr.fields[tf_state.input_field].borrow_mut();
             // while the ref count was already bumped by the transform
@@ -160,13 +151,28 @@ pub fn build_tf_compute<'a>(
             // simpler this way
             f.ref_count += 1;
             tf_state.input_field
-        } else if let Some(id) =
-            jd.scope_mgr.lookup_field(scope_id, key_ref.name_interned)
+        } else if let Some(val) =
+            jd.scope_mgr.lookup_value(scope_id, key_ref.name_interned)
         {
-            jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
-            let mut f = jd.field_mgr.fields[id].borrow_mut();
-            f.ref_count += 1;
-            id
+            match val {
+                ScopeValue::Atom(atom) => {
+                    idents.push(ComputeVarRef::Atom(atom.clone()));
+                    continue;
+                }
+                &ScopeValue::Field(field_id) => {
+                    jd.field_mgr
+                        .setup_field_refs(&mut jd.match_set_mgr, field_id);
+                    let mut f = jd.field_mgr.fields[field_id].borrow_mut();
+                    f.ref_count += 1;
+                    field_id
+                }
+                ScopeValue::Macro(m) => {
+                    idents.push(ComputeVarRef::Literal(FieldValue::Macro(
+                        m.clone(),
+                    )));
+                    continue;
+                }
+            }
         } else {
             let dummy_field =
                 jd.match_set_mgr.get_dummy_field(tf_state.match_set_id);

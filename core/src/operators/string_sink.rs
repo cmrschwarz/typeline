@@ -357,7 +357,7 @@ pub fn handle_tf_string_sink(
                 }
             }
 
-            #[expand(REP in [BigRational, Array, Object, Argument])]
+            #[expand(REP in [BigRational, Array, Object, Argument, Macro])]
             FieldValueSlice::REP(values) => {
                 let mut fc = FormattingContext {
                     ss: Some(&mut string_store),

@@ -302,7 +302,7 @@ pub fn handle_tf_print_raw(
                 }
             }
 
-            #[expand(REP in [Array, Object, Argument])]
+            #[expand(REP in [Array, Object, Argument, Macro])]
             FieldValueSlice::REP(arrays) => {
                 let mut fc = FormattingContext {
                     ss: Some(&mut string_store),

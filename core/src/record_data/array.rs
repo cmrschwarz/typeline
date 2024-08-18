@@ -3,8 +3,10 @@ use num::{BigInt, BigRational};
 
 use crate::{
     cli::call_expr::Argument,
-    operators::errors::OperatorApplicationError,
-    record_data::field_value_ref::FieldValueRefMut,
+    operators::{errors::OperatorApplicationError, macro_def::MacroRef},
+    record_data::{
+        field_value::FieldValueKind, field_value_ref::FieldValueRefMut,
+    },
     utils::{force_cast, temp_vec::convert_vec_cleared},
 };
 
@@ -31,6 +33,7 @@ pub enum Array {
     Object(Vec<Object>),
     StreamValueId(Vec<StreamValueId>),
     Argument(Vec<Argument>),
+    Macro(Vec<MacroRef>),
     FieldReference(Vec<FieldReference>),
     SlicedFieldReference(Vec<SlicedFieldReference>),
     Custom(Vec<CustomDataBox>),
@@ -50,7 +53,7 @@ impl Array {
             #[expand(REP in [
                 Int, BigInt, BigRational, Bytes, Text, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Mixed, Float,
-                StreamValueId, Argument
+                StreamValueId, Argument, Macro
             ])]
             Array::REP(a) => a.len(),
         })
@@ -65,7 +68,7 @@ impl Array {
                 Null, Undefined,
                 Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, Argument
+                StreamValueId, Argument, Macro
             ])]
             Array::REP(_) => FieldValueRepr::REP,
             Array::Bytes(_) => FieldValueRepr::BytesBuffer,
@@ -87,7 +90,7 @@ impl Array {
             #[expand(REP in [
                 Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, Argument, Mixed, Text, Bytes,
+                StreamValueId, Argument, Mixed, Text, Bytes, Macro
             ])]
             Array::REP(v) => convert_vec_cleared(v),
         })
@@ -106,7 +109,7 @@ impl Array {
             #[expand(REP in [
                 Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, Argument,
+                StreamValueId, Argument, Macro,
             ])]
             FieldValueRepr::REP => Array::REP(arr.into_cleared_vec()),
         })
@@ -119,7 +122,7 @@ impl Array {
             #[expand(REP in [
                 Int, Error, Array,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, Text, Bytes,
+                StreamValueId, Text, Bytes, Macro
             ])]
             Array::REP(a) => a.into_iter().map(FieldValue::REP).collect(),
 
@@ -198,6 +201,7 @@ impl Array {
                 (Array, Array, Array),
                 (Object, Object, Object),
                 (Error, Error, OperatorApplicationError),
+                (Macro, Macro, MacroRef),
                 (FieldReference, FieldReference, FieldReference),
                 (SlicedFieldReference, SlicedFieldReference, SlicedFieldReference),
                 (Custom, Custom, CustomDataBox),
@@ -297,14 +301,22 @@ impl Array {
             }
 
             #[expand(REP in [
-                Int, Error, Array,
+                Int, Error, Array, Macro,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
             ])]
-            Array::REP(v) => FieldValue::REP(v.pop()?),
+            Array::REP(v) => {
+                debug_assert!(!FieldValueKind::REP
+                    .repr(true)
+                    .is_field_value_boxed());
+                FieldValue::REP(v.pop()?)
+            }
 
             #[expand(REP in [BigInt, BigRational, Argument,  Object])]
-            Array::REP(v) => FieldValue::REP(Box::new(v.pop()?)),
+            Array::REP(v) => {
+                debug_assert!(FieldValueRepr::REP.is_field_value_boxed());
+                FieldValue::REP(Box::new(v.pop()?))
+            }
 
             Array::Mixed(v) => return v.pop(),
         }))
@@ -319,7 +331,7 @@ impl Array {
                 Some(FieldValueRef::REP)
             }
             #[expand(REP in [
-                Int, Error, Array, Object,
+                Int, Error, Array, Object, Macro,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -347,7 +359,7 @@ impl Array {
             #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, BigInt, BigRational, Argument
+                StreamValueId, BigInt, BigRational, Argument, Macro
             ])]
             Array::REP(v) => {
                 v.get_mut(index).map(FieldValueRefMut::REP)

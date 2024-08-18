@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     index_newtype,
-    operators::macro_def::Macro,
+    operators::macro_def::MacroRef,
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32,
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
@@ -21,17 +21,17 @@ index_newtype! {
 
 pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;
 
-#[derive(Default, Clone)]
-pub struct ValueCell {
-    pub field: Option<FieldId>,
-    pub macro_def: Option<Arc<Macro>>,
-    pub atom: Option<Arc<Atom>>,
+#[derive(Clone)]
+pub enum ScopeValue {
+    Field(FieldId),
+    Macro(MacroRef),
+    Atom(Arc<Atom>),
 }
 
 #[derive(Clone, Default)]
 pub struct Scope {
     pub parent: Option<ScopeId>,
-    pub values: HashMap<StringStoreEntry, ValueCell, BuildIdentityHasher>,
+    pub values: HashMap<StringStoreEntry, ScopeValue, BuildIdentityHasher>,
 }
 
 pub struct Atom {
@@ -41,6 +41,27 @@ pub struct Atom {
 #[derive(Clone)]
 pub struct ScopeManager {
     pub scopes: Universe<ScopeId, Scope>,
+}
+
+impl ScopeValue {
+    pub fn field_id(&self) -> Option<FieldId> {
+        match self {
+            ScopeValue::Field(field_id) => Some(*field_id),
+            ScopeValue::Macro(_) | ScopeValue::Atom(_) => None,
+        }
+    }
+    pub fn macro_ref(&self) -> Option<&MacroRef> {
+        match self {
+            ScopeValue::Macro(m) => Some(m),
+            ScopeValue::Field(_) | ScopeValue::Atom(_) => None,
+        }
+    }
+    pub fn atom(&self) -> Option<&Arc<Atom>> {
+        match self {
+            ScopeValue::Atom(a) => Some(a),
+            ScopeValue::Field(_) | ScopeValue::Macro(_) => None,
+        }
+    }
 }
 
 impl Default for ScopeManager {
@@ -60,16 +81,30 @@ impl Atom {
 }
 
 impl ScopeManager {
-    pub fn lookup_value_cell<'a, T: 'a>(
+    pub fn lookup_value(
+        &self,
+        mut scope_id: ScopeId,
+        name: StringStoreEntry,
+    ) -> Option<&ScopeValue> {
+        loop {
+            let scope = &self.scopes[scope_id];
+            if let Some(value) = scope.values.get(&name) {
+                return Some(value);
+            }
+            scope_id = scope.parent?;
+        }
+    }
+
+    pub fn visit_value<'a, T: 'a>(
         &'a self,
         mut scope_id: ScopeId,
         name: StringStoreEntry,
-        mut val_access: impl FnMut(&'a ValueCell) -> Option<T>,
+        mut val_access: impl FnMut(&'a ScopeValue) -> Option<T>,
     ) -> Option<T> {
         loop {
             let scope = &self.scopes[scope_id];
-            if let Some(value_cell) = scope.values.get(&name) {
-                if let Some(res) = val_access(value_cell) {
+            if let Some(value) = scope.values.get(&name) {
+                if let Some(res) = val_access(value) {
                     return Some(res);
                 }
             }
@@ -77,16 +112,16 @@ impl ScopeManager {
         }
     }
 
-    pub fn lookup_value_cell_mut<T>(
+    pub fn visit_value_mut<T>(
         &mut self,
         mut scope_id: ScopeId,
         name: StringStoreEntry,
-        mut val_access: impl FnMut(&mut ValueCell) -> Option<T>,
+        mut val_access: impl FnMut(&mut ScopeValue) -> Option<T>,
     ) -> Option<T> {
         loop {
             let scope = &mut self.scopes[scope_id];
-            if let Some(value_cell) = scope.values.get_mut(&name) {
-                if let Some(res) = val_access(value_cell) {
+            if let Some(value) = scope.values.get_mut(&name) {
+                if let Some(res) = val_access(value) {
                     return Some(res);
                 }
             }
@@ -94,12 +129,13 @@ impl ScopeManager {
         }
     }
 
-    pub fn insert_value_cell(
+    pub fn insert_value(
         &mut self,
         scope_id: ScopeId,
         name: StringStoreEntry,
-    ) -> &mut ValueCell {
-        self.scopes[scope_id].values.entry(name).or_default()
+        value: ScopeValue,
+    ) {
+        self.scopes[scope_id].values.insert(name, value);
     }
 
     pub fn insert_field_name(
@@ -108,7 +144,7 @@ impl ScopeManager {
         name: StringStoreEntry,
         field_id: FieldId,
     ) {
-        self.insert_value_cell(scope_id, name).field = Some(field_id);
+        self.insert_value(scope_id, name, ScopeValue::Field(field_id))
     }
     pub fn insert_field_name_opt(
         &mut self,
@@ -124,9 +160,9 @@ impl ScopeManager {
         &mut self,
         scope_id: ScopeId,
         name: StringStoreEntry,
-        macro_def: Arc<Macro>,
+        macro_def: MacroRef,
     ) {
-        self.insert_value_cell(scope_id, name).macro_def = Some(macro_def);
+        self.insert_value(scope_id, name, ScopeValue::Macro(macro_def));
     }
     pub fn insert_atom(
         &mut self,
@@ -134,7 +170,7 @@ impl ScopeManager {
         name: StringStoreEntry,
         atom: Arc<Atom>,
     ) {
-        self.insert_value_cell(scope_id, name).atom = Some(atom);
+        self.insert_value(scope_id, name, ScopeValue::Atom(atom));
     }
     pub fn add_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
         self.scopes.claim_with_value(Scope {
@@ -148,7 +184,7 @@ impl ScopeManager {
         scope_id: ScopeId,
         name: StringStoreEntry,
     ) -> Option<FieldId> {
-        self.lookup_value_cell(scope_id, name, |v| v.field)
+        self.visit_value(scope_id, name, ScopeValue::field_id)
     }
 
     pub fn lookup_atom(
@@ -156,6 +192,14 @@ impl ScopeManager {
         scope_id: ScopeId,
         name: StringStoreEntry,
     ) -> Option<Arc<Atom>> {
-        self.lookup_value_cell(scope_id, name, |v| v.atom.clone())
+        self.visit_value(scope_id, name, |v| v.atom().cloned())
+    }
+
+    pub fn lookup_macro(
+        &self,
+        scope_id: ScopeId,
+        name: StringStoreEntry,
+    ) -> Option<MacroRef> {
+        self.visit_value(scope_id, name, |v| v.macro_ref().cloned())
     }
 }

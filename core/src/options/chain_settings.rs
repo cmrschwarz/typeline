@@ -5,7 +5,7 @@ use crate::{
     },
     record_data::{
         field_value::FieldValue,
-        scope_manager::{Atom, ScopeId, ScopeManager},
+        scope_manager::{Atom, ScopeId, ScopeManager, ScopeValue},
     },
     typelist,
     utils::string_store::StringStoreEntry,
@@ -67,8 +67,8 @@ pub trait ChainSetting: chain_settings_list::TypeList {
         names: &ChainSettingNames,
         scope_id: ScopeId,
     ) -> Option<(Result<Self::Type, SettingConversionError>, Span)> {
-        sm.lookup_value_cell(scope_id, names[Self::INDEX], |v| {
-            let atom = v.atom.as_ref()?;
+        sm.visit_value(scope_id, names[Self::INDEX], |v| {
+            let atom = v.atom()?;
             let value = atom.value.read().unwrap();
             if let FieldValue::Argument(arg) = &*value {
                 Some((Self::Converter::convert_to_type(&arg.value), arg.span))
@@ -87,9 +87,20 @@ pub trait ChainSetting: chain_settings_list::TypeList {
         scope_id: ScopeId,
         value: FieldValue,
     ) {
-        match &mut sm.insert_value_cell(scope_id, names[Self::INDEX]).atom {
-            Some(v) => *v.value.write().unwrap() = value,
-            cell @ None => *cell = Some(Arc::new(Atom::new(value))),
+        match sm.scopes[scope_id].values.entry(names[Self::INDEX]) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                match e.get_mut() {
+                    ScopeValue::Atom(v) => {
+                        *v.value.write().unwrap() = value;
+                    }
+                    other => {
+                        *other = ScopeValue::Atom(Arc::new(Atom::new(value)));
+                    }
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(ScopeValue::Atom(Arc::new(Atom::new(value))));
+            }
         }
     }
 
@@ -203,6 +214,7 @@ impl<S: ChainSetting> SettingTypeConverter<bool> for SettingConverterBool<S> {
             | FieldValue::Object(_)
             | FieldValue::Custom(_)
             | FieldValue::Error(_)
+            | FieldValue::Macro(_)
             | FieldValue::StreamValueId(_)
             | FieldValue::FieldReference(_)
             | FieldValue::SlicedFieldReference(_) => {
@@ -346,6 +358,7 @@ impl<S: ChainSetting> SettingTypeConverter<Option<PathBuf>>
             | FieldValue::Object(_)
             | FieldValue::Custom(_)
             | FieldValue::Error(_)
+            | FieldValue::Macro(_)
             | FieldValue::Argument(_)
             | FieldValue::StreamValueId(_)
             | FieldValue::FieldReference(_)
