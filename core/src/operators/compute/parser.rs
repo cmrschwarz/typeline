@@ -14,11 +14,11 @@ use smallvec::SmallVec;
 
 use super::{
     ast::{
-        AccessIdx, ComputeTemporaryRefData, ComputeValueRefType, IdentRefId,
-        IfExpr, TemporaryRefId, UnaryOpKind,
+        AccessIdx, Block, IdentRefId, IfExpr, LetBindingData, LetBindingId,
+        UnaryOpKind, UnboundRefKind,
     },
     lexer::{ComputeExprLexer, ComputeExprSpan, ComputeExprToken, TokenKind},
-    ComputeIdentRefData, Expr, UnboundRefId,
+    Expr, UnboundRefData, UnboundRefId,
 };
 
 pub enum ParenthesisKind {
@@ -134,8 +134,8 @@ pub enum ParseErrorKind<'a> {
 pub struct ComputeExprParser<'a, 't> {
     scope_stack: SmallVec<[HashMap<&'a str, IdentRefId>; 1]>,
     lexer: ComputeExprLexer<'a>,
-    unbound_idents: &'t mut IndexVec<UnboundRefId, ComputeIdentRefData>,
-    temporaries: &'t mut IndexVec<TemporaryRefId, ComputeTemporaryRefData>,
+    unbound_idents: &'t mut IndexVec<UnboundRefId, UnboundRefData>,
+    let_bindings: &'t mut IndexVec<LetBindingId, LetBindingData>,
 }
 
 index_newtype! {
@@ -145,13 +145,13 @@ index_newtype! {
 impl<'i, 't> ComputeExprParser<'i, 't> {
     pub fn new(
         lexer: ComputeExprLexer<'i>,
-        unbound_idents: &'t mut IndexVec<UnboundRefId, ComputeIdentRefData>,
-        temporaries: &'t mut IndexVec<TemporaryRefId, ComputeTemporaryRefData>,
+        unbound_idents: &'t mut IndexVec<UnboundRefId, UnboundRefData>,
+        let_bindings: &'t mut IndexVec<LetBindingId, LetBindingData>,
     ) -> Self {
         Self {
             lexer,
             unbound_idents,
-            temporaries,
+            let_bindings,
             scope_stack: SmallVec::from_iter([HashMap::new()]),
         }
     }
@@ -228,7 +228,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             | TokenKind::Equals
             | TokenKind::DoubleEquals => return Ok(lhs),
         };
-        let _ = self.lexer.munch_token();
+        self.lexer.drop_token();
         Ok(Expr::OpBinary(
             binary_op,
             Box::new([
@@ -282,7 +282,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
     fn expect_to_parse_block(
         &mut self,
         expected_err_msg: &'static str,
-    ) -> Result<Expr, ComputeExprParseError<'i>> {
+    ) -> Result<Block, ComputeExprParseError<'i>> {
         let open_brace_tok = self.expect_to_munch_token_kind(
             |k| matches!(k, TokenKind::LBrace),
             expected_err_msg,
@@ -293,7 +293,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         &mut self,
         open_brace_span: ComputeExprSpan,
         first_expr: Option<Expr>,
-    ) -> Result<Expr, ComputeExprParseError<'i>> {
+    ) -> Result<Block, ComputeExprParseError<'i>> {
         let mut block_stmts = Vec::new();
         if let Some(first_expr) = first_expr {
             block_stmts.push(first_expr);
@@ -315,8 +315,8 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                     continue;
                 }
                 TokenKind::RBrace => {
-                    let _ = self.lexer.munch_token();
-                    return Ok(Expr::Block {
+                    self.lexer.drop_token();
+                    return Ok(Block {
                         stmts: block_stmts.into_boxed_slice(),
                         trailing_semicolon,
                     });
@@ -401,18 +401,20 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         };
         match next_tok.kind {
             TokenKind::RBrace => {
-                let _ = self.lexer.munch_token();
-                Ok(Expr::Block {
+                self.lexer.drop_token();
+                Ok(Expr::Block(Block {
                     stmts: vec![first_expr].into_boxed_slice(),
                     trailing_semicolon: false,
-                })
+                }))
             }
             TokenKind::Colon | TokenKind::Comma => {
                 self.parse_object(open_brace_span, first_expr)
             }
             TokenKind::Semicolon => {
-                let _ = self.lexer.munch_token();
-                self.parse_block(open_brace_span, Some(first_expr))
+                self.lexer.drop_token();
+                Ok(Expr::Block(
+                    self.parse_block(open_brace_span, Some(first_expr))?,
+                ))
             }
             _ => {
                 let next_tok = self.lexer.munch_token()?.unwrap();
@@ -458,7 +460,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                     continue;
                 }
                 TokenKind::RBracket => {
-                    let _ = self.lexer.munch_token();
+                    self.lexer.drop_token();
                     return Ok(Expr::Array(array));
                 }
                 _ => (),
@@ -473,17 +475,20 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         _if_span: ComputeExprSpan,
     ) -> Result<Expr, ComputeExprParseError<'i>> {
         let cond = self.parse_expression(Precedence::ZERO)?;
-        let then_expr = self.expect_to_parse_block("`{` to start if block")?;
-        self.expect_to_munch_token_kind(
-            |k| matches!(k, TokenKind::Else),
-            "`else`",
-        )?;
-        let else_expr =
-            self.expect_to_parse_block("`{` to start else block")?;
+        let then_block =
+            self.expect_to_parse_block("`{` to start if block")?;
+
+        let mut else_block = None;
+        if self.lexer.peek_token_kind()? == Some(&TokenKind::Else) {
+            self.lexer.drop_token();
+            else_block =
+                Some(self.expect_to_parse_block("`{` to start else block")?);
+        };
+
         Ok(Expr::IfExpr(Box::new(IfExpr {
             cond,
-            then_expr,
-            else_expr,
+            then_block,
+            else_block,
         })))
     }
 
@@ -507,7 +512,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             "`=` after let identifier",
         )?;
         let value_expr = self.parse_expression(Precedence::ZERO)?;
-        let temp_id = self.temporaries.push_get_id(ComputeTemporaryRefData {
+        let temp_id = self.let_bindings.push_get_id(LetBindingData {
             name: ident.to_owned(),
             access_count: AccessIdx::ZERO,
         });
@@ -528,8 +533,8 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                     Entry::Occupied(e) => {
                         let ref_id = *e.get();
                         let access_count = match ref_id {
-                            IdentRefId::Temporary(ti) => {
-                                &mut self.temporaries[ti].access_count
+                            IdentRefId::LetBinding(ti) => {
+                                &mut self.let_bindings[ti].access_count
                             }
                             IdentRefId::Unbound(ubi) => {
                                 &mut self.unbound_idents[ubi].access_count
@@ -540,14 +545,13 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                         return Ok(Expr::Reference { ref_id, access_idx });
                     }
                     Entry::Vacant(e) => {
-                        let id = self.unbound_idents.push_get_id(
-                            ComputeIdentRefData {
-                                ref_type: ComputeValueRefType::Field,
+                        let id =
+                            self.unbound_idents.push_get_id(UnboundRefData {
+                                kind: UnboundRefKind::Field,
                                 name: ident.to_owned(),
                                 name_interned: INVALID_STRING_STORE_ENTRY,
                                 access_count: AccessIdx::one(),
-                            },
-                        );
+                            });
                         let cref = IdentRefId::Unbound(id);
                         e.insert(cref);
                         return Ok(Expr::Reference {
@@ -614,15 +618,15 @@ mod test {
     fn test_parse(
         input: &str,
         unbound: impl IntoIterator<Item = String>,
-        temporaries: impl IntoIterator<Item = String>,
+        let_bindings: impl IntoIterator<Item = String>,
         output: Expr,
     ) {
         let mut unbound_out = IndexVec::new();
-        let mut temporaries_out = IndexVec::new();
+        let mut let_bindings_out = IndexVec::new();
         let mut p = ComputeExprParser::new(
             ComputeExprLexer::new(input.as_bytes()),
             &mut unbound_out,
-            &mut temporaries_out,
+            &mut let_bindings_out,
         );
         let res = p.parse();
         let expr = res
@@ -634,11 +638,11 @@ mod test {
             unbound.into_iter().collect::<Vec<_>>()
         );
         assert_eq!(
-            temporaries_out
+            let_bindings_out
                 .into_iter()
                 .map(|i| i.name)
                 .collect::<Vec<_>>(),
-            temporaries.into_iter().collect::<Vec<_>>()
+            let_bindings.into_iter().collect::<Vec<_>>()
         );
     }
 

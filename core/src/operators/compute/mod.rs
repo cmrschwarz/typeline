@@ -1,4 +1,5 @@
 pub mod ast;
+pub mod compiler;
 mod lexer;
 pub mod parser;
 
@@ -12,16 +13,17 @@ use crate::{
     liveness_analysis::{AccessFlags, LivenessData},
     options::session_setup::SessionSetupData,
     record_data::{
-        field::FieldIterRef, iter_hall::IterKind, scope_manager::Atom,
-        stream_value::StreamValueUpdate,
+        field::FieldIterRef, field_data::FieldData, iter_hall::IterKind,
+        scope_manager::Atom, stream_value::StreamValueUpdate,
     },
     scr_error::ScrError,
-    utils::index_vec::IndexVec,
+    utils::{
+        index_slice::IndexSlice, index_vec::IndexVec,
+        indexing_type::IndexingType, string_store::StringStoreEntry,
+    },
 };
-use ast::{
-    ComputeIdentRefData, ComputeTemporaryRefData, ComputeValueRefType, Expr,
-    TemporaryRefId, UnboundRefId,
-};
+use ast::{Expr, UnboundRefData, UnboundRefId, UnboundRefKind};
+use compiler::{Compilation, Compiler, TemporaryIdxRaw};
 use lexer::ComputeExprLexer;
 use parser::ComputeExprParser;
 
@@ -35,9 +37,8 @@ use super::{
 };
 
 pub struct OpCompute {
-    expr: Expr,
-    ident_refs: IndexVec<UnboundRefId, ComputeIdentRefData>,
-    temporaries: IndexVec<TemporaryRefId, ComputeTemporaryRefData>,
+    unbound_refs: IndexVec<UnboundRefId, UnboundRefData>,
+    compilation: Compilation,
 }
 
 #[derive(Clone)]
@@ -49,6 +50,7 @@ pub enum ComputeVarRef {
 pub struct TfCompute<'a> {
     op: &'a OpCompute,
     idents: IndexVec<UnboundRefId, ComputeVarRef>,
+    temporaries: Box<IndexSlice<TemporaryIdxRaw, FieldData>>,
 }
 
 pub fn setup_op_compute(
@@ -59,14 +61,14 @@ pub fn setup_op_compute(
     offset_in_chain: OperatorOffsetInChain,
     span: Span,
 ) -> Result<OperatorId, ScrError> {
-    for r in &mut op.ident_refs {
+    for r in &mut op.unbound_refs {
         r.name_interned = sess.string_store.intern_cloned(&r.name);
     }
     Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
 }
 
 pub fn compute_add_var_names(c: &OpCompute, ld: &mut LivenessData) {
-    for r in &c.ident_refs {
+    for r in &c.unbound_refs {
         if r.name != "_" {
             ld.add_var_name(r.name_interned);
         }
@@ -85,7 +87,7 @@ pub fn update_op_compute_variable_liveness(
     // might be set to true again in the loop below
     access_flags.non_stringified_input_access = false;
     access_flags.input_accessed = false;
-    for ir in &c.ident_refs {
+    for ir in &c.unbound_refs {
         if ir.name == "_" {
             access_flags.input_accessed = true;
             access_flags.non_stringified_input_access = true;
@@ -105,22 +107,23 @@ pub fn build_op_compute(
     fmt: &[u8],
     span: Span,
 ) -> Result<OperatorData, OperatorCreationError> {
-    let mut ident_refs = IndexVec::new();
-    let mut temporaries = IndexVec::new();
+    let mut let_bindings = IndexVec::new();
+    let mut unbound_refs = IndexVec::new();
 
     let mut p = ComputeExprParser::new(
         ComputeExprLexer::new(fmt),
-        &mut ident_refs,
-        &mut temporaries,
+        &mut unbound_refs,
+        &mut let_bindings,
     );
     let expr = p.parse().map_err(|e| {
         OperatorCreationError::new_s(e.stringify_error("<expr>"), span)
     })?;
 
+    let compilation = Compiler::compile(expr, &let_bindings, &unbound_refs);
+
     Ok(OperatorData::Compute(OpCompute {
-        expr,
-        ident_refs,
-        temporaries,
+        unbound_refs,
+        compilation,
     }))
 }
 
@@ -135,9 +138,9 @@ pub fn build_tf_compute<'a>(
     let scope_id =
         jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
 
-    for key_ref in &op.ident_refs {
-        match key_ref.ref_type {
-            ComputeValueRefType::Atom => {
+    for key_ref in &op.unbound_refs {
+        match key_ref.kind {
+            UnboundRefKind::Atom => {
                 let atom =
                     jd.scope_mgr.lookup_atom(scope_id, key_ref.name_interned);
                 let atom = match atom {
@@ -147,34 +150,32 @@ pub fn build_tf_compute<'a>(
                 idents.push(ComputeVarRef::Atom(atom));
                 continue;
             }
-            ComputeValueRefType::Field => (),
+            UnboundRefKind::Field => (),
         };
 
-        let field_id = if &key_ref.name != "_" {
-            if let Some(id) =
-                jd.scope_mgr.lookup_field(scope_id, key_ref.name_interned)
-            {
-                jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
-                let mut f = jd.field_mgr.fields[id].borrow_mut();
-                f.ref_count += 1;
-                id
-            } else {
-                let dummy_field =
-                    jd.match_set_mgr.get_dummy_field(tf_state.match_set_id);
-                jd.scope_mgr.insert_field_name(
-                    scope_id,
-                    key_ref.name_interned,
-                    dummy_field,
-                );
-                dummy_field
-            }
-        } else {
+        let field_id = if &key_ref.name == "_" {
             let mut f = jd.field_mgr.fields[tf_state.input_field].borrow_mut();
             // while the ref count was already bumped by the transform
             // creation cleaning up this transform is
             // simpler this way
             f.ref_count += 1;
             tf_state.input_field
+        } else if let Some(id) =
+            jd.scope_mgr.lookup_field(scope_id, key_ref.name_interned)
+        {
+            jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
+            let mut f = jd.field_mgr.fields[id].borrow_mut();
+            f.ref_count += 1;
+            id
+        } else {
+            let dummy_field =
+                jd.match_set_mgr.get_dummy_field(tf_state.match_set_id);
+            jd.scope_mgr.insert_field_name(
+                scope_id,
+                key_ref.name_interned,
+                dummy_field,
+            );
+            dummy_field
         };
         idents.push(ComputeVarRef::Field(FieldIterRef {
             field_id,
@@ -185,7 +186,19 @@ pub fn build_tf_compute<'a>(
         }))
     }
 
-    let tf = TfCompute { idents, op };
+    let temporaries = IndexSlice::from_boxed_slice(
+        vec![
+            FieldData::default();
+            op.compilation.temporary_count.into_usize()
+        ]
+        .into_boxed_slice(),
+    );
+
+    let tf = TfCompute {
+        op,
+        idents,
+        temporaries,
+    };
     TransformData::Compute(tf)
 }
 

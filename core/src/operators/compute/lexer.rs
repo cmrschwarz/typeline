@@ -178,6 +178,14 @@ impl<'a> ComputeExprLexer<'a> {
         self.lookahead = self.munch_token()?;
         Ok(self.lookahead.as_ref())
     }
+    pub fn peek_token_kind(
+        &mut self,
+    ) -> Result<Option<&TokenKind<'a>>, ComputeExprParseError<'a>> {
+        if self.lookahead.is_none() {
+            self.lookahead = self.munch_token()?;
+        }
+        Ok(self.lookahead.as_ref().map(|t| &t.kind))
+    }
     pub fn peek_token_mut(
         &mut self,
     ) -> Result<&mut Option<ComputeExprToken<'a>>, ComputeExprParseError<'a>>
@@ -187,6 +195,10 @@ impl<'a> ComputeExprLexer<'a> {
         }
         self.lookahead = self.munch_token()?;
         Ok(&mut self.lookahead)
+    }
+    pub fn drop_token(&mut self) {
+        debug_assert!(self.lookahead.is_some());
+        self.lookahead.take();
     }
     pub fn munch_token(
         &mut self,

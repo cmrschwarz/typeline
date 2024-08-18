@@ -8,26 +8,26 @@ use super::parser::Precedence;
 
 index_newtype! {
     pub struct UnboundRefId(u32);
-    pub struct TemporaryRefId(u32);
+    pub struct LetBindingId(u32);
     pub struct AccessIdx(u32);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ComputeValueRefType {
+pub enum UnboundRefKind {
     Atom,
     Field,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ComputeIdentRefData {
-    pub ref_type: ComputeValueRefType,
+pub struct UnboundRefData {
+    pub kind: UnboundRefKind,
     pub name: String,
     pub name_interned: StringStoreEntry,
     pub access_count: AccessIdx,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ComputeTemporaryRefData {
+pub struct LetBindingData {
     pub name: String,
     pub access_count: AccessIdx,
 }
@@ -93,15 +93,21 @@ pub enum BinaryOpKind {
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum IdentRefId {
-    Temporary(TemporaryRefId),
+    LetBinding(LetBindingId),
     Unbound(UnboundRefId),
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct Block {
+    pub stmts: Box<[Expr]>,
+    pub trailing_semicolon: bool,
 }
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct IfExpr {
     pub cond: Expr,
-    pub then_expr: Expr,
-    pub else_expr: Expr,
+    pub then_block: Block,
+    pub else_block: Option<Block>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -114,14 +120,11 @@ pub enum Expr {
     OpUnary(UnaryOpKind, Box<Expr>),
     OpBinary(BinaryOpKind, Box<[Expr; 2]>),
     IfExpr(Box<IfExpr>),
-    Block {
-        stmts: Box<[Expr]>,
-        trailing_semicolon: bool,
-    },
+    Block(Block),
     Object(Box<[(Expr, Option<Expr>)]>),
     Array(Vec<Expr>),
     FunctionCall(UnboundRefId, Box<[Expr]>),
-    LetExpression(TemporaryRefId, Box<Expr>),
+    LetExpression(LetBindingId, Box<Expr>),
 }
 
 impl UnaryOpKind {
