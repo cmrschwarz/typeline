@@ -14,8 +14,8 @@ use smallvec::SmallVec;
 
 use super::{
     ast::{
-        ComputeTemporaryRefData, ComputeValueRefType, IdentRefId, IfExpr,
-        TemporaryRefId, UnaryOpKind,
+        AccessIdx, ComputeTemporaryRefData, ComputeValueRefType, IdentRefId,
+        IfExpr, TemporaryRefId, UnaryOpKind,
     },
     lexer::{ComputeExprLexer, ComputeExprSpan, ComputeExprToken, TokenKind},
     ComputeIdentRefData, Expr, UnboundRefId,
@@ -509,7 +509,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         let value_expr = self.parse_expression(Precedence::ZERO)?;
         let temp_id = self.temporaries.push_get_id(ComputeTemporaryRefData {
             name: ident.to_owned(),
-            name_interned: INVALID_STRING_STORE_ENTRY,
+            access_count: AccessIdx::ZERO,
         });
         Ok(Expr::LetExpression(temp_id, Box::new(value_expr)))
     }
@@ -526,7 +526,18 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             TokenKind::Identifier(ident) => {
                 match self.scope_stack.last_mut().unwrap().entry(ident) {
                     Entry::Occupied(e) => {
-                        return Ok(Expr::Reference(*e.get()));
+                        let ref_id = *e.get();
+                        let access_count = match ref_id {
+                            IdentRefId::Temporary(ti) => {
+                                &mut self.temporaries[ti].access_count
+                            }
+                            IdentRefId::Unbound(ubi) => {
+                                &mut self.unbound_idents[ubi].access_count
+                            }
+                        };
+                        let access_idx = *access_count;
+                        *access_count += AccessIdx::one();
+                        return Ok(Expr::Reference { ref_id, access_idx });
                     }
                     Entry::Vacant(e) => {
                         let id = self.unbound_idents.push_get_id(
@@ -534,11 +545,15 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                                 ref_type: ComputeValueRefType::Field,
                                 name: ident.to_owned(),
                                 name_interned: INVALID_STRING_STORE_ENTRY,
+                                access_count: AccessIdx::one(),
                             },
                         );
                         let cref = IdentRefId::Unbound(id);
                         e.insert(cref);
-                        return Ok(Expr::Reference(cref));
+                        return Ok(Expr::Reference {
+                            ref_id: cref,
+                            access_idx: AccessIdx::ZERO,
+                        });
                     }
                 }
             }

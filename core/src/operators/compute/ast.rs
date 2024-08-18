@@ -9,6 +9,7 @@ use super::parser::Precedence;
 index_newtype! {
     pub struct UnboundRefId(u32);
     pub struct TemporaryRefId(u32);
+    pub struct AccessIdx(u32);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,12 +23,13 @@ pub struct ComputeIdentRefData {
     pub ref_type: ComputeValueRefType,
     pub name: String,
     pub name_interned: StringStoreEntry,
+    pub access_count: AccessIdx,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComputeTemporaryRefData {
     pub name: String,
-    pub name_interned: StringStoreEntry,
+    pub access_count: AccessIdx,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -105,7 +107,10 @@ pub struct IfExpr {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Expr {
     Literal(FieldValue),
-    Reference(IdentRefId),
+    Reference {
+        ref_id: IdentRefId,
+        access_idx: AccessIdx,
+    },
     OpUnary(UnaryOpKind, Box<Expr>),
     OpBinary(BinaryOpKind, Box<[Expr; 2]>),
     IfExpr(Box<IfExpr>),
@@ -184,4 +189,3 @@ impl BinaryOpKind {
         Precedence::from_usize(v)
     }
 }
-
