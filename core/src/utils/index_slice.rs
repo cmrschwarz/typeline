@@ -1,6 +1,7 @@
 use super::{
-    get_two_distinct_mut, indexing_type::IndexingType,
-    multi_ref_mut_handout::MultiRefMutHandout,
+    get_two_distinct_mut,
+    indexing_type::IndexingType,
+    multi_ref_mut_handout::{MultiRefMutHandout, RefHandoutStackBase},
 };
 use ref_cast::RefCast;
 use std::{
@@ -103,6 +104,9 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
         &mut self,
     ) -> MultiRefMutHandout<I, T, CAP> {
         MultiRefMutHandout::new(self)
+    }
+    pub fn ref_handout_stack(&mut self) -> RefHandoutStackBase<I, T> {
+        RefHandoutStackBase::new(self)
     }
 }
 
