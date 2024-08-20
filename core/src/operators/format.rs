@@ -662,7 +662,7 @@ pub fn parse_format_flags(
         key.opts.zero_pad_numbers = true;
         c = next(fmt, &mut i)?;
     }
-    if c.is_ascii_digit() || is_xid_start(c) || c == '@' {
+    if c.is_ascii_digit() || is_xid_start(c) || c == '@' || c == '_' {
         (key.min_char_count, i) =
             parse_format_width_spec::<false>(fmt, i - c.len_utf8(), refs)?;
         c = next(fmt, &mut i)?;

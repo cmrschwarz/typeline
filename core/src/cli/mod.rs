@@ -422,7 +422,7 @@ pub fn parse_call_expr_head(
             _ => (),
         }
         if !first_opname_char_found {
-            if !is_xid_start(char) {
+            if !(is_xid_start(char) || char == '_') {
                 return Err(CliArgumentError::new_s(
                     format!(
                     "invalid character '{char}' to start operator identifier"

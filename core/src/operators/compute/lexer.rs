@@ -354,8 +354,8 @@ impl<'a> ComputeExprLexer<'a> {
             };
         }
 
-        if is_xid_start(c) {
-            let mut ident_end = self.offset;
+        if is_xid_start(c) || c == '_' {
+            let mut ident_end = end;
             for (_, end, c) in self.input[end..].char_indices() {
                 if !is_xid_continue(c) {
                     break;
@@ -365,6 +365,7 @@ impl<'a> ComputeExprLexer<'a> {
             self.col +=
                 (ident_end - self.offset).try_into().unwrap_or(u16::MAX);
             self.offset = ident_end;
+            span.end_col = self.col;
 
             let ident = &self.input[begin..ident_end];
 
@@ -376,7 +377,6 @@ impl<'a> ComputeExprLexer<'a> {
                 b"undefined" => TokenKind::Literal(FieldValue::Undefined),
                 _ => TokenKind::Identifier(ident.to_str().unwrap()),
             };
-
             return Ok(Some(ComputeExprToken { span, kind }));
         }
 
@@ -504,6 +504,28 @@ mod test {
             tokens.push(tok);
         }
         assert_eq!(tokens, output.into_iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_underscore_is_identifier() {
+        test_lexer(
+            "_",
+            [ComputeExprToken {
+                span: ComputeExprSpan::new(0, 0, 0, 1),
+                kind: TokenKind::Identifier("_"),
+            }],
+        )
+    }
+
+    #[test]
+    fn test_numbers_in_identifier() {
+        test_lexer(
+            "_foo123",
+            [ComputeExprToken {
+                span: ComputeExprSpan::new(0, 0, 0, 7),
+                kind: TokenKind::Identifier("_foo123"),
+            }],
+        )
     }
 
     #[test]

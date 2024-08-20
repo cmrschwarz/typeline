@@ -17,7 +17,7 @@ use super::{
         UnaryOpKind,
     },
     lexer::{ComputeExprLexer, ComputeExprSpan, ComputeExprToken, TokenKind},
-    UnboundIdentData, ExternIdentId,
+    ExternIdentId, UnboundIdentData,
 };
 
 pub enum ParenthesisKind {
