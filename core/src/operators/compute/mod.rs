@@ -35,9 +35,7 @@ use crate::{
     },
 };
 use ast::{AccessIdx, ExternIdentId, UnboundIdentData};
-use compiler::{
-    Compilation, Compiler, InstructionId, TargetRef, TemporaryIdRaw,
-};
+use compiler::{Compilation, Compiler, InstructionId, TemporaryIdRaw};
 use executor::{Exectutor, UnboundVarIterId};
 use lexer::ComputeExprLexer;
 use parser::ComputeExprParser;
@@ -326,7 +324,6 @@ pub fn handle_tf_compute(
         msm: &jd.match_set_mgr,
         compilation: &c.op.compilation,
         extern_field_iters: &mut extern_field_iters,
-        tgt: TargetRef::Output,
         output: &mut output.iter_hall,
         extern_field_temp_iters,
         temp_vars: &mut c.temp_vars,

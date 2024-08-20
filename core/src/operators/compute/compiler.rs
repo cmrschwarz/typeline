@@ -8,8 +8,8 @@ use crate::{
 };
 
 use super::ast::{
-    AccessIdx, BinaryOpKind, Block, Expr, IdentId, LetBindingData,
-    LetBindingId, UnaryOpKind, UnboundIdentData, ExternIdentId,
+    AccessIdx, BinaryOpKind, Block, Expr, ExternIdentId, IdentId,
+    LetBindingData, LetBindingId, UnaryOpKind, UnboundIdentData,
 };
 
 index_newtype! {
@@ -31,7 +31,7 @@ pub struct TemporaryAccess {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct UnboundIdentAccess {
+pub struct ExternIdentAccess {
     pub index: ExternIdentId,
     pub access_idx: AccessIdx,
 }
@@ -45,7 +45,7 @@ pub enum SsaValue {
 
 #[derive(Clone)]
 pub enum ValueAccess {
-    Unbound(UnboundIdentAccess),
+    Extern(ExternIdentAccess),
     Temporary(TemporaryId),
     Literal(FieldValue),
 }
@@ -128,7 +128,7 @@ impl SsaValue {
                 let ubd = &mut unbound_idents[*ub_id];
                 let access_idx = ubd.access_count;
                 ubd.access_count += AccessIdx::one();
-                ValueAccess::Unbound(UnboundIdentAccess {
+                ValueAccess::Extern(ExternIdentAccess {
                     index: *ub_id,
                     access_idx,
                 })

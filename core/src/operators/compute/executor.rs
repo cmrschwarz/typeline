@@ -5,7 +5,7 @@ use crate::{
     record_data::{
         field::FieldManager,
         field_data::FieldData,
-        iter_hall::IterHall,
+        iter_hall::{IterHall, IterStateRaw},
         iters::{DestructuredFieldDataRef, FieldIter},
         match_set::MatchSetManager,
         push_interface::PushInterface,
@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{
-    ast::ExternIdentId,
+    ast::{BinaryOpKind, ExternIdentId},
     compiler::{
         Compilation, Instruction, InstructionId, TargetRef, TemporaryIdRaw,
         ValueAccess,
@@ -39,7 +39,6 @@ pub struct Exectutor<'a, 'b> {
         ExternFieldIdx,
         AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>>,
     >,
-    pub tgt: TargetRef,
     pub output: &'a mut IterHall,
     pub extern_field_temp_iters: Universe<
         UnboundVarIterId,
@@ -85,7 +84,7 @@ impl<'a, 'b> Exectutor<'a, 'b> {
         };
 
         match src {
-            ValueAccess::Unbound(acc) => {
+            ValueAccess::Extern(acc) => {
                 let mut inserter = get_inserter(
                     self.output,
                     self.temp_vars,
@@ -204,6 +203,9 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                 }
                 Instruction::ClearTemporary(temp_id) => {
                     let tmp = &mut self.temp_vars[temp_id.index];
+                    for slot in &mut *tmp.iter_slots {
+                        *slot = IterStateRaw::default();
+                    }
                     debug_assert!(
                         tmp.field_pos + tmp.data.field_count()
                             == field_pos + count
