@@ -45,7 +45,7 @@ use crate::{
         lazy_lock_guard::LazyRwLockGuard,
         maybe_text::{MaybeText, MaybeTextBoxed, MaybeTextCow, MaybeTextRef},
         text_write::MaybeTextWritePanicAdapter,
-        universe::Universe,
+        universe::{RefHandoutStack, Universe},
     },
 };
 
@@ -1132,9 +1132,9 @@ fn handle_group_batch_producer_update<'a>(
     let gb = &mut join.group_batches[gbi];
     let out_sv_id = gb.output_stream_value;
 
-    let mut streams_handout = jd.sv_mgr.stream_values.multi_ref_handout();
+    let mut streams_handout = jd.sv_mgr.stream_values.ref_mut_handout_stack();
 
-    let out_sv = streams_handout.claim(out_sv_id);
+    let (mut streams_handout, out_sv) = streams_handout.claim(out_sv_id);
 
     let mut inserter =
         out_sv.data_inserter(out_sv_id, join.stream_buffer_size, true);
@@ -1156,7 +1156,7 @@ fn handle_group_batch_producer_update<'a>(
                 }
             }
             GroupBatchEntryData::StreamValueId { id, streaming_emit } => {
-                let sv = streams_handout.claim(*id);
+                let (_, sv) = streams_handout.claim(*id);
                 if inserter.propagate_error(&sv.error) {
                     drop(inserter);
                     jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
@@ -1196,7 +1196,6 @@ fn handle_group_batch_producer_update<'a>(
 
                 if rl_consumed == entry.run_length {
                     join.svs_to_drop.push(*id);
-                    streams_handout.release(*id);
                 }
             }
         }

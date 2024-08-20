@@ -34,6 +34,73 @@ pub struct UniverseMultiRefMutHandout<'a, I, T, const CAP: usize = 2> {
     handed_out: ArrayVec<I, CAP>,
 }
 
+pub unsafe trait RefHandoutStack<I, T> {
+    type Child<'b>: RefHandoutStack<I, T>
+    where
+        Self: 'b;
+    fn claim(&mut self, idx: I) -> (Self::Child<'_>, &mut T);
+    fn assert_unused(&mut self, idx: I) -> &mut Universe<I, T>;
+}
+
+pub struct RefHandoutStackNode<'a, I, T, P> {
+    base: &'a mut P,
+    idx: I,
+    _phantom: PhantomData<fn() -> T>,
+}
+
+pub struct RefHandoutStackBase<'a, I, T> {
+    universe: &'a mut Universe<I, T>,
+}
+
+unsafe impl<'a, I: IndexingType, T> RefHandoutStack<I, T>
+    for RefHandoutStackBase<'a, I, T>
+{
+    type Child<'b> = RefHandoutStackNode<'b, I, T, Self> where Self: 'b;
+
+    fn claim<'b>(&'b mut self, idx: I) -> (Self::Child<'b>, &'b mut T) {
+        let elem = unsafe {
+            std::mem::transmute::<&'_ mut T, &'b mut T>(
+                &mut self.universe[idx],
+            )
+        };
+        let child = RefHandoutStackNode {
+            base: self,
+            idx,
+            _phantom: PhantomData,
+        };
+        (child, elem)
+    }
+
+    fn assert_unused(&mut self, _idx: I) -> &mut Universe<I, T> {
+        self.universe
+    }
+}
+
+unsafe impl<'a, I: IndexingType, T, P: RefHandoutStack<I, T>>
+    RefHandoutStack<I, T> for RefHandoutStackNode<'a, I, T, P>
+{
+    type Child<'b> = RefHandoutStackNode<'b, I, T, Self> where Self: 'b;
+
+    fn claim<'b>(&'b mut self, idx: I) -> (Self::Child<'b>, &'b mut T) {
+        let universe = self.assert_unused(idx);
+        let elem = unsafe {
+            std::mem::transmute::<&'_ mut T, &'b mut T>(&mut universe[idx])
+        };
+
+        let child = RefHandoutStackNode {
+            base: self,
+            idx,
+            _phantom: PhantomData,
+        };
+        (child, elem)
+    }
+
+    fn assert_unused(&mut self, idx: I) -> &mut Universe<I, T> {
+        assert!(idx != self.idx);
+        self.base.assert_unused(idx)
+    }
+}
+
 impl<T> UniverseEntry<T> {
     pub fn as_option_mut(&mut self) -> Option<&mut T> {
         match self {
@@ -65,6 +132,9 @@ impl<I: IndexingType, T> Universe<I, T> {
             universe: self,
             handed_out: ArrayVec::new(),
         }
+    }
+    pub fn ref_mut_handout_stack(&mut self) -> RefHandoutStackBase<I, T> {
+        RefHandoutStackBase { universe: self }
     }
     fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
         // SAFETY: we can never have usize::MAX entries before running out of
@@ -246,14 +316,6 @@ impl<'a, I: IndexingType, T> UniverseMultiRefMutHandout<'a, I, T> {
         unsafe {
             std::mem::transmute::<&'_ mut T, &'a mut T>(&mut self.universe[i])
         }
-    }
-    pub fn release(&mut self, i: I) {
-        self.handed_out.swap_remove(
-            self.handed_out
-                .iter()
-                .position(|v| *v == i)
-                .expect("index not currently handed out"),
-        );
     }
 }
 

@@ -1,4 +1,7 @@
-use super::{get_two_distinct_mut, indexing_type::IndexingType};
+use super::{
+    get_two_distinct_mut, indexing_type::IndexingType,
+    multi_ref_mut_handout::MultiRefMutHandout,
+};
 use ref_cast::RefCast;
 use std::{
     fmt::Debug,
@@ -95,6 +98,11 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
     }
     pub fn two_distinct_mut(&mut self, a: I, b: I) -> (&mut T, &mut T) {
         get_two_distinct_mut(&mut self.data, a.into_usize(), b.into_usize())
+    }
+    pub fn multi_ref_mut_handout<const CAP: usize>(
+        &mut self,
+    ) -> MultiRefMutHandout<I, T, CAP> {
+        MultiRefMutHandout::new(self)
     }
 }
 

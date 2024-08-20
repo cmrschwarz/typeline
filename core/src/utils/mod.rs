@@ -40,6 +40,7 @@ pub mod test_utils;
 pub mod text_write;
 pub mod type_list;
 pub mod universe;
+pub mod multi_ref_mut_handout;
 
 pub const fn ilog2_usize(v: usize) -> usize {
     (std::mem::size_of::<usize>() * 8) - v.leading_zeros() as usize

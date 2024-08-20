@@ -12,7 +12,10 @@ use crate::{
         ref_iter::AutoDerefIter,
         varying_type_inserter::VaryingTypeInserter,
     },
-    utils::{index_slice::IndexSlice, universe::Universe},
+    utils::{
+        index_slice::IndexSlice, multi_ref_mut_handout::MultiRefMutHandout,
+        universe::Universe,
+    },
 };
 
 use super::{
@@ -46,15 +49,15 @@ pub struct Exectutor<'a, 'b> {
     >,
 }
 
-fn get_inserter<'a>(
+fn get_inserter<'a, const CAP: usize>(
     output: &'a mut IterHall,
-    temp: &'a mut IndexSlice<TemporaryIdRaw, TempVarData>,
+    temp: &mut MultiRefMutHandout<'a, TemporaryIdRaw, TempVarData, CAP>,
     idx: Option<TemporaryIdRaw>,
     field_pos: usize,
 ) -> VaryingTypeInserter<&'a mut FieldData> {
     match idx {
         Some(tmp_id) => {
-            let tmp = &mut temp[tmp_id];
+            let tmp = temp.claim(tmp_id);
 
             let mut inserter = tmp.data.varying_type_inserter();
             if tmp.field_pos == usize::MAX {
@@ -70,6 +73,18 @@ fn get_inserter<'a>(
 }
 
 impl<'a, 'b> Exectutor<'a, 'b> {
+    fn execute_op_binary(
+        &mut self,
+        _kind: BinaryOpKind,
+        _lhs: &ValueAccess,
+        _rhs: &ValueAccess,
+        _tgt: TargetRef,
+        _field_pos: usize,
+        _count: usize,
+    ) {
+        todo!()
+    }
+
     fn execute_move(
         &mut self,
         src: &ValueAccess,
@@ -82,15 +97,16 @@ impl<'a, 'b> Exectutor<'a, 'b> {
             TargetRef::Output => None,
             TargetRef::Discard => return,
         };
+        let mut temp_handouts = self.temp_vars.multi_ref_mut_handout::<2>();
+        let mut inserter = get_inserter(
+            self.output,
+            &mut temp_handouts,
+            output_tmp_id,
+            field_pos,
+        );
 
         match src {
             ValueAccess::Extern(acc) => {
-                let mut inserter = get_inserter(
-                    self.output,
-                    self.temp_vars,
-                    output_tmp_id,
-                    field_pos,
-                );
                 match &mut self.extern_vars[acc.index] {
                     ExternVarData::Atom(atom) => inserter
                         .push_field_value_ref(
@@ -129,39 +145,14 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                 }
             }
             ValueAccess::Temporary(tmp_in) => {
-                let (mut inserter, iter) = match output_tmp_id {
-                    Some(output_tmp_id) => {
-                        let (tmp_in, tmp_out) = self
-                            .temp_vars
-                            .two_distinct_mut(tmp_in.index, output_tmp_id);
-
-                        let mut out_inserter =
-                            tmp_out.data.varying_type_inserter();
-                        if tmp_out.field_pos == usize::MAX {
-                            tmp_out.field_pos = field_pos;
-                        } else {
-                            debug_assert!(tmp_out.field_pos <= field_pos);
-                            out_inserter.push_undefined(
-                                field_pos - tmp_out.field_pos,
-                                true,
-                            );
-                        }
-                        (out_inserter, tmp_in.data.iter())
-                    }
-                    None => (
-                        self.output.varying_type_inserter(),
-                        self.temp_vars[tmp_in.index].data.iter(),
-                    ),
-                };
-                inserter.extend_from_iter(iter, count, true, false);
+                inserter.extend_from_iter(
+                    temp_handouts.claim(tmp_in.index).data.iter(),
+                    count,
+                    true,
+                    false,
+                );
             }
             ValueAccess::Literal(v) => {
-                let mut inserter = get_inserter(
-                    self.output,
-                    self.temp_vars,
-                    output_tmp_id,
-                    field_pos,
-                );
                 inserter.push_field_value_ref(v, count, true, false)
             }
         }
@@ -180,11 +171,15 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                     target: _,
                 } => todo!(),
                 Instruction::OpBinary {
-                    kind: _,
-                    lhs: _,
-                    rhs: _,
-                    target: _,
-                } => todo!(),
+                    kind,
+                    lhs,
+                    rhs,
+                    target,
+                } => {
+                    self.execute_op_binary(
+                        *kind, lhs, rhs, *target, field_pos, count,
+                    );
+                }
                 Instruction::CondCall {
                     cond: _,
                     else_start: _,
