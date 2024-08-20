@@ -1,6 +1,5 @@
 pub mod action_buffer;
 pub mod array;
-pub mod atom_iter_abstraction;
 pub mod bytes_insertion_stream;
 pub mod custom_data;
 pub mod dyn_ref_iter;
@@ -23,6 +22,8 @@ pub mod record_buffer;
 pub mod record_set;
 pub mod ref_iter;
 pub mod scope_manager;
+pub mod single_val_or_auto_deref_iter;
+pub mod single_value_iter;
 pub mod stream_value;
 pub mod variable_sized_type_inserter;
 pub mod varying_type_inserter;

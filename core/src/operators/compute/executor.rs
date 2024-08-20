@@ -19,7 +19,7 @@ use crate::{
 };
 
 use super::{
-    ast::{BinaryOpKind, ExternIdentId},
+    ast::{AccessIdx, BinaryOpKind, ExternIdentId},
     compiler::{
         Compilation, Instruction, InstructionId, TargetRef, TemporaryIdRaw,
         ValueAccess,
@@ -72,17 +72,98 @@ fn get_inserter<'a, const CAP: usize>(
     }
 }
 
+fn get_extern_iter_slot_index<'a>(
+    extern_fields: &mut IndexSlice<ExternFieldIdx, ExternField>,
+    extern_field_iters: &mut IndexSlice<
+        ExternFieldIdx,
+        AutoDerefIter<'a, FieldIter<'a, DestructuredFieldDataRef<'a>>>,
+    >,
+    extern_field_temp_iters: &mut Universe<
+        UnboundVarIterId,
+        AutoDerefIter<'a, FieldIter<'a, DestructuredFieldDataRef<'a>>>,
+    >,
+    extern_field_idx: ExternFieldIdx,
+    access_idx: AccessIdx,
+) -> UnboundVarIterId {
+    let ef = &mut extern_fields[extern_field_idx];
+    let iter_slot_idx = if let Some(iter_slot_idx) = ef.iter_slots[access_idx]
+    {
+        iter_slot_idx
+    } else {
+        let iter_slot_idx = extern_field_temp_iters
+            .claim_with_value(extern_field_iters[extern_field_idx].clone());
+        ef.iter_slots[access_idx] = Some(iter_slot_idx);
+        iter_slot_idx
+    };
+    iter_slot_idx
+}
+
 impl<'a, 'b> Exectutor<'a, 'b> {
     fn execute_op_binary(
         &mut self,
-        _kind: BinaryOpKind,
-        _lhs: &ValueAccess,
-        _rhs: &ValueAccess,
-        _tgt: TargetRef,
-        _field_pos: usize,
-        _count: usize,
+        kind: BinaryOpKind,
+        lhs: &ValueAccess,
+        rhs: &ValueAccess,
+        tgt: TargetRef,
+        field_pos: usize,
+        count: usize,
     ) {
-        todo!()
+        let output_tmp_id = match tgt {
+            TargetRef::Temporary(id) => Some(id),
+            TargetRef::Output => None,
+            TargetRef::Discard => return,
+        };
+        let mut temp_handouts = self.temp_vars.multi_ref_mut_handout::<2>();
+        let mut inserter = get_inserter(
+            self.output,
+            &mut temp_handouts,
+            output_tmp_id,
+            field_pos,
+        );
+
+        let lhs_iter = match lhs {
+            ValueAccess::Extern(acc) => {
+                match &mut self.extern_vars[acc.index] {
+                    ExternVarData::Atom(atom) => inserter
+                        .push_field_value_ref(
+                            &atom.value.read().unwrap(),
+                            count,
+                            true,
+                            false,
+                        ),
+                    ExternVarData::Literal(v) => {
+                        inserter.push_field_value_ref(v, count, true, false)
+                    }
+                    ExternVarData::Field(extern_field_idx) => {
+                        let iter_slot_idx = get_extern_iter_slot_index(
+                            self.extern_fields,
+                            self.extern_field_iters,
+                            &mut self.extern_field_temp_iters,
+                            *extern_field_idx,
+                            acc.access_idx,
+                        );
+                        let iter =
+                            &mut self.extern_field_temp_iters[iter_slot_idx];
+
+                        iter.move_to_field_pos(field_pos);
+                        inserter.extend_from_auto_deref_iter(
+                            self.msm, iter, count, true, false,
+                        );
+                    }
+                }
+            }
+            ValueAccess::Temporary(tmp_in) => {
+                inserter.extend_from_iter(
+                    temp_handouts.claim(tmp_in.index).data.iter(),
+                    count,
+                    true,
+                    false,
+                );
+            }
+            ValueAccess::Literal(v) => {
+                inserter.push_field_value_ref(v, count, true, false)
+            }
+        };
     }
 
     fn execute_move(
@@ -119,21 +200,13 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                         inserter.push_field_value_ref(v, count, true, false)
                     }
                     ExternVarData::Field(extern_field_idx) => {
-                        let ef = &mut self.extern_fields[*extern_field_idx];
-                        let iter_slot_idx = if let Some(iter_slot_idx) =
-                            ef.iter_slots[acc.access_idx]
-                        {
-                            iter_slot_idx
-                        } else {
-                            let iter_slot_idx =
-                                self.extern_field_temp_iters.claim_with_value(
-                                    self.extern_field_iters[*extern_field_idx]
-                                        .clone(),
-                                );
-                            ef.iter_slots[acc.access_idx] =
-                                Some(iter_slot_idx);
-                            iter_slot_idx
-                        };
+                        let iter_slot_idx = get_extern_iter_slot_index(
+                            self.extern_fields,
+                            self.extern_field_iters,
+                            &mut self.extern_field_temp_iters,
+                            *extern_field_idx,
+                            acc.access_idx,
+                        );
                         let iter =
                             &mut self.extern_field_temp_iters[iter_slot_idx];
 
@@ -157,6 +230,7 @@ impl<'a, 'b> Exectutor<'a, 'b> {
             }
         }
     }
+
     pub fn handle_batch(
         &mut self,
         insn_range: Range<InstructionId>,

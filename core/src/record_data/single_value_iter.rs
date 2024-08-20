@@ -1,4 +1,4 @@
-use std::sync::RwLockReadGuard;
+use std::{ops::Deref, sync::RwLockReadGuard};
 
 use super::{
     field_data::{
@@ -6,49 +6,29 @@ use super::{
     },
     field_value::FieldValue,
     field_value_ref::{TypedRange, ValidTypedRange},
-    iters::{FieldIterOpts, FieldIterator},
-    match_set::MatchSetManager,
-    ref_iter::{AutoDerefIter, RefAwareTypedRange},
+    ref_iter::RefAwareTypedRange,
     scope_manager::Atom,
 };
 
-pub struct AtomIter<'a> {
-    value_ref: RwLockReadGuard<'a, FieldValue>,
+pub struct SingleValueIter<V: Deref<Target = FieldValue>> {
+    value_ref: V,
     dummy_header: FieldValueHeader,
     run_len_rem: usize,
     run_len_total: usize,
 }
 
-pub enum AutoDerefIterOrAtom<'a, I> {
-    Iter(AutoDerefIter<'a, I>),
-    Atom(AtomIter<'a>),
-}
+pub type AtomIter<'a> = SingleValueIter<RwLockReadGuard<'a, FieldValue>>;
+pub type FieldValueIter<'a> = SingleValueIter<&'a FieldValue>;
 
-impl<'a, I: FieldIterator<'a>> AutoDerefIterOrAtom<'a, I> {
-    pub fn typed_range_fwd(
-        &mut self,
-        msm: &MatchSetManager,
-        limit: usize,
-        opts: FieldIterOpts,
-    ) -> Option<RefAwareTypedRange> {
-        match self {
-            AutoDerefIterOrAtom::Iter(iter) => {
-                iter.typed_range_fwd(msm, limit, opts)
-            }
-            AutoDerefIterOrAtom::Atom(iter) => iter.typed_range_fwd(limit),
-        }
-    }
-}
-
-impl<'a> AtomIter<'a> {
-    pub fn new(atom: &'a Atom, run_length: usize) -> Self {
-        let value = atom.value.read().unwrap();
+impl<V: Deref<Target = FieldValue>> SingleValueIter<V> {
+    pub fn new(value: V, run_length: usize) -> Self {
+        let value_deref = &*value;
         Self {
             dummy_header: FieldValueHeader {
                 fmt: FieldValueFormat {
-                    repr: value.repr(),
+                    repr: value_deref.repr(),
                     flags: field_value_flags::SHARED_VALUE,
-                    size: value.repr().size() as u16,
+                    size: value_deref.repr().size() as u16,
                 },
                 run_length: RunLength::MAX,
             },
@@ -86,5 +66,11 @@ impl<'a> AtomIter<'a> {
     }
     pub fn fields_consumed(&self) -> usize {
         self.run_len_total - self.run_len_rem
+    }
+}
+
+impl<'a> AtomIter<'a> {
+    pub fn from_atom(atom: &'a Atom, run_length: usize) -> Self {
+        Self::new(atom.value.read().unwrap(), run_length)
     }
 }

@@ -29,7 +29,6 @@ use crate::{
         session_setup::SessionSetupData,
     },
     record_data::{
-        atom_iter_abstraction::{AtomIter, AutoDerefIterOrAtom},
         field::{Field, FieldIterRef, FieldManager},
         field_data::{FieldValueRepr, RunLength, INLINE_STR_MAX_LEN},
         field_value::{FieldValue, Null, Undefined},
@@ -51,6 +50,8 @@ use crate::{
             RefAwareInlineTextIter, RefAwareTextBufferIter,
         },
         scope_manager::Atom,
+        single_val_or_auto_deref_iter::SingleValOrAutoDerefIter,
+        single_value_iter::AtomIter,
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
             StreamValueDataType, StreamValueId, StreamValueManager,
@@ -1094,9 +1095,9 @@ pub fn setup_key_output_state(
     let ident_ref = fmt.refs[k.ref_idx].clone();
 
     let mut iter = match &ident_ref {
-        FormatKeyRef::Atom(atom) => {
-            AutoDerefIterOrAtom::Atom(AtomIter::new(atom, batch_size))
-        }
+        FormatKeyRef::Atom(atom) => SingleValOrAutoDerefIter::Atom(
+            AtomIter::from_atom(atom, batch_size),
+        ),
         FormatKeyRef::Field(ident_ref) => {
             field = fm.get_cow_field_ref(msm, ident_ref.field_id);
             let iter = AutoDerefIter::new(
@@ -1105,7 +1106,7 @@ pub fn setup_key_output_state(
                 fm.lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)
                     .bounded(0, batch_size),
             );
-            AutoDerefIterOrAtom::Iter(iter)
+            SingleValOrAutoDerefIter::Iter(iter)
         }
     };
 
@@ -1669,7 +1670,9 @@ fn write_fmt_key(
     let mut iter = match &ident_ref {
         FormatKeyRef::Atom(atom) => {
             field_pos_start = 0;
-            AutoDerefIterOrAtom::Atom(AtomIter::new(atom, batch_size))
+            SingleValOrAutoDerefIter::Atom(AtomIter::from_atom(
+                atom, batch_size,
+            ))
         }
         FormatKeyRef::Field(ident_ref) => {
             field = fm.get_cow_field_ref(msm, ident_ref.field_id);
@@ -1680,7 +1683,7 @@ fn write_fmt_key(
                     .bounded(0, batch_size),
             );
             field_pos_start = iter.get_next_field_pos();
-            AutoDerefIterOrAtom::Iter(iter)
+            SingleValOrAutoDerefIter::Iter(iter)
         }
     };
 
@@ -1885,7 +1888,7 @@ fn write_fmt_key(
     }
 
     let field_pos_end = match iter {
-        AutoDerefIterOrAtom::Iter(iter) => {
+        SingleValOrAutoDerefIter::Iter(iter) => {
             let base_iter = iter.into_base_iter();
             let field_pos_end = base_iter.get_next_field_pos();
             let FormatKeyRef::Field(ident_ref) = ident_ref else {
@@ -1894,7 +1897,8 @@ fn write_fmt_key(
             fm.store_iter(ident_ref.field_id, ident_ref.iter_id, base_iter);
             field_pos_end
         }
-        AutoDerefIterOrAtom::Atom(iter) => iter.fields_consumed(),
+        SingleValOrAutoDerefIter::Atom(iter) => iter.fields_consumed(),
+        SingleValOrAutoDerefIter::FieldValue(_) => unreachable!(),
     };
 
     if type_repr {
