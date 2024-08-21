@@ -1,8 +1,11 @@
 use crate::{
     index_newtype,
+    operators::{errors::OperatorApplicationError, operator::OperatorId},
     record_data::{
         field::FieldManager,
         field_data::FieldData,
+        field_value::FieldValueKind,
+        field_value_ref::FieldValueSlice,
         iter_hall::{IterHall, IterStateRaw},
         iters::{
             DestructuredFieldDataRef, FieldIter, FieldIterOpts, FieldIterator,
@@ -35,6 +38,7 @@ index_newtype! {
 }
 
 pub struct Exectutor<'a, 'b> {
+    pub op_id: OperatorId,
     pub compilation: &'a Compilation,
     pub fm: &'a FieldManager,
     pub msm: &'a MatchSetManager,
@@ -162,8 +166,8 @@ fn get_executor_input_iter<
         AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>>,
         ITER_CAP,
     >,
-    count: usize,
     field_pos: usize,
+    count: usize,
 ) -> ExecutorInputIter<'a, 'b, 'a> {
     match input {
         ValueAccess::Extern(acc) => match &extern_vars[acc.index] {
@@ -195,6 +199,107 @@ fn get_executor_input_iter<
     }
 }
 
+fn insert_type_error(
+    op_id: OperatorId,
+    op_kind: BinaryOpKind,
+    lhs_kind: FieldValueKind,
+    rhs_kind: FieldValueKind,
+    count: usize,
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    inserter.push_error(
+        OperatorApplicationError::new_s(
+            format!("unsupported operand type(s) for `{op_kind}`: '{lhs_kind}' and '{rhs_kind}'"),
+            op_id,
+        ),
+        count,
+        true,
+        false,
+    );
+}
+
+fn insert_type_error_iter_rhs(
+    op_id: OperatorId,
+    msm: &MatchSetManager,
+    kind: BinaryOpKind,
+    lhs_kind: FieldValueKind,
+    rhs_iter: &mut ExecutorInputIter,
+    mut count: usize,
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    while count > 0 {
+        let rhs_range = rhs_iter
+            .typed_range_fwd(msm, count, FieldIterOpts::default())
+            .unwrap();
+        insert_type_error(
+            op_id,
+            kind,
+            lhs_kind,
+            rhs_range.base.data.repr().kind(),
+            rhs_range.base.field_count,
+            inserter,
+        );
+        count -= rhs_range.base.field_count;
+    }
+}
+
+fn execute_binary_op(
+    op_id: OperatorId,
+    msm: &MatchSetManager,
+    kind: BinaryOpKind,
+    lhs_range: &RefAwareTypedRange,
+    rhs_iter: &mut ExecutorInputIter,
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    let mut lhs_range_rem = lhs_range.base.field_count;
+
+    match lhs_range.base.data {
+        FieldValueSlice::Int(_) => todo!(),
+        FieldValueSlice::BigInt(_) => todo!(),
+        FieldValueSlice::BigRational(_) => todo!(),
+        FieldValueSlice::Float(_) => todo!(),
+        FieldValueSlice::TextInline(_) => todo!(),
+        FieldValueSlice::TextBuffer(_) => todo!(),
+        FieldValueSlice::BytesInline(_) => todo!(),
+        FieldValueSlice::BytesBuffer(_) => todo!(),
+        FieldValueSlice::Array(_) => todo!(),
+        FieldValueSlice::Object(_) => todo!(),
+
+        FieldValueSlice::Null(_)
+        | FieldValueSlice::Undefined(_)
+        | FieldValueSlice::Custom(_)
+        | FieldValueSlice::Error(_)
+        | FieldValueSlice::Argument(_)
+        | FieldValueSlice::Macro(_)
+        | FieldValueSlice::StreamValueId(_) => insert_type_error_iter_rhs(
+            op_id,
+            msm,
+            kind,
+            lhs_range.base.data.repr().kind(),
+            rhs_iter,
+            lhs_range_rem,
+            inserter,
+        ),
+        FieldValueSlice::FieldReference(_)
+        | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
+    }
+
+    loop {
+        let rhs_range = rhs_iter
+            .typed_range_fwd(
+                msm,
+                lhs_range.base.field_count,
+                FieldIterOpts::default(),
+            )
+            .unwrap();
+        lhs_range_rem -= rhs_range.base.field_count;
+
+        if lhs_range_rem == 0 {
+            break;
+        }
+    }
+}
+
 impl<'a, 'b> Exectutor<'a, 'b> {
     fn execute_op_binary(
         &mut self,
@@ -214,34 +319,52 @@ impl<'a, 'b> Exectutor<'a, 'b> {
             self.temp_fields.multi_ref_mut_handout::<3>();
         let mut extern_field_temp_iter_handouts =
             self.extern_field_temp_iters.multi_ref_mut_handout::<3>();
-        let mut _inserter = get_inserter(
+        let mut inserter = get_inserter(
             self.output,
             &mut temp_field_handouts,
             output_tmp_id,
             field_pos,
         );
-        let _lhs_iter = get_executor_input_iter(
+        let mut lhs_iter = get_executor_input_iter(
             lhs,
             self.extern_vars,
             self.extern_fields,
             self.extern_field_iters,
             &mut temp_field_handouts,
             &mut extern_field_temp_iter_handouts,
-            count,
             field_pos,
+            count,
         );
-        let _rhs_iter = get_executor_input_iter(
+        let mut rhs_iter = get_executor_input_iter(
             rhs,
             self.extern_vars,
             self.extern_fields,
             self.extern_field_iters,
             &mut temp_field_handouts,
             &mut extern_field_temp_iter_handouts,
-            count,
             field_pos,
+            count,
         );
-        if kind != BinaryOpKind::Add {
-            todo!()
+        let mut count_rem = count;
+
+        while count_rem > 0 {
+            let lhs_range = lhs_iter
+                .typed_range_fwd(self.msm, count_rem, FieldIterOpts::default())
+                .unwrap();
+
+            count_rem -= lhs_range.base.field_count;
+
+            execute_binary_op(
+                self.op_id,
+                self.msm,
+                kind,
+                &lhs_range,
+                &mut rhs_iter,
+                &mut inserter,
+            );
+            if count_rem == 0 {
+                break;
+            }
         }
     }
 

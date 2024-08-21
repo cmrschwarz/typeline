@@ -274,7 +274,9 @@ pub fn handle_tf_compute(
     c: &mut TfCompute,
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-    let of_id = jd.tf_mgr.transforms[tf_id].output_field;
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let op_id = tf.op_id.unwrap();
+    let of_id = tf.output_field;
     jd.tf_mgr.prepare_output_field(
         &mut jd.field_mgr,
         &mut jd.match_set_mgr,
@@ -320,6 +322,7 @@ pub fn handle_tf_compute(
     let mut output = jd.field_mgr.fields[of_id].borrow_mut();
     let field_pos = output.iter_hall.get_field_count(&jd.field_mgr);
     let mut exec = Exectutor {
+        op_id,
         fm: &jd.field_mgr,
         msm: &jd.match_set_mgr,
         compilation: &c.op.compilation,

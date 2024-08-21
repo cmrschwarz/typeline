@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
     index_newtype,
     record_data::field_value::FieldValue,
@@ -189,5 +191,59 @@ impl BinaryOpKind {
             BinaryOpKind::BitwiseNotAssign => 2,
         };
         Precedence::from_usize(v)
+    }
+    pub fn to_str(self) -> &'static str {
+        match self {
+            BinaryOpKind::Access => "[]",
+
+            BinaryOpKind::Multiply => "*",
+            BinaryOpKind::Divide => "/",
+            BinaryOpKind::Modulus => "%",
+
+            BinaryOpKind::Add => "+",
+            BinaryOpKind::Subtract => "-",
+
+            BinaryOpKind::LShift => "<<",
+            BinaryOpKind::RShift => ">>",
+
+            BinaryOpKind::BitwiseAnd => "&",
+            BinaryOpKind::BitwiseXor => "^",
+            BinaryOpKind::BitwiseOr => "|",
+
+            BinaryOpKind::Equals => "==",
+            BinaryOpKind::NotEquals => "!=",
+            BinaryOpKind::LessThan => "<",
+            BinaryOpKind::GreaterThan => ">",
+            BinaryOpKind::LessThanEquals => "<=",
+            BinaryOpKind::GreaterThanEquals => ">=",
+
+            BinaryOpKind::LogicalAnd => "&&",
+            BinaryOpKind::LogicalXor => "^^",
+            BinaryOpKind::LogicalOr => "||",
+
+            BinaryOpKind::Assign => "=",
+
+            BinaryOpKind::AddAssign => "+=",
+            BinaryOpKind::SubtractAssign => "-=",
+            BinaryOpKind::MultiplyAssign => "*=",
+            BinaryOpKind::DivideAssign => "/=",
+            BinaryOpKind::ModulusAssign => "%=",
+            BinaryOpKind::LShiftAssign => "<<=",
+            BinaryOpKind::RShiftAssign => ">>=",
+            BinaryOpKind::LogicalAndAssign => "&&=",
+            BinaryOpKind::LogicalXorAssign => "^^=",
+            BinaryOpKind::LogicalOrAssign => "||=",
+
+            BinaryOpKind::BitwiseAndAssign => "&=",
+            BinaryOpKind::BitwiseOrAssign => "|=",
+            BinaryOpKind::BitwiseXorAssign => "^=",
+            BinaryOpKind::BitwiseNotAssign => "~=",
+        }
+    }
+}
+
+impl Display for BinaryOpKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_str())
     }
 }
