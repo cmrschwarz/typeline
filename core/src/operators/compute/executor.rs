@@ -284,15 +284,79 @@ fn execute_binary_op_double_int_overflowing<BinOp: OverflowingBinOp>(
                         }
                         lhs_block_offset += len;
                     }
-                    FieldValueBlock::WithRunLength(_, _) => todo!(),
+                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
+                        let len = rhs_rl as usize;
+                        let mut i = 0;
+                        while i < len {
+                            let res = inserter
+                                .reserve_for_fixed_size::<i64>(len - i);
+                            let success =
+                                BinOp::calc_until_overflow_rhs_immediate(
+                                    &lhs_data[lhs_block_offset + i..],
+                                    rhs_val,
+                                    res,
+                                );
+                            unsafe {
+                                inserter.add_count(success);
+                            }
+                            i += success;
+                            if i == len {
+                                break;
+                            }
+                            let res = BinOp::calc_into_bigint(
+                                lhs_data[lhs_block_offset + i],
+                                rhs_val,
+                            );
+                            inserter.push_big_int(res, 1, true, false);
+                            i += 1;
+                        }
+                        lhs_block_offset += len;
+                    }
                 }
             }
         }
-        FieldValueBlock::WithRunLength(_, _) => {
+        FieldValueBlock::WithRunLength(&lhs_val, _lhs_rl) => {
             while let Some(rhs_block) = rhs_iter.next_block() {
                 match rhs_block {
-                    FieldValueBlock::Plain(_) => todo!(),
-                    FieldValueBlock::WithRunLength(_, _) => todo!(),
+                    FieldValueBlock::Plain(rhs_data) => {
+                        let len = rhs_data.len();
+                        let mut i = 0;
+                        while i < len {
+                            let res = inserter
+                                .reserve_for_fixed_size::<i64>(len - i);
+                            let success =
+                                BinOp::calc_until_overflow_lhs_immediate(
+                                    lhs_val,
+                                    &rhs_data[i..],
+                                    res,
+                                );
+                            unsafe {
+                                inserter.add_count(success);
+                            }
+                            i += success;
+                            if i == len {
+                                break;
+                            }
+                            let res =
+                                BinOp::calc_into_bigint(lhs_val, rhs_data[i]);
+                            inserter.push_big_int(res, 1, true, false);
+                            i += 1;
+                        }
+                    }
+                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
+                        let len = rhs_rl as usize;
+                        match BinOp::try_calc_single(lhs_val, rhs_val) {
+                            Some(res) => {
+                                inserter.push_int(res, len, true, false)
+                            }
+                            None => inserter.push_big_int(
+                                BinOp::calc_into_bigint(lhs_val, rhs_val),
+                                len,
+                                true,
+                                false,
+                            ),
+                        }
+                    }
                 }
             }
         }
