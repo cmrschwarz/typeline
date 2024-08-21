@@ -6,6 +6,7 @@ use super::{
     ref_iter::RefAwareTypedRange,
 };
 
+#[derive(Clone, Copy)]
 pub enum FieldValueBlock<'a, T> {
     Plain(&'a [T]),
     WithRunLength(&'a T, RunLength),
@@ -34,6 +35,15 @@ pub struct InlineBytesIter<'a> {
 #[derive(Default)]
 pub struct InlineTextIter<'a> {
     iter: InlineBytesIter<'a>,
+}
+
+impl<'a, T> FieldValueBlock<'a, T> {
+    pub fn len(&self) -> usize {
+        match self {
+            FieldValueBlock::Plain(v) => v.len(),
+            FieldValueBlock::WithRunLength(_, rl) => *rl as usize,
+        }
+    }
 }
 
 impl<'a, T> Default for FieldValueRangeIter<'a, T> {

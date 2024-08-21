@@ -10,6 +10,7 @@ mod regex;
 
 mod parsing;
 pub mod large;
+pub mod compute;
 
 // TODO: reenable this once we fixed callcc
 // mod callcc;

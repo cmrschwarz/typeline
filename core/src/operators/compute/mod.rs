@@ -133,13 +133,10 @@ pub fn update_op_compute_variable_liveness(
     op_offset_after_last_write: OffsetInChain,
 ) {
     access_flags.may_dup_or_drop = false;
-    // might be set to true again in the loop below
-    access_flags.non_stringified_input_access = false;
     access_flags.input_accessed = false;
     for ir in &c.unbound_refs {
         if ir.name == "_" {
             access_flags.input_accessed = true;
-            access_flags.non_stringified_input_access = true;
             continue;
         };
         ld.access_var(
@@ -147,7 +144,7 @@ pub fn update_op_compute_variable_liveness(
             op_id,
             ld.var_names[&ir.name_interned],
             op_offset_after_last_write,
-            false,
+            true,
         );
     }
 }

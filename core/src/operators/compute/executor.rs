@@ -1,3 +1,5 @@
+use num::{BigInt, FromPrimitive};
+
 use crate::{
     index_newtype,
     operators::{errors::OperatorApplicationError, operator::OperatorId},
@@ -6,6 +8,7 @@ use crate::{
         field_data::FieldData,
         field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
+        field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
         iter_hall::{IterHall, IterStateRaw},
         iters::{
             DestructuredFieldDataRef, FieldIter, FieldIterOpts, FieldIterator,
@@ -18,6 +21,7 @@ use crate::{
     },
     utils::{
         index_slice::IndexSlice,
+        integer_sum::integer_add_stop_on_overflow,
         multi_ref_mut_handout::MultiRefMutHandout,
         universe::{Universe, UniverseMultiRefMutHandout},
     },
@@ -199,7 +203,7 @@ fn get_executor_input_iter<
     }
 }
 
-fn insert_type_error(
+fn insert_binary_op_type_error(
     op_id: OperatorId,
     op_kind: BinaryOpKind,
     lhs_kind: FieldValueKind,
@@ -209,7 +213,7 @@ fn insert_type_error(
 ) {
     inserter.push_error(
         OperatorApplicationError::new_s(
-            format!("unsupported operand type(s) for `{op_kind}`: '{lhs_kind}' and '{rhs_kind}'"),
+            format!("invalid operands for binary op: '{lhs_kind}' {op_kind} '{rhs_kind}'"),
             op_id,
         ),
         count,
@@ -218,7 +222,7 @@ fn insert_type_error(
     );
 }
 
-fn insert_type_error_iter_rhs(
+fn insert_binary_op_type_error_iter_rhs(
     op_id: OperatorId,
     msm: &MatchSetManager,
     kind: BinaryOpKind,
@@ -231,7 +235,7 @@ fn insert_type_error_iter_rhs(
         let rhs_range = rhs_iter
             .typed_range_fwd(msm, count, FieldIterOpts::default())
             .unwrap();
-        insert_type_error(
+        insert_binary_op_type_error(
             op_id,
             kind,
             lhs_kind,
@@ -243,18 +247,146 @@ fn insert_type_error_iter_rhs(
     }
 }
 
+fn insert_add_into_bigint(
+    lhs: &[i64],
+    rhs: &[i64],
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    let count = lhs.len().min(rhs.len());
+    let mut i = 0;
+    while i < count {
+        let mut res = BigInt::from_i64(lhs[i]).unwrap();
+        res += rhs[i];
+        i += 1;
+        inserter.push_big_int(res, 1, true, false);
+        if i == 0 {
+            break;
+        }
+        let res = inserter.reserve_for_fixed_size::<i64>(count - i);
+        let success = integer_add_stop_on_overflow(&lhs[i..], &rhs[i..], res);
+        unsafe {
+            inserter.add_count(success);
+        }
+        i += success;
+    }
+}
+
+fn execute_binary_op_double_int(
+    _op_id: OperatorId,
+    op_kind: BinaryOpKind,
+    lhs_block: FieldValueBlock<i64>,
+    rhs_range: &RefAwareTypedRange,
+    rhs_data: &[i64],
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    debug_assert!(op_kind == BinaryOpKind::Add); // TODO
+    let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
+    match lhs_block {
+        FieldValueBlock::Plain(lhs_data) => {
+            let mut lhs_block_offset = 0;
+            while let Some(rhs_block) = rhs_iter.next_block() {
+                match rhs_block {
+                    FieldValueBlock::Plain(rhs_data) => {
+                        let len = rhs_data.len();
+                        lhs_block_offset += len;
+                        let res = inserter.reserve_for_fixed_size::<i64>(len);
+                        let success = integer_add_stop_on_overflow(
+                            &lhs_data[lhs_block_offset..],
+                            rhs_data,
+                            res,
+                        );
+                        unsafe {
+                            inserter.add_count(success);
+                        }
+
+                        let failed_elem_count = len - success;
+                        if failed_elem_count == 0 {
+                            continue;
+                        }
+                        insert_add_into_bigint(
+                            &lhs_data[lhs_block_offset - failed_elem_count..],
+                            &rhs_data[success..],
+                            inserter,
+                        )
+                    }
+                    FieldValueBlock::WithRunLength(_, _) => todo!(),
+                }
+            }
+        }
+        FieldValueBlock::WithRunLength(_, _) => {
+            while let Some(rhs_block) = rhs_iter.next_block() {
+                match rhs_block {
+                    FieldValueBlock::Plain(_) => todo!(),
+                    FieldValueBlock::WithRunLength(_, _) => todo!(),
+                }
+            }
+        }
+    }
+}
+
+fn execute_binary_op_for_int_lhs(
+    op_id: OperatorId,
+    msm: &MatchSetManager,
+    op_kind: BinaryOpKind,
+    lhs_range: &RefAwareTypedRange,
+    lhs_data: &[i64],
+    rhs_iter: &mut ExecutorInputIter,
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    let mut lhs_iter = FieldValueRangeIter::from_range(lhs_range, lhs_data);
+    while let Some(lhs_block) = lhs_iter.next_block() {
+        let rhs_range = rhs_iter
+            .typed_range_fwd(msm, lhs_block.len(), FieldIterOpts::default())
+            .unwrap();
+
+        match rhs_range.base.data {
+            FieldValueSlice::Int(rhs_data) => execute_binary_op_double_int(
+                op_id, op_kind, lhs_block, &rhs_range, rhs_data, inserter,
+            ),
+            FieldValueSlice::BigInt(_) => todo!(),
+            FieldValueSlice::Float(_) => todo!(),
+            FieldValueSlice::BigRational(_) => todo!(),
+            FieldValueSlice::Null(_)
+            | FieldValueSlice::Undefined(_)
+            | FieldValueSlice::TextInline(_)
+            | FieldValueSlice::TextBuffer(_)
+            | FieldValueSlice::BytesInline(_)
+            | FieldValueSlice::BytesBuffer(_)
+            | FieldValueSlice::Object(_)
+            | FieldValueSlice::Array(_)
+            | FieldValueSlice::Custom(_)
+            | FieldValueSlice::Error(_)
+            | FieldValueSlice::Argument(_)
+            | FieldValueSlice::Macro(_)
+            | FieldValueSlice::StreamValueId(_) => {
+                // PERF: we could consume more values from rhs here
+                insert_binary_op_type_error(
+                    op_id,
+                    op_kind,
+                    lhs_range.base.data.repr().kind(),
+                    rhs_range.base.data.repr().kind(),
+                    rhs_range.base.field_count,
+                    inserter,
+                )
+            }
+            FieldValueSlice::FieldReference(_)
+            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
+        }
+    }
+}
+
 fn execute_binary_op(
     op_id: OperatorId,
     msm: &MatchSetManager,
-    kind: BinaryOpKind,
+    op_kind: BinaryOpKind,
     lhs_range: &RefAwareTypedRange,
     rhs_iter: &mut ExecutorInputIter,
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
-    let mut lhs_range_rem = lhs_range.base.field_count;
-
     match lhs_range.base.data {
-        FieldValueSlice::Int(_) => todo!(),
+        FieldValueSlice::Int(lhs_data) => execute_binary_op_for_int_lhs(
+            op_id, msm, op_kind, lhs_range, lhs_data, rhs_iter, inserter,
+        ),
         FieldValueSlice::BigInt(_) => todo!(),
         FieldValueSlice::BigRational(_) => todo!(),
         FieldValueSlice::Float(_) => todo!(),
@@ -271,32 +403,19 @@ fn execute_binary_op(
         | FieldValueSlice::Error(_)
         | FieldValueSlice::Argument(_)
         | FieldValueSlice::Macro(_)
-        | FieldValueSlice::StreamValueId(_) => insert_type_error_iter_rhs(
-            op_id,
-            msm,
-            kind,
-            lhs_range.base.data.repr().kind(),
-            rhs_iter,
-            lhs_range_rem,
-            inserter,
-        ),
+        | FieldValueSlice::StreamValueId(_) => {
+            insert_binary_op_type_error_iter_rhs(
+                op_id,
+                msm,
+                op_kind,
+                lhs_range.base.data.repr().kind(),
+                rhs_iter,
+                lhs_range.base.field_count,
+                inserter,
+            )
+        }
         FieldValueSlice::FieldReference(_)
         | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
-    }
-
-    loop {
-        let rhs_range = rhs_iter
-            .typed_range_fwd(
-                msm,
-                lhs_range.base.field_count,
-                FieldIterOpts::default(),
-            )
-            .unwrap();
-        lhs_range_rem -= rhs_range.base.field_count;
-
-        if lhs_range_rem == 0 {
-            break;
-        }
     }
 }
 

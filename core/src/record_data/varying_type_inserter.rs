@@ -1,4 +1,4 @@
-use std::ops::DerefMut;
+use std::{mem::MaybeUninit, ops::DerefMut};
 
 use crate::record_data::field_data::INLINE_STR_MAX_LEN;
 
@@ -9,7 +9,7 @@ use super::{
     field_data::{
         field_value_flags::{self, FieldValueFlags},
         FieldData, FieldValueFormat, FieldValueRepr, FieldValueSize,
-        FieldValueType,
+        FieldValueType, FixedSizeFieldValueType,
     },
     field_value::FieldValue,
     push_interface::PushInterface,
@@ -133,6 +133,27 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         }
         self.count = 0;
         self.fmt.set_leading_padding(0);
+    }
+
+    pub fn reserve_for_fixed_size<T: FixedSizeFieldValueType>(
+        &mut self,
+        len: usize,
+    ) -> &mut [MaybeUninit<T>] {
+        let fmt = FieldValueFormat {
+            repr: T::REPR,
+            flags: field_value_flags::DEFAULT,
+            size: T::SIZE as u16,
+        };
+        if fmt != self.fmt || self.max - self.count < len {
+            self.commit();
+            unsafe {
+                self.drop_and_reserve_unchecked(len, fmt);
+            }
+        }
+        unsafe { std::slice::from_raw_parts_mut(self.data_ptr.cast(), len) }
+    }
+    pub unsafe fn add_count(&mut self, count: usize) {
+        self.count += count;
     }
 }
 
