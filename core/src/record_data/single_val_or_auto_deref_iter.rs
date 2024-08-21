@@ -5,6 +5,7 @@ use super::{
     single_value_iter::{AtomIter, FieldValueIter},
 };
 
+#[allow(clippy::large_enum_variant)]
 pub enum SingleValOrAutoDerefIter<'a, I> {
     Iter(AutoDerefIter<'a, I>),
     Atom(AtomIter<'a>),

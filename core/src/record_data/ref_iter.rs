@@ -2,7 +2,7 @@ use std::{cell::Ref, ops::Range};
 
 use super::{
     field::{
-        CowFieldDataRef, Field, FieldId, FieldManager, FieldRefOffset,
+        CowFieldDataRef, FieldId, FieldManager, FieldRefOffset,
         FIELD_REF_LOOKUP_ITER_ID,
     },
     field_data::FieldValueType,
@@ -51,7 +51,7 @@ pub struct FieldRefUnpacked<'a, R> {
 
 pub struct RefIter<'a, R> {
     refs_iter: FieldValueRangeIter<'a, R>,
-    refs_field: Ref<'a, Field>,
+    field_refs: Ref<'a, [FieldId]>,
     last_field_id_offset: FieldRefOffset,
     data_iter: FieldIter<'a, DestructuredFieldDataRef<'a>>,
     data_cow_ref: CowFieldDataRef<'a>,
@@ -86,7 +86,7 @@ impl<'a, R: ReferenceFieldValueType> Clone for RefIter<'a, R> {
     fn clone(&self) -> Self {
         Self {
             refs_iter: self.refs_iter.clone(),
-            refs_field: Ref::clone(&self.refs_field),
+            field_refs: Ref::clone(&self.field_refs),
             last_field_id_offset: self.last_field_id_offset,
             data_iter: self.data_iter.clone(),
             data_cow_ref: self.data_cow_ref.clone(),
@@ -97,16 +97,14 @@ impl<'a, R: ReferenceFieldValueType> Clone for RefIter<'a, R> {
 
 impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
     pub fn new(
-        refs_field_id: FieldId,
+        field_refs: Ref<'a, [FieldId]>,
         refs_iter: FieldValueRangeIter<'a, R>,
         field_mgr: &'a FieldManager,
         match_set_mgr: &'_ MatchSetManager,
         last_field_id_offset: FieldRefOffset,
         field_pos: usize,
     ) -> Self {
-        let refs_field = field_mgr.fields[refs_field_id].borrow();
-        let last_field_id =
-            refs_field.field_refs[usize::from(last_field_id_offset)];
+        let last_field_id = field_refs[usize::from(last_field_id_offset)];
         let (data_cow_ref, mut data_iter) = unsafe {
             Self::get_data_ref_and_iter(
                 field_mgr,
@@ -117,7 +115,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         data_iter.move_to_field_pos(field_pos);
         Self {
             refs_iter,
-            refs_field,
+            field_refs,
             last_field_id_offset,
             data_iter,
             data_cow_ref,
@@ -144,9 +142,8 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
             return;
         }
         let prev_field_id =
-            self.refs_field.field_refs[usize::from(self.last_field_id_offset)];
-        let field_id =
-            self.refs_field.field_refs[usize::from(field_id_offset)];
+            self.field_refs[usize::from(self.last_field_id_offset)];
+        let field_id = self.field_refs[usize::from(field_id_offset)];
         let (cow_ref_new, data_iter_new) = unsafe {
             Self::get_data_ref_and_iter(self.field_mgr, msm, field_id)
         };
@@ -347,13 +344,24 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
     }
 }
 
-#[derive(Clone)]
 pub struct AutoDerefIter<'a, I> {
     iter: I,
-    iter_field_id: FieldId,
+    field_refs: Ref<'a, [FieldId]>,
     ref_iter: Option<AnyRefIter<'a>>,
     field_mgr: &'a FieldManager,
 }
+// manual because  `Ref<'a, [FieldId]>` isn't `Clone`
+impl<'a, I: Clone> Clone for AutoDerefIter<'a, I> {
+    fn clone(&self) -> Self {
+        Self {
+            iter: self.iter.clone(),
+            field_refs: Ref::clone(&self.field_refs),
+            ref_iter: self.ref_iter.clone(),
+            field_mgr: self.field_mgr,
+        }
+    }
+}
+
 pub struct RefAwareTypedRange<'a> {
     pub base: ValidTypedRange<'a>,
     pub refs: Option<AnyRefSliceIter<'a>>,
@@ -377,11 +385,24 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
         iter: I,
     ) -> Self {
         let iter_field_id = field_mgr.dealias_field_id(iter_field_id);
+        Self::from_field_refs(
+            field_mgr,
+            Ref::map(field_mgr.fields[iter_field_id].borrow(), |f| {
+                &*f.field_refs
+            }),
+            iter,
+        )
+    }
+    pub fn from_field_refs(
+        field_mgr: &'a FieldManager,
+        field_refs: Ref<'a, [FieldId]>,
+        iter: I,
+    ) -> Self {
         Self {
             iter,
+            field_refs,
             ref_iter: None,
             field_mgr,
-            iter_field_id,
         }
     }
     pub fn get_next_field_pos(&mut self) -> usize {
@@ -415,7 +436,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
                 );
             } else {
                 self.ref_iter = Some(AnyRefIter::FieldRef(RefIter::new(
-                    self.iter_field_id,
+                    Ref::clone(&self.field_refs),
                     refs_iter,
                     self.field_mgr,
                     match_set_mgr,
@@ -438,7 +459,7 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
             } else {
                 self.ref_iter =
                     Some(AnyRefIter::SlicedFieldRef(RefIter::new(
-                        self.iter_field_id,
+                        Ref::clone(&self.field_refs),
                         refs_iter,
                         self.field_mgr,
                         match_set_mgr,
