@@ -14,19 +14,19 @@ use super::ast::{
 
 index_newtype! {
     pub struct InstructionId(u32);
-    pub struct TemporaryIdRaw(u32);
+    pub struct TempFieldIdRaw(u32);
     pub struct SsaTemporaryId(u32);
 }
 
 #[derive(Clone, Copy)]
-pub struct TemporaryId {
-    pub index: TemporaryIdRaw,
+pub struct TempFieldId {
+    pub index: TempFieldIdRaw,
     pub generation: u32,
 }
 
 #[derive(Clone, Copy)]
-pub struct TemporaryAccess {
-    pub index: TemporaryIdRaw,
+pub struct TempFieldAccess {
+    pub index: TempFieldIdRaw,
     pub access_index: AccessIdx,
 }
 
@@ -46,7 +46,7 @@ pub enum SsaValue {
 #[derive(Clone)]
 pub enum ValueAccess {
     Extern(ExternIdentAccess),
-    Temporary(TemporaryId),
+    TempField(TempFieldId),
     Literal(FieldValue),
 }
 
@@ -57,7 +57,7 @@ struct IntermediateValue {
 
 #[derive(Clone, Copy)]
 pub enum TargetRef {
-    Temporary(TemporaryIdRaw),
+    TempField(TempFieldIdRaw),
     Output,
     Discard,
 }
@@ -87,7 +87,7 @@ pub enum Instruction {
         elements: Box<[ValueAccess]>,
         target: TargetRef,
     },
-    ClearTemporary(TemporaryId),
+    ClearTemporary(TempFieldId),
     Move {
         src: ValueAccess,
         tgt: TargetRef,
@@ -95,7 +95,7 @@ pub enum Instruction {
 }
 
 pub struct SsaTemporary {
-    value: TemporaryId,
+    value: TempFieldId,
     access_count: AccessIdx,
     let_binding_count: u32,
 }
@@ -104,17 +104,17 @@ pub struct Compiler<'a> {
     let_bindings: &'a IndexSlice<LetBindingId, LetBindingData>,
     unbound_idents: &'a mut IndexSlice<ExternIdentId, UnboundIdentData>,
     let_value_mappings: IndexVec<LetBindingId, SsaValue>,
-    temporary_count: TemporaryIdRaw,
-    unused_temporaries: Vec<TemporaryId>,
+    temporary_count: TempFieldIdRaw,
+    unused_temporaries: Vec<TempFieldId>,
     ssa_temporaries: IndexVec<SsaTemporaryId, SsaTemporary>,
     instructions: IndexVec<InstructionId, Instruction>,
     // used for object and array to delay clear instructions
-    pending_clear_instructions: Vec<TemporaryId>,
+    pending_clear_instructions: Vec<TempFieldId>,
 }
 
 pub struct Compilation {
     pub instructions: IndexVec<InstructionId, Instruction>,
-    pub temporary_slot_count: IndexVec<TemporaryIdRaw, AccessIdx>,
+    pub temporary_slot_count: IndexVec<TempFieldIdRaw, AccessIdx>,
 }
 
 impl SsaValue {
@@ -135,7 +135,7 @@ impl SsaValue {
             }
             SsaValue::Temporary(ssa_tid) => {
                 ssa_map[*ssa_tid].access_count += AccessIdx::one();
-                ValueAccess::Temporary(ssa_map[*ssa_tid].value)
+                ValueAccess::TempField(ssa_map[*ssa_tid].value)
             }
             SsaValue::Literal(v) => ValueAccess::Literal(std::mem::take(v)),
         }
@@ -159,23 +159,23 @@ impl IntermediateValue {
 }
 
 impl Compiler<'_> {
-    fn claim_temporary_id(&mut self) -> TemporaryId {
+    fn claim_temporary_id(&mut self) -> TempFieldId {
         if let Some(unused) = self.unused_temporaries.pop() {
             return unused;
         }
 
         let idx_raw = self.temporary_count;
-        self.temporary_count += TemporaryIdRaw::one();
-        TemporaryId {
+        self.temporary_count += TempFieldIdRaw::one();
+        TempFieldId {
             index: idx_raw,
             generation: 0,
         }
     }
-    fn release_temporary_id(&mut self, mut id: TemporaryId) {
+    fn release_temporary_id(&mut self, mut id: TempFieldId) {
         id.generation += 1;
         self.unused_temporaries.push(id);
     }
-    fn claim_ssa_temporary(&mut self) -> (SsaTemporaryId, TemporaryId) {
+    fn claim_ssa_temporary(&mut self) -> (SsaTemporaryId, TempFieldId) {
         let temp_id = self.claim_temporary_id();
         let ssa_id = self.ssa_temporaries.push_get_id(SsaTemporary {
             value: temp_id,
@@ -298,7 +298,7 @@ impl Compiler<'_> {
                         &mut self.ssa_temporaries,
                         self.unbound_idents,
                     ),
-                    target: TargetRef::Temporary(temp_id.index),
+                    target: TargetRef::TempField(temp_id.index),
                 });
                 self.release_intermediate(subexpr_v);
                 IntermediateValue {
@@ -321,7 +321,7 @@ impl Compiler<'_> {
                         &mut self.ssa_temporaries,
                         self.unbound_idents,
                     ),
-                    target: TargetRef::Temporary(temp_id.index),
+                    target: TargetRef::TempField(temp_id.index),
                 });
                 self.release_intermediate(lhs);
                 self.release_intermediate(rhs);
@@ -344,7 +344,7 @@ impl Compiler<'_> {
                 );
                 let (target, result) = if has_result {
                     let (ssa_id, temp_id) = self.claim_ssa_temporary();
-                    let target = TargetRef::Temporary(temp_id.index);
+                    let target = TargetRef::TempField(temp_id.index);
                     let result = IntermediateValue {
                         value: SsaValue::Temporary(ssa_id),
                         release_after_use: true,
@@ -378,7 +378,7 @@ impl Compiler<'_> {
                     let (ssa_id, temp_id) = self.claim_ssa_temporary();
                     self.compile_block(
                         block,
-                        TargetRef::Temporary(temp_id.index),
+                        TargetRef::TempField(temp_id.index),
                     );
                     IntermediateValue {
                         value: SsaValue::Temporary(ssa_id),
@@ -416,7 +416,7 @@ impl Compiler<'_> {
                 let (ssa_id, temp_id) = self.claim_ssa_temporary();
                 self.instructions.push(Instruction::Object {
                     mappings: mappings.into_boxed_slice(),
-                    target: TargetRef::Temporary(temp_id.index),
+                    target: TargetRef::TempField(temp_id.index),
                 });
                 self.emit_pending_clears();
                 IntermediateValue {
@@ -437,7 +437,7 @@ impl Compiler<'_> {
                 let (ssa_id, temp_id) = self.claim_ssa_temporary();
                 self.instructions.push(Instruction::Array {
                     elements: elements.into_boxed_slice(),
-                    target: TargetRef::Temporary(temp_id.index),
+                    target: TargetRef::TempField(temp_id.index),
                 });
                 self.emit_pending_clears();
                 IntermediateValue {
@@ -675,7 +675,7 @@ impl Compiler<'_> {
             let_bindings,
             unbound_idents,
             let_value_mappings: IndexVec::new(),
-            temporary_count: TemporaryIdRaw::ZERO,
+            temporary_count: TempFieldIdRaw::ZERO,
             unused_temporaries: Vec::new(),
             instructions: IndexVec::new(),
             pending_clear_instructions: Vec::new(),

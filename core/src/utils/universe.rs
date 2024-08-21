@@ -29,7 +29,7 @@ pub struct Universe<I, T> {
     _phantom_data: PhantomData<I>,
 }
 
-pub struct UniverseMultiRefMutHandout<'a, I, T, const CAP: usize = 2> {
+pub struct UniverseMultiRefMutHandout<'a, I, T, const CAP: usize> {
     universe: &'a mut Universe<I, T>,
     handed_out: ArrayVec<I, CAP>,
 }
@@ -125,7 +125,7 @@ impl<I: IndexingType, T> Universe<I, T> {
             _phantom_data: PhantomData,
         }
     }
-    pub fn multi_ref_handout<const CAP: usize>(
+    pub fn multi_ref_mut_handout<const CAP: usize>(
         &mut self,
     ) -> UniverseMultiRefMutHandout<I, T, CAP> {
         UniverseMultiRefMutHandout {
@@ -307,7 +307,9 @@ impl<I: IndexingType, T> Universe<I, T> {
     }
 }
 
-impl<'a, I: IndexingType, T> UniverseMultiRefMutHandout<'a, I, T> {
+impl<'a, I: IndexingType, T, const CAP: usize>
+    UniverseMultiRefMutHandout<'a, I, T, CAP>
+{
     pub fn claim(&mut self, i: I) -> &'a mut T {
         assert!(!self.handed_out.contains(&i));
         self.handed_out.push(i);
@@ -316,6 +318,11 @@ impl<'a, I: IndexingType, T> UniverseMultiRefMutHandout<'a, I, T> {
         unsafe {
             std::mem::transmute::<&'_ mut T, &'a mut T>(&mut self.universe[i])
         }
+    }
+
+    pub fn claim_new(&mut self, value: T) -> (I, &'a mut T) {
+        let id = self.universe.claim_with_value(value);
+        (id, self.claim(id))
     }
 }
 

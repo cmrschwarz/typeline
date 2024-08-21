@@ -35,8 +35,8 @@ use crate::{
     },
 };
 use ast::{AccessIdx, ExternIdentId, UnboundIdentData};
-use compiler::{Compilation, Compiler, InstructionId, TemporaryIdRaw};
-use executor::{Exectutor, UnboundVarIterId};
+use compiler::{Compilation, Compiler, InstructionId, TempFieldIdRaw};
+use executor::{Exectutor, ExternFieldTempIterId};
 use lexer::ComputeExprLexer;
 use parser::ComputeExprParser;
 
@@ -60,7 +60,7 @@ index_newtype! {
 
 pub struct ExternField {
     iter_ref: FieldIterRef,
-    iter_slots: Box<IndexSlice<AccessIdx, Option<UnboundVarIterId>>>,
+    iter_slots: Box<IndexSlice<AccessIdx, Option<ExternFieldTempIterId>>>,
 }
 
 pub enum ExternVarData {
@@ -69,7 +69,7 @@ pub enum ExternVarData {
     Literal(FieldValue),
 }
 
-pub struct TempVarData {
+pub struct TempField {
     pub field_pos: usize,
     pub data: FieldData,
     pub iter_slots: Box<IndexSlice<AccessIdx, IterStateRaw>>,
@@ -77,7 +77,7 @@ pub struct TempVarData {
 
 pub struct TfCompute<'a> {
     op: &'a OpCompute,
-    temp_vars: Box<IndexSlice<TemporaryIdRaw, TempVarData>>,
+    temp_fields: Box<IndexSlice<TempFieldIdRaw, TempField>>,
     extern_vars: IndexVec<ExternIdentId, ExternVarData>,
     extern_fields: IndexVec<ExternFieldIdx, ExternField>,
     extern_field_refs:
@@ -92,7 +92,7 @@ pub struct TfCompute<'a> {
         >,
     >,
     extern_field_temp_iters: Universe<
-        UnboundVarIterId,
+        ExternFieldTempIterId,
         PhantomSlot<
             AutoDerefIter<
                 'static,
@@ -246,7 +246,7 @@ pub fn build_tf_compute<'a>(
     }
     let mut temporaries = IndexVec::new();
     for &slot_count in &op.compilation.temporary_slot_count {
-        temporaries.push(TempVarData {
+        temporaries.push(TempField {
             data: FieldData::default(),
             field_pos: usize::MAX,
             iter_slots: IndexSlice::from_boxed_slice(
@@ -259,7 +259,7 @@ pub fn build_tf_compute<'a>(
     let tf = TfCompute {
         op,
         extern_vars: idents,
-        temp_vars: temporaries.into_boxed_slice(),
+        temp_fields: temporaries.into_boxed_slice(),
         extern_field_refs: IndexVec::with_capacity(unbound_fields.len()),
         extern_field_iters: IndexVec::with_capacity(unbound_fields.len()),
         extern_field_temp_iters: Universe::default(),
@@ -326,7 +326,7 @@ pub fn handle_tf_compute(
         extern_field_iters: &mut extern_field_iters,
         output: &mut output.iter_hall,
         extern_field_temp_iters,
-        temp_vars: &mut c.temp_vars,
+        temp_fields: &mut c.temp_fields,
         extern_vars: &mut c.extern_vars,
         extern_fields: &mut c.extern_fields,
     };

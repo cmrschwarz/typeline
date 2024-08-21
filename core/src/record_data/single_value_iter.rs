@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::RwLockReadGuard};
+use std::{borrow::Borrow, ops::Deref, sync::RwLockReadGuard};
 
 use super::{
     field_data::{
@@ -52,7 +52,7 @@ impl<V: Deref<Target = FieldValue>> SingleValueIter<V> {
 
         let range = TypedRange {
             headers: std::slice::from_ref(&self.dummy_header),
-            data: self.value_ref.as_slice(),
+            data: self.value_ref.borrow().as_slice(),
             field_count,
             first_header_run_length_oversize: RunLength::MAX
                 - field_count as RunLength,
