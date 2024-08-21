@@ -225,7 +225,7 @@ impl<'a> ComputeExprLexer<'a> {
             break;
         }
 
-        let Some((mut c, begin, end)) = res else {
+        let Some((mut c, c_begin, c_end)) = res else {
             return Ok(None);
         };
 
@@ -247,7 +247,8 @@ impl<'a> ComputeExprLexer<'a> {
                 ('^', b'^', Caret, CaretEquals, DoubleCaret, DoubleCaretEquals)
             ])]
             C => {
-                match &self.input[begin..(begin + 2).min(self.input.len())] {
+                match &self.input[c_begin..(c_begin + 2).min(self.input.len())]
+                {
                     [BC, BC, b'='] => {
                         self.offset += 3;
                         Some(TokenKind::C_DOUBLE_EQ)
@@ -289,7 +290,7 @@ impl<'a> ComputeExprLexer<'a> {
         });
 
         if let Some(kind) = simple_kind {
-            self.col = self.col.saturating_add((self.offset - begin) as u16);
+            self.col = self.col.saturating_add((self.offset - c_begin) as u16);
             span.end_col = self.col;
             return Ok(Some(ComputeExprToken { span, kind }));
         }
@@ -316,12 +317,12 @@ impl<'a> ComputeExprLexer<'a> {
 
         if is_string_start || is_digit {
             let mut cr =
-                CountingReader::new_with_offset(&self.input[end..], end);
+                CountingReader::new_with_offset(&self.input[c_end..], c_end);
             let mut p = TysonParser::new_with_position(
                 &mut cr,
                 true,
                 self.line as usize,
-                self.col as usize + (end - begin),
+                self.col as usize + (c_end - c_begin),
                 None,
             );
 
@@ -355,19 +356,19 @@ impl<'a> ComputeExprLexer<'a> {
         }
 
         if is_xid_start(c) || c == '_' {
-            let mut ident_end = end;
-            for (_, end, c) in self.input[end..].char_indices() {
+            let mut ident_end = c_end;
+            for (_, end, c) in self.input[c_end..].char_indices() {
                 if !is_xid_continue(c) {
                     break;
                 }
-                ident_end = self.offset + end;
+                ident_end = c_end + end;
             }
             self.col +=
                 (ident_end - self.offset).try_into().unwrap_or(u16::MAX);
             self.offset = ident_end;
             span.end_col = self.col;
 
-            let ident = &self.input[begin..ident_end];
+            let ident = &self.input[c_begin..ident_end];
 
             let kind = match ident {
                 b"let" => TokenKind::Let,
@@ -381,7 +382,7 @@ impl<'a> ComputeExprLexer<'a> {
         }
 
         if c == REPLACEMENT_CHARACTER {
-            let bytes = self.input[begin..end].try_into().unwrap();
+            let bytes = self.input[c_begin..c_end].try_into().unwrap();
             return Err(ComputeExprParseError {
                 span,
                 kind: ParseErrorKind::InvalidUTF8(bytes),
