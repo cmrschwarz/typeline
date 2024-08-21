@@ -1,5 +1,3 @@
-use num::{BigInt, FromPrimitive};
-
 use crate::{
     index_newtype,
     operators::{errors::OperatorApplicationError, operator::OperatorId},
@@ -21,7 +19,6 @@ use crate::{
     },
     utils::{
         index_slice::IndexSlice,
-        integer_sum::integer_add_stop_on_overflow,
         multi_ref_mut_handout::MultiRefMutHandout,
         universe::{Universe, UniverseMultiRefMutHandout},
     },
@@ -30,6 +27,7 @@ use std::ops::Range;
 
 use super::{
     ast::{AccessIdx, BinaryOpKind, ExternIdentId},
+    binary_ops::{BinOpAdd, BinOpSub, OverflowingBinOp},
     compiler::{
         Compilation, Instruction, InstructionId, TargetRef, TempFieldIdRaw,
         ValueAccess,
@@ -247,39 +245,12 @@ fn insert_binary_op_type_error_iter_rhs(
     }
 }
 
-fn insert_add_into_bigint(
-    lhs: &[i64],
-    rhs: &[i64],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
-) {
-    let count = lhs.len().min(rhs.len());
-    let mut i = 0;
-    while i < count {
-        let mut res = BigInt::from_i64(lhs[i]).unwrap();
-        res += rhs[i];
-        i += 1;
-        inserter.push_big_int(res, 1, true, false);
-        if i == 0 {
-            break;
-        }
-        let res = inserter.reserve_for_fixed_size::<i64>(count - i);
-        let success = integer_add_stop_on_overflow(&lhs[i..], &rhs[i..], res);
-        unsafe {
-            inserter.add_count(success);
-        }
-        i += success;
-    }
-}
-
-fn execute_binary_op_double_int(
-    _op_id: OperatorId,
-    op_kind: BinaryOpKind,
+fn execute_binary_op_double_int_overflowing<BinOp: OverflowingBinOp>(
     lhs_block: FieldValueBlock<i64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[i64],
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
-    debug_assert!(op_kind == BinaryOpKind::Add); // TODO
     let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
     match lhs_block {
         FieldValueBlock::Plain(lhs_data) => {
@@ -288,26 +259,30 @@ fn execute_binary_op_double_int(
                 match rhs_block {
                     FieldValueBlock::Plain(rhs_data) => {
                         let len = rhs_data.len();
+                        let mut i = 0;
+                        while i < len {
+                            let res = inserter
+                                .reserve_for_fixed_size::<i64>(len - i);
+                            let success = BinOp::calc_until_overflow(
+                                &lhs_data[lhs_block_offset + i..],
+                                &rhs_data[i..],
+                                res,
+                            );
+                            unsafe {
+                                inserter.add_count(success);
+                            }
+                            i += success;
+                            if i == len {
+                                break;
+                            }
+                            let res = BinOp::calc_into_bigint(
+                                lhs_data[lhs_block_offset + i],
+                                rhs_data[i],
+                            );
+                            inserter.push_big_int(res, 1, true, false);
+                            i += 1;
+                        }
                         lhs_block_offset += len;
-                        let res = inserter.reserve_for_fixed_size::<i64>(len);
-                        let success = integer_add_stop_on_overflow(
-                            &lhs_data[lhs_block_offset..],
-                            rhs_data,
-                            res,
-                        );
-                        unsafe {
-                            inserter.add_count(success);
-                        }
-
-                        let failed_elem_count = len - success;
-                        if failed_elem_count == 0 {
-                            continue;
-                        }
-                        insert_add_into_bigint(
-                            &lhs_data[lhs_block_offset - failed_elem_count..],
-                            &rhs_data[success..],
-                            inserter,
-                        )
                     }
                     FieldValueBlock::WithRunLength(_, _) => todo!(),
                 }
@@ -321,6 +296,61 @@ fn execute_binary_op_double_int(
                 }
             }
         }
+    }
+}
+
+fn execute_binary_op_double_int(
+    op_id: OperatorId,
+    op_kind: BinaryOpKind,
+    lhs_block: FieldValueBlock<i64>,
+    rhs_range: &RefAwareTypedRange,
+    rhs_data: &[i64],
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    match op_kind {
+        BinaryOpKind::Equals => todo!(),
+        BinaryOpKind::NotEquals => todo!(),
+        BinaryOpKind::LessThan => todo!(),
+        BinaryOpKind::GreaterThan => todo!(),
+        BinaryOpKind::LessThanEquals => todo!(),
+        BinaryOpKind::GreaterThanEquals => todo!(),
+        BinaryOpKind::Add => {
+            execute_binary_op_double_int_overflowing::<BinOpAdd>(
+                lhs_block, rhs_range, rhs_data, inserter,
+            )
+        }
+        BinaryOpKind::Subtract => {
+            execute_binary_op_double_int_overflowing::<BinOpSub>(
+                lhs_block, rhs_range, rhs_data, inserter,
+            )
+        }
+        BinaryOpKind::AddAssign => todo!(),
+        BinaryOpKind::SubtractAssign => todo!(),
+        BinaryOpKind::Multiply => todo!(),
+        BinaryOpKind::MultiplyAssign => todo!(),
+        BinaryOpKind::Divide => todo!(),
+        BinaryOpKind::DivideAssign => todo!(),
+        BinaryOpKind::Modulus => todo!(),
+        BinaryOpKind::ModulusAssign => todo!(),
+        BinaryOpKind::LShift => todo!(),
+        BinaryOpKind::LShiftAssign => todo!(),
+        BinaryOpKind::RShift => todo!(),
+        BinaryOpKind::RShiftAssign => todo!(),
+        BinaryOpKind::LogicalAnd => todo!(),
+        BinaryOpKind::LogicalOr => todo!(),
+        BinaryOpKind::LogicalXor => todo!(),
+        BinaryOpKind::BitwiseAnd => todo!(),
+        BinaryOpKind::BitwiseOr => todo!(),
+        BinaryOpKind::BitwiseXor => todo!(),
+        BinaryOpKind::BitwiseAndAssign => todo!(),
+        BinaryOpKind::BitwiseOrAssign => todo!(),
+        BinaryOpKind::BitwiseXorAssign => todo!(),
+        BinaryOpKind::BitwiseNotAssign => todo!(),
+        BinaryOpKind::LogicalAndAssign => todo!(),
+        BinaryOpKind::LogicalOrAssign => todo!(),
+        BinaryOpKind::LogicalXorAssign => todo!(),
+        BinaryOpKind::Access => todo!(),
+        BinaryOpKind::Assign => todo!(),
     }
 }
 

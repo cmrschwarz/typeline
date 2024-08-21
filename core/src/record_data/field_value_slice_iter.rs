@@ -44,6 +44,9 @@ impl<'a, T> FieldValueBlock<'a, T> {
             FieldValueBlock::WithRunLength(_, rl) => *rl as usize,
         }
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl<'a, T> Default for FieldValueRangeIter<'a, T> {

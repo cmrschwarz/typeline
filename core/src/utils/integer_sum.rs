@@ -1,5 +1,3 @@
-use std::mem::MaybeUninit;
-
 #[cfg(target_feature = "avx2")]
 const AVX2_MIN_LEN: usize = 8;
 
@@ -83,87 +81,6 @@ pub fn try_integer_sum(nums: &[i64]) -> Option<i64> {
         return None;
     }
     Some(sum)
-}
-
-pub fn integer_add_stop_on_overflow_baseline(
-    lhs: &[i64],
-    rhs: &[i64],
-    res: &mut [MaybeUninit<i64>],
-) -> usize {
-    let len_min = lhs.len().min(rhs.len()).min(res.len());
-    for i in 0..len_min {
-        match lhs[i].checked_add(rhs[i]) {
-            Some(v) => res[i] = MaybeUninit::new(v),
-            None => return i,
-        }
-    }
-    len_min
-}
-
-#[cfg(target_feature = "avx2")]
-pub fn integer_add_stop_on_overflow_avx2(
-    lhs: &[i64],
-    rhs: &[i64],
-    res: &mut [MaybeUninit<i64>],
-) -> usize {
-    use std::arch::x86_64::{
-        __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_pd,
-        _mm256_loadu_si256, _mm256_movemask_pd, _mm256_storeu_si256,
-        _mm256_xor_si256,
-    };
-
-    let len_min = lhs.len().min(rhs.len()).min(res.len());
-    let lhs_p = lhs.as_ptr();
-    let rhs_p = rhs.as_ptr();
-    let res_p = res.as_mut_ptr();
-
-    const ELEMS_PER_V: usize = 4;
-
-    let mut i = 0;
-
-    unsafe {
-        while i + ELEMS_PER_V <= len_min {
-            #[allow(clippy::cast_ptr_alignment)]
-            let lhs_v = _mm256_loadu_si256(lhs_p.add(i).cast::<__m256i>());
-
-            #[allow(clippy::cast_ptr_alignment)]
-            let rhs_v = _mm256_loadu_si256(rhs_p.add(i).cast::<__m256i>());
-
-            let res_v = _mm256_add_epi64(lhs_v, rhs_v);
-
-            #[allow(clippy::cast_ptr_alignment)]
-            _mm256_storeu_si256(res_p.add(i).cast::<__m256i>(), res_v);
-
-            let sign_diff_a_v = _mm256_xor_si256(res_v, lhs_v);
-            let sign_diff_b_v = _mm256_xor_si256(res_v, rhs_v);
-            let of_v = _mm256_and_si256(sign_diff_a_v, sign_diff_b_v);
-            let of_mask = _mm256_movemask_pd(_mm256_castsi256_pd(of_v));
-
-            if of_mask != 0 {
-                return i + of_mask.leading_zeros() as usize;
-            }
-
-            i += 4;
-        }
-    }
-
-    i + integer_add_stop_on_overflow_baseline(
-        &lhs[i..],
-        &rhs[i..],
-        &mut res[i..],
-    )
-}
-
-pub fn integer_add_stop_on_overflow(
-    lhs: &[i64],
-    rhs: &[i64],
-    res: &mut [MaybeUninit<i64>],
-) -> usize {
-    #[cfg(target_feature = "avx2")]
-    if lhs.len() >= AVX2_MIN_LEN {
-        return integer_add_stop_on_overflow_avx2(lhs, rhs, res);
-    }
-    integer_add_stop_on_overflow_baseline(lhs, rhs, res)
 }
 
 #[cfg(test)]

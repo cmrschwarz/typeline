@@ -38,6 +38,7 @@ bitbybit = "1.3.2"
 
 # features for core operators / types
 num = "0.4.3"
+
 encoding_rs = { version = "0.8.34", features = ["fast-legacy-encode"] }
 regex = "1.10.5"
 regex-syntax = "0.8.4"

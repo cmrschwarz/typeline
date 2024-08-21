@@ -1,8 +1,12 @@
+#[cfg(target_feature = "avx2")]
+pub mod binary_ops_avx2;
+
 pub mod ast;
 pub mod compiler;
 pub mod executor;
 pub mod lexer;
 pub mod parser;
+pub mod binary_ops;
 
 use std::{mem::size_of, sync::Arc};
 
