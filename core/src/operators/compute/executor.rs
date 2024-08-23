@@ -364,7 +364,7 @@ fn execute_binary_op_double_int_overflowing<BinOp: OverflowingBinOp>(
 }
 
 fn execute_binary_op_double_int(
-    op_id: OperatorId,
+    _op_id: OperatorId,
     op_kind: BinaryOpKind,
     lhs_block: FieldValueBlock<i64>,
     rhs_range: &RefAwareTypedRange,
@@ -646,7 +646,7 @@ impl<'a, 'b> Exectutor<'a, 'b> {
         }
     }
 
-    pub fn handle_batch(
+    fn handle_batch(
         &mut self,
         insn_range: Range<InstructionId>,
         field_pos: usize,
@@ -697,6 +697,20 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                     tmp.data.clear();
                     tmp.field_pos = usize::MAX;
                 }
+            }
+        }
+    }
+
+    pub fn run(
+        &mut self,
+        insn_range: Range<InstructionId>,
+        field_pos: usize,
+        count: usize,
+    ) {
+        self.handle_batch(insn_range, field_pos, count);
+        for ef in self.extern_fields.iter_mut() {
+            for slot in &mut *ef.iter_slots {
+                *slot = None;
             }
         }
     }

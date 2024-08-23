@@ -2,11 +2,11 @@
 pub mod binary_ops_avx2;
 
 pub mod ast;
+pub mod binary_ops;
 pub mod compiler;
 pub mod executor;
 pub mod lexer;
 pub mod parser;
-pub mod binary_ops;
 
 use std::{mem::size_of, sync::Arc};
 
@@ -334,7 +334,7 @@ pub fn handle_tf_compute(
         extern_vars: &mut c.extern_vars,
         extern_fields: &mut c.extern_fields,
     };
-    exec.handle_batch(
+    exec.run(
         InstructionId::ZERO..c.op.compilation.instructions.next_idx(),
         field_pos,
         batch_size,
