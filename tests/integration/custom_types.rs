@@ -52,12 +52,10 @@ impl CustomData for DummyCustomTypeNoStringify {
 
 #[test]
 fn custom_type_stringify() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .push_custom(Box::new(DummyCustomType), 1)
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["dummy"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["dummy"]);
     Ok(())
 }
 

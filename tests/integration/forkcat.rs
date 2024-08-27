@@ -20,38 +20,32 @@ use scr_ext_utils::dup::create_op_dup;
 
 #[test]
 fn empty_forkcat() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_forkcat([[]]))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["null"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["null"]);
     Ok(())
 }
 
 #[test]
 fn nop_forkcat() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([[]]))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo"]);
     Ok(())
 }
 
 #[test]
 fn basic_forkcat() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_forkcat([
             [create_op_str("foo")],
             [create_op_str("bar")],
         ]))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo", "bar"]);
     Ok(())
 }
 
@@ -74,52 +68,45 @@ fn forkcat_with_input() -> Result<(), ScrError> {
 
 #[test]
 fn forkcat_dup() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]]))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "foo"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo", "foo"]);
     Ok(())
 }
 
 #[test]
 fn forkcat_sandwiched_write() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([
             [create_op_nop()],
             [create_op_format("{}{}").unwrap()],
             [create_op_nop()],
         ]))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "foofoo", "foo"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo", "foofoo", "foo"]);
     Ok(())
 }
 
 #[test]
 fn forkcat_double_field_refs() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([
             [create_op_nop_copy()],
             [create_op_nop_copy()],
         ]))
         .add_op(create_op_nop_copy())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "foo"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo", "foo"]);
     Ok(())
 }
 
 #[test]
 fn forkcat_into_join() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]]))
         .add_op(create_op_join(
@@ -127,16 +114,14 @@ fn forkcat_into_join() -> Result<(), ScrError> {
             None,
             false,
         ))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo,foo"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo,foo"]);
     Ok(())
 }
 
 #[test]
 fn forkcat_build_sql_insert() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_ops([
             create_op_forkcat([
                 vec![create_op_str("INSERT INTO T VALUES ")],
@@ -152,35 +137,28 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
                 vec![create_op_str(";")],
             ]),
             create_op_join(None, None, false),
-            create_op_string_sink(&ss),
         ])
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        ["INSERT INTO T VALUES (0), (1), (2), (3), (4);"]
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, ["INSERT INTO T VALUES (0), (1), (2), (3), (4);"]);
     Ok(())
 }
 
 #[test]
 fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op_with_key("a", create_op_str("a"))
         .add_op(create_op_forkcat([
             [create_op_format("{a}").unwrap()],
             [create_op_nop()],
         ]))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["a", "a"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["a", "a"]);
     Ok(())
 }
 
 #[test]
 fn forkcat_surviving_vars() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op_with_key("lbl", create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_forkcat([
             [create_op_str("a")],
@@ -188,35 +166,28 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
         ]))
         // despite the fork, we should preserve non string access semanticss
         .add_op(create_op_format("{lbl:?}: {}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        ["0: a", "1: a", "0: b", "1: b"]
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, ["0: a", "1: a", "0: b", "1: b"]);
     Ok(())
 }
 
 #[test]
 fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_forkcat([
             [create_op_regex("2").unwrap()],
             [create_op_nop()],
         ]))
         .add_op(create_op_join(None, None, false))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["2123"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2123"]);
     Ok(())
 }
 
 #[test]
 fn forkcat_with_batches() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(3)
         .unwrap()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
@@ -224,9 +195,8 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
             [create_op_regex("[24]").unwrap()],
             [create_op_dup(0)],
         ]))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["2", "4"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2", "4"]);
     Ok(())
 }
 
@@ -239,8 +209,7 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
 fn forkcat_with_batches_into_join(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)?
         .add_op(create_op_seqn(1, 5, 1)?)
         .add_op(create_op_forkcat([
@@ -248,9 +217,8 @@ fn forkcat_with_batches_into_join(
             [create_op_nop()],
         ]))
         .add_op(create_op_join(None, None, false))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data()?.as_slice(), ["2412345"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2412345"]);
     Ok(())
 }
 
@@ -262,16 +230,14 @@ fn forkcat_with_batches_into_join(
 fn forkcat_on_unapplied_commands(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .unwrap()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_regex("[24]").unwrap())
         .add_op(create_op_forkcat([[create_op_nop()], [create_op_dup(0)]]))
         .add_op(create_op_join(None, None, false))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["24"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["24"]);
     Ok(())
 }

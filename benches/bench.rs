@@ -8,7 +8,6 @@ use scr_core::{
         format::create_op_format,
         regex::{create_op_regex, create_op_regex_lines},
         sequence::create_op_seq,
-        string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
     scr_error::{ContextualizedScrError, ScrError},
@@ -36,15 +35,13 @@ const LEN: usize = 2000;
 
 #[bench]
 fn plain_string_sink(b: &mut test::Bencher) {
-    let res = int_sequence_strings(0..LEN);
+    let expected = int_sequence_strings(0..LEN);
     b.iter(|| {
-        let ss = StringSinkHandle::default();
-        ContextBuilder::without_exts()
+        let res = ContextBuilder::without_exts()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()
+            .run_collect_stringified()
             .unwrap();
-        assert_eq!(ss.get_data().unwrap().as_slice(), res);
+        assert_eq!(res, expected);
     });
 }
 
@@ -52,16 +49,14 @@ fn plain_string_sink(b: &mut test::Bencher) {
 fn regex_lines(b: &mut test::Bencher) {
     const COUNT: usize = 1000;
     let input = int_sequence_newline_separated(0..COUNT);
-    let res = int_sequence_strings(0..COUNT);
+    let expected = int_sequence_strings(0..COUNT);
     b.iter(|| {
-        let ss = StringSinkHandle::default();
-        ContextBuilder::without_exts()
+        let res = ContextBuilder::without_exts()
             .push_str(&input, 1)
             .add_op(create_op_lines())
-            .add_op(create_op_string_sink(&ss))
-            .run()
+            .run_collect_stringified()
             .unwrap();
-        assert_eq!(ss.get_data().unwrap().as_slice(), res);
+        assert_eq!(res, expected);
     });
 }
 
@@ -69,54 +64,48 @@ fn regex_lines(b: &mut test::Bencher) {
 fn regex_lines_plus_drop_uneven(b: &mut test::Bencher) {
     const COUNT: usize = 1000;
     let input = int_sequence_newline_separated(0..COUNT);
-    let res: Vec<String> = int_sequence_strings(0..COUNT)
+    let expected: Vec<String> = int_sequence_strings(0..COUNT)
         .into_iter()
         .enumerate()
         .filter_map(|(i, v)| if i % 2 == 0 { Some(v) } else { None })
         .collect();
     b.iter(|| {
-        let ss = StringSinkHandle::default();
-        ContextBuilder::without_exts()
+        let res = ContextBuilder::without_exts()
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
             .add_op(create_op_regex("^.*[02468]$").unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()
+            .run_collect_stringified()
             .unwrap();
-        assert_eq!(ss.get_data().unwrap().as_slice(), res);
+        assert_eq!(res, expected);
     });
 }
 
 #[bench]
 fn dummy_format(b: &mut test::Bencher) {
-    let res = int_sequence_strings(0..LEN);
+    let expected = int_sequence_strings(0..LEN);
     b.iter(|| {
-        let ss = StringSinkHandle::default();
-        ContextBuilder::without_exts()
+        let res = ContextBuilder::without_exts()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
             .add_op(create_op_format("{}").unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()
+            .run_collect_stringified()
             .unwrap();
-        assert_eq!(ss.get_data().unwrap().as_slice(), res);
+        assert_eq!(res, expected);
     });
 }
 
 #[bench]
 fn format_twice(b: &mut test::Bencher) {
-    let mut res = int_sequence_strings(0..LEN);
-    for v in res.iter_mut() {
+    let mut expected = int_sequence_strings(0..LEN);
+    for v in expected.iter_mut() {
         v.extend_from_within(0..);
     }
     b.iter(|| {
-        let ss = StringSinkHandle::default();
-        ContextBuilder::without_exts()
+        let res = ContextBuilder::without_exts()
             .add_op(create_op_seq(0, LEN as i64, 1).unwrap())
             .add_op(create_op_format("{}{}").unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()
+            .run_collect_stringified()
             .unwrap();
-        assert_eq!(ss.get_data().unwrap().as_slice(), res);
+        assert_eq!(res, expected);
     });
 }
 
@@ -124,7 +113,7 @@ fn format_twice(b: &mut test::Bencher) {
 fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
     const COUNT: usize = 1000;
     let input = int_sequence_newline_separated(0..COUNT);
-    let res: Vec<String> = int_sequence_strings(0..COUNT)
+    let expected: Vec<String> = int_sequence_strings(0..COUNT)
         .into_iter()
         .enumerate()
         .filter_map(|(i, mut v)| {
@@ -137,34 +126,30 @@ fn regex_drop_uneven_into_format_twice(b: &mut test::Bencher) {
         })
         .collect();
     b.iter(|| {
-        let ss = StringSinkHandle::default();
-        ContextBuilder::without_exts()
+        let res = ContextBuilder::without_exts()
             .push_str(&input, 1)
             .add_op(create_op_regex_lines())
             .add_op(create_op_regex("^.*[02468]$").unwrap())
             .add_op(create_op_format("{}{}").unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()
+            .run_collect_stringified()
             .unwrap();
-        assert_eq!(ss.get_data().unwrap().as_slice(), res);
+        assert_eq!(res, expected);
     });
 }
 
 #[bench]
 fn seq_into_regex_drop_unless_seven(b: &mut test::Bencher) {
     const COUNT: usize = 10000;
-    let res: Vec<&str> = int_sequence_strings(0..COUNT)
+    let expected: Vec<&str> = int_sequence_strings(0..COUNT)
         .into_iter()
         .filter_map(|v| if v.contains("7") { Some("7") } else { None })
         .collect();
     b.iter(|| {
-        let ss = StringSinkHandle::default();
-        ContextBuilder::without_exts()
+        let res = ContextBuilder::without_exts()
             .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
             .add_op(create_op_regex("7").unwrap())
-            .add_op(create_op_string_sink(&ss))
-            .run()
+            .run_collect_stringified()
             .unwrap();
-        assert_eq!(ss.get_data().unwrap().as_slice(), res);
+        assert_eq!(res, expected);
     });
 }

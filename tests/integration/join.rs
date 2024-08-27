@@ -1,6 +1,10 @@
 use rstest::rstest;
 use scr::{
-    operators::foreach::create_op_foreach, utils::maybe_text::MaybeText,
+    operators::{
+        foreach::create_op_foreach,
+        string_sink::{create_op_string_sink, StringSinkHandle},
+    },
+    utils::maybe_text::MaybeText,
 };
 use scr_core::{
     operators::{
@@ -15,7 +19,6 @@ use scr_core::{
         regex::{create_op_regex_with_opts, RegexOptions},
         select::create_op_select,
         sequence::{create_op_enum, create_op_seq, create_op_seqn},
-        string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
@@ -25,17 +28,15 @@ use scr_ext_utils::dup::create_op_dup;
 
 #[test]
 fn join() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(1, 4, 1).unwrap())
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b",")),
             None,
             false,
         ))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["1,2,3"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["1,2,3"]);
     Ok(())
 }
 
@@ -77,59 +78,50 @@ fn join_bounded_groups() -> Result<(), ScrError> {
 
 #[test]
 fn join_single() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(1, 2, 1).unwrap())
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b",")),
             Some(2),
             false,
         ))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["1"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["1"]);
     Ok(())
 }
 
 #[test]
 fn join_drop_incomplete() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_join(None, Some(2), true))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["12"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["12"]);
     Ok(())
 }
 #[test]
 fn join_empty() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_dup(0))
         .add_op(create_op_join(None, None, false))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), [""]);
+        .run_collect_stringified()?;
+    assert_eq!(res, [""]);
     Ok(())
 }
 
 #[test]
 fn join_no_sep() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_join(None, None, false))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["12345"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["12345"]);
     Ok(())
 }
 
 #[test]
 fn join_streams() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(2)?
         .add_op_aggregate([
             create_op_file_reader_custom(
@@ -146,34 +138,29 @@ fn join_streams() -> Result<(), ScrError> {
             None,
             false,
         ))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["abc, def"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["abc, def"]);
     Ok(())
 }
 
 #[test]
 fn join_after_append() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op_aggregate([create_op_str("foo"), create_op_str("bar")])
         .add_op(create_op_join_str(", ", 0))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo, bar"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo, bar"]);
     Ok(())
 }
 
 #[test]
 fn join_after_enum() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str_n("foo", 2))
         .add_op(create_op_enum(0, i64::MAX, 1).unwrap())
         .add_op(create_op_join_str(",", 0))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["0,1"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["0,1"]);
     Ok(())
 }
 
@@ -192,8 +179,7 @@ fn join_seq_into_stream() -> Result<(), ScrError> {
 
 #[test]
 fn join_dropped_streams() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(2)?
         .add_op_aggregate([
             create_op_file_reader_custom(
@@ -211,15 +197,14 @@ fn join_dropped_streams() -> Result<(), ScrError> {
             Some(2),
             true,
         ))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo, 1"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo, 1"]);
     Ok(())
 }
 
 #[test]
 fn stream_error_in_join() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
+    let ss = StringSinkHandle::default(); // we want to observe the error
     ContextBuilder::without_exts()
         .set_stream_buffer_size(2)?
         .add_op_aggregate([
@@ -255,8 +240,7 @@ fn stream_error_in_join() -> Result<(), ScrError> {
 
 #[test]
 fn stream_into_dup_into_join_with_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(2)?
         .set_batch_size(2)?
         .add_op(create_op_file_reader_custom(
@@ -281,16 +265,14 @@ fn stream_into_dup_into_join_with_regex() -> Result<(), ScrError> {
             Some(3),
             true,
         ))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["foo,foo,foo"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo,foo,foo"]);
     Ok(())
 }
 
 #[test]
 fn stream_into_dup_into_join() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(2)?
         .set_batch_size(2)?
         .add_op(create_op_file_reader_custom(
@@ -303,9 +285,8 @@ fn stream_into_dup_into_join() -> Result<(), ScrError> {
             Some(3),
             true,
         ))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get().data.as_slice(), ["foo,foo,foo"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo,foo,foo"]);
     Ok(())
 }
 
@@ -313,16 +294,14 @@ fn stream_into_dup_into_join() -> Result<(), ScrError> {
 #[case(1)]
 #[case(2)]
 fn join_turns_into_stream(#[case] batch_size: usize) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)?
         .set_stream_size_threshold(2)?
         .add_op_aggregate([create_op_str("foo"), create_op_str("bar")])
         .add_op(create_op_join_str(",", 2))
         .add_op(create_op_format("{:#??}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["~\"foo,bar\""]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["~\"foo,bar\""]);
     Ok(())
 }
 
@@ -348,8 +327,7 @@ fn join_on_error(#[case] batch_size: usize) -> Result<(), ScrError> {
 
 #[test]
 fn join_as_stream_producer() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_stream_size_threshold(1)?
         .add_op_aggregate([
             create_op_str("AAA"),
@@ -357,16 +335,14 @@ fn join_as_stream_producer() -> Result<(), ScrError> {
             create_op_str("BBB"),
         ])
         .add_op(create_op_join_str(", ", 0))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["AAA, 42, BBB"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["AAA, 42, BBB"]);
     Ok(())
 }
 
 #[test]
 fn join_with_value_between_streams() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_stream_size_threshold(2)?
         .set_stream_buffer_size(2)?
         .add_op_aggregate([
@@ -381,8 +357,7 @@ fn join_with_value_between_streams() -> Result<(), ScrError> {
             ),
         ])
         .add_op(create_op_join_str(", ", 0))
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["AAA, 42, BBB"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["AAA, 42, BBB"]);
     Ok(())
 }

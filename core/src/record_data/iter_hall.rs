@@ -160,7 +160,9 @@ impl IterState {
         }
     }
 
-    fn iter_kind(&self) -> IterKind {
+    fn iter_kind(
+        #[cfg_attr(not(feature = "debug_state"), allow(unused))] &self,
+    ) -> IterKind {
         #[cfg(feature = "debug_state")]
         return self.kind;
 

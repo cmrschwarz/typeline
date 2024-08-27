@@ -21,13 +21,11 @@ use scr_ext_utils::{dup::create_op_dup, string_utils::create_op_lines};
 
 #[test]
 fn lines_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .push_str("foo\nbar\nbaz", 1)
         .add_op(create_op_regex_lines())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar", "baz"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo", "bar", "baz"]);
     Ok(())
 }
 
@@ -69,19 +67,14 @@ fn chained_multimatch_regex() -> Result<(), ScrError> {
             f.push('\n');
             f
         });
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .push_str(&number_string_joined, 1)
         .set_batch_size(10)
         .unwrap()
         .add_op(create_op_regex_lines())
         .add_op(create_op_regex("^[0-6]$").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        &number_string_list[0..PASS]
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, number_string_list[0..PASS]);
     Ok(())
 }
 
@@ -91,13 +84,12 @@ fn chained_regex_over_input() -> Result<(), ScrError> {
     for i in 0..3 {
         cb = cb.push_int(i, 1);
     }
-    let ss = StringSinkHandle::default();
-    cb.set_batch_size(1)?
+    let res = cb
+        .set_batch_size(1)?
         .add_op(create_op_regex(".*").unwrap())
         .add_op(create_op_regex("[02]").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &["0", "2"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, &["0", "2"]);
     Ok(())
 }
 
@@ -113,17 +105,12 @@ fn large_batch() -> Result<(), ScrError> {
             f.push('\n');
             f
         });
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .push_str(&number_string_joined, 1)
         .add_op(create_op_regex_lines())
         .add_op(create_op_regex("^[0-9]{1,3}$").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        &number_string_list[0..PASS]
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, number_string_list[0..PASS]);
     Ok(())
 }
 #[rstest]
@@ -136,67 +123,53 @@ fn large_batch_seq(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
     let re = regex::Regex::new(r"\d{1,3}").unwrap();
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .unwrap()
         .add_op(create_op_seq(0, count, 1).unwrap())
         .add_op(create_op_regex(r"\d{1,3}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
+        .run_collect_stringified()?;
     // large output -> no `assert_eq!`
     assert!(
-        ss.get_data().unwrap().as_slice()
-            == (0..count)
-                .filter_map(|v| {
-                    let v = i64_to_str(false, v).to_string();
-                    re.captures(v.as_str())
-                        .and_then(|v| v.get(0).map(|v| v.as_str().to_owned()))
-                })
-                .collect::<Vec<_>>()
+        res == (0..count)
+            .filter_map(|v| {
+                let v = i64_to_str(false, v).to_string();
+                re.captures(v.as_str())
+                    .and_then(|v| v.get(0).map(|v| v.as_str().to_owned()))
+            })
+            .collect::<Vec<_>>()
     );
     Ok(())
 }
 
 #[test]
 fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
     const COUNT: usize = 6;
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(COUNT / 2)
         .unwrap()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
         .add_op(create_op_regex("^\\d{1,2}$").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        (0..COUNT).map(|i| i.to_string()).collect::<Vec<_>>()
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, (0..COUNT).map(|i| i.to_string()).collect::<Vec<_>>());
     Ok(())
 }
 
 #[test]
 fn large_seq_with_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
     const COUNT: usize = 10000;
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
         .add_op(create_op_regex("^\\d{1,3}$").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
+        .run_collect_stringified()?;
     // large output -> no assert_eq!
-    assert!(
-        ss.get_data().unwrap().as_slice()
-            == (0..1000).map(|i| i.to_string()).collect::<Vec<_>>()
-    );
+    assert!(res == (0..1000).map(|i| i.to_string()).collect::<Vec<_>>());
     Ok(())
 }
 
 #[test]
 fn stream_into_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(1)?
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
@@ -205,16 +178,14 @@ fn stream_into_regex() -> Result<(), ScrError> {
             0,
         ))
         .add_op(create_op_lines())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["1", "2", "3"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["1", "2", "3"]);
     Ok(())
 }
 
 #[test]
 fn optional_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op_aggregate([
             create_op_seq(9, 12, 1).unwrap(),
             create_op_seq(20, 22, 1).unwrap(),
@@ -232,9 +203,9 @@ fn optional_regex() -> Result<(), ScrError> {
             .unwrap(),
         )
         .add_op(create_op_format("{n}: {:?}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
+        .run_collect_stringified()?;
     assert_eq!(
+        res,
         [
             "9: null",
             "10: \"1\"",
@@ -243,15 +214,13 @@ fn optional_regex() -> Result<(), ScrError> {
             "20: null",
             "21: \"1\""
         ],
-        ss.get_data().unwrap().as_slice(),
     );
     Ok(())
 }
 
 #[test]
 fn zero_length_regex_match() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str("babab"))
         .add_op(
             create_op_regex_with_opts(
@@ -263,9 +232,8 @@ fn zero_length_regex_match() -> Result<(), ScrError> {
             )
             .unwrap(),
         )
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get().data.as_slice(), &["", "a", "", "a", "", ""]);
+        .run_collect_stringified()?;
+    assert_eq!(res, &["", "a", "", "a", "", ""]);
     Ok(())
 }
 
@@ -277,8 +245,7 @@ fn regex_match_overlapping(
     #[case] input: &str,
     #[case] outputs: &[&'static str],
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str(input))
         .add_op(
             create_op_regex_with_opts(
@@ -291,9 +258,8 @@ fn regex_match_overlapping(
             )
             .unwrap(),
         )
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get().data.as_slice(), outputs);
+        .run_collect_stringified()?;
+    assert_eq!(res, outputs);
     Ok(())
 }
 
@@ -304,7 +270,7 @@ fn seq_into_regex_drop_unless_seven(
     #[case] batch_size: usize,
     #[case] count: usize,
 ) -> Result<(), ScrError> {
-    let res: Vec<String> = (0..count)
+    let expected: Vec<String> = (0..count)
         .filter_map(|v| {
             let v = v.to_string();
             if v.contains('7') {
@@ -314,30 +280,24 @@ fn seq_into_regex_drop_unless_seven(
             }
         })
         .collect();
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
-        .set_batch_size(batch_size)
-        .unwrap()
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(batch_size)?
         .add_op(create_op_seq(0, count as i64, 1).unwrap())
         .add_op(create_op_regex(".*7.*").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()
-        .unwrap();
+        .run_collect_stringified()?;
     // no assert_eq! because the output is large
-    assert!(ss.get_data().unwrap().as_slice() == res);
+    assert!(res == expected);
     Ok(())
 }
 
 #[test]
 fn double_regex() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 20, 1).unwrap())
         .add_op(create_op_regex(".*2.*").unwrap())
         .add_op(create_op_regex(".*").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &["2", "12"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, &["2", "12"]);
     Ok(())
 }
 

@@ -1,11 +1,12 @@
 use scr::operators::{
-    aggregator::create_op_aggregate_appending, fork::create_op_fork,
+    aggregator::create_op_aggregate_appending,
+    fork::create_op_fork,
+    string_sink::{create_op_string_sink, StringSinkHandle},
 };
 use scr_core::{
     operators::{
         literal::{create_op_int, create_op_str},
         sequence::create_op_seqn,
-        string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
@@ -14,31 +15,24 @@ use scr_core::{
 
 #[test]
 fn simple_aggregate() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op_aggregate([create_op_str("foo"), create_op_str("bar")])
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo", "bar"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo", "bar"]);
     Ok(())
 }
 
 #[test]
 fn batched_aggregate() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
         .add_op_aggregate([
             create_op_seqn(1, 10, 1).unwrap(),
             create_op_seqn(11, 15, 1).unwrap(),
         ])
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        (1..16).map(|i| i.to_string()).collect::<Vec<String>>()
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, (1..16).map(|i| i.to_string()).collect::<Vec<String>>());
     Ok(())
 }
 

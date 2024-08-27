@@ -1,6 +1,10 @@
 use rstest::rstest;
 use scr::{
-    operators::{operator::OperatorId, sequence::create_op_enum},
+    operators::{
+        operator::OperatorId,
+        sequence::create_op_enum,
+        string_sink::{create_op_string_sink, StringSinkHandle},
+    },
     utils::indexing_type::IndexingType,
 };
 use scr_core::{
@@ -15,7 +19,6 @@ use scr_core::{
         },
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
         sequence::create_op_seq,
-        string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
@@ -24,39 +27,29 @@ use scr_core::{
 
 #[test]
 fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op_aggregate_appending([
             create_op_bytes(b"bar"),
             create_op_error("baz"),
         ])
         .add_op(create_op_format("{:?}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        ["\"foo\"", "b\"bar\"", "(error)\"baz\""]
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, ["\"foo\"", "b\"bar\"", "(error)\"baz\""]);
     Ok(())
 }
 
 #[test]
 fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op_aggregate_appending([
             create_op_bytes(b"bar"),
             create_op_error("baz"),
         ])
         .add_op(create_op_format("{:??}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get().data.as_slice(),
-        ["\"foo\"", "b\"bar\"", "(error)\"baz\""]
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, ["\"foo\"", "b\"bar\"", "(error)\"baz\""]);
     Ok(())
 }
 
@@ -67,13 +60,11 @@ fn error_formatting(
     #[case] fmt_string: &str,
     #[case] result: &str,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_error("A"))
         .add_op(create_op_format(fmt_string).unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get().data.as_slice(), [result]);
+        .run_collect_stringified()?;
+    assert_eq!(res, [result]);
     Ok(())
 }
 
@@ -84,38 +75,30 @@ fn stream_error_formatting(
     #[case] fmt_string: &str,
     #[case] result: &str,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_stream_error("A"))
         .add_op(create_op_format(fmt_string).unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get().data.as_slice(), [result]);
+        .run_collect_stringified()?;
+    assert_eq!(res, [result]);
     Ok(())
 }
 
 #[test]
 fn format_width_spec() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
         .add_op(create_op_seq(0, 6, 1).unwrap())
         .add_op(create_op_key("bar".to_owned()))
         .add_op(create_op_format("{foo:~^bar$}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        &["x", "x", "~x", "~x~", "~~x~", "~~x~~"]
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, &["x", "x", "~x", "~x~", "~~x~", "~~x~~"]);
     Ok(())
 }
 
 #[test]
 fn format_width_spec_over_stream() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(1)?
         .add_op(create_op_file_reader_custom(
             Box::new(SliceReader {
@@ -127,12 +110,8 @@ fn format_width_spec_over_stream() -> Result<(), ScrError> {
         .add_op(create_op_enum(2, 8, 1).unwrap())
         .add_op(create_op_key("bar".to_owned()))
         .add_op(create_op_format("{foo:~^bar$}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        &["abc", "abc", "~abc", "~abc~", "~~abc~", "~~abc~~"]
-    );
+        .run_collect_stringified()?;
+    assert_eq!(res, &["abc", "abc", "~abc", "~abc~", "~~abc~", "~~abc~~"]);
     Ok(())
 }
 
@@ -171,34 +150,30 @@ fn nonexisting_format_width_key() -> Result<(), ScrError> {
 
 #[test]
 fn format_after_surrounding_drop() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 10, 1).unwrap())
         .add_op(create_op_regex("[3-5]").unwrap())
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_format("{a}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["3", "4", "5"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["3", "4", "5"]);
     Ok(())
 }
 
 #[test]
 fn batched_format_after_drop() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
     const COUNT: i64 = 20;
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(3)
         .unwrap()
         .add_op(create_op_seq(0, COUNT, 1).unwrap())
         .add_op(create_op_regex(".*[3].*").unwrap())
         .add_op(create_op_key("a".to_owned()))
         .add_op(create_op_format("{a}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
+        .run_collect_stringified()?;
     assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        &(0..COUNT)
+        res,
+        (0..COUNT)
             .filter_map(|v| {
                 let v = i64_to_str(false, v).to_string();
                 if v.contains('3') {
@@ -235,8 +210,7 @@ fn stream_into_format() -> Result<(), ScrError> {
 fn stream_into_multiple_different_formats(
     #[case] batch_size: usize,
 ) -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .unwrap()
         .push_str("foo", 1)
@@ -249,16 +223,14 @@ fn stream_into_multiple_different_formats(
             0,
         ))
         .add_op(create_op_format("{key}: {}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), ["foo: xxx", "bar: xxx"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foo: xxx", "bar: xxx"]);
     Ok(())
 }
 
 #[test]
 fn dup_between_format_and_key() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
         .push_str("xxx", 1)
@@ -274,44 +246,38 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
             .unwrap(),
         )
         .add_op(create_op_format("{foo}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &["xxx", "xxx", "xxx"]);
+        .run_collect_stringified()?;
+    assert_eq!(res, &["xxx", "xxx", "xxx"]);
     Ok(())
 }
 
 #[test]
 fn debug_string_escapes() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
         .push_str("\n", 1)
         .add_op(create_op_format("{:?}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#""\n""#]);
+        .run_collect_stringified()?;
+    assert_eq!(res, &[r#""\n""#]);
     Ok(())
 }
 
 #[test]
 fn debug_bytes_escapes() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
         .push_bytes(b"\n\x00", 1)
         .add_op(create_op_format("{:?}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b"\n\x00""#]);
+        .run_collect_stringified()?;
+    assert_eq!(res, &[r#"b"\n\x00""#]);
     Ok(())
 }
 
 #[test]
 fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
         .set_stream_buffer_size(1)?
@@ -322,16 +288,14 @@ fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
             0,
         ))
         .add_op(create_op_format("{:?}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b"\n""#]);
+        .run_collect_stringified()?;
+    assert_eq!(res, &[r#"b"\n""#]);
     Ok(())
 }
 
 #[test]
 fn sandwiched_format() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_regex(".*").unwrap())
         .add_op(create_op_format("{:?}").unwrap())
@@ -345,37 +309,29 @@ fn sandwiched_format() -> Result<(), ScrError> {
             )
             .unwrap(),
         )
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
+        .run_collect_stringified()?;
     let q = "\"";
-    assert_eq!(
-        ss.get_data().unwrap().as_slice(),
-        &[q, "0", q, q, "1", q, q, "2", q]
-    );
+    assert_eq!(res, &[q, "0", q, q, "1", q, q, "2", q]);
     Ok(())
 }
 
 #[test]
 fn binary_string_formatting() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_v("b'\\xFF'").unwrap())
         .add_op(create_op_format("{:?}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"b"\xFF""#]);
+        .run_collect_stringified()?;
+    assert_eq!(res, &[r#"b"\xFF""#]);
     Ok(())
 }
 
 #[test]
 fn debug_format_stream_value() -> Result<(), ScrError> {
-    let ss = StringSinkHandle::default();
-    ContextBuilder::without_exts()
+    let res = ContextBuilder::without_exts()
         .add_op(create_op_stream_str("foo"))
         .add_op(create_op_format("{:??}").unwrap())
-        .add_op(create_op_string_sink(&ss))
-        .run()?;
-    assert_eq!(ss.get_data().unwrap().as_slice(), &[r#"~"foo""#]);
+        .run_collect_stringified()?;
+    assert_eq!(res, &[r#"~"foo""#]);
     Ok(())
 }
 
