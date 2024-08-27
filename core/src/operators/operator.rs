@@ -1410,5 +1410,5 @@ pub trait Operator: Send + Sync {
         tf_state: &mut TransformState,
         op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,
-    ) -> TransformInstatiation;
+    ) -> TransformInstatiation<'a>;
 }

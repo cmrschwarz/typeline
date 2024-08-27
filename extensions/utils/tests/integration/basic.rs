@@ -193,3 +193,14 @@ fn chunked_tail() -> Result<(), ScrError> {
     assert_eq!(res, [3, 6, 9, 10]);
     Ok(())
 }
+
+fn multi_batch_primes_head() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(3)?
+        .add_op(create_op_primes())
+        .add_op(create_op_head(10))
+        .add_op(create_op_sum())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["129"]);
+    Ok(())
+}
