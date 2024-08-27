@@ -1342,15 +1342,6 @@ pub trait Operator: Send + Sync {
     fn debug_op_name(&self) -> super::operator::OperatorName {
         self.default_name()
     }
-
-    // mainly used for operators that start subchains
-    // makes sure that e.g. `scr seqn=10 fork +int=11 p`
-    // does not try to aggregate `fork` with `int`
-    // `fork` cannot be appended directly (although `fork end +int=42` is
-    // legal)
-    fn can_be_appended(&self) -> bool {
-        true
-    }
     fn output_field_kind(
         &self,
         _sess: &SessionData,
