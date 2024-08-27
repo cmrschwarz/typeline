@@ -54,7 +54,7 @@ fn integer_sum_with_overflow_avx2(nums: &[i64]) -> (i64, bool) {
             overflow_v = _mm256_or_si256(overflow_v, of_v);
             i += 4;
         }
-        of_vectored = _mm256_movemask_pd(_mm256_castsi256_pd(overflow_v)) == 0;
+        of_vectored = _mm256_movemask_pd(_mm256_castsi256_pd(overflow_v)) != 0;
 
         #[allow(clippy::cast_ptr_alignment)]
         _mm256_storeu_si256(res_arr.as_mut_ptr().cast::<__m256i>(), res_v);
