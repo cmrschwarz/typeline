@@ -146,14 +146,21 @@ impl BitVecDeque {
         self.data = unsafe { NonNull::new_unchecked(data_new) };
 
         if cap_old == 0 {
+            unsafe { std::ptr::write_bytes(data_new, 0, word_cap_new) }
             return;
         }
 
         let (l1, l2) = self.get_slices_len_words();
+        let word_count_old = l1 + l2;
         unsafe {
             let start_old = data_old.add(head_old);
             std::ptr::copy_nonoverlapping(start_old, data_new, l1);
             std::ptr::copy_nonoverlapping(data_old, data_new.add(l1), l2);
+            std::ptr::write_bytes(
+                data_new.add(word_count_old),
+                0,
+                word_cap_new - word_count_old,
+            );
             std::alloc::dealloc(data_old.cast(), layout_old);
         }
     }

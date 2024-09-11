@@ -1,4 +1,4 @@
-use std::{cell::Cell, sync::Arc};
+use std::sync::Arc;
 
 use smallstr::SmallString;
 
@@ -234,7 +234,7 @@ pub struct TransformState {
     // *after* an iterator has been added using `JobData::claim_iter_for_tf_state`,
     // which would lead to the iterator containing an incorrect actor index
     #[cfg(debug_assertions)]
-    pub iters_added: Cell<bool>,
+    pub iters_added: std::cell::Cell<bool>,
 }
 
 impl TransformState {
@@ -263,7 +263,7 @@ impl TransformState {
             input_group_track_id,
             output_group_track_id: input_group_track_id,
             #[cfg(debug_assertions)]
-            iters_added: Cell::new(false),
+            iters_added: std::cell::Cell::new(false),
         }
     }
 }

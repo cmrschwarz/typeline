@@ -1127,13 +1127,16 @@ impl<'a> JobData<'a> {
     }
 
     /// Like `add_actor_for_tf_state`, but does not update the output field.
-    /// Usefule for transforms without a unique output field
+    /// Useful for transforms without a unique output field
     pub fn add_actor_for_tf_state_ignore_output_field(
         &self,
         tf_state: &TransformState,
     ) -> ActorId {
         let ms = &self.match_set_mgr.match_sets[tf_state.match_set_id];
-        debug_assert!(
+        // can't just use debug assert because it wouldn't compile without the
+        // `iters_added` member
+        #[cfg(debug_assertions)]
+        assert!(
             !tf_state.iters_added.get(),
             "transform actor should be added to before iters"
         );
@@ -1168,6 +1171,7 @@ impl<'a> JobData<'a> {
         &self,
         tf_state: &TransformState,
     ) -> IterId {
+        #[cfg(debug_assertions)]
         tf_state.iters_added.set(true);
         self.field_mgr.claim_iter(
             tf_state.input_field,
