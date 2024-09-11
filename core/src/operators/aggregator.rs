@@ -134,12 +134,12 @@ pub fn insert_tf_aggregator(
     job.job_data
         .field_mgr
         .inc_field_refcount(out_fid, op_count + 1);
-    tf_state.output_field = in_fid;
+
     let active_group_track = tf_state.input_group_track_id;
-    let actor_id = job
-        .job_data
-        .add_actor_for_tf_state(&tf_state);
+    let actor_id = job.job_data.add_actor_for_tf_state(&tf_state);
     let iter_id = job.job_data.claim_iter_for_tf_state(&tf_state);
+
+    tf_state.output_field = in_fid;
 
     let header_tf_id = add_transform_to_job(
         &mut job.job_data,

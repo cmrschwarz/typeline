@@ -332,7 +332,9 @@ pub fn insert_tf_forkcat<'a>(
 
     let tf_data = TransformData::ForkCat(TfForkCat {
         continuation_state: continuation_state.clone(),
-        actor_id: job.job_data.add_actor_for_tf_state(&tf_state),
+        actor_id: job
+            .job_data
+            .add_actor_for_tf_state_ignore_output_field(&tf_state),
     });
     let fc_tf_id = add_transform_to_job(
         &mut job.job_data,

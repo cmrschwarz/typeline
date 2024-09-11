@@ -585,8 +585,12 @@ pub fn iters_to_json(iters: &[IterState]) -> Value {
                 iter_kind_to_json(
                     &i.kind,
                     &format!(
-                        "HID: {}, HOFF: {}, FP: {}, D: {}",
-                        i.header_idx, i.header_rl_offset, i.field_pos, i.data
+                        "HID: {}, HOFF: {}, FP: {}, D: {}, FRLA: {}",
+                        i.header_idx,
+                        i.header_rl_offset,
+                        i.field_pos,
+                        i.data,
+                        i.first_right_leaning_actor_id.into_usize()
                     ),
                 )
             })

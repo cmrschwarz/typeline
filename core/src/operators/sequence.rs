@@ -9,10 +9,8 @@ use crate::{
     liveness_analysis::{AccessFlags, LivenessData, VarLivenessSlotKind},
     options::session_setup::SessionSetupData,
     record_data::{
-        action_buffer::ActorId,
-        field::Field,
-        group_track::GroupTrackIterRef,
-        iter_hall::{IterId, IterKind},
+        action_buffer::ActorId, field::Field, group_track::GroupTrackIterRef,
+        iter_hall::IterId,
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     utils::{
@@ -128,21 +126,18 @@ pub fn build_tf_sequence<'a>(
     op: &'a OpSequence,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
+    let actor_id = jd.add_actor_for_tf_state(tf_state);
+    let iter_id = jd.claim_iter_for_tf_state(tf_state);
     let group_track_iter_ref = (!matches!(op.mode, SequenceMode::Sequence))
-        .then(|| {
-            jd.group_track_manager.claim_group_track_iter_ref(
-                tf_state.input_group_track_id,
-                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-            )
-        });
+        .then(|| jd.claim_group_track_iter_for_tf_state(tf_state));
 
     TransformData::Sequence(TfSequence {
         ss: op.ss,
         current_value: op.ss.start,
         mode: op.mode,
         non_string_reads: op.non_string_reads,
-        iter_id: jd.claim_iter_for_tf_state(tf_state),
-        actor_id: jd.add_actor_for_tf_state(tf_state),
+        actor_id,
+        iter_id,
         seq_len_total: op.seq_len_total,
         group_track_iter_ref,
     })

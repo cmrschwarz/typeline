@@ -1126,14 +1126,38 @@ impl<'a> JobData<'a> {
         self.get_transform_chain_from_tf_state(&self.tf_mgr.transforms[tf_id])
     }
 
+    /// Like `add_actor_for_tf_state`, but does not update the output field.
+    /// Usefule for transforms without a unique output field
+    pub fn add_actor_for_tf_state_ignore_output_field(
+        &self,
+        tf_state: &TransformState,
+    ) -> ActorId {
+        let ms = &self.match_set_mgr.match_sets[tf_state.match_set_id];
+        debug_assert!(
+            !tf_state.iters_added.get(),
+            "transform actor should be added to before iters"
+        );
+        let mut ab = ms.action_buffer.borrow_mut();
+        let actor_id = ab.add_actor();
+        actor_id
+    }
+
+    /// Adds an actor to the match set specified by the transform state
+    /// and applies it to the first actor entry of the output_field.
+    /// !!! This should be done *before* and iters
+    /// are added using claim_iter_for_tf_state, otherwise those iters
+    /// will have an incorrect `ActorId` for `first_right_leaning_actor`.
     pub fn add_actor_for_tf_state(
         &self,
         tf_state: &TransformState,
     ) -> ActorId {
-        let mut ab = self.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer
-            .borrow_mut();
-        let actor_id = ab.add_actor();
+        let actor_id =
+            self.add_actor_for_tf_state_ignore_output_field(tf_state);
+
+        let ms = &self.match_set_mgr.match_sets[tf_state.match_set_id];
+
+        debug_assert_ne!(ms.dummy_field, tf_state.output_field);
+        debug_assert_ne!(tf_state.input_field, tf_state.output_field);
         self.field_mgr.fields[tf_state.output_field]
             .borrow()
             .first_actor
@@ -1144,6 +1168,7 @@ impl<'a> JobData<'a> {
         &self,
         tf_state: &TransformState,
     ) -> IterId {
+        tf_state.iters_added.set(true);
         self.field_mgr.claim_iter(
             tf_state.input_field,
             self.match_set_mgr.match_sets[tf_state.match_set_id]

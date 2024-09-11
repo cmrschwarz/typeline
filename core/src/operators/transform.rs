@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{cell::Cell, sync::Arc};
 
 use smallstr::SmallString;
 
@@ -229,6 +229,12 @@ pub struct TransformState {
     // true if this transform is part of a splictat and not the last
     // element. Used in maintain_single_value to yield early
     pub is_split: bool,
+
+    // used to warn if an actor is added using `JobData::add_actor_for_tf_state`
+    // *after* an iterator has been added using `JobData::claim_iter_for_tf_state`,
+    // which would lead to the iterator containing an incorrect actor index
+    #[cfg(debug_assertions)]
+    pub iters_added: Cell<bool>,
 }
 
 impl TransformState {
@@ -256,6 +262,8 @@ impl TransformState {
             is_split: false,
             input_group_track_id,
             output_group_track_id: input_group_track_id,
+            #[cfg(debug_assertions)]
+            iters_added: Cell::new(false),
         }
     }
 }
