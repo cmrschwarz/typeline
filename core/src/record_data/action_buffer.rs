@@ -195,6 +195,9 @@ impl ActionBuffer {
         self.pending_action_group_actor_id = Some(actor_id);
         self.pending_actions_start = self.action_group_data.next_free_index();
     }
+    pub fn pending_action_group_id(&self) -> Option<ActorId> {
+        self.pending_action_group_actor_id
+    }
 
     pub fn end_action_group(&mut self) {
         let actor_id = self.pending_action_group_actor_id.take().unwrap();
@@ -232,10 +235,17 @@ impl ActionBuffer {
         field_idx: usize,
         mut run_length: usize,
     ) {
+        // TODO: on 32 bit, consider checked adds?
         let rl_delta = isize::try_from(run_length).unwrap();
         match kind {
-            FieldActionKind::Dup | FieldActionKind::InsertZst { .. } => {
-                // TODO: on 32 bit, consider checked adds?
+            FieldActionKind::InsertZst { repr: _, actor_id } => {
+                debug_assert_eq!(
+                    Some(actor_id),
+                    self.pending_action_group_actor_id
+                );
+                self.pending_action_group_field_count_delta += rl_delta
+            }
+            FieldActionKind::Dup => {
                 self.pending_action_group_field_count_delta += rl_delta
             }
             FieldActionKind::Drop => {

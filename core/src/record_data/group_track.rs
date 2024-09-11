@@ -1527,17 +1527,10 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         self.update_group_len = true;
         self.group_len += count;
         self.base.field_pos += count;
-
-        self.action_buffer.borrow_mut().push_action(
-            FieldActionKind::InsertZst {
-                repr,
-                actor_id: self
-                    .base
-                    .group_track
-                    .actor_ref
-                    .confirmed_id()
-                    .unwrap(),
-            },
+        let mut ab = self.action_buffer.borrow_mut();
+        let actor_id = ab.pending_action_group_id().unwrap();
+        ab.push_action(
+            FieldActionKind::InsertZst { repr, actor_id },
             field_pos_prev,
             count,
         );
