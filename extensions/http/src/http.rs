@@ -32,7 +32,7 @@ use scr_core::{
     record_data::{
         field_data::{FieldData, RunLength},
         field_value_ref::FieldValueRef,
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         push_interface::PushInterface,
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
@@ -163,12 +163,7 @@ impl Operator for OpHttpRequest {
             poll: Poll::new().unwrap(),
             dns_cache: HashMap::new(),
             events: Events::with_capacity(64),
-            iter_id: job.job_data.field_mgr.claim_iter_non_cow(
-                tf_state.input_field,
-                IterKind::Transform(
-                    job.job_data.tf_mgr.transforms.peek_claim_id(),
-                ),
-            ),
+            iter_id: job.job_data.claim_iter_for_tf_state(&tf_state),
             tls_config: self.client_config.clone(),
             stream_buffer_size: job
                 .job_data

@@ -143,6 +143,26 @@ impl IndexingType for u8 {
     }
 }
 
+impl IndexingType for u16 {
+    type IndexBaseType = Self;
+    const ZERO: u16 = 0;
+    const MAX_VALUE: u16 = u16::MAX;
+    #[inline(always)]
+    fn into_usize(self) -> usize {
+        self as usize
+    }
+    #[inline(always)]
+    fn from_usize(v: usize) -> Self {
+        v as Self
+    }
+    fn wrapping_add(self, other: Self) -> Self {
+        u16::wrapping_add(self, other)
+    }
+    fn wrapping_sub(self, other: Self) -> Self {
+        u16::wrapping_sub(self, other)
+    }
+}
+
 impl IndexingType for u32 {
     type IndexBaseType = Self;
     const ZERO: u32 = 0;

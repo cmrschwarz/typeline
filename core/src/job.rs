@@ -27,7 +27,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager},
         field_action::FieldActionKind,
-        group_track::{GroupTrackId, GroupTrackManager},
+        group_track::{GroupTrackId, GroupTrackIterRef, GroupTrackManager},
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
@@ -1125,6 +1125,7 @@ impl<'a> JobData<'a> {
     pub fn get_transform_chain(&self, tf_id: TransformId) -> &Chain {
         self.get_transform_chain_from_tf_state(&self.tf_mgr.transforms[tf_id])
     }
+
     pub fn add_actor_for_tf_state(
         &self,
         tf_state: &TransformState,
@@ -1132,22 +1133,32 @@ impl<'a> JobData<'a> {
         let mut ab = self.match_set_mgr.match_sets[tf_state.match_set_id]
             .action_buffer
             .borrow_mut();
-        ab.add_actor()
-    }
-    pub fn add_actor_for_tf_state_apply_to_output_field(
-        &self,
-        tf_state: &TransformState,
-    ) -> ActorId {
-        let actor_id = self.add_actor_for_tf_state(tf_state);
+        let actor_id = ab.add_actor();
         self.field_mgr.fields[tf_state.output_field]
             .borrow()
             .first_actor
             .set(ActorRef::Unconfirmed(actor_id.wrapping_add(ActorId::one())));
         actor_id
     }
-    pub fn add_iter_for_tf_state(&self, tf_state: &TransformState) -> IterId {
-        self.field_mgr.claim_iter_non_cow(
+    pub fn claim_iter_for_tf_state(
+        &self,
+        tf_state: &TransformState,
+    ) -> IterId {
+        self.field_mgr.claim_iter(
             tf_state.input_field,
+            self.match_set_mgr.match_sets[tf_state.match_set_id]
+                .action_buffer
+                .borrow()
+                .peek_next_actor_id(),
+            IterKind::Transform(self.tf_mgr.transforms.peek_claim_id()),
+        )
+    }
+    pub fn claim_group_track_iter_for_tf_state(
+        &mut self,
+        tf_state: &TransformState,
+    ) -> GroupTrackIterRef {
+        self.group_track_manager.claim_group_track_iter_ref(
+            tf_state.input_group_track_id,
             IterKind::Transform(self.tf_mgr.transforms.peek_claim_id()),
         )
     }

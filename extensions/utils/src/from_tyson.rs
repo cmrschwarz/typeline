@@ -22,12 +22,11 @@ use scr_core::{
     },
     options::chain_settings::SettingUseFloatingPointMath,
     record_data::{
-        action_buffer::ActorRef,
         field_data::{FieldData, RunLength},
         field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         push_interface::PushInterface,
         ref_iter::{
             RefAwareBytesBufferIter, RefAwareInlineBytesIter,
@@ -91,25 +90,15 @@ impl Operator for OpFromTyson {
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         let jd = &mut job.job_data;
-        let ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer
-            .borrow();
 
         let use_floating_point_math = jd
             .get_setting_from_tf_state::<SettingUseFloatingPointMath>(
                 tf_state,
             );
 
-        jd.field_mgr.fields[tf_state.output_field]
-            .borrow()
-            .first_actor
-            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfFromTyson {
-                input_iter_id: jd.field_mgr.claim_iter_non_cow(
-                    tf_state.input_field,
-                    IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id())
-                ),
+                input_iter_id: jd.claim_iter_for_tf_state(&tf_state),
                 use_floating_point_math
             }
         )))

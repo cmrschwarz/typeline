@@ -3,7 +3,10 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use super::field_data::{FieldValueRepr, RunLength};
+use super::{
+    action_buffer::ActorId,
+    field_data::{FieldValueRepr, RunLength},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FieldActionKind {
@@ -14,7 +17,10 @@ pub enum FieldActionKind {
     /// position, pushing any existing header at that position forwards.
     /// Iterators are also pushed forwards, unless they have the
     /// `lean_left_on_insert` property set.
-    InsertZst(FieldValueRepr),
+    InsertZst {
+        repr: FieldValueRepr,
+        actor_id: ActorId,
+    },
 }
 
 /// In lists of `FieldAction`s, the indices assume that all previous actions
@@ -50,8 +56,8 @@ pub enum FieldActionKind {
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct FieldAction {
     pub kind: FieldActionKind,
-    pub field_idx: usize,
     pub run_len: RunLength,
+    pub field_idx: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -80,13 +86,13 @@ impl FieldActionKind {
         match self {
             FieldActionKind::Dup => "Dup",
             FieldActionKind::Drop => "Drop",
-            FieldActionKind::InsertZst(FieldValueRepr::Undefined) => {
-                "Insert(Undefined)"
-            }
-            FieldActionKind::InsertZst(FieldValueRepr::Null) => "Insert(Null)",
-            FieldActionKind::InsertZst(_) => {
-                unreachable!("InsertZst only supports null and undefined")
-            }
+            FieldActionKind::InsertZst { repr, actor_id: _ } => match repr {
+                FieldValueRepr::Undefined => "Insert(Undefined)",
+                FieldValueRepr::Null => "Insert(Null)",
+                _ => {
+                    unreachable!("InsertZst only supports null and undefined")
+                }
+            },
         }
     }
 }
@@ -195,21 +201,31 @@ fn push_merged_action<T: ActionContainer>(
         (FAK::Drop, FAK::Drop) => {
             add = same_idx;
         }
-        (FAK::InsertZst(_), FAK::Dup) => {
+        (FAK::InsertZst { .. }, FAK::Dup) => {
             if overlapping_exclusive {
                 add = true;
                 curr.kind = prev.kind;
             }
         }
-        (FAK::InsertZst(_), FAK::Drop) => {
+        (FAK::InsertZst { .. }, FAK::Drop) => {
             subtract = overlapping_exclusive;
         }
-        (FAK::InsertZst(a), FAK::InsertZst(b)) => {
-            debug_assert!(a == b);
+        (
+            FAK::InsertZst {
+                repr: repr_l,
+                actor_id: actor_id_l,
+            },
+            FAK::InsertZst {
+                repr: repr_r,
+                actor_id: actor_id_r,
+            },
+        ) => {
+            debug_assert_eq!(repr_l, repr_r);
+            debug_assert_eq!(actor_id_l, actor_id_r);
             add = overlapping_exclusive;
         }
-        (FAK::Drop, FAK::Dup | FAK::InsertZst(_))
-        | (FAK::Dup, FAK::InsertZst(_)) => (),
+        (FAK::Drop, FAK::Dup | FAK::InsertZst { .. })
+        | (FAK::Dup, FAK::InsertZst { .. }) => (),
     }
     debug_assert!(!add || !subtract);
 
@@ -274,7 +290,7 @@ pub fn merge_action_lists_inner<'a>(
                         _,
                         Some(
                             FieldActionKind::Drop
-                            | FieldActionKind::InsertZst(_),
+                            | FieldActionKind::InsertZst { .. },
                         ),
                     ) => false,
                     (_, _) => true,
@@ -292,7 +308,7 @@ pub fn merge_action_lists_inner<'a>(
             };
 
             match action_left.kind {
-                FieldActionKind::InsertZst(_) | FieldActionKind::Dup => {
+                FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
                     if outstanding_drops_right >= faf.run_len {
                         let dup_to_undo = faf.run_len;
                         outstanding_drops_right -= dup_to_undo;
@@ -339,7 +355,7 @@ pub fn merge_action_lists_inner<'a>(
         let mut faf = FieldActionFullRl::from(right.next().unwrap());
 
         match faf.kind {
-            FieldActionKind::InsertZst(_) | FieldActionKind::Dup => {
+            FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
                 field_pos_offset_left += faf.run_len as isize;
             }
             FieldActionKind::Drop => {
@@ -376,12 +392,18 @@ pub fn merge_action_lists<'a>(
 
 #[cfg(test)]
 mod test {
+    use crate::record_data::action_buffer::ActorId;
     use crate::record_data::field_data::FieldValueRepr;
+    use crate::utils::indexing_type::IndexingType;
 
     use super::FieldActionKind;
 
     use super::FieldAction;
     use FieldActionKind as FAK;
+    const INSERT_UNDEF: FAK = FAK::InsertZst {
+        repr: FieldValueRepr::Undefined,
+        actor_id: ActorId::ZERO,
+    };
 
     #[track_caller]
     fn compare_merge_result(
@@ -565,13 +587,13 @@ mod test {
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::Undefined),
+            kind: INSERT_UNDEF,
             field_idx: 0,
             run_len: 5,
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 0,
                 run_len: 5,
             },
@@ -592,13 +614,13 @@ mod test {
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::Undefined),
+            kind: INSERT_UNDEF,
             field_idx: 0,
             run_len: 1,
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 0,
                 run_len: 1,
             },
@@ -614,7 +636,7 @@ mod test {
     #[test]
     fn inserts_can_be_duplicated() {
         let left = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::Undefined),
+            kind: INSERT_UNDEF,
             field_idx: 0,
             run_len: 1,
         }];
@@ -624,7 +646,7 @@ mod test {
             run_len: 1,
         }];
         let merged = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::Undefined),
+            kind: INSERT_UNDEF,
             field_idx: 0,
             run_len: 2,
         }];
@@ -635,12 +657,12 @@ mod test {
     fn inserts_can_be_duplicated_2() {
         let left = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 3,
                 run_len: 1,
             },
@@ -674,7 +696,7 @@ mod test {
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 2,
                 run_len: 2,
             },
@@ -684,7 +706,7 @@ mod test {
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 6,
                 run_len: 2,
             },
@@ -695,7 +717,7 @@ mod test {
     #[test]
     fn drop_cancels_insert() {
         let left = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::Undefined),
+            kind: INSERT_UNDEF,
             field_idx: 0,
             run_len: 1,
         }];
@@ -719,12 +741,12 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 3,
                 run_len: 1,
             },
@@ -757,12 +779,12 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 1,
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 4,
                 run_len: 1,
             },
@@ -1119,7 +1141,7 @@ mod test {
         // 3 |     b       |            |
 
         let left = &[FieldAction {
-            kind: FAK::InsertZst(FieldValueRepr::Undefined),
+            kind: INSERT_UNDEF,
             field_idx: 0,
             run_len: 2,
         }];
@@ -1130,7 +1152,7 @@ mod test {
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::InsertZst(FieldValueRepr::Undefined),
+                kind: INSERT_UNDEF,
                 field_idx: 0,
                 run_len: 1,
             },

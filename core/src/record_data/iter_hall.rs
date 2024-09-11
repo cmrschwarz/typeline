@@ -13,6 +13,7 @@ use crate::{
 };
 
 use super::{
+    action_buffer::ActorId,
     bytes_insertion_stream::{
         BytesInsertionStream, MaybeTextInsertionStream, TextInsertionStream,
     },
@@ -100,15 +101,20 @@ pub struct IterState {
     pub header_idx: usize,
     pub header_rl_offset: RunLength,
 
-    /// Usually, insertions on the same field pos as an iter sits will
-    /// push that iter forwards. This is the only correct behavior, for
-    /// example when the `sum` transform introduces a zero for a trailing
-    /// zero sized group earlier transforms should not get new content.
-    /// However, this is the wrong
-    /// behavior for cow position markers, as these won't gain the
-    /// inserted elements in case of data cow, (and shouldnt gain the
-    /// inserted elements in case of full cow either for consistency).
-    pub lean_left_on_inserts: bool,
+    /// In case of dups, iterators always lean left
+    /// (-> stay before the dup) because we assume that affected transforms
+    /// are *after* the emitting actor, as transforms before it should
+    /// have advanced their iterators beyond any passed records.
+    /// When the transform observing an iterator is *before* the actor
+    /// that does an insert, we want the iterator to be advanced,
+    /// because the transform should not observe inserts that happen after it.
+    /// If the transform observing the iterator is *after* the
+    /// actor doing the insert, we want it to *not* be advanced because it
+    /// should observe the inserted elements.
+    /// This happens e.g. for cow position markers or just for
+    /// named field refs like format happening e.g. after a count/sum that
+    /// may insert zeroes for empty groups
+    pub first_right_leaning_actor_id: ActorId,
 
     #[cfg(feature = "debug_state")]
     pub kind: IterKind,
@@ -120,7 +126,7 @@ pub struct IterStateRaw {
     pub data: usize,
     pub header_idx: usize,
     pub header_rl_offset: RunLength,
-    pub lean_left_on_inserts: bool,
+    pub first_right_leaning_actor_id: ActorId,
 }
 
 impl From<IterState> for IterStateRaw {
@@ -130,7 +136,7 @@ impl From<IterState> for IterStateRaw {
             data: is.data,
             header_idx: is.header_idx,
             header_rl_offset: is.header_rl_offset,
-            lean_left_on_inserts: is.lean_left_on_inserts,
+            first_right_leaning_actor_id: is.first_right_leaning_actor_id,
         }
     }
 }
@@ -148,7 +154,7 @@ impl IterState {
             data: is.data,
             header_idx: is.header_idx,
             header_rl_offset: is.header_rl_offset,
-            lean_left_on_inserts: is.lean_left_on_inserts,
+            first_right_leaning_actor_id: is.first_right_leaning_actor_id,
             #[cfg(feature = "debug_state")]
             kind: IterKind::Undefined,
         }
@@ -192,7 +198,7 @@ impl FieldDataSource {
 impl IterHall {
     pub fn get_iter_state_at_begin(
         &self,
-        lean_left_on_inserts: bool,
+        first_right_leaning_actor_id: ActorId,
         #[cfg_attr(not(feature = "debug_state"), allow(unused))]
         kind: IterKind,
     ) -> IterState {
@@ -201,7 +207,7 @@ impl IterHall {
             data: 0,
             header_idx: 0,
             header_rl_offset: 0,
-            lean_left_on_inserts,
+            first_right_leaning_actor_id,
             #[cfg(feature = "debug_state")]
             kind,
         }
@@ -209,7 +215,7 @@ impl IterHall {
     pub fn get_iter_state_at_end(
         &self,
         fm: &FieldManager,
-        lean_left_on_insert: bool,
+        first_right_leaning_actor_id: ActorId,
         #[cfg_attr(not(feature = "debug_state"), allow(unused))]
         kind: IterKind,
     ) -> IterState {
@@ -220,7 +226,11 @@ impl IterHall {
                 return fm.fields[src_field_id]
                     .borrow()
                     .iter_hall
-                    .get_iter_state_at_end(fm, lean_left_on_insert, kind);
+                    .get_iter_state_at_end(
+                        fm,
+                        first_right_leaning_actor_id,
+                        kind,
+                    );
             }
             FieldDataSource::FullCow(CowDataSource {
                 src_field_id,
@@ -238,7 +248,8 @@ impl IterHall {
         }
 
         if self.field_data.field_count == 0 {
-            return self.get_iter_state_at_begin(lean_left_on_insert, kind);
+            return self
+                .get_iter_state_at_begin(first_right_leaning_actor_id, kind);
         }
         IterState {
             field_pos: self.field_data.field_count,
@@ -257,24 +268,19 @@ impl IterHall {
                 .back()
                 .unwrap()
                 .run_length,
-            lean_left_on_inserts: lean_left_on_insert,
+            first_right_leaning_actor_id,
             #[cfg(feature = "debug_state")]
             kind,
         }
     }
 
-    pub fn claim_iter_non_cow(&mut self, kind: IterKind) -> IterId {
-        debug_assert!(!matches!(kind, IterKind::CowField(_)));
-        let iter_state = self.get_iter_state_at_begin(false, kind);
-        self.iters.claim_with_value(Cell::new(iter_state))
-    }
     pub fn claim_iter(
         &mut self,
-        lean_left_on_insert: bool,
+        first_left_leaning_actor_id: ActorId,
         kind: IterKind,
     ) -> IterId {
         let iter_state =
-            self.get_iter_state_at_begin(lean_left_on_insert, kind);
+            self.get_iter_state_at_begin(first_left_leaning_actor_id, kind);
         self.iters.claim_with_value(Cell::new(iter_state))
     }
 
@@ -301,24 +307,24 @@ impl IterHall {
     pub fn claim_iter_at_end(
         &mut self,
         fm: &FieldManager,
-        lean_left_on_insert: bool,
+        first_left_leaning_actor_id: ActorId,
         kind: IterKind,
     ) -> IterId {
         self.iters
             .claim_with_value(Cell::new(self.get_iter_state_at_end(
                 fm,
-                lean_left_on_insert,
+                first_left_leaning_actor_id,
                 kind,
             )))
     }
     pub fn reserve_iter_id(
         &mut self,
         iter_id: IterId,
-        lean_left_on_inserts: bool,
+        first_right_leaning_actor_id: ActorId,
         kind: IterKind,
     ) {
         let v = Cell::new(
-            self.get_iter_state_at_begin(lean_left_on_inserts, kind),
+            self.get_iter_state_at_begin(first_right_leaning_actor_id, kind),
         );
         self.iters.reserve_id_with(iter_id, || v);
     }
@@ -377,7 +383,7 @@ impl IterHall {
     pub fn iter_to_iter_state<'a, R: FieldDataRef<'a>>(
         &self,
         mut iter: FieldIter<'a, R>,
-        lean_left_on_inserts: bool,
+        first_left_leaning_actor_id: ActorId,
         #[cfg_attr(not(feature = "debug_state"), allow(unused_variables))]
         kind: IterKind,
     ) -> IterState {
@@ -386,7 +392,7 @@ impl IterHall {
             data: iter.data,
             header_idx: iter.header_idx,
             header_rl_offset: iter.header_rl_offset,
-            lean_left_on_inserts,
+            first_right_leaning_actor_id: first_left_leaning_actor_id,
             #[cfg(feature = "debug_state")]
             kind,
         };
@@ -424,7 +430,7 @@ impl IterHall {
         let mut state = self.iters[iter_id].get();
         state = self.iter_to_iter_state(
             iter,
-            state.lean_left_on_inserts,
+            state.first_right_leaning_actor_id,
             state.iter_kind(),
         );
         // #[cfg(feature = "debug_logging_iter_states")]
@@ -535,12 +541,9 @@ impl IterHall {
         #[cfg(feature = "debug_state")]
         return self.iters[iter_id].get().kind;
     }
-    pub fn is_iter_left_leaning(&self, iter_id: IterId) -> bool {
-        self.iters[iter_id].get().lean_left_on_inserts
-    }
     pub fn reset_iter(&self, iter_id: IterId) {
         self.iters[iter_id].set(self.get_iter_state_at_begin(
-            self.is_iter_left_leaning(iter_id),
+            self.iters[iter_id].get().first_right_leaning_actor_id,
             self.get_iter_kind(iter_id),
         ));
     }

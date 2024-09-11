@@ -21,14 +21,14 @@ use scr_core::{
     },
     options::chain_settings::SettingUseFloatingPointMath,
     record_data::{
-        action_buffer::{ActorId, ActorRef},
+        action_buffer::ActorId,
         array::Array,
         dyn_ref_iter::{DynFieldValueBlock, RefAwareDynFieldValueRangeIter},
         field_data::{FieldData, FieldValueRepr},
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
         group_track::GroupTrackIterRef,
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         iters::FieldIterOpts,
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
@@ -92,27 +92,16 @@ impl Operator for OpCollect {
                 tf_state,
             );
 
-        let ms = &mut jd.match_set_mgr.match_sets[tf_state.match_set_id];
-        let mut ab = ms.action_buffer.borrow_mut();
-        let actor_id = ab.add_actor();
-        jd.field_mgr.fields[tf_state.output_field]
-            .borrow_mut()
-            .first_actor
-            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
+        let actor_id =
+            jd.add_actor_for_tf_state(tf_state);
+        let input_iter_id = jd.claim_iter_for_tf_state(tf_state);
+        let group_track_iter =
+            jd.claim_group_track_iter_for_tf_state(tf_state);
 
-        let iter_kind =
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfCollect {
-                group_track_iter: jd
-                    .group_track_manager
-                    .claim_group_track_iter_ref(
-                        tf_state.input_group_track_id,
-                        iter_kind
-                    ),
-                input_iter_id: jd
-                    .field_mgr
-                    .claim_iter_non_cow(tf_state.input_field, iter_kind),
+                group_track_iter,
+                input_iter_id,
                 aggregate: Array::default(),
                 actor_id,
                 floating_point_math,

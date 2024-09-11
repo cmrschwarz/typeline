@@ -154,7 +154,7 @@ pub fn build_tf_string_sink<'a>(
 ) -> TransformData<'a> {
     TransformData::StringSink(TfStringSink {
         handle: &ss.handle.data,
-        iter_id: jd.add_iter_for_tf_state(tf_state),
+        iter_id: jd.claim_iter_for_tf_state(tf_state),
         stream_value_handles: CountedUniverse::default(),
         rationals_print_mode: jd
             .get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state),

@@ -250,18 +250,11 @@ impl Operator for OpExec {
         let jd = &mut job.job_data;
         let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
         let scope_id = ms.active_scope;
-        let ab = ms.action_buffer.borrow();
-
-        let actor_ref = ActorRef::Unconfirmed(ab.peek_next_actor_id());
-        jd.field_mgr.fields[tf_state.output_field]
-            .borrow()
-            .first_actor
-            .set(actor_ref);
+        let next_actor = ms.action_buffer.borrow().peek_next_actor_id();
         let mut iters = IndexVec::new();
 
         let iter_kind =
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());
-        let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
         for r in &self.refs {
             let field_id = if let Some(name) = r.name_interned {
                 jd.scope_mgr
@@ -272,15 +265,16 @@ impl Operator for OpExec {
             };
             iters.push(FieldIterRef {
                 field_id,
-                iter_id: jd.field_mgr.claim_iter_non_cow(field_id, iter_kind),
+                iter_id: jd
+                    .field_mgr
+                    .claim_iter(field_id, next_actor, iter_kind),
             });
         }
 
-        drop(ab);
         let stderr_field = jd.field_mgr.add_field(
             &jd.match_set_mgr,
             tf_state.match_set_id,
-            actor_ref,
+            ActorRef::Unconfirmed(next_actor),
         );
         jd.scope_mgr.insert_field_name(
             scope_id,
@@ -290,7 +284,7 @@ impl Operator for OpExec {
         let exit_code_field = jd.field_mgr.add_field(
             &jd.match_set_mgr,
             tf_state.match_set_id,
-            actor_ref,
+            ActorRef::Unconfirmed(next_actor),
         );
         jd.scope_mgr.insert_field_name(
             scope_id,
@@ -308,9 +302,11 @@ impl Operator for OpExec {
 
         let input_iter = if self.opts.propagate_input {
             Some(FieldIterRef {
-                iter_id: jd
-                    .field_mgr
-                    .claim_iter_non_cow(tf_state.input_field, iter_kind),
+                iter_id: jd.field_mgr.claim_iter(
+                    tf_state.input_field,
+                    next_actor,
+                    iter_kind,
+                ),
                 field_id: tf_state.input_field,
             })
         } else {

@@ -6,7 +6,10 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::{index_newtype, utils::universe::Universe};
+use crate::{
+    index_newtype,
+    utils::{indexing_type::IndexingType, universe::Universe},
+};
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
@@ -152,21 +155,23 @@ impl FieldManager {
     pub fn claim_iter_ref(
         &self,
         field_id: FieldId,
+        first_left_leaning_actor: ActorId,
         kind: IterKind,
     ) -> FieldIterRef {
         FieldIterRef {
             field_id,
-            iter_id: self.claim_iter_non_cow(field_id, kind),
+            iter_id: self.claim_iter(field_id, first_left_leaning_actor, kind),
         }
     }
-    pub fn claim_iter_non_cow(
+    pub fn claim_iter(
         &self,
         field_id: FieldId,
+        first_right_leaning_actor: ActorId,
         kind: IterKind,
     ) -> IterId {
         self.borrow_field_dealiased_mut(field_id)
             .iter_hall
-            .claim_iter_non_cow(kind)
+            .claim_iter(first_right_leaning_actor, kind)
     }
     pub fn dealias_field_id(&self, mut field_id: FieldId) -> FieldId {
         loop {
@@ -336,7 +341,7 @@ impl FieldManager {
         };
         field.iter_hall.reserve_iter_id(
             FIELD_REF_LOOKUP_ITER_ID,
-            false,
+            ActorId::MAX_VALUE,
             IterKind::RefLookup,
         );
         self.fields.claim_with_value(RefCell::new(field))
@@ -385,7 +390,7 @@ impl FieldManager {
                 cds.header_iter_id,
                 src.iter_hall.get_iter_state_at_end(
                     self,
-                    true,
+                    ActorId::MAX_VALUE,
                     src.iter_hall.get_iter_kind(cds.header_iter_id),
                 ),
             );
@@ -476,7 +481,7 @@ impl FieldManager {
         let src_field_ms = src_field.match_set;
         let header_iter = src_field
             .iter_hall
-            .claim_iter(true, IterKind::CowField(tgt_field_id));
+            .claim_iter(ActorId::MAX_VALUE, IterKind::CowField(tgt_field_id));
         let mut tgt_field = self.fields[tgt_field_id].borrow_mut();
         debug_assert!(matches!(
             tgt_field.iter_hall.data_source,

@@ -46,7 +46,7 @@ pub fn build_tf_success_updator<'a>(
     tf_state: &TransformState,
 ) -> TransformData<'a> {
     let su = TfSuccessUpdator {
-        iter_id: jd.add_iter_for_tf_state(tf_state),
+        iter_id: jd.claim_iter_for_tf_state(tf_state),
         success: true,
     };
     TransformData::SuccessUpdator(su)

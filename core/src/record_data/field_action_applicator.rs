@@ -13,6 +13,7 @@ use crate::{
 };
 
 use super::{
+    action_buffer::ActorId,
     field_action::FieldAction,
     field_data::{
         FieldValueFormat, FieldValueHeader, FieldValueRepr, RunLength,
@@ -167,10 +168,11 @@ impl FieldActionApplicator {
         iterators: &mut [&mut IterState],
         faas: &mut FieldActionApplicationState,
         zst_repr: FieldValueRepr,
+        actor_id: ActorId,
     ) {
         debug_assert!(zst_repr.is_zst());
         if header.fmt.repr == zst_repr {
-            return self.handle_dup(header, iterators, faas, true);
+            return self.handle_dup(header, iterators, faas, Some(actor_id));
         }
         let insert_count = faas.curr_action_run_length;
         let pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
@@ -199,7 +201,9 @@ impl FieldActionApplicator {
             if it.header_rl_offset < pre {
                 break;
             }
-            if it.header_rl_offset == pre && it.lean_left_on_inserts {
+            if it.header_rl_offset == pre
+                && actor_id < it.first_right_leaning_actor_id
+            {
                 break;
             }
             it.field_pos += insert_count;
@@ -253,8 +257,8 @@ impl FieldActionApplicator {
         faas: &mut FieldActionApplicationState,
         // when an insert is in the middle of a zst of the same repr
         // we use this method for handling it, so we have to respect
-        // isert lean in that case
-        respect_insert_lean: bool,
+        // insert lean in that case
+        insert_actor_id: Option<ActorId>,
     ) {
         // TODO: handle padding correctly and create tests for that
         let dup_count = faas.curr_action_run_length;
@@ -286,7 +290,9 @@ impl FieldActionApplicator {
                         break;
                     }
                     if it.header_rl_offset == pre
-                        && (!respect_insert_lean || it.lean_left_on_inserts)
+                        && insert_actor_id
+                            .map(|id| id < it.first_right_leaning_actor_id)
+                            .unwrap_or(true)
                     {
                         break;
                     }
@@ -301,7 +307,9 @@ impl FieldActionApplicator {
                         break;
                     }
                     if it.header_rl_offset == pre
-                        && (!respect_insert_lean || it.lean_left_on_inserts)
+                        && insert_actor_id
+                            .map(|id| id < it.first_right_leaning_actor_id)
+                            .unwrap_or(true)
                     {
                         break;
                     }
@@ -339,7 +347,9 @@ impl FieldActionApplicator {
                 break;
             }
             if it.header_rl_offset == pre
-                && (!respect_insert_lean || it.lean_left_on_inserts)
+                && insert_actor_id
+                    .map(|id| id < it.first_right_leaning_actor_id)
+                    .unwrap_or(true)
             {
                 break;
             }
@@ -605,18 +615,19 @@ impl FieldActionApplicator {
                             &mut headers[faas.header_idx],
                             iterators,
                             &mut faas,
-                            false,
+                            None,
                         );
                         faas.curr_action_pos += faas.curr_action_run_length;
                         Self::update_current_iters_start(iterators, &mut faas);
                         break;
                     }
-                    FieldActionKind::InsertZst(zst_repr) => {
+                    FieldActionKind::InsertZst { repr, actor_id } => {
                         self.handle_zst_inserts(
                             &mut headers[faas.header_idx],
                             iterators,
                             &mut faas,
-                            zst_repr,
+                            repr,
+                            actor_id,
                         );
                         faas.curr_action_pos += faas.curr_action_run_length;
                         Self::update_current_iters_start(iterators, &mut faas);
@@ -677,7 +688,7 @@ impl FieldActionApplicator {
 
         for a in curr_action.iter().copied().chain(actions) {
             assert!(a.field_idx == faas.field_pos);
-            let FieldActionKind::InsertZst(repr) = a.kind else {
+            let FieldActionKind::InsertZst { repr, actor_id } = a.kind else {
                 unreachable!()
             };
 
@@ -711,7 +722,9 @@ impl FieldActionApplicator {
                 .iter_mut()
                 .rev()
             {
-                if it.field_pos < faas.field_pos || it.lean_left_on_inserts {
+                if it.field_pos < faas.field_pos
+                    || actor_id < it.first_right_leaning_actor_id
+                {
                     break;
                 }
                 it.data = faas.data_end;
@@ -857,9 +870,11 @@ impl FieldActionApplicator {
         iters.extend(iterators);
         iters.sort_by(|lhs, rhs| match lhs.field_pos.cmp(&rhs.field_pos) {
             ord @ (Ordering::Less | Ordering::Greater) => ord,
+            // the smaller the min right leaning id is, the more right leaning
+            // the iterator is, leading to a potentially larger final position
             Ordering::Equal => lhs
-                .lean_left_on_inserts
-                .cmp(&rhs.lean_left_on_inserts)
+                .first_right_leaning_actor_id
+                .cmp(&rhs.first_right_leaning_actor_id)
                 .reverse(),
         });
         let field_count_delta =
@@ -877,18 +892,25 @@ impl FieldActionApplicator {
 mod test {
     use std::collections::VecDeque;
 
-    use crate::record_data::{
-        field_action::{FieldAction, FieldActionKind},
-        field_action_applicator::FieldActionApplicator,
-        field_data::{
-            field_value_flags, FieldData, FieldValueFormat, FieldValueHeader,
-            FieldValueRepr, RunLength,
+    use crate::{
+        record_data::{
+            action_buffer::ActorId,
+            field_action::{FieldAction, FieldActionKind},
+            field_action_applicator::FieldActionApplicator,
+            field_data::{
+                field_value_flags, FieldData, FieldValueFormat,
+                FieldValueHeader, FieldValueRepr, RunLength,
+            },
+            field_value::FieldValue,
+            iter_hall::{IterState, IterStateRaw},
+            iters::FieldIterator,
+            push_interface::PushInterface,
         },
-        field_value::FieldValue,
-        iter_hall::{IterState, IterStateRaw},
-        iters::FieldIterator,
-        push_interface::PushInterface,
+        utils::indexing_type::IndexingType,
     };
+
+    const LEAN_LEFT: ActorId = ActorId::MAX_VALUE;
+    const LEAN_RIGHT: ActorId = ActorId::ZERO;
 
     #[track_caller]
     fn test_actions_on_headers(
@@ -999,7 +1021,10 @@ mod test {
             [(0, 1), (1, 3), (2, 1)].map(|(v, rl)| (FieldValue::Int(v), rl)),
             true,
             [FieldAction::new(
-                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
                 2,
                 1,
             )],
@@ -1135,14 +1160,14 @@ mod test {
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 1,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_LEFT,
             }],
             [IterStateRaw {
                 field_pos: 0,
                 data: 2,
                 header_idx: 1,
                 header_rl_offset: 0,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_LEFT,
             }],
         );
     }
@@ -1159,14 +1184,14 @@ mod test {
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 2,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_LEFT,
             }],
             [IterStateRaw {
                 field_pos: 2,
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 2,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_LEFT,
             }],
         );
     }
@@ -1177,7 +1202,10 @@ mod test {
             [(FieldValue::Undefined, 42)],
             false,
             [FieldAction::new(
-                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
                 17,
                 2,
             )],
@@ -1188,14 +1216,14 @@ mod test {
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 17,
-                    lean_left_on_inserts: false,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 17,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 17,
-                    lean_left_on_inserts: true,
+                    first_right_leaning_actor_id: LEAN_LEFT,
                 },
             ],
             [
@@ -1204,14 +1232,14 @@ mod test {
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 19,
-                    lean_left_on_inserts: false,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 17,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 17,
-                    lean_left_on_inserts: true,
+                    first_right_leaning_actor_id: LEAN_LEFT,
                 },
             ],
         );
@@ -1223,7 +1251,10 @@ mod test {
             [(FieldValue::Int(42), 2)],
             false,
             [FieldAction::new(
-                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
                 0,
                 2,
             )],
@@ -1233,14 +1264,14 @@ mod test {
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 0,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 2,
                 data: 0,
                 header_idx: 1,
                 header_rl_offset: 0,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_RIGHT,
             }],
         );
     }
@@ -1251,7 +1282,10 @@ mod test {
             [(FieldValue::Int(42), 1)],
             false,
             [FieldAction::new(
-                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
                 1,
                 2,
             )],
@@ -1262,14 +1296,14 @@ mod test {
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
-                    lean_left_on_inserts: false,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 1,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
-                    lean_left_on_inserts: true,
+                    first_right_leaning_actor_id: LEAN_LEFT,
                 },
             ],
             [
@@ -1278,14 +1312,14 @@ mod test {
                     data: 8,
                     header_idx: 1,
                     header_rl_offset: 2,
-                    lean_left_on_inserts: false,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 1,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
-                    lean_left_on_inserts: true,
+                    first_right_leaning_actor_id: LEAN_LEFT,
                 },
             ],
         );
@@ -1296,7 +1330,10 @@ mod test {
             [],
             false,
             [FieldAction::new(
-                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
                 0,
                 2,
             )],
@@ -1307,14 +1344,14 @@ mod test {
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
-                    lean_left_on_inserts: false,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 0,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
-                    lean_left_on_inserts: true,
+                    first_right_leaning_actor_id: LEAN_LEFT,
                 },
             ],
             [
@@ -1323,14 +1360,14 @@ mod test {
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 2,
-                    lean_left_on_inserts: false,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 0,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
-                    lean_left_on_inserts: true,
+                    first_right_leaning_actor_id: LEAN_LEFT,
                 },
             ],
         );
@@ -1347,7 +1384,10 @@ mod test {
             [
                 FieldAction::new(FieldActionKind::Drop, 1, 2),
                 FieldAction::new(
-                    FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                    FieldActionKind::InsertZst {
+                        repr: FieldValueRepr::Undefined,
+                        actor_id: ActorId::ZERO,
+                    },
                     1,
                     10,
                 ),
@@ -1358,14 +1398,14 @@ mod test {
                 data: 8,
                 header_idx: 1,
                 header_rl_offset: 0,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 11,
                 data: 24,
                 header_idx: 3,
                 header_rl_offset: 10,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_RIGHT,
             }],
         );
     }
@@ -1476,7 +1516,10 @@ mod test {
             [
                 FieldAction::new(FieldActionKind::Drop, 0, 4),
                 FieldAction::new(
-                    FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                    FieldActionKind::InsertZst {
+                        repr: FieldValueRepr::Undefined,
+                        actor_id: ActorId::ZERO,
+                    },
                     1,
                     2,
                 ),
@@ -1530,14 +1573,14 @@ mod test {
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
-                    lean_left_on_inserts: false,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 1,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
-                    lean_left_on_inserts: true,
+                    first_right_leaning_actor_id: LEAN_LEFT,
                 },
             ],
             [
@@ -1546,14 +1589,14 @@ mod test {
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
-                    lean_left_on_inserts: false,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 0,
                     data: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
-                    lean_left_on_inserts: true,
+                    first_right_leaning_actor_id: LEAN_LEFT,
                 },
             ],
         );
@@ -1571,7 +1614,10 @@ mod test {
                 run_length: 1,
             }],
             [FieldAction::new(
-                FieldActionKind::InsertZst(FieldValueRepr::Undefined),
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
                 1,
                 1,
             )],
@@ -1588,14 +1634,14 @@ mod test {
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 1,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 2,
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 2,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_RIGHT,
             }],
         );
     }

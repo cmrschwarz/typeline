@@ -24,14 +24,14 @@ use scr_core::{
         },
     },
     record_data::{
-        action_buffer::{ActionBuffer, ActorId, ActorRef},
+        action_buffer::{ActionBuffer, ActorId},
         array::Array,
         field::FieldRefOffset,
         field_action::FieldActionKind,
         field_data::FieldData,
         field_value::{FieldValue, Object},
         field_value_ref::FieldValueSlice,
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueRangeIter,
         varying_type_inserter::VaryingTypeInserter,
@@ -108,26 +108,22 @@ impl Operator for OpFlatten {
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         let jd = &mut job.job_data;
-        let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer
-            .borrow_mut();
+
         let input_field_ref_offset = jd.field_mgr.register_field_reference(
             tf_state.output_field,
             tf_state.input_field,
         );
+        let actor_id =
+            jd.add_actor_for_tf_state(tf_state);
+        let input_iter_id = jd.claim_iter_for_tf_state(tf_state);
+
         let tfe = TfFlatten {
             may_consume_input: self.may_consume_input,
-            input_iter_id: jd.field_mgr.claim_iter_non_cow(
-                tf_state.input_field,
-                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-            ),
-            actor_id: ab.add_actor(),
+            actor_id,
+            input_iter_id,
             input_field_ref_offset,
         };
-        jd.field_mgr.fields[tf_state.output_field]
-            .borrow()
-            .first_actor
-            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
+
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(tfe)))
     }
 }

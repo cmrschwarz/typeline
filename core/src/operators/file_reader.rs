@@ -151,9 +151,9 @@ pub fn build_tf_file_reader<'a>(
         stream_buffer_size,
         explicit_count: op.insert_count.map(|count| ExplicitCount {
             count,
-            actor_id: jd.add_actor_for_tf_state_apply_to_output_field(tf_state),
+            actor_id: jd.add_actor_for_tf_state(tf_state),
         }),
-        iter_id: jd.add_iter_for_tf_state(tf_state),
+        iter_id: jd.claim_iter_for_tf_state(tf_state),
         value_committed: false,
     })
 }

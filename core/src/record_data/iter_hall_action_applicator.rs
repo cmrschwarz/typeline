@@ -876,23 +876,29 @@ impl IterHallActionApplicator {
 mod test_dead_data_drop {
     use std::{cell::Cell, collections::VecDeque};
 
-    use crate::record_data::{
-        action_buffer::ActorRef,
-        field::{FieldManager, FIELD_REF_LOOKUP_ITER_ID},
-        field_action::FieldActionKind,
-        field_data::{
-            field_value_flags, FieldValueFormat, FieldValueHeader,
-            FieldValueRepr,
+    use crate::{
+        record_data::{
+            action_buffer::{ActorId, ActorRef},
+            field::{FieldManager, FIELD_REF_LOOKUP_ITER_ID},
+            field_action::FieldActionKind,
+            field_data::{
+                field_value_flags, FieldValueFormat, FieldValueHeader,
+                FieldValueRepr,
+            },
+            field_value::FieldValue,
+            iter_hall::{IterState, IterStateRaw},
+            iter_hall_action_applicator::{
+                DeadDataReport, IterHallActionApplicator,
+            },
+            match_set::MatchSetManager,
+            push_interface::PushInterface,
+            scope_manager::ScopeManager,
         },
-        field_value::FieldValue,
-        iter_hall::{IterState, IterStateRaw},
-        iter_hall_action_applicator::{
-            DeadDataReport, IterHallActionApplicator,
-        },
-        match_set::MatchSetManager,
-        push_interface::PushInterface,
-        scope_manager::ScopeManager,
+        utils::indexing_type::IndexingType,
     };
+
+    const LEAN_LEFT: ActorId = ActorId::MAX_VALUE;
+    const LEAN_RIGHT: ActorId = ActorId::ZERO;
 
     #[track_caller]
     fn test_drop_dead_data_explicit(
@@ -1159,14 +1165,14 @@ mod test_dead_data_drop {
                 data: 40,
                 header_idx: 4,
                 header_rl_offset: 0,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 1,
                 data: 16,
                 header_idx: 2,
                 header_rl_offset: 0,
-                lean_left_on_inserts: false,
+                first_right_leaning_actor_id: LEAN_RIGHT,
             }],
         );
     }
@@ -1234,14 +1240,14 @@ mod test_dead_data_drop {
                 data: 3,
                 header_idx: 2,
                 header_rl_offset: 0,
-                lean_left_on_inserts: true,
+                first_right_leaning_actor_id: LEAN_LEFT,
             }],
             [IterStateRaw {
                 field_pos: 1,
                 data: 3,
                 header_idx: 2,
                 header_rl_offset: 0,
-                lean_left_on_inserts: true,
+                first_right_leaning_actor_id: LEAN_LEFT,
             }],
         );
     }
@@ -1292,14 +1298,14 @@ mod test_dead_data_drop {
                 data: 1,
                 header_idx: 1,
                 header_rl_offset: 0,
-                lean_left_on_inserts: true,
+                first_right_leaning_actor_id: LEAN_LEFT,
             }],
             [IterStateRaw {
                 field_pos: 0,
                 data: 0,
                 header_idx: 0,
                 header_rl_offset: 0,
-                lean_left_on_inserts: true,
+                first_right_leaning_actor_id: LEAN_LEFT,
             }],
         );
     }

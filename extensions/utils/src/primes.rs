@@ -23,7 +23,7 @@ use scr_core::{
         },
     },
     record_data::{
-        action_buffer::{ActorId, ActorRef},
+        action_buffer::ActorId,
         field::Field,
         fixed_sized_type_inserter::FixedSizeTypeInserter,
         group_track::GroupTrackIterRef,
@@ -82,24 +82,16 @@ impl Operator for OpPrimes {
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         let jd = &mut job.job_data;
-        let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer
-            .borrow_mut();
-        let actor_id = ab.add_actor();
+        let actor_id =
+            jd.add_actor_for_tf_state(tf_state);
+        let iter_id = jd.claim_iter_for_tf_state(tf_state);
         let iter_kind =
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());
         let group_iter = jd.group_track_manager.claim_group_track_iter_ref(
             tf_state.input_group_track_id,
             iter_kind,
         );
-        let iter_id = jd.field_mgr.fields[tf_state.input_field]
-            .borrow_mut()
-            .iter_hall
-            .claim_iter_non_cow(iter_kind);
-        jd.field_mgr.fields[tf_state.output_field]
-            .borrow()
-            .first_actor
-            .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
+
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfPrimes {
                 sieve: primes::Sieve::new(),

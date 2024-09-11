@@ -6,10 +6,8 @@ use crate::{
     liveness_analysis::LivenessData,
     options::session_setup::SessionSetupData,
     record_data::{
-        action_buffer::{ActorId, ActorRef},
-        field_action::FieldActionKind,
-        iter_hall::{IterId, IterKind},
-        iters::FieldIterator,
+        action_buffer::ActorId, field_action::FieldActionKind,
+        iter_hall::IterId, iters::FieldIterator,
     },
     scr_error::ScrError,
     utils::{index_vec::IndexVec, indexing_type::IndexingType},
@@ -137,21 +135,11 @@ pub fn insert_tf_aggregator(
         .field_mgr
         .inc_field_refcount(out_fid, op_count + 1);
     tf_state.output_field = in_fid;
-    let ms = &job.job_data.match_set_mgr.match_sets[ms_id];
-    let mut ab = ms.action_buffer.borrow_mut();
-    let actor_id = ab.add_actor();
     let active_group_track = tf_state.input_group_track_id;
-    job.job_data.field_mgr.fields[out_fid]
-        .borrow()
-        .first_actor
-        .set(ActorRef::Unconfirmed(ab.peek_next_actor_id()));
-    drop(ab);
-    let iter_id = job.job_data.field_mgr.fields[in_fid]
-        .borrow_mut()
-        .iter_hall
-        .claim_iter_non_cow(IterKind::Transform(
-            job.job_data.tf_mgr.transforms.peek_claim_id(),
-        ));
+    let actor_id = job
+        .job_data
+        .add_actor_for_tf_state(&tf_state);
+    let iter_id = job.job_data.claim_iter_for_tf_state(&tf_state);
 
     let header_tf_id = add_transform_to_job(
         &mut job.job_data,

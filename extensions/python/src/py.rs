@@ -173,8 +173,9 @@ impl Operator for OpPy {
     ) -> TransformInstatiation<'a> {
         let mut input_fields = Vec::new();
         let jd = &mut job.job_data;
-        let scope_id =
-            jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
+        let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
+        let scope_id = ms.active_scope;
+        let next_actor_id = ms.action_buffer.borrow().peek_next_actor_id();
         for fv in &self.free_vars_sse {
             let field_id = if let Some(name) = fv {
                 if let Some(id) = jd.scope_mgr.lookup_field(
@@ -207,8 +208,9 @@ impl Operator for OpPy {
 
             input_fields.push(FieldIterRef {
                 field_id,
-                iter_id: jd.field_mgr.claim_iter_non_cow(
+                iter_id: jd.field_mgr.claim_iter(
                     field_id,
+                    next_actor_id,
                     IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
                 ),
             });

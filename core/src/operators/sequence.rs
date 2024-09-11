@@ -141,8 +141,8 @@ pub fn build_tf_sequence<'a>(
         current_value: op.ss.start,
         mode: op.mode,
         non_string_reads: op.non_string_reads,
-        iter_id: jd.add_iter_for_tf_state(tf_state),
-        actor_id: jd.add_actor_for_tf_state_apply_to_output_field(tf_state),
+        iter_id: jd.claim_iter_for_tf_state(tf_state),
+        actor_id: jd.add_actor_for_tf_state(tf_state),
         seq_len_total: op.seq_len_total,
         group_track_iter_ref,
     })

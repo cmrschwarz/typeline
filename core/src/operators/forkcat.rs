@@ -312,6 +312,7 @@ pub fn insert_tf_forkcat<'a>(
 
     let continuation_dummy_iter = job.job_data.field_mgr.claim_iter_ref(
         cont_dummy_field,
+        ActorId::ZERO,
         IterKind::Transform(job.job_data.tf_mgr.transforms.peek_claim_id()),
     );
 
@@ -478,6 +479,12 @@ fn setup_subchain<'a>(
     let fc_sc_terminator_tf_id =
         job.job_data.tf_mgr.transforms.peek_claim_id();
 
+    let sc_terminator_actor_id = job.job_data.match_set_mgr.match_sets
+        [sc_ms_id]
+        .action_buffer
+        .borrow_mut()
+        .add_actor();
+
     for (i, var) in op.continuation_vars.iter_enumerated() {
         let sc_ms = &job.job_data.match_set_mgr.match_sets[sc_ms_id];
         let sc_scope = sc_ms.active_scope;
@@ -527,8 +534,9 @@ fn setup_subchain<'a>(
             field_cow_tgt_id,
         );
 
-        let field_iter = job.job_data.field_mgr.claim_iter_non_cow(
+        let field_iter = job.job_data.field_mgr.claim_iter(
             field_id,
+            sc_terminator_actor_id,
             IterKind::Transform(fc_sc_terminator_tf_id),
         );
 
@@ -561,11 +569,6 @@ fn setup_subchain<'a>(
     let desired_batch_size = job
         .job_data
         .get_scope_setting_or_default::<SettingBatchSize>(fc_ms_scope);
-
-    let actor_id = job.job_data.match_set_mgr.match_sets[sc_ms_id]
-        .action_buffer
-        .borrow_mut()
-        .add_actor();
 
     let trailer_tf_id_peek = job.job_data.tf_mgr.transforms.peek_claim_id();
     let group_track_iter_ref =
@@ -603,7 +606,7 @@ fn setup_subchain<'a>(
         ms_id: sc_ms_id,
         start_tf_id: instantiation.tfs_begin,
         trailer_tf_id,
-        actor_id,
+        actor_id: sc_terminator_actor_id,
         group_track_iter_ref,
         continuation_field_mappings,
         field_iters_temp_slot: IndexVec::new(),

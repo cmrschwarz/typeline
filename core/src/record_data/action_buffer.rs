@@ -18,7 +18,7 @@ use crate::{
 };
 
 index_newtype! {
-    pub struct ActorId(u32);
+    pub struct ActorId(u16);
     pub struct SnapshotRef(ActionGroupId);
 
     pub struct ActionGroupId(u32);
@@ -156,7 +156,7 @@ pub fn eprint_action_list(actions: impl Iterator<Item = FieldAction>) {
             idx_delta + isize::try_from(a.field_idx).unwrap()
         );
         match a.kind {
-            FieldActionKind::Dup | FieldActionKind::InsertZst(_) => {
+            FieldActionKind::Dup | FieldActionKind::InsertZst { .. } => {
                 idx_delta -= isize::try_from(a.run_len).unwrap()
             }
             FieldActionKind::Drop => {
@@ -234,7 +234,7 @@ impl ActionBuffer {
     ) {
         let rl_delta = isize::try_from(run_length).unwrap();
         match kind {
-            FieldActionKind::Dup | FieldActionKind::InsertZst(_) => {
+            FieldActionKind::Dup | FieldActionKind::InsertZst { .. } => {
                 // TODO: on 32 bit, consider checked adds?
                 self.pending_action_group_field_count_delta += rl_delta
             }

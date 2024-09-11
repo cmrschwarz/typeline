@@ -25,7 +25,7 @@ use scr_core::{
         field_data::FieldData,
         field_value::{FieldValue, Object},
         field_value_ref::FieldValueSlice,
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueRangeIter,
@@ -140,12 +140,7 @@ impl Operator for OpExplode {
             },
             inserters: Default::default(),
             pending_fields: Default::default(),
-            input_iter_id: job.job_data.field_mgr.claim_iter_non_cow(
-                tf_state.input_field,
-                IterKind::Transform(
-                    job.job_data.tf_mgr.transforms.peek_claim_id(),
-                ),
-            ),
+            input_iter_id: job.job_data.claim_iter_for_tf_state(&tf_state),
             input_field_field_ref_offset,
         };
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(tfe)))

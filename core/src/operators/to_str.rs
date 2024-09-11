@@ -12,7 +12,7 @@ use crate::{
     record_data::{
         field_value::FieldValue,
         field_value_ref::FieldValueSlice,
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{AutoDerefIter, RefAwareFieldValueRangeIter},
@@ -163,10 +163,7 @@ pub fn build_tf_to_str<'a>(
         jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
 
     TransformData::ToStr(TfToStr {
-        batch_iter: jd.field_mgr.claim_iter_non_cow(
-            tf_state.input_field,
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-        ),
+        batch_iter: jd.claim_iter_for_tf_state(tf_state),
         pending_streams: 0,
         invalid_unicode_handler: replacement_fn,
         convert_errors: op.convert_errors,

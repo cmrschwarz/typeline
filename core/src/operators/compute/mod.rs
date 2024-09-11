@@ -187,6 +187,11 @@ pub fn build_tf_compute<'a>(
     let mut idents = IndexVec::new();
     let mut unbound_fields = IndexVec::new();
 
+    let next_actor_id = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+        .action_buffer
+        .borrow()
+        .peek_next_actor_id();
+
     let scope_id =
         jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
 
@@ -233,8 +238,9 @@ pub fn build_tf_compute<'a>(
         let field_idx = unbound_fields.push_get_id(ExternField {
             iter_ref: FieldIterRef {
                 field_id,
-                iter_id: jd.field_mgr.claim_iter_non_cow(
+                iter_id: jd.field_mgr.claim_iter(
                     field_id,
+                    next_actor_id,
                     IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
                 ),
             },

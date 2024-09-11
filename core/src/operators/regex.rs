@@ -496,14 +496,8 @@ pub fn build_tf_regex<'a>(
 ) -> TransformData<'a> {
     let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
     let active_scope = ms.active_scope;
-    let mut ab = ms.action_buffer.borrow_mut();
-    let actor_id = ab.add_actor();
-    let next_actor_id = ActorRef::Unconfirmed(ab.peek_next_actor_id());
-    drop(ab);
-    let output_field = jd.field_mgr.fields[tf_state.output_field].borrow();
-
-    output_field.first_actor.set(next_actor_id);
-    drop(output_field);
+    let actor_id = jd.add_actor_for_tf_state(tf_state);
+    let next_actor_id = actor_id + ActorId::one();
     let mut input_field_ref_offset = FieldRefOffset::MAX;
     let mut capture_group_fields = Vec::new();
     for (i, name) in op.capture_group_names.iter().enumerate() {
@@ -527,7 +521,7 @@ pub fn build_tf_regex<'a>(
                 let field_id = jd.field_mgr.add_field(
                     &jd.match_set_mgr,
                     tf_state.match_set_id,
-                    next_actor_id,
+                    ActorRef::Unconfirmed(next_actor_id),
                 );
                 jd.scope_mgr
                     .insert_field_name(active_scope, *name, field_id);
@@ -560,8 +554,9 @@ pub fn build_tf_regex<'a>(
             .map(|r| (r.clone(), r.capture_locations())),
         capture_group_fields,
         capture_locs: op.regex.capture_locations(),
-        input_field_iter_id: jd.field_mgr.claim_iter_non_cow(
+        input_field_iter_id: jd.field_mgr.claim_iter(
             tf_state.input_field,
+            next_actor_id,
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
         ),
         // if we reach our target batch size while we are in the middle

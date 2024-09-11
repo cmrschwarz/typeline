@@ -71,7 +71,7 @@ pub fn build_tf_field_value_sink<'a>(
 ) -> TransformData<'a> {
     TransformData::FieldValueSink(TfFieldValueSink {
         handle: &ss.handle.data,
-        batch_iter: jd.add_iter_for_tf_state(tf_state),
+        batch_iter: jd.claim_iter_for_tf_state(tf_state),
         stream_value_handles: CountedUniverse::default(),
     })
 }

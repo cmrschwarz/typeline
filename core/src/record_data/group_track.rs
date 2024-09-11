@@ -251,7 +251,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
         let mut action_run_len = a.run_len as usize;
         self.move_to_field_pos(a.field_idx);
         match a.kind {
-            FieldActionKind::Dup | FieldActionKind::InsertZst(_) => {
+            FieldActionKind::Dup | FieldActionKind::InsertZst { .. } => {
                 self.group_len_rem += action_run_len;
                 self.group_len += action_run_len;
                 self.curr_iters_field_pos_delta += action_run_len as isize;
@@ -1529,7 +1529,15 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         self.base.field_pos += count;
 
         self.action_buffer.borrow_mut().push_action(
-            FieldActionKind::InsertZst(repr),
+            FieldActionKind::InsertZst {
+                repr,
+                actor_id: self
+                    .base
+                    .group_track
+                    .actor_ref
+                    .confirmed_id()
+                    .unwrap(),
+            },
             field_pos_prev,
             count,
         );

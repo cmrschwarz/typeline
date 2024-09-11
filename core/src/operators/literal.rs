@@ -93,13 +93,13 @@ pub fn build_tf_literal<'a>(
     op: &'a OpLiteral,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
-    let iter_id = jd.add_iter_for_tf_state(tf_state);
+    let iter_id = jd.claim_iter_for_tf_state(tf_state);
     TransformData::Literal(TfLiteral {
         data: &op.data,
         explicit_count: op.insert_count.map(|count| ExplicitCount {
             count,
             actor_id: jd
-                .add_actor_for_tf_state_apply_to_output_field(tf_state),
+                .add_actor_for_tf_state(tf_state),
         }),
         value_inserted: false,
         iter_id,

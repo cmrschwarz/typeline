@@ -286,9 +286,10 @@ pub fn build_tf_format<'a>(
     tf_state: &TransformState,
 ) -> TransformData<'a> {
     let mut refs = IndexVec::new();
+    let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
+    let scope_id = ms.active_scope;
 
-    let scope_id =
-        jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
+    let next_actor_id = ms.action_buffer.borrow().peek_next_actor_id();
 
     for key_ref in &op.refs {
         match key_ref.ref_type {
@@ -328,8 +329,9 @@ pub fn build_tf_format<'a>(
         };
         refs.push(FormatKeyRef::Field(FieldIterRef {
             field_id,
-            iter_id: jd.field_mgr.claim_iter_non_cow(
+            iter_id: jd.field_mgr.claim_iter(
                 field_id,
+                next_actor_id,
                 IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
             ),
         }))

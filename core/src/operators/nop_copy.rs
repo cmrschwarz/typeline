@@ -63,7 +63,7 @@ pub fn build_tf_nop_copy<'a>(
         .register_field_reference(tf_state.output_field, tf_state.input_field);
     let tfc = TfNopCopy {
         may_consume_input: op.may_consume_input,
-        input_iter_id: jd.add_iter_for_tf_state(tf_state),
+        input_iter_id: jd.claim_iter_for_tf_state(tf_state),
         input_field_ref_offset,
     };
     TransformData::NopCopy(tfc)

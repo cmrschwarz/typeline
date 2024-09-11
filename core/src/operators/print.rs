@@ -127,7 +127,7 @@ pub fn build_tf_print<'a>(
             .get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state),
         current_stream_val: None,
         streams_kept_alive: 0,
-        iter_id: jd.add_iter_for_tf_state(tf_state),
+        iter_id: jd.claim_iter_for_tf_state(tf_state),
         target: op.target.take_writer(true),
         opts: op.opts,
     })
