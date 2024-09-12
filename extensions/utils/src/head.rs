@@ -16,7 +16,7 @@ use scr_core::{
             TransformState,
         },
     },
-    record_data::{action_buffer::ActorId, field_action::FieldActionKind},
+    record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
     scr_error::ScrError,
     smallbox,
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
@@ -30,13 +30,16 @@ pub struct OpHead {
 }
 
 pub struct TfHead {
+    retain_total: usize,
     remaining: usize,
     actor_id: ActorId,
+    group_track_iter: GroupTrackIterRef,
 }
 
 pub struct TfHeadSubtractive {
     drop_count: usize,
     actor_id: ActorId,
+    group_track_iter: GroupTrackIterRef,
 }
 
 impl Operator for OpHead {
@@ -102,20 +105,27 @@ impl Operator for OpHead {
             .action_buffer
             .borrow_mut()
             .add_actor();
+        let group_track_iter =
+            jd.claim_group_track_iter_for_tf_state(tf_state);
         // TODO: creae a nicer api for this usecase where we don't want
         // an output field
         jd.field_mgr
             .drop_field_refcount(tf_state.output_field, &mut jd.match_set_mgr);
         tf_state.output_field = tf_state.input_field;
         let res = if self.count < 0 {
+            let drop_count = (-self.count) as usize;
             smallbox!(TfHeadSubtractive {
-                drop_count: (-self.count) as usize,
+                drop_count,
                 actor_id,
+                group_track_iter,
             })
         } else {
+            let retain_count = self.count as usize;
             smallbox!(TfHead {
-                remaining: self.count as usize,
-                actor_id
+                retain_total: retain_count,
+                remaining: retain_count,
+                actor_id,
+                group_track_iter,
             })
         };
         TransformInstatiation::Simple(TransformData::Custom(res))
@@ -129,36 +139,49 @@ impl Transform<'_> for TfHead {
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
-        let tf = &jd.tf_mgr.transforms[tf_id];
 
-        if ps.successor_done {
-            jd.tf_mgr.help_out_with_output_done(
-                &mut jd.match_set_mgr,
-                tf_id,
+        let mut iter =
+            jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
+                self.group_track_iter,
+                &jd.match_set_mgr,
                 self.actor_id,
-                batch_size,
             );
-            return;
+
+        let mut batch_size_rem = batch_size;
+        let mut output_count = 0;
+        loop {
+            let group_len_rem = iter.group_len_rem();
+            let consumable = group_len_rem.min(batch_size_rem);
+            batch_size_rem -= consumable;
+            if consumable < self.remaining {
+                output_count += consumable;
+                if consumable != group_len_rem || !iter.try_next_group() {
+                    self.remaining -= consumable;
+                    iter.next_n_fields(consumable);
+                    break;
+                }
+                self.remaining = self.retain_total;
+                continue;
+            }
+            iter.next_n_fields(self.remaining);
+
+            output_count += self.remaining;
+            if consumable != group_len_rem {
+                iter.next_n_fields(consumable);
+                self.remaining -= consumable;
+                break;
+            }
+            let overflow = group_len_rem - self.remaining;
+            iter.drop(overflow);
+            if !iter.try_next_group() {
+                self.remaining = 0;
+                break;
+            }
+            self.remaining = self.retain_total;
         }
+        iter.store_iter(self.group_track_iter.iter_id);
 
-        if self.remaining >= batch_size {
-            self.remaining -= batch_size;
-            jd.tf_mgr
-                .submit_batch(tf_id, batch_size, self.remaining == 0);
-            return;
-        }
-
-        let rows_to_submit = self.remaining;
-        let rows_to_drop = batch_size - rows_to_submit;
-        self.remaining = 0;
-
-        let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
-            .action_buffer
-            .borrow_mut();
-        ab.begin_action_group(self.actor_id);
-        ab.push_action(FieldActionKind::Drop, rows_to_submit, rows_to_drop);
-        ab.end_action_group();
-        jd.tf_mgr.submit_batch(tf_id, rows_to_submit, true);
+        jd.tf_mgr.submit_batch(tf_id, output_count, ps.input_done);
     }
 }
 
@@ -168,32 +191,41 @@ impl Transform<'_> for TfHeadSubtractive {
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        let tf = &mut jd.tf_mgr.transforms[tf_id];
-        // TODO: update clear delay for dynamic fields / aliases
-        // PERF: e.g. for `head=-10`, we should never have to buffer
-        // more than 10 elements, as we can already release the first
-        // one if we have 11.
-        // we could have two sets of all fields and then swap
+        let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 
-        if !tf.predecessor_done {
-            return;
+        let mut iter =
+            jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
+                self.group_track_iter,
+                &jd.match_set_mgr,
+                self.actor_id,
+            );
+
+        let mut batch_size_rem = batch_size;
+        let mut output_count = 0;
+
+        loop {
+            let group_len_rem = iter.group_len_rem();
+            let consumable = group_len_rem.min(batch_size_rem);
+            let pass_count = consumable.saturating_sub(self.drop_count);
+            if iter.is_last_group() && !ps.input_done {
+                iter.next_n_fields(pass_count);
+                batch_size_rem -= pass_count;
+                output_count += pass_count;
+                break;
+            }
+
+            batch_size_rem -= consumable;
+
+            let drop_count = consumable - pass_count;
+            iter.next_n_fields(pass_count);
+            iter.drop(drop_count);
+            if !iter.try_next_group() {
+                break;
+            }
         }
-        let match_set_id = tf.match_set_id;
-        let batch_size = tf.available_batch_size;
-        tf.available_batch_size = 0;
-
-        let mut ab = jd.match_set_mgr.match_sets[match_set_id]
-            .action_buffer
-            .borrow_mut();
-
-        let rows_to_drop = batch_size.min(self.drop_count);
-        let rows_to_submit = batch_size - rows_to_drop;
-
-        ab.begin_action_group(self.actor_id);
-        ab.push_action(FieldActionKind::Drop, rows_to_submit, rows_to_drop);
-        ab.end_action_group();
-
-        jd.tf_mgr.submit_batch(tf_id, rows_to_submit, true);
+        iter.store_iter(self.group_track_iter.iter_id);
+        jd.tf_mgr.unclaim_batch_size(tf_id, batch_size_rem);
+        jd.tf_mgr.submit_batch(tf_id, output_count, ps.input_done);
     }
 }
 
