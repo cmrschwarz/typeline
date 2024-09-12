@@ -44,7 +44,7 @@ pub struct TfHeadSubtractive {
 
 impl Operator for OpHead {
     fn default_name(&self) -> scr_core::operators::operator::OperatorName {
-        "head".into()
+        format!("head={}", self.count).into()
     }
 
     fn output_field_kind(
@@ -138,7 +138,7 @@ impl Operator for OpHead {
 
 impl Transform<'_> for TfHead {
     fn display_name(&self) -> DefaultTransformName {
-        "head".into()
+        format!("head={}", self.retain_total).into()
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
@@ -190,7 +190,7 @@ impl Transform<'_> for TfHead {
 
 impl Transform<'_> for TfHeadSubtractive {
     fn display_name(&self) -> DefaultTransformName {
-        "head".into()
+        format!("head=-{}", self.drop_count).into()
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
@@ -210,10 +210,11 @@ impl Transform<'_> for TfHeadSubtractive {
             let group_len_rem = iter.group_len_rem();
             let consumable = group_len_rem.min(batch_size_rem);
             let pass_count = consumable.saturating_sub(self.drop_count);
+            output_count += pass_count;
+
             if iter.is_last_group() && !ps.input_done {
                 iter.next_n_fields(pass_count);
                 batch_size_rem -= pass_count;
-                output_count += pass_count;
                 break;
             }
 
