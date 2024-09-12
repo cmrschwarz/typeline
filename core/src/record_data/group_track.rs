@@ -1343,6 +1343,7 @@ impl<L: Deref<Target = GroupTrack>> GroupTrackIter<L> {
             return false;
         };
         self.group_idx += 1;
+        self.field_pos += self.group_len_rem;
         self.group_len_rem = next_group_len;
         true
     }

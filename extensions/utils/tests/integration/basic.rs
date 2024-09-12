@@ -1,7 +1,8 @@
 use rstest::rstest;
 use scr::{
-    operators::sequence::create_op_enum,
-    options::session_setup::ScrSetupOptions, record_data::array::Array,
+    operators::{chunks::create_op_chunks, sequence::create_op_enum},
+    options::session_setup::ScrSetupOptions,
+    record_data::array::Array,
     CliOptionsWithDefaultExtensions,
 };
 use scr_core::{
@@ -16,8 +17,11 @@ use scr_core::{
     scr_error::ScrError,
 };
 use scr_ext_utils::{
-    explode::create_op_explode, flatten::create_op_flatten,
-    head::create_op_head, primes::create_op_primes, tail::create_op_tail_add,
+    explode::create_op_explode,
+    flatten::create_op_flatten,
+    head::create_op_head,
+    primes::create_op_primes,
+    tail::{create_op_tail, create_op_tail_add},
 };
 
 #[test]
@@ -166,5 +170,15 @@ fn flatten_duped_objects() -> Result<(), ScrError> {
         .take(3)
         .collect::<Vec<_>>()
     );
+    Ok(())
+}
+
+#[test]
+fn chunked_tail() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seqn(1, 10, 1).unwrap())
+        .add_op(create_op_chunks(3, [create_op_tail(1)]).unwrap())
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [3, 6, 9, 10]);
     Ok(())
 }

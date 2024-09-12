@@ -9,7 +9,7 @@ use scr_core::{
     operators::{
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorId,
-            PreboundOutputsMap, TransformInstatiation,
+            OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
@@ -45,6 +45,14 @@ pub struct TfHeadSubtractive {
 impl Operator for OpHead {
     fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "head".into()
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> scr_core::operators::operator::OutputFieldKind {
+        OutputFieldKind::SameAsInput
     }
 
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
@@ -107,11 +115,7 @@ impl Operator for OpHead {
             .add_actor();
         let group_track_iter =
             jd.claim_group_track_iter_for_tf_state(tf_state);
-        // TODO: creae a nicer api for this usecase where we don't want
-        // an output field
-        jd.field_mgr
-            .drop_field_refcount(tf_state.output_field, &mut jd.match_set_mgr);
-        tf_state.output_field = tf_state.input_field;
+
         let res = if self.count < 0 {
             let drop_count = (-self.count) as usize;
             smallbox!(TfHeadSubtractive {
@@ -164,7 +168,6 @@ impl Transform<'_> for TfHead {
                 continue;
             }
             iter.next_n_fields(self.remaining);
-
             output_count += self.remaining;
             if consumable != group_len_rem {
                 iter.next_n_fields(consumable);
