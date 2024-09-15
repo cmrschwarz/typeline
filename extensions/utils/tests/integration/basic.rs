@@ -78,7 +78,7 @@ fn primes_head_tail_add() -> Result<(), ScrError> {
 fn head_tail_cli() -> Result<(), ScrError> {
     let res = ContextBuilder::from_cli_arg_strings(
         ScrSetupOptions::with_default_extensions(),
-        ["scr", "primes", "tail=+3", "head=5"],
+        ["scr", "%bs=10", "primes", "tail=+3", "head=5"],
     )?
     .run_collect_as::<i64>()?;
     assert_eq!(res, [7, 11, 13, 17, 19]);

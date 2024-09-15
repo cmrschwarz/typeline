@@ -51,7 +51,12 @@ pub struct TfTailAdditive {
 
 impl Operator for OpTail {
     fn default_name(&self) -> scr_core::operators::operator::OperatorName {
-        "tail".into()
+        format!(
+            "tail={}{}",
+            if self.additive_mode { "+" } else { "" },
+            self.count,
+        )
+        .into()
     }
 
     fn output_field_kind(
@@ -144,7 +149,7 @@ impl Operator for OpTail {
 
 impl Transform<'_> for TfTail {
     fn display_name(&self) -> DefaultTransformName {
-        "tail".into()
+        format!("tail={}", self.count).into()
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
@@ -185,7 +190,7 @@ impl Transform<'_> for TfTail {
 
 impl Transform<'_> for TfTailAdditive {
     fn display_name(&self) -> DefaultTransformName {
-        "tail".into()
+        format!("tail=+{}", self.skip_count).into()
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
@@ -205,8 +210,8 @@ impl Transform<'_> for TfTailAdditive {
             let group_len_rem = iter.group_len_rem();
             let consumable = group_len_rem.min(batch_size_rem);
             batch_size_rem -= consumable;
-            let droppable = consumable.saturating_sub(self.skips_remaining);
-            let acceptable = consumable - droppable;
+            let acceptable = consumable.saturating_sub(self.skips_remaining);
+            let droppable = consumable - acceptable;
             iter.drop(droppable);
             output_count += acceptable;
             if consumable == group_len_rem && iter.try_next_group() {

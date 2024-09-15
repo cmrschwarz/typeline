@@ -1644,7 +1644,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         self.base.group_track.lookup_and_advance_affected_iters_(
             self.base.group_idx..=self.base.group_idx,
             self.base.field_pos + 1..,
-            count as isize,
+            -(count as isize),
         );
     }
     pub fn drop(&mut self, count: usize) {
