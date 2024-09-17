@@ -645,6 +645,9 @@ impl GroupTrack {
         }
         for it in &mut self.iter_states {
             let it = it.get_mut();
+            if it.field_pos < self.passed_fields_count {
+                it.field_pos = self.passed_fields_count;
+            }
             match it.group_idx.cmp(&lgts.full_group_count) {
                 Ordering::Less => {
                     it.group_idx = 0;
