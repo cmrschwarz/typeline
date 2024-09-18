@@ -2,14 +2,13 @@ use std::{
     cell::{Cell, Ref, RefCell, RefMut},
     cmp::Ordering,
     fmt::Display,
-    ops::{Deref, DerefMut, Range, RangeBounds},
+    ops::{Deref, DerefMut, Range},
 };
 
 use crate::{
     index_newtype,
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32, indexing_type::IndexingType,
-        range_bounds_to_range_usize,
         size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
     },
 };
@@ -855,49 +854,47 @@ impl GroupTrack {
     }
     fn lookup_iter_sort_key_range(
         &self,
-        group_index_range: Range<GroupIdx>,
-        field_pos_range: Range<usize>,
+        group_index: GroupIdx,
+        field_pos_start: usize,
     ) -> Range<GroupTrackIterSortedIndex> {
         let mut start = self
             .iter_states
-            .binary_search_by_key(
-                &(group_index_range.start, field_pos_range.start),
-                |is| {
-                    let is = is.get();
-                    (is.group_idx, is.group_offset)
-                },
-            )
+            .binary_search_by_key(&(group_index, field_pos_start), |is| {
+                let is = is.get();
+                (is.group_idx, is.group_offset)
+            })
             .unwrap_or_else(|insert_point| insert_point);
         let mut end = if start == self.iter_states.len() {
             start
         } else {
             start + 1
         };
+        while start < end
+            && self.iter_states[start].get().group_idx < group_index
+        {
+            start += 1;
+        }
+        while start < end
+            && self.iter_states[end - 1].get().group_idx > group_index
+        {
+            end -= 1;
+        }
         loop {
             if start == 0 {
                 break;
             }
             let is = self.iter_states[start - 1].get();
-            if is.group_idx < group_index_range.start {
+            if is.group_idx < group_index {
                 break;
             }
-            if is.group_idx == group_index_range.start
-                && is.field_pos < field_pos_range.start
-            {
+            if is.group_idx == group_index && is.field_pos < field_pos_start {
                 break;
             }
             start -= 1;
         }
-        loop {
-            if end == self.iter_states.len() {
-                break;
-            }
-            let is = self.iter_states[end].get();
-            if is.group_idx >= group_index_range.end
-                || is.field_pos >= field_pos_range.end
-            {
-                break;
-            }
+        while end < self.iter_states.len()
+            && self.iter_states[end].get().group_idx == group_index
+        {
             end += 1;
         }
         start as u32..end as u32
@@ -965,22 +962,13 @@ impl GroupTrack {
     }
     fn lookup_and_advance_affected_iters_(
         &mut self,
-        group_index_range: impl RangeBounds<GroupIdx>,
-        field_pos_range: impl RangeBounds<usize>,
+        group_index: GroupIdx,
+        field_pos_start: usize,
         count: isize,
     ) {
-        let group_index_range = range_bounds_to_range_usize(
-            group_index_range,
-            self.iter_states.len(),
-        );
-        let field_pos_range =
-            range_bounds_to_range_usize(field_pos_range, usize::MAX);
         self.advance_affected_iters(
-            self.lookup_iter_sort_key_range(
-                group_index_range,
-                field_pos_range.clone(),
-            ),
-            field_pos_range.start,
+            self.lookup_iter_sort_key_range(group_index, field_pos_start),
+            field_pos_start,
             count,
         )
     }
@@ -1536,8 +1524,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         }
 
         self.base.group_track.lookup_and_advance_affected_iters_(
-            self.base.group_idx..=self.base.group_idx,
-            self.base.field_pos..,
+            self.base.group_idx,
+            self.base.field_pos,
             count as isize,
         );
 
@@ -1584,8 +1572,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
             count,
         );
         self.base.group_track.lookup_and_advance_affected_iters_(
-            self.base.group_idx..=self.base.group_idx,
-            self.base.field_pos + 1..,
+            self.base.group_idx,
+            self.base.field_pos + 1,
             count as isize,
         );
     }
@@ -1605,8 +1593,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
             count,
         );
         self.base.group_track.lookup_and_advance_affected_iters_(
-            self.base.group_idx..=self.base.group_idx,
-            field_pos + 1..,
+            self.base.group_idx,
+            field_pos + 1,
             count as isize,
         );
     }
@@ -1626,8 +1614,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
             count,
         );
         self.base.group_track.lookup_and_advance_affected_iters_(
-            self.base.group_idx..=self.base.group_idx,
-            field_pos + 1..,
+            self.base.group_idx,
+            field_pos + 1,
             count as isize,
         );
     }
@@ -1659,8 +1647,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         self.group_len -= count;
         self.update_group_len = true;
         self.base.group_track.lookup_and_advance_affected_iters_(
-            self.base.group_idx..=self.base.group_idx,
-            self.base.field_pos + 1..,
+            self.base.group_idx,
+            self.base.field_pos + 1,
             -(count as isize),
         );
     }
@@ -1689,8 +1677,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         self.update_group_len = true;
         self.base.field_pos -= count;
         self.base.group_track.lookup_and_advance_affected_iters_(
-            self.base.group_idx..=self.base.group_idx,
-            self.base.field_pos + 1..,
+            self.base.group_idx,
+            self.base.field_pos + 1,
             -(count as isize),
         );
     }
@@ -1760,8 +1748,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
 
         if pos_delta >= count {
             self.base.group_track.lookup_and_advance_affected_iters_(
-                self.base.group_idx..=self.base.group_idx,
-                self.base.field_pos - pos_delta + 1..,
+                self.base.group_idx,
+                self.base.field_pos - pos_delta + 1,
                 -(count as isize),
             );
             self.group_len -= count;
@@ -1786,8 +1774,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         );
         if count <= self.base.group_len_rem - pos_delta {
             self.base.group_track.lookup_and_advance_affected_iters_(
-                self.base.group_idx..=self.base.group_idx,
-                field_pos + 1..,
+                self.base.group_idx,
+                field_pos + 1,
                 -(count as isize),
             );
             self.group_len -= count;

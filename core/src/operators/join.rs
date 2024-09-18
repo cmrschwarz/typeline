@@ -638,10 +638,7 @@ pub fn handle_tf_join<'a>(
             let drop_count = (field_pos - last_group_end
                 + usize::from(prebuffered_record))
             .saturating_sub(usize::from(!should_drop));
-            record_group_iter.drop_before(
-                record_group_iter.field_pos() - drop_count,
-                drop_count,
-            );
+            record_group_iter.drop_backwards(drop_count);
             prebuffered_record = false;
             if join.curr_group_len == 0 && !should_drop {
                 record_group_iter.insert_fields(FieldValueRepr::Undefined, 1);
