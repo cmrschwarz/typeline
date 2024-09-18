@@ -185,12 +185,18 @@ impl Transform<'_> for TfHead {
             }
             self.remaining = self.retain_total;
         }
-        if next_group_done {
-            jd.tf_mgr.transforms[tf_id].group_to_truncate =
-                Some(iter.group_idx_stable());
-        }
+        let group_to_truncate = if next_group_done {
+            Some(iter.group_idx_stable())
+        } else {
+            None
+        };
         iter.store_iter(self.group_track_iter.iter_id);
-        jd.tf_mgr.submit_batch(tf_id, output_count, ps.input_done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            output_count,
+            group_to_truncate,
+            ps.input_done,
+        );
     }
 }
 
@@ -235,7 +241,7 @@ impl Transform<'_> for TfHeadSubtractive {
                 break;
             }
         }
-        jd.tf_mgr.transforms[tf_id].group_to_truncate = if next_group_done {
+        let group_to_truncate = if next_group_done {
             Some(iter.group_idx_stable())
         } else {
             None
@@ -243,7 +249,12 @@ impl Transform<'_> for TfHeadSubtractive {
 
         iter.store_iter(self.group_track_iter.iter_id);
         jd.tf_mgr.unclaim_batch_size(tf_id, batch_size_rem);
-        jd.tf_mgr.submit_batch(tf_id, output_count, ps.input_done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            output_count,
+            group_to_truncate,
+            ps.input_done,
+        );
     }
 }
 

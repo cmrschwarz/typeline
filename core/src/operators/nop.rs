@@ -57,5 +57,10 @@ pub fn create_tf_nop<'a>() -> TransformData<'a> {
 pub fn handle_tf_nop(jd: &mut JobData, tf_id: TransformId, _nop: &TfNop) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 
-    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(
+        tf_id,
+        batch_size,
+        ps.group_to_truncate,
+        ps.input_done,
+    );
 }

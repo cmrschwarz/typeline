@@ -401,7 +401,7 @@ pub fn handle_tf_call_concurrent(
                 &mut jd.match_set_mgr,
             );
         }
-        jd.tf_mgr.submit_batch(tf_id, 0, true);
+        jd.tf_mgr.submit_batch(tf_id, 0, ps.group_to_truncate, true);
     }
 }
 
@@ -524,5 +524,5 @@ pub fn handle_tf_callee_concurrent(
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
     jd.tf_mgr
-        .submit_batch(tf_id, available_batch_size, input_done);
+        .submit_batch(tf_id, available_batch_size, None, input_done);
 }

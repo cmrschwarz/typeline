@@ -132,7 +132,12 @@ impl Transform<'_> for TfDup {
             return;
         }
         if self.count == 1 {
-            jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+            jd.tf_mgr.submit_batch(
+                tf_id,
+                batch_size,
+                ps.group_to_truncate,
+                ps.input_done,
+            );
             return;
         }
 
@@ -156,6 +161,7 @@ impl Transform<'_> for TfDup {
         jd.tf_mgr.submit_batch(
             tf_id,
             field_pos - field_pos_start,
+            ps.group_to_truncate,
             ps.input_done,
         );
     }

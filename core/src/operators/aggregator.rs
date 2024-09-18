@@ -337,7 +337,10 @@ pub fn handle_tf_aggregator_trailer(job: &mut Job, tf_id: TransformId) {
         job.job_data.tf_mgr.transforms[tf_id].predecessor_done = false;
         ps.input_done = agg_h.curr_sub_tf_idx == agg_h.sub_tfs.len();
     }
-    job.job_data
-        .tf_mgr
-        .submit_batch(tf_id, batch_size, ps.input_done);
+    job.job_data.tf_mgr.submit_batch(
+        tf_id,
+        batch_size,
+        ps.group_to_truncate,
+        ps.input_done,
+    );
 }

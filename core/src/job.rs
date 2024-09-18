@@ -218,8 +218,10 @@ impl TransformManager {
         &mut self,
         tf_id: TransformId,
         batch_size: usize,
+        group_to_truncate: Option<GroupIdxStable>,
         done: bool,
     ) {
+        self.transforms[tf_id].group_to_truncate = group_to_truncate;
         if done {
             debug_assert!(!self.transforms[tf_id].done);
             self.transforms[tf_id].done = true;
@@ -246,7 +248,7 @@ impl TransformManager {
         ab.push_action(FieldActionKind::Drop, 0, batch_size);
         ab.end_action_group();
         if !tf.done {
-            self.submit_batch(tf_id, 0, true);
+            self.submit_batch(tf_id, 0, None, true);
         }
     }
     pub fn make_tf_ready_for_more(
@@ -269,10 +271,10 @@ impl TransformManager {
             self.push_tf_in_ready_stack(tf_id);
             done = false;
         }
-        self.submit_batch(tf_id, batch_size, done);
+        self.submit_batch(tf_id, batch_size, ps.group_to_truncate, done);
     }
     pub fn declare_transform_done(&mut self, tf_id: TransformId) {
-        self.submit_batch(tf_id, 0, true);
+        self.submit_batch(tf_id, 0, None, true);
     }
     pub fn push_tf_in_ready_stack(&mut self, tf_id: TransformId) {
         let tf = &mut self.transforms[tf_id];

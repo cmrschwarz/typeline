@@ -178,7 +178,12 @@ pub fn handle_tf_foreach_header(
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     if batch_size == 0 {
-        jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            batch_size,
+            ps.group_to_truncate,
+            ps.input_done,
+        );
         return;
     }
     let tf = &jd.tf_mgr.transforms[tf_id];
@@ -267,7 +272,12 @@ pub fn handle_tf_foreach_trailer(
         out_group_track_id,
     );
 
-    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(
+        tf_id,
+        batch_size,
+        ps.group_to_truncate,
+        ps.input_done,
+    );
 }
 
 pub fn create_op_foreach_with_spans(

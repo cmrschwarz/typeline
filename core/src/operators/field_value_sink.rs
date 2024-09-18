@@ -247,7 +247,12 @@ pub fn handle_tf_field_value_sink(
     if streams_done && ps.next_batch_ready {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(
+        tf_id,
+        batch_size,
+        ps.group_to_truncate,
+        ps.input_done,
+    );
 }
 
 pub fn handle_tf_field_value_sink_stream_value_update(

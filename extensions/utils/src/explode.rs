@@ -333,6 +333,11 @@ impl Transform<'_> for TfExplode {
         }
         self.pending_fields = iter.into_empty_vec();
 
-        jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            batch_size,
+            ps.group_to_truncate,
+            ps.input_done,
+        );
     }
 }

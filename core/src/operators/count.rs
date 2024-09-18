@@ -46,7 +46,12 @@ pub fn handle_tf_count(
     let mut groups_emitted = 0;
 
     if iter.is_invalid() {
-        jd.tf_mgr.submit_batch(tf_id, groups_emitted, ps.input_done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            groups_emitted,
+            ps.group_to_truncate,
+            ps.input_done,
+        );
         return;
     }
 
@@ -83,7 +88,12 @@ pub fn handle_tf_count(
     }
     tfc.count = count;
     iter.store_iter(tfc.iter.iter_id);
-    jd.tf_mgr.submit_batch(tf_id, groups_emitted, ps.input_done);
+    jd.tf_mgr.submit_batch(
+        tf_id,
+        groups_emitted,
+        ps.group_to_truncate,
+        ps.input_done,
+    );
 }
 
 pub fn parse_op_count(

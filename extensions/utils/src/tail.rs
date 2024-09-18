@@ -184,7 +184,12 @@ impl Transform<'_> for TfTail {
             batch_size_rem -= consumable;
         }
         jd.tf_mgr.unclaim_batch_size(tf_id, batch_size_rem);
-        jd.tf_mgr.submit_batch(tf_id, output_count, ps.input_done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            output_count,
+            ps.group_to_truncate,
+            ps.input_done,
+        );
     }
 }
 
@@ -222,7 +227,12 @@ impl Transform<'_> for TfTailAdditive {
             iter.next_n_fields_in_group(acceptable);
             break;
         }
-        jd.tf_mgr.submit_batch(tf_id, output_count, ps.input_done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            output_count,
+            ps.group_to_truncate,
+            ps.input_done,
+        );
     }
 }
 

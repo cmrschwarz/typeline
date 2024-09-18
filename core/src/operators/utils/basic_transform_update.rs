@@ -86,7 +86,8 @@ fn basic_transform_update_with_batch(
     if ps.next_batch_ready && !done {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    jd.tf_mgr.submit_batch(tf_id, produced_fields, done);
+    jd.tf_mgr
+        .submit_batch(tf_id, produced_fields, ps.group_to_truncate, done);
 }
 
 pub fn basic_transform_update_claim_all(

@@ -71,7 +71,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
     if ps.successor_done || tf.successor.is_none() {
         // TODO: use `help_out_with_output_done`
         if !tf.done {
-            jd.tf_mgr.submit_batch(tf_id, 0, true);
+            jd.tf_mgr.submit_batch(tf_id, 0, ps.group_to_truncate, true);
         }
         return;
     }
@@ -326,7 +326,12 @@ fn handle_enum_mode<G: GeneratorSequence>(
     if gbs.ps.next_batch_ready && !done {
         gbs.tf_mgr.push_successor_in_ready_queue(gbs.tf_id);
     }
-    gbs.tf_mgr.submit_batch(gbs.tf_id, out_batch_size, done);
+    gbs.tf_mgr.submit_batch(
+        gbs.tf_id,
+        out_batch_size,
+        gbs.group_to_truncate,
+        done,
+    );
 }
 
 fn handle_enum_unbounded_mode<G: GeneratorSequence>(
@@ -434,6 +439,7 @@ fn handle_enum_unbounded_mode<G: GeneratorSequence>(
     bgs.tf_mgr.submit_batch(
         bgs.tf_id,
         bgs.desired_batch_size - out_batch_size_rem,
+        bgs.group_to_truncate,
         (bgs.ps.input_done || yield_to_split) && !seq_unfinished,
     );
 }

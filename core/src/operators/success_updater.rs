@@ -78,7 +78,12 @@ pub fn handle_tf_success_updator(
         rem -= range.base.field_count;
     }
 
-    jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+    jd.tf_mgr.submit_batch(
+        tf_id,
+        batch_size,
+        ps.group_to_truncate,
+        ps.input_done,
+    );
     if ps.input_done && !su.success {
         jd.session_data.set_success(false)
     }

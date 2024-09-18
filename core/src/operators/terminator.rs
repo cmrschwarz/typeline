@@ -49,7 +49,12 @@ pub fn handle_tf_terminator(
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
     if !done {
-        jd.tf_mgr.submit_batch(tf_id, batch_size, ps.input_done);
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            batch_size,
+            ps.group_to_truncate,
+            ps.input_done,
+        );
     }
 }
 

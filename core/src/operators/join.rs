@@ -887,7 +887,12 @@ pub fn handle_tf_join<'a>(
     if ps.next_batch_ready {
         jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
-    jd.tf_mgr.submit_batch(tf_id, groups_emitted, ps.input_done);
+    jd.tf_mgr.submit_batch(
+        tf_id,
+        groups_emitted,
+        ps.group_to_truncate,
+        ps.input_done,
+    );
 }
 
 fn try_consume_stream_values<'a>(
