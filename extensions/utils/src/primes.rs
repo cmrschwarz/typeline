@@ -114,7 +114,7 @@ impl GeneratorSequence for TfPrimes {
     }
 
     fn reset_sequence(&mut self) {
-        todo!()
+        self.count = 0;
     }
 
     fn create_inserter<'a>(

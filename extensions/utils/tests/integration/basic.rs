@@ -1,6 +1,11 @@
 use rstest::rstest;
 use scr::{
-    operators::{chunks::create_op_chunks, sequence::create_op_enum},
+    operators::{
+        chunks::create_op_chunks,
+        foreach::create_op_foreach,
+        join::create_op_join,
+        sequence::{create_op_enum, create_op_seq},
+    },
     options::session_setup::ScrSetupOptions,
     record_data::array::Array,
     CliOptionsWithDefaultExtensions,
@@ -47,6 +52,32 @@ fn primes_head() -> Result<(), ScrError> {
         .add_op(create_op_string_sink(&ss))
         .run()?;
     assert_eq!(ss.get_data().unwrap().as_slice(), ["2", "3", "5"]);
+    Ok(())
+}
+
+#[test]
+fn primes_head_multi() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(10)?
+        .add_op(create_op_seq(0, 3, 1)?)
+        .add_op(create_op_foreach([create_op_primes(), create_op_head(3)]))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2", "3", "5", "2", "3", "5", "2", "3", "5"]);
+    Ok(())
+}
+
+#[test]
+fn primes_head_multi_joined() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(10)?
+        .add_op(create_op_seq(0, 3, 1)?)
+        .add_op(create_op_foreach([
+            create_op_primes(),
+            create_op_head(3),
+            create_op_join(Some(",".into()), None, false),
+        ]))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2,3,5", "2,3,5", "2,3,5"]);
     Ok(())
 }
 

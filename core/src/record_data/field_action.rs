@@ -1205,4 +1205,43 @@ mod test {
         }];
         compare_merge_result(left, right, merged);
     }
+
+    #[test]
+    fn dup_and_insert_into_drop() {
+        // # | BF  L1  L2  L3  R  | BF  M |
+        // 0 | a   a   a   a      | a   a |
+        // 1 |     a   _   a      |     a |
+        // 2 |     a   _          |       |
+        // 3 |         _          |       |
+        // 4 |         _          |       |
+        // 5 |         a          |       |
+        // 5 |         a          |       |
+
+        let left = &[
+            FieldAction {
+                kind: FAK::Dup,
+                run_len: 2,
+                field_idx: 0,
+            },
+            FieldAction {
+                kind: FAK::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::one(),
+                },
+                run_len: 4,
+                field_idx: 1,
+            },
+        ];
+        let right = &[FieldAction {
+            kind: FAK::Drop,
+            run_len: 5,
+            field_idx: 0,
+        }];
+        let merged = &[FieldAction {
+            kind: FAK::Dup,
+            run_len: 0,
+            field_idx: 1,
+        }];
+        compare_merge_result(left, right, merged);
+    }
 }
