@@ -153,6 +153,8 @@ impl Transform<'_> for TfHead {
 
         let mut batch_size_rem = batch_size;
         let mut output_count = 0;
+        let mut next_group_done = false;
+
         loop {
             let group_len_rem = iter.group_len_rem();
             let consumable = group_len_rem.min(batch_size_rem);
@@ -178,12 +180,16 @@ impl Transform<'_> for TfHead {
             iter.drop(overflow);
             if !iter.try_next_group() {
                 self.remaining = 0;
+                next_group_done = true;
                 break;
             }
             self.remaining = self.retain_total;
         }
+        if next_group_done {
+            jd.tf_mgr.transforms[tf_id].group_to_truncate =
+                Some(iter.group_idx_stable());
+        }
         iter.store_iter(self.group_track_iter.iter_id);
-
         jd.tf_mgr.submit_batch(tf_id, output_count, ps.input_done);
     }
 }
@@ -205,6 +211,7 @@ impl Transform<'_> for TfHeadSubtractive {
 
         let mut batch_size_rem = batch_size;
         let mut output_count = 0;
+        let mut next_group_done = false;
 
         loop {
             let group_len_rem = iter.group_len_rem();
@@ -224,9 +231,16 @@ impl Transform<'_> for TfHeadSubtractive {
             iter.next_n_fields(pass_count);
             iter.drop(drop_count);
             if !iter.try_next_group() {
+                next_group_done = true;
                 break;
             }
         }
+        jd.tf_mgr.transforms[tf_id].group_to_truncate = if next_group_done {
+            Some(iter.group_idx_stable())
+        } else {
+            None
+        };
+
         iter.store_iter(self.group_track_iter.iter_id);
         jd.tf_mgr.unclaim_batch_size(tf_id, batch_size_rem);
         jd.tf_mgr.submit_batch(tf_id, output_count, ps.input_done);

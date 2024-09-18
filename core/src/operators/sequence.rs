@@ -64,7 +64,7 @@ pub struct TfSequence {
     pub iter_id: IterId,
     pub actor_id: ActorId,
     pub seq_len_total: u64,
-    pub group_track_iter_ref: Option<GroupTrackIterRef>,
+    pub group_track_iter_ref: GroupTrackIterRef,
 }
 
 impl SequenceMode {
@@ -128,8 +128,8 @@ pub fn build_tf_sequence<'a>(
 ) -> TransformData<'a> {
     let actor_id = jd.add_actor_for_tf_state(tf_state);
     let iter_id = jd.claim_iter_for_tf_state(tf_state);
-    let group_track_iter_ref = (!matches!(op.mode, SequenceMode::Sequence))
-        .then(|| jd.claim_group_track_iter_for_tf_state(tf_state));
+    let group_track_iter_ref =
+        jd.claim_group_track_iter_for_tf_state(tf_state);
 
     TransformData::Sequence(TfSequence {
         ss: op.ss,

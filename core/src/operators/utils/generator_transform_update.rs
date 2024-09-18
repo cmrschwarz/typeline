@@ -6,7 +6,7 @@ use crate::{
         field::{Field, FieldId, FieldManager},
         field_action::FieldActionKind,
         field_data::FieldValueRepr,
-        group_track::{GroupTrackIterRef, GroupTrackManager},
+        group_track::{GroupIdxStable, GroupTrackIterRef, GroupTrackManager},
         iter_hall::IterId,
         iters::{DestructuredFieldDataRef, FieldIter, FieldIterator},
         match_set::{MatchSetId, MatchSetManager},
@@ -50,6 +50,7 @@ pub struct GeneratorBatchState<'a, 'b, G: GeneratorSequence> {
     iter: FieldIter<'b, DestructuredFieldDataRef<'b>>,
     batch_size: usize,
     desired_batch_size: usize,
+    group_to_truncate: Option<GroupIdxStable>,
     ps: PipelineState,
     inserter: G::Inserter<'a>,
     is_split: bool,
@@ -60,7 +61,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
     tf_id: TransformId,
     input_iter_id: IterId,
     actor_id: ActorId,
-    group_iter_ref: Option<GroupTrackIterRef>,
+    group_iter_ref: GroupTrackIterRef,
     generator: &mut G,
     generator_mode: GeneratorMode,
 ) {
@@ -77,6 +78,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
 
     let ms_id = tf.match_set_id;
     let is_split = tf.is_split;
+    let group_to_truncate = ps.group_to_truncate;
     let tf_batch_size = tf.desired_batch_size;
     let input_field_id =
         jd.field_mgr.get_dealiased_field_id(&mut tf.input_field);
@@ -115,6 +117,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
         rgt: &mut jd.group_track_manager,
         fm: &jd.field_mgr,
         tf_mgr: &mut jd.tf_mgr,
+        group_to_truncate,
         iter,
         batch_size,
         desired_batch_size,
@@ -125,7 +128,7 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
 
     match generator_mode {
         GeneratorMode::Foreach => {
-            let pending_seq_len_claimed = handle_seq_mode(ss);
+            let pending_seq_len_claimed = handle_seq_mode(ss, group_iter_ref);
             if pending_seq_len_claimed > 0 {
                 // we partially emitted a sequence.
                 // this means that we dup'ed the input element
@@ -146,11 +149,9 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
                 jd.field_mgr.store_iter(input_field_id, input_iter_id, iter);
             }
         }
-        GeneratorMode::Alongside => {
-            handle_enum_mode(ss, group_iter_ref.unwrap())
-        }
+        GeneratorMode::Alongside => handle_enum_mode(ss, group_iter_ref),
         GeneratorMode::AlongsideUnbounded => {
-            handle_enum_unbounded_mode(ss, group_iter_ref.unwrap())
+            handle_enum_unbounded_mode(ss, group_iter_ref)
         }
     }
 }
@@ -158,10 +159,15 @@ pub fn handle_generator_transform_update<G: GeneratorSequence>(
 // returns the claimed pending sequence len so we can move past it
 fn handle_seq_mode<G: GeneratorSequence>(
     mut gbs: GeneratorBatchState<G>,
+    group_iter_ref: GroupTrackIterRef,
 ) -> usize {
+    let mut group_iter =
+        gbs.rgt.lookup_group_track_iter(group_iter_ref, gbs.msm);
+
     let mut ab = gbs.msm.match_sets[gbs.ms_id].action_buffer.borrow_mut();
     ab.begin_action_group(gbs.actor_id);
     let mut field_pos = gbs.iter.get_next_field_pos();
+    let field_pos_start = field_pos;
     let mut field_dup_count = 0;
     let field_pos_end = field_pos + gbs.batch_size;
     let mut out_batch_size_rem = gbs.desired_batch_size;
@@ -169,10 +175,14 @@ fn handle_seq_mode<G: GeneratorSequence>(
     let seq_len_total = gbs.generator.seq_len_total();
     let seq_len_trunc = usize::try_from(seq_len_total).unwrap_or(0);
 
-    let mut seq_len_rem = gbs.generator.seq_len_rem();
+    let mut seq_len_rem =
+        if gbs.group_to_truncate == Some(group_iter.group_idx_stable()) {
+            0
+        } else {
+            gbs.generator.seq_len_rem()
+        };
 
     let mut pending_seq_len_claimed = 0;
-
     while field_pos != field_pos_end && out_batch_size_rem != 0 {
         if field_pos == field_pos_end || out_batch_size_rem == 0 {
             break;
@@ -239,6 +249,9 @@ fn handle_seq_mode<G: GeneratorSequence>(
     ab.end_action_group();
     gbs.fm
         .store_iter(gbs.input_field_id, gbs.input_iter_id, gbs.iter);
+    let fields_consumed = field_pos - field_pos_start;
+    group_iter.next_n_fields(fields_consumed);
+    group_iter.store_iter(group_iter_ref.iter_id);
 
     let unclaimed_input = field_pos_end - field_pos;
     gbs.tf_mgr.unclaim_batch_size(gbs.tf_id, unclaimed_input);
@@ -256,6 +269,7 @@ fn handle_enum_mode<G: GeneratorSequence>(
     mut gbs: GeneratorBatchState<G>,
     group_iter_ref: GroupTrackIterRef,
 ) {
+    //TODO: properly implement current_group_done
     let mut seq_size_rem = gbs.generator.seq_len_rem();
     let mut out_batch_size = 0;
     let mut drop_count = 0;
@@ -326,17 +340,22 @@ fn handle_enum_unbounded_mode<G: GeneratorSequence>(
     let seq_len_trunc =
         usize::try_from(seq_len_total).unwrap_or(isize::MAX as usize);
 
-    // helping out splitcat by yielding early
-    let mut yield_to_split = false;
-
-    let mut seq_len_rem = bgs.generator.seq_len_rem();
-
     let mut group_iter = bgs.rgt.lookup_group_track_iter_mut(
         group_iter_ref.track_id,
         group_iter_ref.iter_id,
         bgs.msm,
         bgs.actor_id,
     );
+
+    // helping out splitcat by yielding early
+    let mut yield_to_split = false;
+
+    let mut seq_len_rem =
+        if bgs.group_to_truncate == Some(group_iter.group_idx_stable()) {
+            0
+        } else {
+            bgs.generator.seq_len_rem()
+        };
 
     while out_batch_size_rem != 0 {
         let input_rem = field_pos_end - bgs.iter.get_next_field_pos();

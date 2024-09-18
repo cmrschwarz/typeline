@@ -41,6 +41,7 @@ fn primes() -> Result<(), ScrError> {
 fn primes_head() -> Result<(), ScrError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
+        .set_batch_size(10)?
         .add_op(create_op_primes())
         .add_op(create_op_head(3))
         .add_op(create_op_string_sink(&ss))

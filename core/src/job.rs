@@ -27,7 +27,9 @@ use crate::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
         field::{FieldId, FieldManager},
         field_action::FieldActionKind,
-        group_track::{GroupTrackId, GroupTrackIterRef, GroupTrackManager},
+        group_track::{
+            GroupIdxStable, GroupTrackId, GroupTrackIterRef, GroupTrackManager,
+        },
         iter_hall::{IterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
@@ -82,6 +84,7 @@ pub struct PipelineState {
     pub input_done: bool,
     pub successor_done: bool,
     pub next_batch_ready: bool,
+    pub group_to_truncate: Option<GroupIdxStable>,
 }
 
 impl TransformManager {
@@ -127,15 +130,18 @@ impl TransformManager {
         tf.available_batch_size -= batch_size;
         let next_batch_ready = tf.available_batch_size > 0;
         let input_done = tf.predecessor_done && !next_batch_ready;
-        let successor_done = if let Some(succ) = tf.successor {
-            self.transforms[succ].done
-        } else {
-            true
-        };
+        let mut successor_done = false;
+        let mut group_to_truncate = None;
+        if let Some(succ) = tf.successor {
+            let tf = &self.transforms[succ];
+            successor_done = tf.done;
+            group_to_truncate = tf.group_to_truncate;
+        }
         let ps = PipelineState {
             input_done,
             successor_done,
             next_batch_ready,
+            group_to_truncate,
         };
         (batch_size, ps)
     }

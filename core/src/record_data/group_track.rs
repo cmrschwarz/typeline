@@ -804,11 +804,12 @@ impl GroupTrack {
         Self::build_iter_from_iter_state(group_track, iter_state)
     }
     pub fn lookup_iter_for_deref_mut<T: DerefMut<Target = Self>>(
-        group_track: T,
+        mut group_track: T,
         iter_id: GroupTrackIterId,
         msm: &MatchSetManager,
         actor_id: ActorId,
     ) -> GroupTrackIterMut<T> {
+        group_track.deref_mut().sort_iters();
         let action_buffer = &msm.match_sets[group_track.ms_id].action_buffer;
         let iter_index = group_track.iter_lookup_table[iter_id];
         let iter_state = group_track.iter_states[iter_index as usize].get();
@@ -854,16 +855,9 @@ impl GroupTrack {
     }
     fn lookup_iter_sort_key_range(
         &self,
-        group_index_range: impl RangeBounds<GroupIdx>,
-        field_pos_range: impl RangeBounds<usize>,
+        group_index_range: Range<GroupIdx>,
+        field_pos_range: Range<usize>,
     ) -> Range<GroupTrackIterSortedIndex> {
-        let group_index_range = range_bounds_to_range_usize(
-            group_index_range,
-            self.iter_states.len(),
-        );
-        let field_pos_range =
-            range_bounds_to_range_usize(field_pos_range, usize::MAX);
-
         let mut start = self
             .iter_states
             .binary_search_by_key(
@@ -942,12 +936,25 @@ impl GroupTrack {
     fn advance_affected_iters(
         &mut self,
         iters: Range<GroupTrackIterSortedIndex>,
+        field_pos_start: usize,
         count: isize,
     ) {
         for i in iters.clone() {
             let is = self.iter_states[i as usize].get_mut();
-            is.group_offset = (is.group_offset as isize + count) as usize;
-            is.field_pos = (is.field_pos as isize + count) as usize;
+            if count >= 0 {
+                let count = count as usize;
+                is.group_offset += count;
+                is.field_pos += count;
+            } else {
+                let count = (-count) as usize;
+                // HACK: refactor this. we need the plus one here
+                // because we start our affected iter range at +1
+                // to not adjust the iters sitting on the same field pos
+                let delta = is.field_pos - field_pos_start + 1;
+                let offs = if delta < count { delta } else { count };
+                is.group_offset -= offs;
+                is.field_pos -= offs;
+            }
         }
         // TODO: // PERF: this is terrible. optimize on the caller side
         // by being lazy and carrying some sort of pending delta
@@ -962,11 +969,18 @@ impl GroupTrack {
         field_pos_range: impl RangeBounds<usize>,
         count: isize,
     ) {
+        let group_index_range = range_bounds_to_range_usize(
+            group_index_range,
+            self.iter_states.len(),
+        );
+        let field_pos_range =
+            range_bounds_to_range_usize(field_pos_range, usize::MAX);
         self.advance_affected_iters(
             self.lookup_iter_sort_key_range(
                 group_index_range,
-                field_pos_range,
+                field_pos_range.clone(),
             ),
+            field_pos_range.start,
             count,
         )
     }
@@ -1916,6 +1930,139 @@ pub(crate) mod testing_helpers {
                 kind: crate::record_data::iter_hall::IterKind::Undefined,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test_action_lists_throug_iter {
+    use std::cell::Cell;
+
+    use crate::record_data::action_buffer::ActorId;
+    use crate::record_data::field::FieldManager;
+    use crate::record_data::group_track::{
+        GroupTrack, GroupTrackIterSortedIndex,
+    };
+    use crate::record_data::match_set::MatchSetManager;
+    use crate::record_data::scope_manager::{ScopeId, ScopeManager};
+    use crate::utils::indexing_type::IndexingType;
+    use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
+    use crate::utils::universe::Universe;
+
+    use super::testing_helpers::GroupTrackIterStateRaw;
+    use super::{GroupTrackIterId, GroupTrackIterMut};
+
+    //first iter is used to apply actions
+    #[track_caller]
+    fn test_group_track_iter_mut(
+        passed_fields_before: usize,
+        group_lengths_before: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        iter_states_before: impl IntoIterator<
+            IntoIter = impl Iterator<Item = GroupTrackIterStateRaw> + Clone,
+        >,
+        passed_fields_after: usize,
+        group_lengths_after: impl IntoIterator<
+            IntoIter = impl Iterator<Item = usize> + Clone,
+        >,
+        iter_states_after: impl IntoIterator<Item = GroupTrackIterStateRaw>,
+        group_track_iter_actions_fn: impl Fn(
+            &mut GroupTrackIterMut<&mut GroupTrack>,
+        ),
+    ) {
+        let group_lengths_before = group_lengths_before.into_iter();
+        let group_lengths_after = group_lengths_after.into_iter();
+        let iter_states_before = iter_states_before.into_iter();
+
+        let mut msm = MatchSetManager::default();
+        let mut fm = FieldManager::default();
+        let mut sm = ScopeManager::default();
+        msm.add_match_set(&mut fm, &mut sm, ScopeId::ZERO);
+
+        let mut gt = GroupTrack {
+            passed_fields_count: passed_fields_before,
+            parent_group_advancement: SizeClassedVecDeque::from_iter(
+                group_lengths_before.clone(),
+            ),
+            group_lengths: SizeClassedVecDeque::from_iter(
+                group_lengths_before,
+            ),
+            iter_states: iter_states_before
+                .clone()
+                .map(|i| Cell::new(i.into_iter_state()))
+                .collect::<Vec<_>>(),
+            iter_lookup_table: Universe::from(
+                0..iter_states_before.count() as GroupTrackIterSortedIndex,
+            ),
+            ..Default::default()
+        };
+
+        let mut iter = GroupTrack::lookup_iter_for_deref_mut(
+            &mut gt,
+            GroupTrackIterId::ZERO,
+            &msm,
+            ActorId::ZERO,
+        );
+
+        group_track_iter_actions_fn(&mut iter);
+
+        iter.store_iter(GroupTrackIterId::ZERO);
+
+        assert_eq!(gt.passed_fields_count, passed_fields_after);
+
+        assert_eq!(
+            gt.group_lengths,
+            SizeClassedVecDeque::from_iter(group_lengths_after)
+        );
+        assert_eq!(
+            gt.iter_states,
+            iter_states_after
+                .into_iter()
+                .map(|i| Cell::new(i.into_iter_state()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_drop_adjust_truncates_correctly_at_end() {
+        test_group_track_iter_mut(
+            1,
+            [5],
+            [
+                GroupTrackIterStateRaw {
+                    field_pos: 1,
+                    group_idx: 0,
+                    group_offset: 0,
+                    iter_id: 0,
+                },
+                GroupTrackIterStateRaw {
+                    field_pos: 4,
+                    group_idx: 0,
+                    group_offset: 3,
+                    iter_id: 1,
+                },
+            ],
+            1,
+            [3],
+            [
+                GroupTrackIterStateRaw {
+                    field_pos: 3,
+                    group_idx: 0,
+                    group_offset: 2,
+                    iter_id: 0,
+                },
+                GroupTrackIterStateRaw {
+                    field_pos: 3,
+                    group_idx: 0,
+                    group_offset: 2,
+                    iter_id: 1,
+                },
+            ],
+            |iter| {
+                iter.next_n_fields(2);
+                iter.drop(2);
+            },
+        )
     }
 }
 

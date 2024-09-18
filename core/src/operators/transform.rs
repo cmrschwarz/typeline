@@ -7,7 +7,9 @@ use crate::{
     index_newtype,
     job::{Job, JobData},
     record_data::{
-        field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
+        field::FieldId,
+        group_track::{GroupIdxStable, GroupTrackId},
+        match_set::MatchSetId,
         stream_value::StreamValueUpdate,
     },
     utils::{
@@ -230,6 +232,9 @@ pub struct TransformState {
     // element. Used in maintain_single_value to yield early
     pub is_split: bool,
 
+    // the last group that this transform is supposed to truncate
+    pub group_to_truncate: Option<GroupIdxStable>,
+
     // used to warn if an actor is added using `JobData::add_actor_for_tf_state`
     // *after* an iterator has been added using `JobData::claim_iter_for_tf_state`,
     // which would lead to the iterator containing an incorrect actor index
@@ -259,6 +264,7 @@ impl TransformState {
             predecessor_done: false,
             done: false,
             mark_for_removal: false,
+            group_to_truncate: None,
             is_split: false,
             input_group_track_id,
             output_group_track_id: input_group_track_id,

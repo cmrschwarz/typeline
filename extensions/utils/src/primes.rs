@@ -82,8 +82,7 @@ impl Operator for OpPrimes {
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         let jd = &mut job.job_data;
-        let actor_id =
-            jd.add_actor_for_tf_state(tf_state);
+        let actor_id = jd.add_actor_for_tf_state(tf_state);
         let iter_id = jd.claim_iter_for_tf_state(tf_state);
         let iter_kind =
             IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());
@@ -152,7 +151,7 @@ impl Transform<'_> for TfPrimes {
             tf_id,
             self.iter_id,
             self.actor_id,
-            Some(self.group_iter),
+            self.group_iter,
             self,
             GeneratorMode::AlongsideUnbounded,
         )
