@@ -114,6 +114,9 @@ pub struct IterState {
     /// This happens e.g. for cow position markers or just for
     /// named field refs like format happening e.g. after a count/sum that
     /// may insert zeroes for empty groups
+    /// we use "first right leaning" instead of "last left leaning"
+    /// so we can represent 'always left leaning' as `ActorId::MAX`
+    /// instead of having to reserve actor id zero
     pub first_right_leaning_actor_id: ActorId,
 
     #[cfg(feature = "debug_state")]
