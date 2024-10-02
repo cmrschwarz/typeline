@@ -2,7 +2,9 @@ use std::fmt::Debug;
 
 use super::{
     field::{Field, FieldId, FieldManager},
-    field_action::{merge_action_lists, FieldAction, FieldActionKind},
+    field_action::{
+        merge_action_lists, FieldAction, FieldActionKind, PendingAction,
+    },
     field_data::RunLength,
     group_track::GroupTrackId,
     iter_hall_action_applicator::IterHallActionApplicator,
@@ -96,6 +98,9 @@ pub struct ActionBuffer {
     merges: Vec<ActionGroupIdentifier>,
 
     latest_snapshot_ref_count: SnapshotRefCount,
+
+    // intermediate memory for action merging, needed by `merge_action_lists`
+    pending_actions: Vec<PendingAction>,
 }
 
 impl Default for ActorRef {
@@ -187,6 +192,7 @@ impl ActionBuffer {
             action_group_data: OffsetVecDeque::default(),
             merges: Vec::new(),
             latest_snapshot_ref_count: 0,
+            pending_actions: Vec::new(),
         }
     }
     pub fn begin_action_group(&mut self, actor_id: ActorId) {
@@ -394,7 +400,12 @@ impl ActionBuffer {
 
             let buff = &mut self.action_temp_buffers[temp_idx];
             debug_assert!(buff.is_empty());
-            merge_action_lists(l1.iter().chain(l2), r1.iter().chain(r2), buff);
+            merge_action_lists(
+                l1.iter().chain(l2),
+                r1.iter().chain(r2),
+                &mut self.pending_actions,
+                buff,
+            );
         };
         let res = ActionGroupIdentifier {
             location: ActionGroupLocation::TempBuffer { idx: temp_idx },
