@@ -1149,14 +1149,13 @@ impl<'a> JobData<'a> {
             "transform actor should be added to before iters"
         );
         let mut ab = ms.action_buffer.borrow_mut();
-        let actor_id = ab.add_actor();
-        actor_id
+        ab.add_actor()
     }
 
     /// Adds an actor to the match set specified by the transform state
-    /// and applies it to the first actor entry of the output_field.
+    /// and applies it to the first actor entry of the `output_field`.
     /// !!! This should be done *before* and iters
-    /// are added using claim_iter_for_tf_state, otherwise those iters
+    /// are added using `claim_iter_for_tf_state`, otherwise those iters
     /// will have an incorrect `ActorId` for `first_right_leaning_actor`.
     pub fn add_actor_for_tf_state(
         &self,

@@ -98,7 +98,7 @@ impl Operator for OpFromTyson {
 
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfFromTyson {
-                input_iter_id: jd.claim_iter_for_tf_state(&tf_state),
+                input_iter_id: jd.claim_iter_for_tf_state(tf_state),
                 use_floating_point_math
             }
         )))

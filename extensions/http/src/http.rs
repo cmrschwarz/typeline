@@ -163,7 +163,7 @@ impl Operator for OpHttpRequest {
             poll: Poll::new().unwrap(),
             dns_cache: HashMap::new(),
             events: Events::with_capacity(64),
-            iter_id: job.job_data.claim_iter_for_tf_state(&tf_state),
+            iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
             tls_config: self.client_config.clone(),
             stream_buffer_size: job
                 .job_data

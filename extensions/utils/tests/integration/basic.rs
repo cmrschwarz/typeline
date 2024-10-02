@@ -194,6 +194,7 @@ fn chunked_tail() -> Result<(), ScrError> {
     Ok(())
 }
 
+#[test]
 fn multi_batch_primes_head() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(3)?
