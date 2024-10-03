@@ -1,9 +1,6 @@
-use std::{
-    collections::VecDeque,
-    ops::{Index, IndexMut},
-};
+use std::iter::Peekable;
 
-use crate::{index_newtype, utils::debuggable_nonmax::DebuggableNonMaxU32};
+use crate::utils::random_access_container::RandomAccessContainer;
 
 use super::{
     action_buffer::ActorId,
@@ -23,18 +20,6 @@ pub enum FieldActionKind {
         repr: FieldValueRepr,
         actor_id: ActorId,
     },
-}
-
-index_newtype! {
-    struct PendingActionIndex(DebuggableNonMaxU32);
-}
-
-pub struct PendingAction {
-    _kind: FieldActionKind,
-    _start: usize,
-    _last_interruption: Option<PendingActionIndex>,
-    _committed_rl: usize,
-    _outstanding_rl: usize,
 }
 
 /// In lists of `FieldAction`s, the indices assume that all previous actions
@@ -85,6 +70,14 @@ struct FieldActionFullRl {
     run_len: usize,
 }
 
+#[allow(unused)]
+pub struct PendingAction {
+    kind: FieldActionKind,
+    start: usize,
+    committed_rl: usize,
+    outstanding_rl: usize,
+}
+
 impl FieldAction {
     pub fn new(
         kind: FieldActionKind,
@@ -125,49 +118,8 @@ impl From<FieldAction> for FieldActionFullRl {
     }
 }
 
-pub trait ActionContainer:
-    Index<usize, Output = FieldAction> + IndexMut<usize, Output = FieldAction>
-{
-    fn get(&self, index: usize) -> Option<&FieldAction>;
-    fn last_mut(&mut self) -> Option<&mut FieldAction>;
-    fn push(&mut self, v: FieldAction);
-    fn len(&self) -> usize;
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-impl ActionContainer for Vec<FieldAction> {
-    fn get(&self, index: usize) -> Option<&FieldAction> {
-        <[FieldAction]>::get(self, index)
-    }
-    fn last_mut(&mut self) -> Option<&mut FieldAction> {
-        <[FieldAction]>::last_mut(self)
-    }
-    fn push(&mut self, v: FieldAction) {
-        <Vec<_>>::push(self, v)
-    }
-    fn len(&self) -> usize {
-        <[FieldAction]>::len(self)
-    }
-}
-impl ActionContainer for VecDeque<FieldAction> {
-    fn get(&self, index: usize) -> Option<&FieldAction> {
-        <VecDeque<_>>::get(self, index)
-    }
-    fn last_mut(&mut self) -> Option<&mut FieldAction> {
-        self.back_mut()
-    }
-    fn push(&mut self, v: FieldAction) {
-        <VecDeque<_>>::push_back(self, v)
-    }
-    fn len(&self) -> usize {
-        <VecDeque<_>>::len(self)
-    }
-}
-
-fn push_merged_action_raw<T: ActionContainer>(
-    target: &mut T,
+fn push_merged_action_raw(
+    target: &mut impl RandomAccessContainer<FieldAction>,
     mut faf: FieldActionFullRl,
 ) {
     let mut action = FieldAction {
@@ -186,17 +138,17 @@ fn push_merged_action_raw<T: ActionContainer>(
     }
 }
 
-fn push_merged_action<T: ActionContainer>(
-    target: &mut T,
-    prev_opt: &mut Option<FieldActionFullRl>,
+fn push_merged_action(
+    target: &mut impl RandomAccessContainer<FieldAction>,
+    last_committed_action: &mut Option<FieldActionFullRl>,
     mut curr: FieldActionFullRl,
 ) {
     if curr.run_len == 0 {
         return;
     }
 
-    let Some(mut prev) = *prev_opt else {
-        *prev_opt = Some(curr);
+    let Some(mut prev) = *last_committed_action else {
+        *last_committed_action = Some(curr);
         return;
     };
     let prev_end = prev.field_idx + prev.run_len;
@@ -266,29 +218,26 @@ fn push_merged_action<T: ActionContainer>(
         curr.run_len -= overlap;
     }
     if curr.run_len == 0 {
-        *prev_opt = Some(prev);
+        *last_committed_action = Some(prev);
         return;
     }
     push_merged_action_raw(target, prev);
-    *prev_opt = Some(curr);
+    *last_committed_action = Some(curr);
 }
 
 pub fn merge_action_lists_inner<'a>(
     left: impl Iterator<Item = &'a FieldAction>,
     right: impl Iterator<Item = &'a FieldAction>,
-    pending_actions: &mut Vec<PendingAction>,
-    target: &mut impl ActionContainer,
+    target: &mut impl RandomAccessContainer<FieldAction>,
 ) {
-    debug_assert!(pending_actions.is_empty());
     let mut left = left.copied().peekable();
     let mut right = right.copied().peekable();
-
-    let mut prev_action = None;
 
     let mut next_action_field_idx_left;
     let mut next_action_field_idx_right;
     let mut field_pos_offset_left: isize = 0;
     let mut outstanding_drops_right: usize = 0;
+    let mut prev_action = None;
 
     while let Some(action_left) = left.peek().copied() {
         let action_right = right.peek().copied();
@@ -317,7 +266,6 @@ pub fn merge_action_lists_inner<'a>(
                     (_, _) => true,
                 };
         }
-
         if consume_left {
             left.next();
             let mut faf = FieldActionFullRl {
@@ -403,18 +351,364 @@ pub fn merge_action_lists_inner<'a>(
 pub fn merge_action_lists<'a>(
     left: impl IntoIterator<Item = &'a FieldAction>,
     right: impl IntoIterator<Item = &'a FieldAction>,
-    pending_actions: &mut Vec<PendingAction>,
-    target: &mut impl ActionContainer,
+    #[allow(clippy::ptr_arg)] _pending_actions: &mut Vec<PendingAction>, /* for v2 */
+    target: &mut impl RandomAccessContainer<FieldAction>,
 ) {
-    // NOTE(cmrs, 2024-06-18): rust-analyzer currently has problems with
+    // NOTE(cmrs, 2024-06-18): rust-anaplyzer currently has problems with
     // typechecking `IntoIterator`s (#17257), so we isolate the meat of this
     // algorithm from that problem through this indirection
-    merge_action_lists_inner(
-        left.into_iter(),
-        right.into_iter(),
-        pending_actions,
+    merge_action_lists_inner(left.into_iter(), right.into_iter(), target)
+}
+
+struct ActionMergeData<'a, L, R, T>
+where
+    L: Iterator<Item = FieldAction>,
+    R: Iterator<Item = FieldAction>,
+    T: RandomAccessContainer<FieldAction>,
+{
+    left: Peekable<L>,
+    right: Peekable<R>,
+    target: &'a mut T,
+    pending_actions: &'a mut Vec<PendingAction>,
+    next_action_field_idx_left: usize,
+    next_action_field_idx_right: usize,
+    field_pos_offset_left: i64,
+    outstanding_drops_right: usize,
+    pending_actions_train_end: usize,
+    last_committed_action: Option<FieldActionFullRl>,
+}
+
+impl<'a, L, R, T> ActionMergeData<'a, L, R, T>
+where
+    L: Iterator<Item = FieldAction>,
+    R: Iterator<Item = FieldAction>,
+    T: RandomAccessContainer<FieldAction>,
+{
+    fn run(&mut self) {
+        while let Some(action_left) = self.left.peek().copied() {
+            let action_right = self.right.peek().copied();
+            if let Some(action_right) = action_right {
+                self.next_action_field_idx_right = action_right.field_idx;
+            } else {
+                self.next_action_field_idx_right = usize::MAX;
+            }
+            self.next_action_field_idx_left = (action_left.field_idx as i64
+                + self.field_pos_offset_left)
+                as usize;
+
+            let mut consume_left = self.next_action_field_idx_left
+                <= self.next_action_field_idx_right;
+
+            if self.next_action_field_idx_left
+                == self.next_action_field_idx_right
+            {
+                consume_left =
+                    match (action_left.kind, action_right.map(|a| a.kind)) {
+                        (FieldActionKind::Drop, _) => true,
+                        (
+                            _,
+                            Some(
+                                FieldActionKind::Drop
+                                | FieldActionKind::InsertZst { .. },
+                            ),
+                        ) => false,
+                        (_, _) => true,
+                    };
+            }
+            if consume_left {
+                self.consume_left_action();
+            } else {
+                self.consume_right_action();
+            }
+        }
+    }
+    fn consume_left_action(&mut self) {
+        let action_left = self.left.next().unwrap();
+
+        let pending_actions = !self.pending_actions.is_empty();
+
+        let mut faf = FieldActionFullRl {
+            field_idx: (action_left.field_idx as i64
+                + self.field_pos_offset_left) as usize,
+            run_len: action_left.run_len as usize,
+            kind: action_left.kind,
+        };
+
+        match action_left.kind {
+            FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
+                if self.outstanding_drops_right >= faf.run_len {
+                    let dup_to_undo = faf.run_len;
+                    self.outstanding_drops_right -= dup_to_undo;
+                    self.field_pos_offset_left -= dup_to_undo as i64;
+
+                    let drop_due: usize = if let Some(next) = self.left.peek()
+                    {
+                        let next_pos =
+                            next.field_idx as i64 + self.field_pos_offset_left;
+                        self.outstanding_drops_right
+                            .min(next_pos as usize - faf.field_idx)
+                    } else {
+                        self.outstanding_drops_right
+                    };
+
+                    faf.run_len = drop_due;
+                    self.outstanding_drops_right -= drop_due;
+                    self.field_pos_offset_left -= drop_due as i64;
+                    faf.kind = FieldActionKind::Drop;
+                } else {
+                    faf.run_len -= self.outstanding_drops_right;
+                    self.outstanding_drops_right = 0;
+                }
+            }
+            FieldActionKind::Drop => {
+                if pending_actions {
+                    debug_assert!(
+                        self.pending_actions_train_end
+                            <= self.outstanding_drops_right
+                    );
+                    self.release_pending_actions();
+                }
+                if self.outstanding_drops_right > 0 {
+                    // if there previously was a right drop that we haven't
+                    // fully honored yet, we add as much of that drop as
+                    // we can to ourselves.
+                    let consume_from_right =
+                        if let Some(next) = self.left.peek() {
+                            // the next element on the left might cancel
+                            // out parts of the right drop, so we can only
+                            // commit the uncontested parts
+                            let gap_to_next_left =
+                                next.field_idx - action_left.field_idx;
+                            gap_to_next_left.min(self.outstanding_drops_right)
+                        } else {
+                            self.outstanding_drops_right
+                        };
+                    faf.run_len += consume_from_right;
+                    self.outstanding_drops_right -= consume_from_right;
+                    self.field_pos_offset_left -= consume_from_right as i64;
+                }
+            }
+        }
+        self.commit_action(faf);
+    }
+    fn commit_pending_actions_before_pos(&mut self, mut pos: usize) {
+        for pa in self.pending_actions.iter_mut().rev() {
+            let to_commit = (pos - pa.start).min(pa.outstanding_rl);
+            pa.committed_rl += to_commit;
+            pa.outstanding_rl -= to_commit;
+            pos -= pa.committed_rl;
+        }
+    }
+
+    fn apply_drop_to_pending_actions(
+        &mut self,
+        drop_pos: usize,
+        drop_count: usize,
+    ) -> usize {
+        self.commit_pending_actions_before_pos(drop_pos);
+        let mut drops_rem = drop_count;
+        for pa in self.pending_actions.iter_mut().rev() {
+            let drops = pa.outstanding_rl.min(drops_rem);
+            pa.outstanding_rl -= drops;
+            drops_rem -= drops;
+            if drops_rem == 0 {
+                break;
+            }
+        }
+
+        let drops_applied = drop_count - drops_rem;
+        self.pending_actions_train_end -= drops_applied;
+
+        debug_assert!(self.pending_actions_train_end >= drop_pos);
+        if self.pending_actions_train_end == drop_pos {
+            self.release_pending_actions();
+        }
+
+        drops_applied
+    }
+
+    fn consume_right_action(&mut self) {
+        let mut action = FieldActionFullRl::from(self.right.next().unwrap());
+
+        let pending_actions = !self.pending_actions.is_empty();
+
+        debug_assert!(
+            !pending_actions
+                || self.pending_actions_train_end > action.field_idx
+        );
+
+        match action.kind {
+            FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
+                self.field_pos_offset_left += action.run_len as i64;
+                if pending_actions {
+                    self.commit_pending_actions_before_pos(action.field_idx);
+                    self.pending_actions.push(PendingAction {
+                        kind: action.kind,
+                        start: action.field_idx,
+                        committed_rl: action.run_len,
+                        outstanding_rl: 0,
+                    });
+                    return;
+                }
+            }
+            FieldActionKind::Drop => {
+                if pending_actions {
+                    action.run_len -= self.apply_drop_to_pending_actions(
+                        action.field_idx,
+                        action.run_len,
+                    );
+                }
+                let gap_to_start_left = self.next_action_field_idx_left
+                    - self.next_action_field_idx_right;
+                if gap_to_start_left < action.run_len {
+                    self.outstanding_drops_right +=
+                        action.run_len - gap_to_start_left;
+                    action.run_len = gap_to_start_left;
+                }
+                self.field_pos_offset_left -= action.run_len as i64;
+            }
+        }
+        self.commit_action(action);
+    }
+
+    fn commit_action_raw(&mut self, mut faf: FieldActionFullRl) {
+        let mut action = FieldAction {
+            kind: faf.kind,
+            field_idx: faf.field_idx,
+            run_len: 0,
+        };
+        while faf.run_len > RunLength::MAX as usize {
+            action.run_len = RunLength::MAX;
+            self.target.push(action);
+            faf.run_len -= RunLength::MAX as usize;
+        }
+        if faf.run_len > 0 {
+            action.run_len = faf.run_len as RunLength;
+            self.target.push(action);
+        }
+    }
+    fn commit_action(&mut self, mut action: FieldActionFullRl) {
+        if action.run_len == 0 {
+            return;
+        }
+
+        let Some(mut prev) = self.last_committed_action else {
+            self.last_committed_action = Some(action);
+            return;
+        };
+        let prev_end = prev.field_idx + prev.run_len;
+        let overlapping_inclusive = action.field_idx <= prev_end;
+        let overlapping_exclusive = action.field_idx < prev_end;
+        let same_idx = action.field_idx == prev.field_idx;
+
+        let mut add = false;
+        let mut subtract = false;
+        let mut subtract_inclusive = false;
+        use FieldActionKind as FAK;
+        match (prev.kind, action.kind) {
+            (FAK::Dup, FAK::Dup) => {
+                add = overlapping_inclusive;
+            }
+            (FAK::Dup, FAK::Drop) => {
+                subtract = overlapping_inclusive;
+                subtract_inclusive = true;
+            }
+            (FAK::Drop, FAK::Drop) => {
+                add = same_idx;
+            }
+            (FAK::InsertZst { .. }, FAK::Dup) => {
+                if overlapping_exclusive {
+                    add = true;
+                    action.kind = prev.kind;
+                }
+            }
+            (FAK::InsertZst { .. }, FAK::Drop) => {
+                subtract = overlapping_exclusive;
+            }
+            (
+                FAK::InsertZst {
+                    repr: repr_l,
+                    actor_id: actor_id_l,
+                },
+                FAK::InsertZst {
+                    repr: repr_r,
+                    actor_id: actor_id_r,
+                },
+            ) => {
+                debug_assert_eq!(repr_l, repr_r);
+                debug_assert_eq!(actor_id_l, actor_id_r);
+                add = overlapping_exclusive;
+            }
+            (FAK::Drop, FAK::Dup | FAK::InsertZst { .. })
+            | (FAK::Dup, FAK::InsertZst { .. }) => (),
+        }
+        debug_assert!(!add || !subtract);
+
+        if add {
+            let space_rem =
+                (RunLength::MAX as usize - prev.run_len).min(action.run_len);
+            prev.run_len += space_rem;
+            action.run_len -= space_rem;
+        }
+        if subtract {
+            // inclusive:
+            // [Dup(0, 2), Drop(1, 2)] -> []
+            // exclusive:
+            // [Insert(0, 2), Drop(1,2)] -> [Insert(0, 1), Drop(1, 1)]
+            let overlap = (prev_end + usize::from(subtract_inclusive)
+                - action.field_idx)
+                .min(action.run_len);
+
+            prev.run_len -= overlap;
+            action.run_len -= overlap;
+        }
+        if action.run_len == 0 {
+            self.last_committed_action = Some(prev);
+            return;
+        }
+        self.commit_action_raw(prev);
+        self.last_committed_action = Some(action);
+    }
+    fn release_pending_actions(&mut self) {
+        if self.pending_actions.is_empty() {
+            return;
+        }
+        for i in 0..self.pending_actions.len() {
+            let a = &self.pending_actions[i];
+            self.commit_action(FieldActionFullRl {
+                kind: a.kind,
+                field_idx: a.start,
+                run_len: a.committed_rl + a.outstanding_rl,
+            });
+        }
+        self.pending_actions.clear()
+    }
+}
+
+pub fn merge_action_lists_inner_v2<'a>(
+    left: impl IntoIterator<Item = &'a FieldAction>,
+    right: impl IntoIterator<Item = &'a FieldAction>,
+    pending_actions: &mut Vec<PendingAction>,
+    target: &mut impl RandomAccessContainer<FieldAction>,
+) {
+    debug_assert!(pending_actions.is_empty());
+
+    let left = left.into_iter().copied().peekable();
+    let right = right.into_iter().copied().peekable();
+
+    ActionMergeData {
+        left,
+        right,
         target,
-    )
+        pending_actions,
+        next_action_field_idx_left: 0,
+        next_action_field_idx_right: 0,
+        field_pos_offset_left: 0,
+        outstanding_drops_right: 0,
+        pending_actions_train_end: usize::MAX,
+        last_committed_action: None,
+    }
+    .run();
 }
 
 #[cfg(test)]
@@ -439,8 +733,8 @@ mod test {
         right: &[FieldAction],
         out: &[FieldAction],
     ) {
-        let mut pending_actions = Vec::new();
         let mut output = Vec::new();
+        let mut pending_actions = Vec::new();
         super::merge_action_lists(
             left,
             right,

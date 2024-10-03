@@ -578,7 +578,7 @@ pub fn iter_kind_to_json(
 }
 
 pub fn iters_to_json(iters: &[IterState]) -> Value {
-    return Value::Array({
+    Value::Array({
         iters
             .iter()
             .filter_map(|i| {
@@ -595,7 +595,7 @@ pub fn iters_to_json(iters: &[IterState]) -> Value {
                 )
             })
             .collect::<Vec<_>>()
-    });
+    })
 }
 
 pub fn field_data_to_json<'a>(
@@ -867,7 +867,7 @@ pub fn field_to_json(
 }
 
 fn group_track_iters_to_json(iters: &[Cell<GroupTrackIterState>]) -> Value {
-    return Value::Array({
+    Value::Array({
         iters
             .iter()
             .filter_map(|i| {
@@ -881,7 +881,7 @@ fn group_track_iters_to_json(iters: &[Cell<GroupTrackIterState>]) -> Value {
                 )
             })
             .collect::<Vec<_>>()
-    });
+    })
 }
 
 fn group_track_to_json(

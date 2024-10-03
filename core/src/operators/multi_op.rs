@@ -110,7 +110,7 @@ impl Operator for OpMultiOp {
         tf_state: &mut TransformState,
         _op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,
-    ) -> TransformInstatiation {
+    ) -> TransformInstatiation<'a> {
         TransformInstatiation::Multi(job.setup_transforms_for_op_iter(
             self.sub_op_ids.iter().map(|&sub_op_id| {
                 let op_base =
