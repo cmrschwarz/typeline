@@ -393,18 +393,11 @@ where
                 subtract = overlapping_exclusive;
             }
             (
-                FieldActionKind::InsertZst {
-                    repr: repr_l,
-                    actor_id: actor_id_l,
-                },
-                FieldActionKind::InsertZst {
-                    repr: repr_r,
-                    actor_id: actor_id_r,
-                },
+                FieldActionKind::InsertZst { .. },
+                FieldActionKind::InsertZst { .. },
             ) => {
-                debug_assert_eq!(repr_l, repr_r);
-                debug_assert_eq!(actor_id_l, actor_id_r);
-                add = overlapping_exclusive;
+                let same_kind = prev.kind == action.kind;
+                add = overlapping_exclusive && same_kind;
             }
             (
                 FieldActionKind::Drop,
@@ -1409,7 +1402,9 @@ mod test {
     }
 
     #[test]
-    fn inserts_inside_dup_split_into_two() {
+    fn inserts_inside_dup_remain_untouched() {
+        // we can't split inserts like so, because that would mess with iter
+        // adjustments:
         // # | BF L1  L2  R1  | BF  M1  M2  M3  M4 |
         // 0 | a  a   a   a   | a   a   a   a   a  |
         // 1 |    a   x   x   |     a   x   x   x  |
@@ -1420,6 +1415,17 @@ mod test {
         // 6 |            x   |             a   x  |
         // 7 |            a   |                 a  |
         // 8 |            a   |                 a  |
+        // so we just keep it as is:
+        // # | BF L1  L2  R1  | BF  M1  M2  M3 |
+        // 0 | a  a   a   a   | a   a   a   a  |
+        // 1 |    a   x   x   |     a   x   x  |
+        // 2 |    a   x   y   |     a   x   y  |
+        // 3 |        x   y   |         x   y  |
+        // 4 |        a   y   |         a   y  |
+        // 5 |        a   x   |         a   x  |
+        // 6 |            x   |             x  |
+        // 7 |            a   |             a  |
+        // 8 |            a   |             a  |
 
         let left = &[
             FieldAction {
@@ -1456,7 +1462,7 @@ mod test {
                     actor_id: ActorId::ZERO,
                 },
                 field_idx: 1,
-                run_len: 1,
+                run_len: 3,
             },
             FieldAction {
                 kind: FieldActionKind::InsertZst {
@@ -1465,14 +1471,6 @@ mod test {
                 },
                 field_idx: 2,
                 run_len: 3,
-            },
-            FieldAction {
-                kind: FieldActionKind::InsertZst {
-                    repr: FieldValueRepr::Undefined,
-                    actor_id: ActorId::ZERO,
-                },
-                field_idx: 5,
-                run_len: 2,
             },
         ];
         compare_merge_result(left, right, merged);
