@@ -118,248 +118,6 @@ impl From<FieldAction> for FieldActionFullRl {
     }
 }
 
-fn push_merged_action_raw(
-    target: &mut impl RandomAccessContainer<FieldAction>,
-    mut faf: FieldActionFullRl,
-) {
-    let mut action = FieldAction {
-        kind: faf.kind,
-        field_idx: faf.field_idx,
-        run_len: 0,
-    };
-    while faf.run_len > RunLength::MAX as usize {
-        action.run_len = RunLength::MAX;
-        target.push(action);
-        faf.run_len -= RunLength::MAX as usize;
-    }
-    if faf.run_len > 0 {
-        action.run_len = faf.run_len as RunLength;
-        target.push(action);
-    }
-}
-
-fn push_merged_action(
-    target: &mut impl RandomAccessContainer<FieldAction>,
-    last_committed_action: &mut Option<FieldActionFullRl>,
-    mut curr: FieldActionFullRl,
-) {
-    if curr.run_len == 0 {
-        return;
-    }
-
-    let Some(mut prev) = *last_committed_action else {
-        *last_committed_action = Some(curr);
-        return;
-    };
-    let prev_end = prev.field_idx + prev.run_len;
-    let overlapping_inclusive = curr.field_idx <= prev_end;
-    let overlapping_exclusive = curr.field_idx < prev_end;
-    let same_idx = curr.field_idx == prev.field_idx;
-
-    let mut add = false;
-    let mut subtract = false;
-    let mut subtract_inclusive = false;
-    use FieldActionKind as FAK;
-    match (prev.kind, curr.kind) {
-        (FAK::Dup, FAK::Dup) => {
-            add = overlapping_inclusive;
-        }
-        (FAK::Dup, FAK::Drop) => {
-            subtract = overlapping_inclusive;
-            subtract_inclusive = true;
-        }
-        (FAK::Drop, FAK::Drop) => {
-            add = same_idx;
-        }
-        (FAK::InsertZst { .. }, FAK::Dup) => {
-            if overlapping_exclusive {
-                add = true;
-                curr.kind = prev.kind;
-            }
-        }
-        (FAK::InsertZst { .. }, FAK::Drop) => {
-            subtract = overlapping_exclusive;
-        }
-        (
-            FAK::InsertZst {
-                repr: repr_l,
-                actor_id: actor_id_l,
-            },
-            FAK::InsertZst {
-                repr: repr_r,
-                actor_id: actor_id_r,
-            },
-        ) => {
-            debug_assert_eq!(repr_l, repr_r);
-            debug_assert_eq!(actor_id_l, actor_id_r);
-            add = overlapping_exclusive;
-        }
-        (FAK::Drop, FAK::Dup | FAK::InsertZst { .. })
-        | (FAK::Dup, FAK::InsertZst { .. }) => (),
-    }
-    debug_assert!(!add || !subtract);
-
-    if add {
-        let space_rem =
-            (RunLength::MAX as usize - prev.run_len).min(curr.run_len);
-        prev.run_len += space_rem;
-        curr.run_len -= space_rem;
-    }
-    if subtract {
-        // inclusive:
-        // [Dup(0, 2), Drop(1, 2)] -> []
-        // exclusive:
-        // [Insert(0, 2), Drop(1,2)] -> [Insert(0, 1), Drop(1, 1)]
-        let overlap = (prev_end + usize::from(subtract_inclusive)
-            - curr.field_idx)
-            .min(curr.run_len);
-
-        prev.run_len -= overlap;
-        curr.run_len -= overlap;
-    }
-    if curr.run_len == 0 {
-        *last_committed_action = Some(prev);
-        return;
-    }
-    push_merged_action_raw(target, prev);
-    *last_committed_action = Some(curr);
-}
-
-pub fn merge_action_lists_inner<'a>(
-    left: impl Iterator<Item = &'a FieldAction>,
-    right: impl Iterator<Item = &'a FieldAction>,
-    target: &mut impl RandomAccessContainer<FieldAction>,
-) {
-    let mut left = left.copied().peekable();
-    let mut right = right.copied().peekable();
-
-    let mut next_action_field_idx_left;
-    let mut next_action_field_idx_right;
-    let mut field_pos_offset_left: isize = 0;
-    let mut outstanding_drops_right: usize = 0;
-    let mut prev_action = None;
-
-    while let Some(action_left) = left.peek().copied() {
-        let action_right = right.peek().copied();
-        if let Some(action_right) = action_right {
-            next_action_field_idx_right = action_right.field_idx;
-        } else {
-            next_action_field_idx_right = usize::MAX;
-        }
-        next_action_field_idx_left =
-            (action_left.field_idx as isize + field_pos_offset_left) as usize;
-
-        let mut consume_left =
-            next_action_field_idx_left <= next_action_field_idx_right;
-
-        if next_action_field_idx_left == next_action_field_idx_right {
-            consume_left =
-                match (action_left.kind, action_right.map(|a| a.kind)) {
-                    (FieldActionKind::Drop, _) => true,
-                    (
-                        _,
-                        Some(
-                            FieldActionKind::Drop
-                            | FieldActionKind::InsertZst { .. },
-                        ),
-                    ) => false,
-                    (_, _) => true,
-                };
-        }
-        if consume_left {
-            left.next();
-            let mut faf = FieldActionFullRl {
-                field_idx: (action_left.field_idx as isize
-                    + field_pos_offset_left)
-                    as usize,
-                run_len: action_left.run_len as usize,
-                kind: action_left.kind,
-            };
-
-            match action_left.kind {
-                FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
-                    if outstanding_drops_right >= faf.run_len {
-                        let dup_to_undo = faf.run_len;
-                        outstanding_drops_right -= dup_to_undo;
-                        field_pos_offset_left -= dup_to_undo as isize;
-
-                        let drop_due: usize = if let Some(next) = left.peek() {
-                            let next_pos = next.field_idx as isize
-                                + field_pos_offset_left;
-                            outstanding_drops_right
-                                .min(next_pos as usize - faf.field_idx)
-                        } else {
-                            outstanding_drops_right
-                        };
-
-                        faf.run_len = drop_due;
-                        outstanding_drops_right -= drop_due;
-                        field_pos_offset_left -= drop_due as isize;
-                        faf.kind = FieldActionKind::Drop;
-                    } else {
-                        faf.run_len -= outstanding_drops_right;
-                        outstanding_drops_right = 0;
-                    }
-                }
-                FieldActionKind::Drop => {
-                    if outstanding_drops_right > 0 {
-                        let consume_from_right =
-                            if let Some(next) = left.peek() {
-                                let gap_to_next_left =
-                                    next.field_idx - action_left.field_idx;
-                                gap_to_next_left.min(outstanding_drops_right)
-                            } else {
-                                outstanding_drops_right
-                            };
-                        faf.run_len += consume_from_right;
-                        outstanding_drops_right -= consume_from_right;
-                        field_pos_offset_left -= consume_from_right as isize;
-                    }
-                }
-            }
-            push_merged_action(target, &mut prev_action, faf);
-            continue;
-        }
-
-        let mut faf = FieldActionFullRl::from(right.next().unwrap());
-
-        match faf.kind {
-            FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
-                field_pos_offset_left += faf.run_len as isize;
-            }
-            FieldActionKind::Drop => {
-                let gap_to_start_left =
-                    next_action_field_idx_left - next_action_field_idx_right;
-                if gap_to_start_left < faf.run_len {
-                    outstanding_drops_right += faf.run_len - gap_to_start_left;
-                    faf.run_len = gap_to_start_left;
-                }
-                field_pos_offset_left -= faf.run_len as isize;
-            }
-        }
-        push_merged_action(target, &mut prev_action, faf);
-    }
-    debug_assert_eq!(outstanding_drops_right, 0);
-    for action in right {
-        push_merged_action(target, &mut prev_action, action.into());
-    }
-    if let Some(prev) = prev_action {
-        push_merged_action_raw(target, prev);
-    }
-}
-
-pub fn merge_action_lists<'a>(
-    left: impl IntoIterator<Item = &'a FieldAction>,
-    right: impl IntoIterator<Item = &'a FieldAction>,
-    #[allow(clippy::ptr_arg)] _pending_actions: &mut Vec<PendingAction>, /* for v2 */
-    target: &mut impl RandomAccessContainer<FieldAction>,
-) {
-    // NOTE(cmrs, 2024-06-18): rust-anaplyzer currently has problems with
-    // typechecking `IntoIterator`s (#17257), so we isolate the meat of this
-    // algorithm from that problem through this indirection
-    merge_action_lists_inner(left.into_iter(), right.into_iter(), target)
-}
-
 struct ActionMergeData<'a, L, R, T>
 where
     L: Iterator<Item = FieldAction>,
@@ -420,6 +178,15 @@ where
             } else {
                 self.consume_right_action();
             }
+        }
+        self.next_action_field_idx_left = usize::MAX;
+        while self.right.peek().is_some() {
+            self.consume_right_action();
+        }
+        self.release_pending_actions();
+
+        if let Some(a) = self.last_committed_action {
+            self.release_action(a);
         }
     }
     fn consume_left_action(&mut self) {
@@ -571,7 +338,7 @@ where
         self.commit_action(action);
     }
 
-    fn commit_action_raw(&mut self, mut faf: FieldActionFullRl) {
+    fn release_action(&mut self, mut faf: FieldActionFullRl) {
         let mut action = FieldAction {
             kind: faf.kind,
             field_idx: faf.field_idx,
@@ -604,33 +371,33 @@ where
         let mut add = false;
         let mut subtract = false;
         let mut subtract_inclusive = false;
-        use FieldActionKind as FAK;
+        use FieldActionKind;
         match (prev.kind, action.kind) {
-            (FAK::Dup, FAK::Dup) => {
+            (FieldActionKind::Dup, FieldActionKind::Dup) => {
                 add = overlapping_inclusive;
             }
-            (FAK::Dup, FAK::Drop) => {
+            (FieldActionKind::Dup, FieldActionKind::Drop) => {
                 subtract = overlapping_inclusive;
                 subtract_inclusive = true;
             }
-            (FAK::Drop, FAK::Drop) => {
+            (FieldActionKind::Drop, FieldActionKind::Drop) => {
                 add = same_idx;
             }
-            (FAK::InsertZst { .. }, FAK::Dup) => {
+            (FieldActionKind::InsertZst { .. }, FieldActionKind::Dup) => {
                 if overlapping_exclusive {
                     add = true;
                     action.kind = prev.kind;
                 }
             }
-            (FAK::InsertZst { .. }, FAK::Drop) => {
+            (FieldActionKind::InsertZst { .. }, FieldActionKind::Drop) => {
                 subtract = overlapping_exclusive;
             }
             (
-                FAK::InsertZst {
+                FieldActionKind::InsertZst {
                     repr: repr_l,
                     actor_id: actor_id_l,
                 },
-                FAK::InsertZst {
+                FieldActionKind::InsertZst {
                     repr: repr_r,
                     actor_id: actor_id_r,
                 },
@@ -639,8 +406,11 @@ where
                 debug_assert_eq!(actor_id_l, actor_id_r);
                 add = overlapping_exclusive;
             }
-            (FAK::Drop, FAK::Dup | FAK::InsertZst { .. })
-            | (FAK::Dup, FAK::InsertZst { .. }) => (),
+            (
+                FieldActionKind::Drop,
+                FieldActionKind::Dup | FieldActionKind::InsertZst { .. },
+            )
+            | (FieldActionKind::Dup, FieldActionKind::InsertZst { .. }) => (),
         }
         debug_assert!(!add || !subtract);
 
@@ -666,7 +436,7 @@ where
             self.last_committed_action = Some(prev);
             return;
         }
-        self.commit_action_raw(prev);
+        self.release_action(prev);
         self.last_committed_action = Some(action);
     }
     fn release_pending_actions(&mut self) {
@@ -685,7 +455,7 @@ where
     }
 }
 
-pub fn merge_action_lists_inner_v2<'a>(
+pub fn merge_action_lists<'a>(
     left: impl IntoIterator<Item = &'a FieldAction>,
     right: impl IntoIterator<Item = &'a FieldAction>,
     pending_actions: &mut Vec<PendingAction>,
@@ -721,8 +491,8 @@ mod test {
     use super::FieldActionKind;
 
     use super::FieldAction;
-    use FieldActionKind as FAK;
-    const INSERT_UNDEF: FAK = FAK::InsertZst {
+    use rstest::rstest;
+    const INSERT_UNDEF: FieldActionKind = FieldActionKind::InsertZst {
         repr: FieldValueRepr::Undefined,
         actor_id: ActorId::ZERO,
     };
@@ -746,38 +516,38 @@ mod test {
     #[test]
     fn uncontested_drops_survive_merge() {
         let drops = &[
-            FieldAction::new(FAK::Drop, 0, 2),
-            FieldAction::new(FAK::Drop, 1, 9),
-            FieldAction::new(FAK::Drop, 2, 7),
+            FieldAction::new(FieldActionKind::Drop, 0, 2),
+            FieldAction::new(FieldActionKind::Drop, 1, 9),
+            FieldAction::new(FieldActionKind::Drop, 2, 7),
         ];
         compare_merge_result(drops, &[], drops);
         compare_merge_result(&[], drops, drops);
     }
 
-    #[test]
-    fn actions_are_merged() {
-        for kind in [FAK::Dup, FAK::Drop] {
-            let unmerged = &[
-                FieldAction {
-                    kind,
-                    field_idx: 0,
-                    run_len: 1,
-                },
-                FieldAction {
-                    kind,
-                    field_idx: 0,
-                    run_len: 1,
-                },
-            ];
-            let blank = &[];
-            let merged = &[FieldAction {
+    #[rstest]
+    #[case(FieldActionKind::Dup)]
+    #[case(FieldActionKind::Drop)]
+    fn actions_are_merged(#[case] kind: FieldActionKind) {
+        let unmerged = &[
+            FieldAction {
                 kind,
                 field_idx: 0,
-                run_len: 2,
-            }];
-            compare_merge_result(unmerged, blank, merged);
-            compare_merge_result(blank, unmerged, merged);
-        }
+                run_len: 1,
+            },
+            FieldAction {
+                kind,
+                field_idx: 0,
+                run_len: 1,
+            },
+        ];
+        let blank = &[];
+        let merged = &[FieldAction {
+            kind,
+            field_idx: 0,
+            run_len: 2,
+        }];
+        compare_merge_result(unmerged, blank, merged);
+        compare_merge_result(blank, unmerged, merged);
     }
 
     #[test]
@@ -794,36 +564,36 @@ mod test {
         // 8 |                 c  |         c  |
         let left = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 3,
                 run_len: 1,
             },
         ];
         let right = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 3,
                 run_len: 1,
             },
         ];
         let merged = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 5,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 6,
                 run_len: 1,
             },
@@ -843,36 +613,36 @@ mod test {
         // 6 |                 c  |         c  |
         let left = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 2,
                 run_len: 1,
             },
         ];
         let right = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 2,
                 run_len: 1,
             },
         ];
         let merged = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 3,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 4,
                 run_len: 1,
             },
@@ -883,23 +653,23 @@ mod test {
     #[test]
     fn left_field_indices_are_adjusted() {
         let left = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 1,
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 0,
             run_len: 5,
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 5,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 6,
                 run_len: 1,
             },
@@ -910,7 +680,7 @@ mod test {
     #[test]
     fn basic_inserts_test() {
         let left = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 1,
             run_len: 1,
         }];
@@ -926,7 +696,7 @@ mod test {
                 run_len: 5,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 6,
                 run_len: 1,
             },
@@ -937,7 +707,7 @@ mod test {
     #[test]
     fn inserts_come_before_dups() {
         let left = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 0,
             run_len: 1,
         }];
@@ -953,7 +723,7 @@ mod test {
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 1,
                 run_len: 1,
             },
@@ -969,7 +739,7 @@ mod test {
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 0,
             run_len: 1,
         }];
@@ -997,29 +767,29 @@ mod test {
         ];
         let right = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 2,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 4,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 6,
                 run_len: 1,
             },
         ];
         let merged = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 1,
             },
@@ -1029,7 +799,7 @@ mod test {
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 4,
                 run_len: 1,
             },
@@ -1050,7 +820,7 @@ mod test {
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 0,
             run_len: 1,
         }];
@@ -1081,12 +851,12 @@ mod test {
         ];
         let right = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 1,
             },
@@ -1119,17 +889,17 @@ mod test {
         ];
         let right = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 1,
             },
@@ -1141,17 +911,17 @@ mod test {
     #[test]
     fn encompassed_dups_are_deleted() {
         let left = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 1,
             run_len: 1,
         }];
         let right = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 0,
             run_len: 5,
         }];
         let merged = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 0,
             run_len: 4,
         }];
@@ -1176,41 +946,41 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 10,
                 run_len: 1,
             },
         ];
         let right = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 0,
                 run_len: 5,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 3,
             },
         ];
         let merged = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 0,
                 run_len: 4,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 3,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 2,
                 run_len: 1,
             },
@@ -1233,36 +1003,36 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 6,
                 run_len: 1,
             },
         ];
         let right = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 0,
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 3,
             },
         ];
         let merged = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 0,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 2,
             },
@@ -1273,35 +1043,35 @@ mod test {
     #[test]
     fn chained_right_drops() {
         let left = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 10,
             run_len: 1,
         }];
         let right = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 0,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 1,
             },
         ];
         let merged = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 0,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 8,
                 run_len: 1,
             },
@@ -1312,28 +1082,28 @@ mod test {
     #[test]
     fn overlapping_drops() {
         let a = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 3,
             run_len: 5,
         }];
         let b = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 2,
             run_len: 3,
         }];
         let merged_a_b = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 2,
             run_len: 8,
         }];
         let merged_b_a = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 3,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 3,
                 run_len: 5,
             },
@@ -1345,17 +1115,17 @@ mod test {
     #[test]
     fn drop_inside_dup() {
         let left = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 0,
             run_len: 3,
         }];
         let right = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 1,
             run_len: 1,
         }];
         let merged = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 0,
             run_len: 2,
         }];
@@ -1371,12 +1141,12 @@ mod test {
         // 3 |     b      |
 
         let left = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 0,
             run_len: 2,
         }];
         let right = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 1,
             run_len: 2,
         }];
@@ -1398,28 +1168,28 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 3,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 5,
                 run_len: 1,
             },
         ];
         let right = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 1,
             run_len: 6,
         }];
         let merged = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 1,
             run_len: 3,
         }];
@@ -1436,24 +1206,24 @@ mod test {
         // 4 |     b         |      |
 
         let left = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 0,
             run_len: 3,
         }];
         let right = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 1,
             },
         ];
         let merged = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 0,
             run_len: 1,
         }];
@@ -1474,7 +1244,7 @@ mod test {
             run_len: 2,
         }];
         let right = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 1,
             run_len: 2,
         }];
@@ -1485,7 +1255,7 @@ mod test {
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 1,
                 run_len: 1,
             },
@@ -1506,28 +1276,28 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 0,
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::Drop,
+                kind: FieldActionKind::Drop,
                 field_idx: 2,
                 run_len: 1,
             },
         ];
         let right = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 0,
             run_len: 3,
         }];
         let merged = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 0,
             run_len: 7,
         }];
@@ -1546,12 +1316,12 @@ mod test {
         // 5 |        a   |         a  |
 
         let left = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             run_len: 2,
             field_idx: 0,
         }];
         let right = &[FieldAction {
-            kind: FAK::InsertZst {
+            kind: FieldActionKind::InsertZst {
                 repr: FieldValueRepr::Undefined,
                 actor_id: ActorId::one(),
             },
@@ -1560,12 +1330,12 @@ mod test {
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 run_len: 2,
                 field_idx: 0,
             },
             FieldAction {
-                kind: FAK::InsertZst {
+                kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Undefined,
                     actor_id: ActorId::one(),
                 },
@@ -1602,7 +1372,7 @@ mod test {
         // 7 |        b  |         b  |
 
         let left = &[FieldAction {
-            kind: FAK::InsertZst {
+            kind: FieldActionKind::InsertZst {
                 repr: FieldValueRepr::Undefined,
                 actor_id: ActorId::ZERO,
             },
@@ -1610,7 +1380,7 @@ mod test {
             run_len: 3,
         }];
         let right = &[FieldAction {
-            kind: FAK::InsertZst {
+            kind: FieldActionKind::InsertZst {
                 repr: FieldValueRepr::Null,
                 actor_id: ActorId::ZERO,
             },
@@ -1619,7 +1389,7 @@ mod test {
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::InsertZst {
+                kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Undefined,
                     actor_id: ActorId::ZERO,
                 },
@@ -1627,7 +1397,7 @@ mod test {
                 run_len: 3,
             },
             FieldAction {
-                kind: FAK::InsertZst {
+                kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Null,
                     actor_id: ActorId::ZERO,
                 },
@@ -1653,12 +1423,12 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::InsertZst {
+                kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Undefined,
                     actor_id: ActorId::ZERO,
                 },
@@ -1667,7 +1437,7 @@ mod test {
             },
         ];
         let right = &[FieldAction {
-            kind: FAK::InsertZst {
+            kind: FieldActionKind::InsertZst {
                 repr: FieldValueRepr::Null,
                 actor_id: ActorId::ZERO,
             },
@@ -1676,12 +1446,12 @@ mod test {
         }];
         let merged = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::InsertZst {
+                kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Undefined,
                     actor_id: ActorId::ZERO,
                 },
@@ -1689,7 +1459,7 @@ mod test {
                 run_len: 1,
             },
             FieldAction {
-                kind: FAK::InsertZst {
+                kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Null,
                     actor_id: ActorId::ZERO,
                 },
@@ -1697,7 +1467,7 @@ mod test {
                 run_len: 3,
             },
             FieldAction {
-                kind: FAK::InsertZst {
+                kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Undefined,
                     actor_id: ActorId::ZERO,
                 },
@@ -1721,12 +1491,12 @@ mod test {
 
         let left = &[
             FieldAction {
-                kind: FAK::Dup,
+                kind: FieldActionKind::Dup,
                 field_idx: 0,
                 run_len: 2,
             },
             FieldAction {
-                kind: FAK::InsertZst {
+                kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Undefined,
                     actor_id: ActorId::one(),
                 },
@@ -1735,12 +1505,12 @@ mod test {
             },
         ];
         let right = &[FieldAction {
-            kind: FAK::Drop,
+            kind: FieldActionKind::Drop,
             field_idx: 0,
             run_len: 5,
         }];
         let merged = &[FieldAction {
-            kind: FAK::Dup,
+            kind: FieldActionKind::Dup,
             field_idx: 1,
             run_len: 0,
         }];
