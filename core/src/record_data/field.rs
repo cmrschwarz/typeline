@@ -690,7 +690,7 @@ impl FieldManager {
         input_field_id: FieldId,
         input_field: &'a CowFieldDataRef<'a>,
         input_iter_id: IterId,
-    ) -> AutoDerefIter<'a, FieldIter<DestructuredFieldDataRef<'a>>> {
+    ) -> AutoDerefIter<'a, FieldIter<'a, DestructuredFieldDataRef<'a>>> {
         AutoDerefIter::new(
             self,
             input_field_id,
@@ -703,8 +703,10 @@ impl FieldManager {
         input_field: &'a CowFieldDataRef<'a>,
         input_iter_id: IterId,
         batch_size: usize,
-    ) -> AutoDerefIter<'a, BoundedIter<FieldIter<DestructuredFieldDataRef<'a>>>>
-    {
+    ) -> AutoDerefIter<
+        'a,
+        BoundedIter<'a, FieldIter<'a, DestructuredFieldDataRef<'a>>>,
+    > {
         AutoDerefIter::new(
             self,
             input_field_id,

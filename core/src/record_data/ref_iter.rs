@@ -774,11 +774,7 @@ impl<'a> Iterator for RefAwareInlineTextIter<'a> {
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         let (data, rl, offsets) = self.iter.next()?;
-        return Some((
-            unsafe { std::str::from_utf8_unchecked(data) },
-            rl,
-            offsets,
-        ));
+        Some((unsafe { std::str::from_utf8_unchecked(data) }, rl, offsets))
     }
 }
 

@@ -1181,7 +1181,7 @@ impl GroupTrackManager {
         iter_id: GroupTrackIterId,
         msm: &'a MatchSetManager,
         actor_id: ActorId,
-    ) -> GroupTrackIterMut<RefMut<'a, GroupTrack>> {
+    ) -> GroupTrackIterMut<'a, RefMut<'a, GroupTrack>> {
         let mut list = self.borrow_group_track_mut(track_id);
         list.apply_field_actions(msm);
         GroupTrack::lookup_iter_for_deref_mut(list, iter_id, msm, actor_id)
@@ -1191,7 +1191,7 @@ impl GroupTrackManager {
         iter_ref: GroupTrackIterRef,
         msm: &'a MatchSetManager,
         actor_id: ActorId,
-    ) -> GroupTrackIterMut<RefMut<'a, GroupTrack>> {
+    ) -> GroupTrackIterMut<'a, RefMut<'a, GroupTrack>> {
         self.lookup_group_track_iter_mut(
             iter_ref.track_id,
             iter_ref.iter_id,
@@ -1925,21 +1925,26 @@ pub(crate) mod testing_helpers {
 mod test_action_lists_throug_iter {
     use std::cell::Cell;
 
-    use crate::record_data::action_buffer::ActorId;
-    use crate::record_data::field::FieldManager;
-    use crate::record_data::group_track::{
-        GroupTrack, GroupTrackIterSortedIndex,
+    use crate::{
+        record_data::{
+            action_buffer::ActorId,
+            field::FieldManager,
+            group_track::{GroupTrack, GroupTrackIterSortedIndex},
+            match_set::MatchSetManager,
+            scope_manager::{ScopeId, ScopeManager},
+        },
+        utils::{
+            indexing_type::IndexingType,
+            size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
+        },
     };
-    use crate::record_data::match_set::MatchSetManager;
-    use crate::record_data::scope_manager::{ScopeId, ScopeManager};
-    use crate::utils::indexing_type::IndexingType;
-    use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
-    use crate::utils::universe::Universe;
 
-    use super::testing_helpers::GroupTrackIterStateRaw;
-    use super::{GroupTrackIterId, GroupTrackIterMut};
+    use super::{
+        testing_helpers::GroupTrackIterStateRaw, GroupTrackIterId,
+        GroupTrackIterMut,
+    };
 
-    //first iter is used to apply actions
+    // first iter is used to apply actions
     #[track_caller]
     fn test_group_track_iter_mut(
         passed_fields_before: usize,

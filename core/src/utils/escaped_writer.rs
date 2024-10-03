@@ -329,7 +329,6 @@ pub fn escape_to_string(input: &[u8], quote_to_escape: u8) -> String {
 }
 
 #[cfg(test)]
-
 mod test {
     use rstest::rstest;
 

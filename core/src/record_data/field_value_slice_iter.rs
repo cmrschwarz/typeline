@@ -124,7 +124,7 @@ impl<'a, T: FieldValueType + 'static> FieldValueRangeIter<'a, T> {
             } else {
                 1
             };
-            return Some((self.values.as_ref(), rl));
+            Some((self.values.as_ref(), rl))
         }
     }
     pub fn peek_header(&self) -> Option<&'a FieldValueHeader> {
@@ -344,13 +344,13 @@ impl<'a> InlineBytesIter<'a> {
     pub fn peek(&self) -> Option<<Self as Iterator>::Item> {
         let h = self.peek_header()?;
         unsafe {
-            return Some((
+            Some((
                 std::slice::from_raw_parts(
                     self.values.as_ptr(),
                     h.size as usize,
                 ),
                 if h.shared_value() { h.run_length } else { 1 },
-            ));
+            ))
         }
     }
     pub fn peek_header(&self) -> Option<&'a FieldValueHeader> {
@@ -566,7 +566,8 @@ impl<'a> Iterator for InlineTextIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let (v, rl) = self.iter.next()?;
-        return Some((unsafe { std::str::from_utf8_unchecked(v) }, rl));
+        let v = unsafe { std::str::from_utf8_unchecked(v) };
+        Some((v, rl))
     }
 }
 

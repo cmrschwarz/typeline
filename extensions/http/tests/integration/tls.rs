@@ -10,6 +10,9 @@ use scr_core::{
 };
 use scr_ext_http::{http::create_op_GET_with_opts, tls_client::TlsSettings};
 
+// silence warning generated bv the proc macro. annoying.
+// MSRV(1.81): use `#[expect]` instead
+#[allow(clippy::needless_return)]
 #[tokio::test]
 async fn tls_server_sanity_check() {
     for ip_support in
@@ -40,6 +43,9 @@ async fn tls_server_sanity_check() {
     }
 }
 
+// silence warning generated bv the proc macro. annoying.
+// MSRV(1.81): use `#[expect]` instead
+#[allow(clippy::needless_return)]
 #[tokio::test(flavor = "multi_thread")]
 async fn multi_get_https() -> Result<(), ScrError> {
     for ip_support in

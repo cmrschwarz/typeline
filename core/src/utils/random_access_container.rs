@@ -3,7 +3,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-/// Very crude generalization over Vec<T> and VecDeque<T>,
+/// Very crude generalization over `Vec<T>` and `VecDeque<T>`,
 /// used for cases where algorithms need to work on both, like
 /// `merge_action_lists`
 pub trait RandomAccessContainer<T>:
