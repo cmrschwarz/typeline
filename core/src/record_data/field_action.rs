@@ -287,6 +287,19 @@ where
         drops_applied
     }
 
+    fn push_pending_action(&mut self, action: PendingAction) {
+        self.commit_pending_action_parts_before_pos(action.start);
+        let action_end =
+            action.start + action.committed_rl + action.outstanding_rl;
+        if self.pending_actions_train_end == usize::MAX {
+            self.pending_actions_train_end = action_end;
+        } else {
+            self.pending_actions_train_end =
+                self.pending_actions_train_end.max(action_end);
+        }
+        self.pending_actions.push(action);
+    }
+
     fn consume_left_action(&mut self) {
         let action_left = self.left.next().unwrap();
 
@@ -301,30 +314,100 @@ where
 
         match action_left.kind {
             FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
-                if self.outstanding_drops_right >= faf.run_len {
-                    debug_assert!(!pending_actions);
-                    let dup_to_undo = faf.run_len;
-                    self.outstanding_drops_right -= dup_to_undo;
-                    self.field_pos_offset_left -= dup_to_undo as i64;
+                let next_right = self.next_action_index_right();
+                let mut next_left = self.next_action_index_left();
 
-                    let drop_due: usize = if let Some(next) = self.left.peek()
-                    {
-                        let next_pos =
-                            next.field_idx as i64 + self.field_pos_offset_left;
-                        self.outstanding_drops_right
-                            .min(next_pos as usize - faf.field_idx)
-                    } else {
-                        self.outstanding_drops_right
-                    };
+                let mut next_action = next_left.min(next_right);
 
-                    faf.run_len = drop_due;
-                    self.outstanding_drops_right -= drop_due;
-                    self.field_pos_offset_left -= drop_due as i64;
-                    faf.kind = FieldActionKind::Drop;
+                let mut space_to_next = next_action - faf.field_idx;
+
+                let drop_by = self
+                    .outstanding_drops_right
+                    .min(faf.run_len)
+                    .min(space_to_next);
+
+                if drop_by > 0 {
+                    faf.run_len -= drop_by;
+                    self.outstanding_drops_right -= drop_by;
+                    self.field_pos_offset_left -= drop_by as i64;
+                    next_left -= drop_by;
+                    next_action = next_left.min(next_right);
+                    space_to_next = next_action - faf.field_idx;
+                }
+
+                if faf.run_len == 0 {
+                    let mut available_drop = self
+                        .outstanding_drops_right
+                        .saturating_sub(space_to_next);
+                    if available_drop > 0 {
+                        if pending_actions {
+                            available_drop -= self
+                                .apply_drop_to_pending_actions(
+                                    faf.field_idx,
+                                    available_drop,
+                                );
+                        }
+                        if available_drop > 0 {
+                            faf.kind = FieldActionKind::Drop;
+                            faf.run_len = available_drop;
+                            self.commit_action(faf);
+                            self.outstanding_drops_right -= available_drop;
+                        }
+                    }
+                    return;
+                }
+
+                let action_end = faf.field_idx + faf.run_len;
+
+                let pending_actions_end_including_this = if pending_actions {
+                    self.pending_actions_train_end.max(action_end)
                 } else {
+                    action_end
+                };
+
+                if pending_actions_end_including_this > next_action {
+                    self.commit_pending_action_parts_before_pos(faf.field_idx);
+                    let committed_rl = faf.run_len.min(space_to_next);
+                    self.push_pending_action(PendingAction {
+                        kind: faf.kind,
+                        start: faf.field_idx,
+                        committed_rl,
+                        outstanding_rl: faf.run_len - committed_rl,
+                    });
+                    return;
+                }
+                if pending_actions {
+                    self.commit_pending_actions();
+                }
+
+                let space_to_next_left = next_left - faf.field_idx;
+
+                if self.outstanding_drops_right <= space_to_next_left {
+                    if self.outstanding_drops_right >= faf.run_len {
+                        self.outstanding_drops_right -= faf.run_len;
+                        faf.kind = FieldActionKind::Drop;
+                        faf.run_len = self.outstanding_drops_right;
+                        self.commit_action(faf);
+                        return;
+                    }
                     faf.run_len -= self.outstanding_drops_right;
                     self.outstanding_drops_right = 0;
+                    self.commit_action(faf);
+                    return;
                 }
+                debug_assert!(!pending_actions);
+                let dup_to_undo = faf.run_len;
+                self.outstanding_drops_right -= dup_to_undo;
+                self.field_pos_offset_left -= dup_to_undo as i64;
+
+                let drop_due =
+                    self.outstanding_drops_right.min(space_to_next_left);
+
+                faf.run_len = drop_due;
+                self.outstanding_drops_right -= drop_due;
+                self.field_pos_offset_left -= drop_due as i64;
+                faf.kind = FieldActionKind::Drop;
+                self.commit_action(faf);
             }
             FieldActionKind::Drop => {
                 if pending_actions {
@@ -334,28 +417,29 @@ where
                     );
                     self.commit_pending_actions();
                 }
-                if self.outstanding_drops_right > 0 {
-                    // if there previously was a right drop that we haven't
-                    // fully honored yet, we add as much of that drop as
-                    // we can to ourselves.
-                    let consume_from_right =
-                        if let Some(next) = self.left.peek() {
-                            // the next element on the left might cancel
-                            // out parts of the right drop, so we can only
-                            // commit the uncontested parts
-                            let gap_to_next_left =
-                                next.field_idx - action_left.field_idx;
-                            gap_to_next_left.min(self.outstanding_drops_right)
-                        } else {
-                            self.outstanding_drops_right
-                        };
-                    faf.run_len += consume_from_right;
-                    self.outstanding_drops_right -= consume_from_right;
-                    self.field_pos_offset_left -= consume_from_right as i64;
+                if self.outstanding_drops_right == 0 {
+                    self.commit_action(faf);
+                    return;
                 }
+                // if there previously was a right drop that we haven't
+                // fully honored yet, we add as much of that drop as
+                // we can to ourselves.
+                let consume_from_right = if let Some(next) = self.left.peek() {
+                    // the next element on the left might cancel
+                    // out parts of the right drop, so we can only
+                    // commit the uncontested parts
+                    let gap_to_next_left =
+                        next.field_idx - action_left.field_idx;
+                    gap_to_next_left.min(self.outstanding_drops_right)
+                } else {
+                    self.outstanding_drops_right
+                };
+                faf.run_len += consume_from_right;
+                self.outstanding_drops_right -= consume_from_right;
+                self.field_pos_offset_left -= consume_from_right as i64;
+                self.commit_action(faf);
             }
         }
-        self.commit_action(faf);
     }
 
     fn consume_right_action(&mut self) {
@@ -371,19 +455,16 @@ where
         match action.kind {
             FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
                 self.field_pos_offset_left += action.run_len as i64;
-                if pending_actions {
-                    self.commit_pending_action_parts_before_pos(
-                        action.field_idx,
-                    );
-                    self.pending_actions.push(PendingAction {
-                        kind: action.kind,
-                        start: action.field_idx,
-                        committed_rl: action.run_len,
-                        outstanding_rl: 0,
-                    });
-                } else {
+                if !pending_actions {
                     self.commit_action(action);
+                    return;
                 }
+                self.push_pending_action(PendingAction {
+                    kind: action.kind,
+                    start: action.field_idx,
+                    committed_rl: action.run_len,
+                    outstanding_rl: 0,
+                });
             }
             FieldActionKind::Drop => {
                 if pending_actions {
@@ -409,12 +490,12 @@ where
         while let Some(action_left) = self.left.peek().copied() {
             let action_right = self.right.peek().copied();
 
-            let nai_l = self.next_action_index_left();
-            let nai_r = self.next_action_index_right();
+            let next_left = self.next_action_index_left();
+            let next_right = self.next_action_index_right();
 
-            let mut consume_left = nai_l <= nai_r;
+            let mut consume_left = next_left <= next_right;
 
-            if nai_l == nai_r {
+            if next_left == next_right {
                 consume_left =
                     match (action_left.kind, action_right.map(|a| a.kind)) {
                         (FieldActionKind::Drop, _) => true,
@@ -430,9 +511,9 @@ where
             }
             if consume_left {
                 self.consume_left_action();
-            } else {
-                self.consume_right_action();
+                continue;
             }
+            self.consume_right_action();
         }
         while self.right.peek().is_some() {
             self.consume_right_action();
@@ -1493,14 +1574,14 @@ mod test {
 
     #[test]
     fn dup_and_insert_into_drop() {
-        // # | BF  L1  L2  L3  R  | BF  M |
-        // 0 | a   a   a   a      | a   a |
-        // 1 |     a   _   a      |     a |
-        // 2 |     a   _          |       |
-        // 3 |         _          |       |
-        // 4 |         _          |       |
-        // 5 |         a          |       |
-        // 5 |         a          |       |
+        // # | BF  L1  L2  R  | BF  M |
+        // 0 | a   a   a   a  | a   a |
+        // 1 |     a   _   a  |     a |
+        // 2 |     a   _      |       |
+        // 3 |         _      |       |
+        // 4 |         _      |       |
+        // 5 |         a      |       |
+        // 5 |         a      |       |
 
         let left = &[
             FieldAction {
@@ -1524,8 +1605,8 @@ mod test {
         }];
         let merged = &[FieldAction {
             kind: FieldActionKind::Dup,
-            field_idx: 1,
-            run_len: 0,
+            field_idx: 0,
+            run_len: 1,
         }];
         compare_merge_result(left, right, merged);
     }
