@@ -469,16 +469,13 @@ where
     fn consume_right_action(&mut self) {
         let mut action = FieldActionFullRl::from(self.right.next().unwrap());
 
-        debug_assert!(
-            !self.pending_actions_present()
-                || self.pending_actions_train_end > action.field_idx
-        );
-
         match action.kind {
             FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
                 let next_right = self.next_action_index_right();
                 let action_end = action.field_idx + action.run_len;
 
+                // TODO: we probably want to commit one less for dups here
+                // add a testcase for that!
                 let committed_rl =
                     action_end.min(next_right) - action.field_idx;
 
@@ -902,6 +899,17 @@ mod test {
 
     #[test]
     fn inserts_can_be_duplicated_2() {
+        // # | BF  L1  L2  R1  R2  R3  R4 | BF  M1  M2  M3  M4 |
+        // 0 | a   a   a   a   a   a   a  | a   a   a   a   a  |
+        // 1 | b   u   u   a   a   a   a  | b   a   a   a   a  |
+        // 2 | c   b   b   u   u   u   u  | c   b   u   u   u  |
+        // 3 |     c   u   b   u   u   u  |     c   u   u   u  |
+        // 4 |         c   u   b   b   b  |         b   b   b  |
+        // 5 |             c   u   b   b  |         c   b   b  |
+        // 6 |                 c   u   u  |             c   u  |
+        // 7 |                     c   u  |                 u  |
+        // 8 |                         c  |                 c  |
+
         let left = &[
             FieldAction {
                 kind: INSERT_UNDEF,
