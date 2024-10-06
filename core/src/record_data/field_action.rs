@@ -106,6 +106,10 @@ impl FieldActionKind {
             },
         }
     }
+
+    fn is_dup(self) -> bool {
+        matches!(self, FieldActionKind::Dup)
+    }
 }
 
 impl From<FieldAction> for FieldActionFullRl {
@@ -254,8 +258,11 @@ where
 
     fn commit_pending_action_parts_before_pos(&mut self, mut pos: usize) {
         for pa in self.pending_actions.iter_mut().rev() {
-            let to_commit =
-                (pos - (pa.start + pa.committed_rl)).min(pa.outstanding_rl);
+            let to_commit = (pos
+                - (pa.start
+                    + usize::from(pa.kind.is_dup())
+                    + pa.committed_rl))
+                .min(pa.outstanding_rl);
             pa.committed_rl += to_commit;
             pa.outstanding_rl -= to_commit;
             pos -= pa.committed_rl;
@@ -291,13 +298,14 @@ where
 
     fn push_pending_action(&mut self, action: PendingAction) {
         self.commit_pending_action_parts_before_pos(action.start);
-        let action_end =
-            action.start + action.committed_rl + action.outstanding_rl;
         if self.pending_actions_train_end == usize::MAX {
-            self.pending_actions_train_end = action_end;
+            self.pending_actions_train_end = action.start
+                + usize::from(action.kind.is_dup())
+                + action.committed_rl
+                + action.outstanding_rl;
         } else {
-            self.pending_actions_train_end =
-                self.pending_actions_train_end.max(action_end);
+            self.pending_actions_train_end +=
+                action.committed_rl + action.outstanding_rl;
         }
         self.pending_actions.push(action);
     }
@@ -320,7 +328,13 @@ where
             FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
                 let mut next_left = self.next_action_index_left();
 
-                let mut space_to_next_left = next_left - faf.field_idx;
+                // DUPs effectively start 'inserting' in the index
+                // after their attack point, so the space to next
+                // has to be lowered by one
+                let insertion_point =
+                    faf.field_idx + usize::from(action_left.kind.is_dup());
+
+                let mut space_to_next_left = next_left - insertion_point;
 
                 let drop_by = self
                     .outstanding_drops_right
@@ -332,7 +346,7 @@ where
                     self.outstanding_drops_right -= drop_by;
                     self.field_pos_offset_left -= drop_by as i64;
                     next_left -= drop_by;
-                    space_to_next_left = next_left - faf.field_idx;
+                    space_to_next_left = next_left - insertion_point;
 
                     if faf.run_len == 0 {
                         let mut available_drop = self
@@ -360,7 +374,9 @@ where
                     }
                 }
 
-                let action_end = faf.field_idx + faf.run_len;
+                let action_end = insertion_point + faf.run_len;
+                let next_right = self.next_action_index_right();
+                let next_action = next_left.min(next_right);
 
                 let pending_actions_end_including_this =
                     if self.pending_actions_present() {
@@ -369,9 +385,11 @@ where
                         action_end
                     };
 
-                if pending_actions_end_including_this > next_left {
+                if pending_actions_end_including_this > next_action {
                     self.commit_pending_action_parts_before_pos(faf.field_idx);
-                    let committed_rl = faf.run_len.min(space_to_next_left);
+
+                    let space_to_next = next_action - insertion_point;
+                    let committed_rl = faf.run_len.min(space_to_next);
                     self.push_pending_action(PendingAction {
                         kind: faf.kind,
                         start: faf.field_idx,
@@ -561,6 +579,10 @@ mod test {
     use rstest::rstest;
     const INSERT_UNDEF: FieldActionKind = FieldActionKind::InsertZst {
         repr: FieldValueRepr::Undefined,
+        actor_id: ActorId::ZERO,
+    };
+    const INSERT_NULL: FieldActionKind = FieldActionKind::InsertZst {
+        repr: FieldValueRepr::Null,
         actor_id: ActorId::ZERO,
     };
 
@@ -1587,6 +1609,59 @@ mod test {
             field_idx: 0,
             run_len: 1,
         }];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn drop_inside_stacked_inserts() {
+        // # | BF  L1  L2  L3  R  | BF  M1  M2  M3 |
+        // 0 | a   a   a   a   a  | a   a   a   a  |
+        // 1 |     a   x   x   y  |     a   y   y  |
+        // 2 |     a   x   y   x  |     a   a   x  |
+        // 3 |         a   y   a  |         a   a  |
+        // 4 |         a   x   a  |             a  |
+        // 5 |             a      |                |
+        // 6 |             a      |                |
+
+        let left = &[
+            FieldAction {
+                kind: FieldActionKind::Dup,
+                field_idx: 0,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: INSERT_UNDEF,
+                field_idx: 1,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: INSERT_NULL,
+                field_idx: 2,
+                run_len: 2,
+            },
+        ];
+        let right = &[FieldAction {
+            kind: FieldActionKind::Drop,
+            field_idx: 1,
+            run_len: 2,
+        }];
+        let merged = &[
+            FieldAction {
+                kind: FieldActionKind::Dup,
+                field_idx: 0,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: INSERT_NULL,
+                field_idx: 1,
+                run_len: 1,
+            },
+            FieldAction {
+                kind: INSERT_UNDEF,
+                field_idx: 2,
+                run_len: 1,
+            },
+        ];
         compare_merge_result(left, right, merged);
     }
 }
