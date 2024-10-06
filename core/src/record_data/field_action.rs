@@ -207,7 +207,7 @@ where
                 FieldActionKind::InsertZst { .. },
             ) => {
                 let same_kind = prev.kind == action.kind;
-                add = overlapping_exclusive && same_kind;
+                add = overlapping_inclusive && same_kind;
             }
             (
                 FieldActionKind::Drop,
