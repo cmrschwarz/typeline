@@ -281,11 +281,10 @@ where
 
     fn commit_pending_action_parts_before_pos(&mut self, mut pos: usize) {
         for pa in self.pending_actions.iter_mut().rev() {
-            let to_commit = (pos
-                - (pa.start
-                    + usize::from(pa.kind.is_dup())
-                    + pa.committed_rl))
-                .min(pa.outstanding_rl);
+            let to_commit = (pos.saturating_sub(
+                pa.start + usize::from(pa.kind.is_dup()) + pa.committed_rl,
+            ))
+            .min(pa.outstanding_rl);
             pa.committed_rl += to_commit;
             pa.outstanding_rl -= to_commit;
             pos -= pa.committed_rl;
@@ -357,7 +356,8 @@ where
                 let insertion_point =
                     faf.field_idx + usize::from(action_left.kind.is_dup());
 
-                let mut space_to_next_left = next_left - insertion_point;
+                let mut space_to_next_left =
+                    next_left.saturating_sub(insertion_point);
 
                 let drop_by = self
                     .outstanding_drops_right
@@ -414,7 +414,8 @@ where
                 {
                     self.commit_pending_action_parts_before_pos(faf.field_idx);
 
-                    let space_to_next = next_action - insertion_point;
+                    let space_to_next =
+                        next_action.saturating_sub(insertion_point);
                     let committed_rl = faf.run_len.min(space_to_next);
                     self.push_pending_action(PendingAction {
                         kind: faf.kind,
@@ -645,7 +646,8 @@ mod test {
     #[rstest]
     #[case(FieldActionKind::Dup)]
     #[case(FieldActionKind::Drop)]
-    fn actions_are_merged(#[case] kind: FieldActionKind) {
+    #[case(INSERT_NULL)]
+    fn subsequent_actions_are_merged(#[case] kind: FieldActionKind) {
         let unmerged = &[
             FieldAction {
                 kind,
@@ -666,6 +668,29 @@ mod test {
         }];
         compare_merge_result(unmerged, blank, merged);
         compare_merge_result(blank, unmerged, merged);
+    }
+
+    #[rstest]
+    #[case(FieldActionKind::Dup)]
+    #[case(FieldActionKind::Drop)]
+    #[case(INSERT_NULL)]
+    fn parallel_actions_are_merged(#[case] kind: FieldActionKind) {
+        let left = &[FieldAction {
+            kind,
+            field_idx: 0,
+            run_len: 1,
+        }];
+        let right = &[FieldAction {
+            kind,
+            field_idx: 0,
+            run_len: 1,
+        }];
+        let merged = &[FieldAction {
+            kind,
+            field_idx: 0,
+            run_len: 2,
+        }];
+        compare_merge_result(left, right, merged);
     }
 
     #[test]
