@@ -110,6 +110,9 @@ impl FieldActionKind {
     fn is_dup(self) -> bool {
         matches!(self, FieldActionKind::Dup)
     }
+    fn is_insert(self) -> bool {
+        matches!(self, FieldActionKind::InsertZst { .. })
+    }
 }
 
 impl From<FieldAction> for FieldActionFullRl {
@@ -244,13 +247,33 @@ where
         if self.pending_actions.is_empty() {
             return;
         }
-        for i in 0..self.pending_actions.len() {
+        let mut i = 0;
+        while i < self.pending_actions.len() {
             let a = &self.pending_actions[i];
-            self.commit_action(FieldActionFullRl {
-                kind: a.kind,
-                field_idx: a.start,
-                run_len: a.committed_rl + a.outstanding_rl,
-            });
+
+            let same_index_train_start = i;
+            let mut same_index_train_end = i + 1;
+            if a.kind.is_insert() {
+                while same_index_train_end < self.pending_actions.len() {
+                    let next = &self.pending_actions[same_index_train_end];
+                    if next.start != a.start || !next.kind.is_insert() {
+                        break;
+                    }
+                    same_index_train_end += 1;
+                }
+            }
+            let mut offset = 0;
+            for j in (same_index_train_start..same_index_train_end).rev() {
+                let a = &self.pending_actions[j];
+                let run_len = a.committed_rl + a.outstanding_rl;
+                self.commit_action(FieldActionFullRl {
+                    kind: a.kind,
+                    field_idx: a.start + offset,
+                    run_len,
+                });
+                offset += run_len;
+            }
+            i = same_index_train_end;
         }
         self.pending_actions.clear();
         self.pending_actions_train_end = usize::MAX;
@@ -385,7 +408,10 @@ where
                         action_end
                     };
 
-                if pending_actions_end_including_this > next_action {
+                if pending_actions_end_including_this > next_action
+                    || (self.pending_actions_present()
+                        && action_end < self.pending_actions_train_end)
+                {
                     self.commit_pending_action_parts_before_pos(faf.field_idx);
 
                     let space_to_next = next_action - insertion_point;
@@ -462,14 +488,17 @@ where
                 });
             }
             FieldActionKind::Drop => {
-                if self.pending_actions_present() {
-                    action.run_len -= self.apply_drop_to_pending_actions(
-                        action.field_idx,
-                        action.run_len,
-                    );
-                }
-                let gap_to_start_left =
+                let mut gap_to_start_left =
                     self.next_action_index_left() - action.field_idx;
+                if self.pending_actions_present() {
+                    let drops_applied = self.apply_drop_to_pending_actions(
+                        action.field_idx,
+                        action.run_len.min(gap_to_start_left),
+                    );
+                    gap_to_start_left -= drops_applied;
+                    action.run_len -= drops_applied;
+                    self.field_pos_offset_left -= drops_applied as i64;
+                }
                 if gap_to_start_left < action.run_len {
                     self.outstanding_drops_right +=
                         action.run_len - gap_to_start_left;
@@ -1616,10 +1645,10 @@ mod test {
     fn drop_inside_stacked_inserts() {
         // # | BF  L1  L2  L3  R  | BF  M1  M2  M3 |
         // 0 | a   a   a   a   a  | a   a   a   a  |
-        // 1 |     a   x   x   y  |     a   y   y  |
-        // 2 |     a   x   y   x  |     a   a   x  |
-        // 3 |         a   y   a  |         a   a  |
-        // 4 |         a   x   a  |             a  |
+        // 1 |     a   n   n   u  |     a   u   u  |
+        // 2 |     a   n   u   n  |     a   a   n  |
+        // 3 |         a   u   a  |         a   a  |
+        // 4 |         a   n   a  |             a  |
         // 5 |             a      |                |
         // 6 |             a      |                |
 
@@ -1630,12 +1659,12 @@ mod test {
                 run_len: 2,
             },
             FieldAction {
-                kind: INSERT_UNDEF,
+                kind: INSERT_NULL,
                 field_idx: 1,
                 run_len: 2,
             },
             FieldAction {
-                kind: INSERT_NULL,
+                kind: INSERT_UNDEF,
                 field_idx: 2,
                 run_len: 2,
             },
@@ -1652,12 +1681,12 @@ mod test {
                 run_len: 2,
             },
             FieldAction {
-                kind: INSERT_NULL,
+                kind: INSERT_UNDEF,
                 field_idx: 1,
                 run_len: 1,
             },
             FieldAction {
-                kind: INSERT_UNDEF,
+                kind: INSERT_NULL,
                 field_idx: 2,
                 run_len: 1,
             },
