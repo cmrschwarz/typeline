@@ -281,9 +281,9 @@ where
 
     fn commit_pending_action_parts_before_pos(&mut self, mut pos: usize) {
         for pa in self.pending_actions.iter_mut().rev() {
-            let to_commit = (pos.saturating_sub(
-                pa.start + usize::from(pa.kind.is_dup()) + pa.committed_rl,
-            ))
+            // +1 because we want to commit *before* pos, not *at* pos
+            let to_commit = (pos
+                .saturating_sub(pa.start + pa.committed_rl + 1))
             .min(pa.outstanding_rl);
             pa.committed_rl += to_commit;
             pa.outstanding_rl -= to_commit;
@@ -350,14 +350,7 @@ where
             FieldActionKind::InsertZst { .. } | FieldActionKind::Dup => {
                 let mut next_left = self.next_action_index_left();
 
-                // DUPs effectively start 'inserting' in the index
-                // after their attack point, so the space to next
-                // has to be lowered by one
-                let insertion_point =
-                    faf.field_idx + usize::from(action_left.kind.is_dup());
-
-                let mut space_to_next_left =
-                    next_left.saturating_sub(insertion_point);
+                let mut space_to_next_left = next_left - faf.field_idx;
 
                 let drop_by = self
                     .outstanding_drops_right
@@ -369,7 +362,7 @@ where
                     self.outstanding_drops_right -= drop_by;
                     self.field_pos_offset_left -= drop_by as i64;
                     next_left -= drop_by;
-                    space_to_next_left = next_left - insertion_point;
+                    space_to_next_left = next_left - faf.field_idx;
 
                     if faf.run_len == 0 {
                         let mut available_drop = self
@@ -397,7 +390,7 @@ where
                     }
                 }
 
-                let action_end = insertion_point + faf.run_len;
+                let action_end = faf.field_idx + faf.run_len;
                 let next_right = self.next_action_index_right();
                 let next_action = next_left.min(next_right);
 
@@ -414,8 +407,7 @@ where
                 {
                     self.commit_pending_action_parts_before_pos(faf.field_idx);
 
-                    let space_to_next =
-                        next_action.saturating_sub(insertion_point);
+                    let space_to_next = next_action - faf.field_idx;
                     let committed_rl = faf.run_len.min(space_to_next);
                     self.push_pending_action(PendingAction {
                         kind: faf.kind,
