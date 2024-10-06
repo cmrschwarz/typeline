@@ -281,9 +281,14 @@ where
 
     fn commit_pending_action_parts_before_pos(&mut self, mut pos: usize) {
         for pa in self.pending_actions.iter_mut().rev() {
-            // +1 because we want to commit *before* pos, not *at* pos
-            let to_commit = (pos
-                .saturating_sub(pa.start + pa.committed_rl + 1))
+            // when we're an insert, an inserted index is 'safe' the moment
+            // the cursor is one after it.
+            // when we're a dup, an inserted index is only safe when the cursor
+            // is two elements after it, because the original element can also
+            // be used to undo the dup
+            let to_commit = (pos.saturating_sub(
+                pa.start + pa.committed_rl + usize::from(pa.kind.is_dup()),
+            ))
             .min(pa.outstanding_rl);
             pa.committed_rl += to_commit;
             pa.outstanding_rl -= to_commit;
@@ -390,7 +395,15 @@ where
                     }
                 }
 
-                let action_end = faf.field_idx + faf.run_len;
+                // Dups can be undone from one index later than inserts
+                // because of the original element being part of the same
+                // group. We reflect that by essentially
+                // pretending that the action lasts one element
+                // longer here.
+                let dup_ext = usize::from(action_left.kind.is_dup());
+
+                let action_end = faf.field_idx + faf.run_len + dup_ext;
+
                 let next_right = self.next_action_index_right();
                 let next_action = next_left.min(next_right);
 
@@ -407,7 +420,8 @@ where
                 {
                     self.commit_pending_action_parts_before_pos(faf.field_idx);
 
-                    let space_to_next = next_action - faf.field_idx;
+                    let space_to_next =
+                        next_action.saturating_sub(faf.field_idx + dup_ext);
                     let committed_rl = faf.run_len.min(space_to_next);
                     self.push_pending_action(PendingAction {
                         kind: faf.kind,
@@ -1286,6 +1300,76 @@ mod test {
             run_len: 2,
         }];
         let merged = &[];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn dups_can_be_undone_on_the_original_element() {
+        // We can think of dups as inserts that pick up the kind
+        // of the element they point to. But unlike inserts,
+        // the original element (essentially 'moved forward' by rl
+        // when thinking about it like this) will be the same
+        // as the dup'ed elements, so it's new index can be used to reduce
+        // the dup, unlike with inserts where the original element is
+        // different.
+
+        // # | BF  L   R  |
+        // 0 | a   a   a  |
+        // 1 | b   a   b  |
+        // 2 |     a      |
+        // 3 |     b      |
+
+        let left = &[FieldAction {
+            kind: FieldActionKind::Dup,
+            field_idx: 0,
+            run_len: 2,
+        }];
+        let right = &[FieldAction {
+            kind: FieldActionKind::Drop,
+            field_idx: 2,
+            run_len: 1,
+        }];
+        let merged = &[FieldAction {
+            kind: FieldActionKind::Dup,
+            field_idx: 0,
+            run_len: 1,
+        }];
+        compare_merge_result(left, right, merged);
+    }
+
+    #[test]
+    fn inserts_cant_be_undone_on_the_original_element() {
+        // See `dups_can_be_undone_on_the_original_element` for the
+        // flipside of this.
+
+        // # | BF  L   R  |
+        // 0 | a   n   a  |
+        // 1 | b   n   b  |
+        // 2 |     a      |
+        // 3 |     b      |
+
+        let left = &[FieldAction {
+            kind: INSERT_NULL,
+            field_idx: 0,
+            run_len: 2,
+        }];
+        let right = &[FieldAction {
+            kind: FieldActionKind::Drop,
+            field_idx: 2,
+            run_len: 1,
+        }];
+        let merged = &[
+            FieldAction {
+                kind: INSERT_NULL,
+                field_idx: 0,
+                run_len: 2,
+            },
+            FieldAction {
+                kind: FieldActionKind::Drop,
+                field_idx: 2,
+                run_len: 1,
+            },
+        ];
         compare_merge_result(left, right, merged);
     }
 
