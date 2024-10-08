@@ -211,23 +211,29 @@ impl FieldActionApplicator {
             it.header_rl_offset -= pre;
         }
 
-        let mut fmt_mid = header.fmt;
+        // one of them will be set, so the padding will be represented
+        // exaclty once
+        debug_assert!(pre != 0 || post == 0);
         if pre > 0 {
-            fmt_mid.set_leading_padding(0);
+            header.set_leading_padding(0);
         }
-        if fmt_mid.shared_value() && pre > 0 {
-            fmt_mid.set_same_value_as_previous(true);
+
+        let mut insert_fmt = header.fmt;
+        insert_fmt.set_shared_value(true);
+        insert_fmt.repr = zst_repr;
+        insert_fmt.set_leading_padding(0);
+
+        if header.fmt.shared_value() && pre > 0 {
             header.set_same_value_as_previous(true);
+            insert_fmt.set_same_value_as_previous(true);
         } else {
-            fmt_mid.size = 0;
+            insert_fmt.size = 0;
         }
-        fmt_mid.set_shared_value(true);
-        fmt_mid.repr = zst_repr;
 
         if mid_full_count != 0 {
             for _ in 0..mid_full_count {
-                self.push_insert_command(faas, fmt_mid, RunLength::MAX);
-                fmt_mid.set_same_value_as_previous(true);
+                self.push_insert_command(faas, insert_fmt, RunLength::MAX);
+                insert_fmt.set_same_value_as_previous(true);
             }
             faas.field_pos += mid_full_count * RunLength::MAX as usize;
 
@@ -240,11 +246,11 @@ impl FieldActionApplicator {
 
         if post == 0 {
             header.run_length = mid_rem;
-            header.fmt = fmt_mid;
+            header.fmt = insert_fmt;
             return;
         }
 
-        self.push_insert_command_if_rl_gt_0(faas, fmt_mid, mid_rem);
+        self.push_insert_command_if_rl_gt_0(faas, insert_fmt, mid_rem);
         faas.field_pos += mid_rem as usize;
         header.run_length = post;
         header.set_shared_value_if_rl_1();
@@ -1670,7 +1676,8 @@ mod test {
                     fmt: FieldValueFormat {
                         repr: FieldValueRepr::TextBuffer,
                         size: 1,
-                        flags: field_value_flags::padding(1),
+                        flags: field_value_flags::padding(1)
+                            | field_value_flags::SHARED_VALUE,
                     },
                     run_length: 1,
                 },
@@ -1678,7 +1685,7 @@ mod test {
                     fmt: FieldValueFormat {
                         repr: FieldValueRepr::Undefined,
                         size: 0,
-                        flags: field_value_flags::DEFAULT,
+                        flags: field_value_flags::SHARED_VALUE,
                     },
                     run_length: 42,
                 },
@@ -1686,7 +1693,7 @@ mod test {
                     fmt: FieldValueFormat {
                         repr: FieldValueRepr::TextBuffer,
                         size: 1,
-                        flags: field_value_flags::DEFAULT,
+                        flags: field_value_flags::SHARED_VALUE,
                     },
                     run_length: 1,
                 },
