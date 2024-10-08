@@ -213,7 +213,7 @@ impl FieldActionApplicator {
 
         // one of them will be set, so the padding will be represented
         // exaclty once
-        debug_assert!(pre != 0 || post == 0);
+        debug_assert!(pre != 0 || post != 0);
         if pre > 0 {
             header.set_leading_padding(0);
         }
