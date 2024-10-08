@@ -1645,4 +1645,54 @@ mod test {
             }],
         );
     }
+
+    #[test]
+    fn test_insert_into_field_with_padding() {
+        test_actions_on_headers(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextBuffer,
+                    size: 1,
+                    flags: field_value_flags::padding(1),
+                },
+                run_length: 2,
+            }],
+            [FieldAction::new(
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
+                1,
+                42,
+            )],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextBuffer,
+                        size: 1,
+                        flags: field_value_flags::padding(1),
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 42,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextBuffer,
+                        size: 1,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [],
+            [],
+        );
+    }
 }
