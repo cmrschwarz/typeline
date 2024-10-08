@@ -152,17 +152,12 @@ fn add_field_data_dead_slots<'a>(
 }
 
 fn add_group_track_dead_slots(gt: &GroupTrack, dead_slots: &mut Vec<usize>) {
-    let passed_field_count = gt.passed_fields_count;
-
     let mut iter = gt.iter();
 
     loop {
         let pos = iter.field_pos();
 
-        let mut empty_groups = iter.skip_empty_groups();
-        if pos == passed_field_count {
-            empty_groups += passed_field_count;
-        }
+        let empty_groups = iter.skip_empty_groups();
         if pos >= dead_slots.len() {
             dead_slots.push(0);
         }
@@ -951,9 +946,15 @@ fn group_track_to_json(
             if group_len_rem == 0 {
                 del_count += 1;
             } else {
-                dead_slot_count =
-                    dead_slots.get(iter.field_pos()).copied().unwrap_or(0)
-                        - del_count;
+                dead_slot_count = if cfg!(feature = "debug_log_no_apply") {
+                    0
+                } else {
+                    dead_slots
+                        .get(iter.field_pos())
+                        .copied()
+                        .unwrap_or(0)
+                        .saturating_sub(del_count)
+                };
                 iter.next_n_fields(1);
                 del_count = 0;
             }
