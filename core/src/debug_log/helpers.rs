@@ -34,7 +34,7 @@ handlebars_helper!(Stringify: |object: Value| {
 
 handlebars_helper!(ToInt: |value: Value| {
     match value {
-        Value::Null => Value::Number(0.into()),
+        Value::Null => Value::Number(0i32.into()),
         Value::Bool(b) => Value::Number(Number::from(u8::from(b))),
         Value::Number(_) => value,
         Value::String(s) =>  Value::Number(s.parse().unwrap()),

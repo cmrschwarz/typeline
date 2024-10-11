@@ -5,6 +5,7 @@ members = [
     "extensions/http",
     "extensions/utils",
     "extensions/python",
+    "extensions/csv",
 ]
 
 [package]

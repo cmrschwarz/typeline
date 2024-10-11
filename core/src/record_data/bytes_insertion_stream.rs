@@ -1,5 +1,7 @@
 use std::io::Write;
 
+use bstr::ByteSlice;
+
 use crate::utils::{maybe_text::MaybeTextRef, text_write::TextWrite};
 
 use super::{
@@ -35,7 +37,7 @@ impl<'a> RawBytesInserter<'a> {
         let buf_len = buf.len();
         let len_new = self.bytes_inserted + buf_len;
         if len_new > INLINE_STR_MAX_LEN {
-            if self.bytes_inserted <= INLINE_STR_MAX_LEN {
+            if self.target.is_empty() {
                 self.target.extend_from_slice(unsafe {
                     std::slice::from_raw_parts(
                         self.ptr.sub(self.bytes_inserted),
@@ -115,6 +117,9 @@ impl<'a> RawBytesInserter<'a> {
             self.commit_inline(text);
         }
     }
+    unsafe fn commit_maybe_text(&mut self) {
+        unsafe { self.commit(self.get_inserted_data().is_utf8()) }
+    }
     fn free_memory(&mut self) {
         std::mem::take(&mut self.target);
     }
@@ -126,6 +131,14 @@ impl<'a> RawBytesInserter<'a> {
             )
         }
     }
+
+    fn truncate(&mut self, len: usize) {
+        if self.run_len <= len {
+            return;
+        }
+        self.run_len = len;
+        self.target.truncate(len);
+    }
 }
 
 pub struct BytesInsertionStream<'a>(RawBytesInserter<'a>);
@@ -136,12 +149,18 @@ impl<'a> BytesInsertionStream<'a> {
     pub fn commit(self) {
         drop(self)
     }
+    pub fn commit_maybe_text(mut self) {
+        unsafe { self.0.commit_maybe_text() }
+    }
     pub fn abort(mut self) {
         self.0.free_memory();
         std::mem::forget(self);
     }
     pub fn get_inserted_data(&self) -> &[u8] {
         self.0.get_inserted_data()
+    }
+    pub fn truncate(&mut self, len: usize) {
+        self.0.truncate(len)
     }
 }
 impl Drop for BytesInsertionStream<'_> {

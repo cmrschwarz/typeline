@@ -1,10 +1,11 @@
 use std::{
-    io::{Read, Write},
+    io::{BufRead, ErrorKind, Read, Write},
     ops::Range,
     sync::{Arc, Mutex, MutexGuard},
 };
 
 use bstr::ByteSlice;
+use memchr::{memchr2, memchr3};
 
 use crate::operators::utils::writable::WritableTarget;
 
@@ -134,4 +135,56 @@ impl DummyWritableTarget {
     pub fn get(&self) -> MutexGuard<String> {
         self.target.lock().unwrap()
     }
+}
+
+pub fn read_until_match(
+    reader: &mut (impl BufRead + ?Sized),
+    writer: &mut (impl Write + ?Sized),
+    matcher: impl Fn(&[u8]) -> Option<usize>,
+) -> std::io::Result<usize> {
+    let mut read = 0;
+    loop {
+        let (done, used) = {
+            let available = match reader.fill_buf() {
+                Ok(n) => n,
+                Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+            if let Some(i) = matcher(available) {
+                writer.write_all(&available[..=i])?;
+                (true, i + 1)
+            } else {
+                writer.write_all(available)?;
+                (false, available.len())
+            }
+        };
+        reader.consume(used);
+        read += used;
+        if done || used == 0 {
+            return Ok(read);
+        }
+    }
+}
+
+pub fn read_until_2(
+    reader: &mut (impl BufRead + ?Sized),
+    writer: &mut (impl Write + ?Sized),
+    delim_1: u8,
+    delim_2: u8,
+) -> std::io::Result<usize> {
+    read_until_match(reader, writer, |haystack| {
+        memchr2(delim_1, delim_2, haystack)
+    })
+}
+
+pub fn read_until_3(
+    reader: &mut (impl BufRead + ?Sized),
+    writer: &mut (impl Write + ?Sized),
+    delim_1: u8,
+    delim_2: u8,
+    delim_3: u8,
+) -> std::io::Result<usize> {
+    read_until_match(reader, writer, |haystack| {
+        memchr3(delim_1, delim_2, delim_3, haystack)
+    })
 }

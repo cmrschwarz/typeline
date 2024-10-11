@@ -1857,6 +1857,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "scr_ext_csv"
+version = "0.1.0"
+dependencies = [
+ "scr_core",
+]
+
+[[package]]
 name = "scr_ext_http"
 version = "0.1.0"
 dependencies = [

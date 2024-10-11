@@ -448,6 +448,8 @@ pub unsafe trait PushInterface {
             try_data_rle,
         );
     }
+    // TODO //PERF: in case we want to check for data rle a version
+    // of this fuction that does not require a premature clone would be nice
     fn push_error(
         &mut self,
         err: OperatorApplicationError,
