@@ -161,8 +161,8 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         msm: &MatchSetManager,
         field_id: FieldId,
     ) -> (
-        CowFieldDataRef<'a>,
-        FieldIter<'a, DestructuredFieldDataRef<'a>>,
+        CowFieldDataRef<'static>,
+        FieldIter<'static, DestructuredFieldDataRef<'static>>,
     ) {
         let fr = fm.get_cow_field_ref(msm, field_id);
         let iter =
@@ -230,7 +230,7 @@ impl<'a, R: ReferenceFieldValueType> RefIter<'a, R> {
         match_set_mgr: &'_ MatchSetManager,
         mut limit: usize,
         opts: FieldIterOpts,
-    ) -> Option<(ValidTypedRange<'a>, FieldValueRangeIter<'a, R>)> {
+    ) -> Option<(ValidTypedRange, FieldValueRangeIter<R>)> {
         let (mut field_ref, mut field_rl) = self.refs_iter.peek()?;
         let refs_headers_start = self.refs_iter.header_ptr();
         let refs_data_start = self.refs_iter.data_ptr();
@@ -473,42 +473,74 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     }
     pub fn typed_range_fwd(
         &mut self,
-        match_set_mgr: &MatchSetManager,
+        match_set_mgr: &'_ MatchSetManager,
         limit: usize,
         opts: FieldIterOpts,
-    ) -> Option<RefAwareTypedRange<'a>> {
+    ) -> Option<RefAwareTypedRange> {
         loop {
-            if let Some(ri) = &mut self.ref_iter {
-                match ri {
-                    AnyRefIter::FieldRef(iter) => {
-                        if let Some((range, refs)) =
-                            iter.typed_range_fwd(match_set_mgr, limit, opts)
-                        {
-                            let (fr, _) = refs.peek().unwrap();
-                            return Some(RefAwareTypedRange {
-                                base: range,
-                                refs: Some(AnyRefSliceIter::FieldRef(refs)),
-                                field_ref_offset: Some(fr.field_ref_offset),
-                            });
+            if let Some(ref_iter) = &mut self.ref_iter {
+                {
+                    // HACK
+                    // workaround borrow checker limitation, thank you polonius
+                    // https://rust-lang.github.io/rfcs/2094-nll.html#problem-case-3-conditional-control-flow-across-functions
+                    // https://github.com/rust-lang/rust/issues/54663
+                    let ref_iter = unsafe {
+                        std::mem::transmute::<
+                            &'_ mut AnyRefIter,
+                            &'static mut AnyRefIter,
+                        >(ref_iter)
+                    };
+                    // SAFETY: must be very careful with `ref_iter` here, as we
+                    // messed with it's lifetime
+                    match ref_iter {
+                        AnyRefIter::FieldRef(iter) => {
+                            if let Some((range, refs)) = iter.typed_range_fwd(
+                                match_set_mgr,
+                                limit,
+                                opts,
+                            ) {
+                                let (fr, _) = refs.peek().unwrap();
+                                // SAFETY:
+                                // these returns are why the borrow checker is
+                                // unhappy with us. they force the borrow
+                                // of ri to be for the scope of the entire
+                                // function, despite the borrow effectively
+                                // ending with this return
+                                return Some(RefAwareTypedRange {
+                                    base: range,
+                                    refs: Some(AnyRefSliceIter::FieldRef(
+                                        refs,
+                                    )),
+                                    field_ref_offset: Some(
+                                        fr.field_ref_offset,
+                                    ),
+                                });
+                            }
                         }
-                    }
-                    AnyRefIter::SlicedFieldRef(iter) => {
-                        if let Some((range, refs)) =
-                            iter.typed_range_fwd(match_set_mgr, limit, opts)
-                        {
-                            let (fr, _) = refs.peek().unwrap();
-                            return Some(RefAwareTypedRange {
-                                base: range,
-                                refs: Some(AnyRefSliceIter::SlicedFieldRef(
-                                    refs,
-                                )),
-                                field_ref_offset: Some(fr.field_ref_offset),
-                            });
+                        AnyRefIter::SlicedFieldRef(iter) => {
+                            if let Some((range, refs)) = iter.typed_range_fwd(
+                                match_set_mgr,
+                                limit,
+                                opts,
+                            ) {
+                                let (fr, _) = refs.peek().unwrap();
+                                // SAFETY: see FieldRef branch, same thing
+                                return Some(RefAwareTypedRange {
+                                    base: range,
+                                    refs: Some(
+                                        AnyRefSliceIter::SlicedFieldRef(refs),
+                                    ),
+                                    field_ref_offset: Some(
+                                        fr.field_ref_offset,
+                                    ),
+                                });
+                            }
                         }
                     }
                 }
                 self.ref_iter = None;
             }
+
             let field_pos = self.iter.get_next_field_pos();
             if let Some(range) = self.iter.typed_range_fwd(limit, opts) {
                 if self.setup_for_field_refs_range(
@@ -529,9 +561,9 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     }
     pub fn typed_field_fwd(
         &mut self,
-        match_set_mgr: &MatchSetManager,
+        match_set_mgr: &'_ MatchSetManager,
         limit: usize,
-    ) -> Option<(FieldValueRef<'a>, RunLength, Option<FieldRefOffset>)> {
+    ) -> Option<(FieldValueRef, RunLength, Option<FieldRefOffset>)> {
         loop {
             if let Some(ri) = &mut self.ref_iter {
                 match ri {
@@ -591,16 +623,16 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn next_range(
         &mut self,
         msm: &'_ MatchSetManager,
-    ) -> Option<RefAwareTypedRange<'a>> {
+    ) -> Option<RefAwareTypedRange> {
         self.typed_range_fwd(msm, usize::MAX, FieldIterOpts::default())
     }
     // using `next_range` and nesting RefAwareTypedSliceIters is significantly
     // faster. for example, `scr seqn=1G sum p` gets a 5x speedup
     pub fn next_value(
         &mut self,
-        msm: &MatchSetManager,
+        msm: &'_ MatchSetManager,
         limit: usize,
-    ) -> Option<(FieldValueRef<'a>, RunLength, Option<FieldRefOffset>)> {
+    ) -> Option<(FieldValueRef, RunLength, Option<FieldRefOffset>)> {
         self.typed_field_fwd(msm, limit)
     }
     pub fn next_n_fields(&mut self, mut limit: usize) -> usize {
@@ -633,31 +665,12 @@ impl<'a, I: FieldIterator<'a>> AutoDerefIter<'a, I> {
     pub fn is_next_valid(&self) -> bool {
         self.iter.is_next_valid()
     }
-    pub fn into_value_ref_iter(
-        self,
-        msm: &'a MatchSetManager,
-    ) -> AutoDerefValueRefIter<'a, I> {
-        AutoDerefValueRefIter { msm, iter: self }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RangeOffsets {
     pub from_begin: usize,
     pub from_end: usize,
-}
-
-pub struct AutoDerefValueRefIter<'a, I> {
-    pub msm: &'a MatchSetManager,
-    pub iter: AutoDerefIter<'a, I>,
-}
-
-impl<'a, I: FieldIterator<'a>> Iterator for AutoDerefValueRefIter<'a, I> {
-    type Item = (FieldValueRef<'a>, RunLength, Option<FieldRefOffset>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next_value(self.msm, usize::MAX)
-    }
 }
 
 impl<'a, R: FieldDataRef<'a>, I: FieldIterator<'a, FieldDataRefType = R>>

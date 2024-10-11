@@ -999,15 +999,15 @@ mod test_dead_data_drop {
         }
         fm.apply_field_actions(&msm, field_id, true);
         let field_ref = fm.get_cow_field_ref(&msm, field_id);
-        let iter = fm.get_auto_deref_iter(
+        let mut iter = fm.get_auto_deref_iter(
             field_id,
             &field_ref,
             FIELD_REF_LOOKUP_ITER_ID,
         );
-        let res = iter
-            .into_value_ref_iter(&msm)
-            .map(|(v, rl, _offs)| (v.to_field_value(), rl))
-            .collect::<Vec<_>>();
+        let mut res = Vec::new();
+        while let Some((v, rl, _offs)) = iter.next_value(&msm, usize::MAX) {
+            res.push((v.to_field_value(), rl));
+        }
         assert_eq!(&res, &[(FieldValue::Int(0), 1)]);
     }
 

@@ -12,7 +12,7 @@ use pki_types::InvalidDnsNameError;
 use rustls::ClientConfig;
 use scr_core::{
     context::SessionData,
-    job::{Job, JobData},
+    job::{Job, JobData, TransformManager},
     liveness_analysis::{
         AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
         OperatorCallEffect,
@@ -36,7 +36,7 @@ use scr_core::{
         push_interface::PushInterface,
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
-            StreamValueDataType, StreamValueId,
+            StreamValueDataType, StreamValueId, StreamValueManager,
         },
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -255,23 +255,26 @@ impl TfHttpRequest {
         Ok((url_parsed, socket_addresses, proto))
     }
 
-    fn register_steam(
+    fn register_stream(
         &mut self,
         url: &str,
-        bud: &mut BasicUpdateData,
+        tf_mgr: &TransformManager,
+        tf_id: TransformId,
+        sv_mgr: &mut StreamValueManager,
         rl: RunLength,
         inserter: &mut VaryingTypeInserter<&'_ mut FieldData>,
     ) {
         fn fail(
             inserter: &mut VaryingTypeInserter<&'_ mut FieldData>,
-            bud: &mut BasicUpdateData,
+            tf_mgr: &TransformManager,
+            tf_id: TransformId,
             e: HttpRequestError,
             rl: RunLength,
         ) {
             inserter.push_error(
                 OperatorApplicationError::new_s(
                     format!("HTTP GET request failed: {e}"),
-                    bud.tf_mgr.transforms[bud.tf_id].op_id.unwrap(),
+                    tf_mgr.transforms[tf_id].op_id.unwrap(),
                 ),
                 rl as usize,
                 true,
@@ -283,7 +286,7 @@ impl TfHttpRequest {
             match self.lookup_socket_addresses(url) {
                 Ok(v) => v,
                 Err(e) => {
-                    fail(inserter, bud, e, rl);
+                    fail(inserter, tf_mgr, tf_id, e, rl);
                     return;
                 }
             };
@@ -294,7 +297,8 @@ impl TfHttpRequest {
         let Some(first_addr) = socket_addresses.pop() else {
             fail(
                 inserter,
-                bud,
+                tf_mgr,
+                tf_id,
                 HttpRequestError::Other(format!(
                     "failed to resolve hostname '{hostname}'",
                 )),
@@ -324,13 +328,13 @@ impl TfHttpRequest {
             ) {
                 Ok(v) => v,
                 Err(e) => {
-                    fail(inserter, bud, e, 1);
+                    fail(inserter, tf_mgr, tf_id, e, 1);
                     continue;
                 }
             };
 
             let stream_value_id =
-                bud.sv_mgr.claim_stream_value(StreamValue::from_data(
+                sv_mgr.claim_stream_value(StreamValue::from_data(
                     Some(StreamValueDataType::Bytes),
                     StreamValueData::Bytes {
                         data: Arc::new(Vec::new()),
@@ -386,7 +390,7 @@ impl TfHttpRequest {
         Ok((socket, tls_conn))
     }
 
-    fn basic_update(&mut self, mut bud: BasicUpdateData) -> (usize, bool) {
+    fn basic_update(&mut self, bud: BasicUpdateData) -> (usize, bool) {
         let mut of = bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = of.iter_hall.varying_type_inserter();
         let mut bs_rem = bud.batch_size;
@@ -397,7 +401,14 @@ impl TfHttpRequest {
             // but we don't bother making that fast
             match v {
                 FieldValueRef::Text(txt) => {
-                    self.register_steam(txt, &mut bud, rl, &mut inserter);
+                    self.register_stream(
+                        txt,
+                        bud.tf_mgr,
+                        bud.tf_id,
+                        bud.sv_mgr,
+                        rl,
+                        &mut inserter,
+                    );
                 }
                 FieldValueRef::Bytes(_) => todo!(),
                 _ => inserter.push_error(
