@@ -1174,20 +1174,27 @@ impl<'a> JobData<'a> {
             .set(ActorRef::Unconfirmed(actor_id.wrapping_add(ActorId::one())));
         actor_id
     }
-    pub fn claim_iter_for_tf_state(
+    pub fn claim_iter_for_tf_state_and_field(
         &self,
         tf_state: &TransformState,
+        field_id: FieldId,
     ) -> IterId {
         #[cfg(debug_assertions)]
         tf_state.iters_added.set(true);
         self.field_mgr.claim_iter(
-            tf_state.input_field,
+            field_id,
             self.match_set_mgr.match_sets[tf_state.match_set_id]
                 .action_buffer
                 .borrow()
                 .peek_next_actor_id(),
             IterKind::Transform(self.tf_mgr.transforms.peek_claim_id()),
         )
+    }
+    pub fn claim_iter_for_tf_state(
+        &self,
+        tf_state: &TransformState,
+    ) -> IterId {
+        self.claim_iter_for_tf_state_and_field(tf_state, tf_state.input_field)
     }
     pub fn claim_group_track_iter_for_tf_state(
         &mut self,

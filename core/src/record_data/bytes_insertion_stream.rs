@@ -133,10 +133,10 @@ impl<'a> RawBytesInserter<'a> {
     }
 
     fn truncate(&mut self, len: usize) {
-        if self.run_len <= len {
+        if self.bytes_inserted <= len {
             return;
         }
-        self.run_len = len;
+        self.bytes_inserted = len;
         self.target.truncate(len);
     }
 }

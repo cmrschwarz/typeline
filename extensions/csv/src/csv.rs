@@ -25,7 +25,12 @@ use scr_core::{
         utils::readable::{AnyBufReader, ReadableTarget},
     },
     record_data::{
-        action_buffer::ActorId, field::FieldId, field_data::FieldData,
+        action_buffer::ActorId,
+        field::{FieldId, FieldIterRef},
+        field_action::FieldActionKind,
+        field_data::FieldData,
+        iter_hall::IterKind,
+        iters::FieldIterator,
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -55,7 +60,8 @@ pub struct TfCsv<'a> {
     inserters: Vec<VaryingTypeInserter<RefMut<'static, FieldData>>>,
     additional_fields: StableVec<RefCell<FieldData>>,
     lines_produced: usize,
-    actor: ActorId,
+    actor_id: ActorId,
+    dummy_iter: FieldIterRef,
 }
 
 impl Operator for OpCsv {
@@ -97,6 +103,10 @@ impl Operator for OpCsv {
         _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
+        let dummy_field = job.job_data.match_set_mgr.match_sets
+            [tf_state.match_set_id]
+            .dummy_field;
+        let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfCsv {
                 op: self,
@@ -104,8 +114,17 @@ impl Operator for OpCsv {
                 output_fields: vec![tf_state.output_field],
                 input: Input::NotStarted,
                 lines_produced: 0,
-                actor: job.job_data.add_actor_for_tf_state(tf_state),
-                additional_fields: StableVec::new()
+                actor_id,
+                additional_fields: StableVec::new(),
+                dummy_iter: job.job_data.field_mgr.claim_iter_ref(
+                    dummy_field,
+                    // intentional. we want our own actions to affect this
+                    // iter
+                    actor_id,
+                    IterKind::Transform(
+                        job.job_data.tf_mgr.transforms.peek_claim_id()
+                    )
+                ),
             }
         )))
     }
@@ -189,6 +208,11 @@ impl<'a> Transform<'a> for TfCsv<'a> {
         let mut lines_produced = self.lines_produced;
         let mut col_idx = 0;
 
+        let field = jd
+            .field_mgr
+            .get_cow_field_ref(&jd.match_set_mgr, self.dummy_iter.field_id);
+        let iter = jd.field_mgr.lookup_iter_from_ref(self.dummy_iter, &field);
+
         match read_in_lines(
             reader.aquire(),
             &additional_inserters,
@@ -198,8 +222,29 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             target_batch_size,
         ) {
             Ok(done) => {
+                if col_idx != 0 {
+                    debug_assert!(done);
+                    lines_produced += 1;
+                }
+                let produced_fields = lines_produced - self.lines_produced;
+                let mut ab = jd.match_set_mgr.match_sets[ms_id]
+                    .action_buffer
+                    .borrow_mut();
+                ab.begin_action_group(self.actor_id);
+                ab.push_action(
+                    FieldActionKind::Dup,
+                    iter.get_next_field_pos(),
+                    produced_fields,
+                );
+                ab.end_action_group();
+
                 jd.tf_mgr.unclaim_batch_size(tf_id, batch_size);
-                jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+                jd.tf_mgr.submit_batch_ready_for_more(
+                    tf_id,
+                    produced_fields,
+                    ps,
+                );
+
                 if done {
                     self.input = Input::NotStarted;
                 }
@@ -224,6 +269,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
         }
         self.lines_produced = lines_produced;
         drop(inserters);
+        drop(field);
 
         if !additional_inserters.is_empty() {
             let actor = jd.field_mgr.fields[self.output_fields[0]]
@@ -313,6 +359,7 @@ fn read_in_lines<'a, R: BufRead>(
             } else {
                 stream.truncate(l - 1);
             }
+            stream.commit();
         }
         if !newline {
             *col_idx += 1;
