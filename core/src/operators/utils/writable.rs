@@ -11,10 +11,16 @@ use parking_lot::{
 };
 
 pub trait CustomWritableTarget: Send + Sync {
-    fn create_writer(&self) -> AnyWriter;
+    fn create_writer(&self) -> std::io::Result<AnyWriter>;
+    fn create_writer_hide_error(&self) -> AnyWriter {
+        match self.create_writer() {
+            Ok(w) => w,
+            Err(e) => AnyWriter::IoError(Some(e)),
+        }
+    }
 }
 
-pub trait CustomWriter<'a>: Send + Sync {
+pub trait CustomWriter: Send + Sync {
     fn aquire_writer(&self) -> AquiredWriter;
 }
 
@@ -29,10 +35,10 @@ pub enum AnyWriter<'a> {
     Stdout,
     File(File),
     BufferedFile(BufWriter<File>),
-    Custom(Box<dyn CustomWriter<'a> + 'a>),
-    CustomArc(Arc<dyn CustomWriter<'a> + 'a>),
+    Custom(Box<dyn CustomWriter + 'a>),
+    CustomArc(Arc<dyn CustomWriter + 'a>),
     // option so we can take it and raise it as an error later
-    FileOpenIoError(Option<std::io::Error>),
+    IoError(Option<std::io::Error>),
 }
 
 pub enum AquiredWriter<'a> {
@@ -43,7 +49,7 @@ pub enum AquiredWriter<'a> {
     Custom(&'a mut dyn Write),
     MutexLock(MappedMutexGuard<'a, RawMutex, dyn Write>),
     // option so we can take it and raise it as an error later
-    FileOpenIoError(&'a Option<std::io::Error>),
+    IoError(&'a Option<std::io::Error>),
 }
 
 #[derive(Default)]
@@ -67,20 +73,20 @@ impl<W: Write + Send + 'static> MutexedWriteableTargetOwner<W> {
 impl<W: Write + Send + 'static> CustomWritableTarget
     for MutexedWriteableTarget<W>
 {
-    fn create_writer(&self) -> AnyWriter {
-        AnyWriter::Custom(Box::new(MutexedWriter(&self.0)))
+    fn create_writer(&self) -> std::io::Result<AnyWriter> {
+        Ok(AnyWriter::Custom(Box::new(MutexedWriter(&self.0))))
     }
 }
 
 impl<'a, W: Write + Send + 'static> CustomWritableTarget
     for MutexedWriter<'a, W>
 {
-    fn create_writer(&self) -> AnyWriter {
-        AnyWriter::Custom(Box::new(MutexedWriter(self.0)))
+    fn create_writer(&self) -> std::io::Result<AnyWriter> {
+        Ok(AnyWriter::Custom(Box::new(MutexedWriter(self.0))))
     }
 }
 
-impl<'a, W: Write + Send + 'static> CustomWriter<'a> for MutexedWriter<'a, W> {
+impl<'a, W: Write + Send + 'static> CustomWriter for MutexedWriter<'a, W> {
     fn aquire_writer(&self) -> AquiredWriter {
         AquiredWriter::MutexLock(MutexGuard::map(self.0.lock(), |g| {
             g as &mut dyn Write
@@ -89,21 +95,25 @@ impl<'a, W: Write + Send + 'static> CustomWriter<'a> for MutexedWriter<'a, W> {
 }
 
 impl WritableTarget {
-    pub fn create_writer(&self, buffered: bool) -> AnyWriter {
+    pub fn create_writer(&self, buffered: bool) -> std::io::Result<AnyWriter> {
         match self {
-            WritableTarget::Stdout => AnyWriter::Stdout,
-            WritableTarget::File(path) => match File::open(path) {
-                Ok(f) => {
-                    if buffered {
-                        AnyWriter::BufferedFile(BufWriter::new(f))
-                    } else {
-                        AnyWriter::File(f)
-                    }
-                }
-                Err(e) => AnyWriter::FileOpenIoError(Some(e)),
-            },
+            WritableTarget::Stdout => Ok(AnyWriter::Stdout),
+            WritableTarget::File(path) => {
+                let f = File::open(path)?;
+                Ok(if buffered {
+                    AnyWriter::BufferedFile(BufWriter::new(f))
+                } else {
+                    AnyWriter::File(f)
+                })
+            }
             WritableTarget::Custom(c) => c.create_writer(),
             WritableTarget::CustomArc(c) => c.create_writer(),
+        }
+    }
+    pub fn create_writer_hide_error(&self, buffered: bool) -> AnyWriter {
+        match self.create_writer(buffered) {
+            Ok(w) => w,
+            Err(e) => AnyWriter::IoError(Some(e)),
         }
     }
 }
@@ -124,7 +134,7 @@ impl<'a> AnyWriter<'a> {
             AnyWriter::BufferedFile(f) => AquiredWriter::BufferedFile(f),
             AnyWriter::Custom(f) => f.aquire_writer(),
             AnyWriter::CustomArc(f) => f.aquire_writer(),
-            AnyWriter::FileOpenIoError(f) => AquiredWriter::FileOpenIoError(f),
+            AnyWriter::IoError(f) => AquiredWriter::IoError(f),
         }
     }
 }
@@ -138,7 +148,7 @@ impl Write for AquiredWriter<'_> {
             AquiredWriter::BufferedFile(f) => f.write(buf),
             AquiredWriter::Custom(f) => f.write(buf),
             AquiredWriter::MutexLock(g) => g.write(buf),
-            AquiredWriter::FileOpenIoError(_) => {
+            AquiredWriter::IoError(_) => {
                 Err(std::io::ErrorKind::InvalidData.into())
             }
         }
@@ -152,7 +162,7 @@ impl Write for AquiredWriter<'_> {
             AquiredWriter::BufferedFile(f) => f.flush(),
             AquiredWriter::Custom(f) => f.flush(),
             AquiredWriter::MutexLock(g) => g.flush(),
-            AquiredWriter::FileOpenIoError(_) => Ok(()),
+            AquiredWriter::IoError(_) => Ok(()),
         }
     }
 }

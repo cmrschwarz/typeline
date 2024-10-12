@@ -1,7 +1,6 @@
 use std::{
     cell::RefMut,
-    fs::File,
-    io::{BufRead, BufReader, Read, Seek, Write},
+    io::{BufRead, Write},
     path::PathBuf,
 };
 
@@ -22,6 +21,7 @@ use scr_core::{
             DefaultTransformName, Transform, TransformData, TransformId,
             TransformState,
         },
+        utils::readable::{AnyBufReader, ReadableTarget},
     },
     record_data::{
         action_buffer::ActorId, field::FieldId, field_data::FieldData,
@@ -35,18 +35,18 @@ use scr_core::{
 pub struct OpCsv {
     header: bool,
     // TODO: add form that takes this from input
-    input_file: PathBuf,
+    input: ReadableTarget,
 }
 
-pub enum Input {
+pub enum Input<'a> {
     NotStarted,
-    Running(BufReader<File>),
+    Running(AnyBufReader<'a>),
     Error(OperatorApplicationError),
 }
 
 pub struct TfCsv<'a> {
     op: &'a OpCsv,
-    input: Input,
+    input: Input<'a>,
     output_fields: Vec<FieldId>,
     inserters: Vec<VaryingTypeInserter<RefMut<'static, FieldData>>>,
     lines_produced: usize,
@@ -140,29 +140,23 @@ impl<'a> Transform<'a> for TfCsv<'a> {
 
         let (reader, header_processed);
         match &mut self.input {
-            Input::NotStarted => match File::open(&self.op.input_file) {
-                Ok(file) => {
-                    self.input = Input::Running(BufReader::new(file));
-                    let Input::Running(file) = &mut self.input else {
-                        unreachable!()
-                    };
-                    reader = file;
-                    header_processed = !self.op.header;
-                }
+            Input::NotStarted => match self.op.input.create_buf_reader() {
                 Err(e) => {
-                    let err = OperatorApplicationError::new_s(
-                        format!(
-                            "failed to open file `{}`: {}",
-                            self.op.input_file.to_string_lossy(),
-                            e
-                        ),
-                        op_id,
-                    );
+                    let err =
+                        OperatorApplicationError::new_s(e.to_string(), op_id);
                     distribute_errors(&mut inserters, err.clone());
                     jd.tf_mgr
                         .submit_batch_ready_for_more(tf_id, batch_size, ps);
                     self.input = Input::Error(err);
                     return;
+                }
+                Ok(r) => {
+                    self.input = Input::Running(r);
+                    let Input::Running(file) = &mut self.input else {
+                        unreachable!()
+                    };
+                    reader = file;
+                    header_processed = !self.op.header;
                 }
             },
             Input::Running(buf_reader) => {
@@ -187,7 +181,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
         let mut col_idx = 0;
 
         match read_in_lines(
-            reader,
+            reader.aquire(),
             &mut inserters,
             &mut lines_produced,
             &mut col_idx,
@@ -196,13 +190,15 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             Ok(done) => {
                 jd.tf_mgr.unclaim_batch_size(tf_id, batch_size);
                 jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
-                reader.seek(std::io::SeekFrom::Start(0));
+                if done {
+                    self.input = Input::NotStarted;
+                }
             }
             Err(io_error) => {
                 let err = OperatorApplicationError::new_s(
                     format!(
                         "{}:{}:{} {}",
-                        self.op.input_file.to_string_lossy(),
+                        self.op.input.target_path(),
                         lines_produced,
                         col_idx,
                         io_error
@@ -225,8 +221,8 @@ fn add_inserter(
     // TODO: add additional inserter and fill him up with nones
 }
 
-fn read_in_lines(
-    reader: &mut BufReader<File>,
+fn read_in_lines<R: BufRead>(
+    mut reader: R,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'_, FieldData>>>,
     lines_produced: &mut usize,
     col_idx: &mut usize,
@@ -272,7 +268,7 @@ fn read_in_lines(
         } else {
             let mut stream = inserter.bytes_insertion_stream(1);
             let _ = stream.write_all(std::slice::from_mut(&mut c));
-            if read_until_2(reader, &mut stream, b',', b'\n')? == 0 {
+            if read_until_2(&mut reader, &mut stream, b',', b'\n')? == 0 {
                 return Ok(true);
             }
             let buf = stream.get_inserted_data();
@@ -307,7 +303,7 @@ pub fn create_op_csv(
     header: bool,
 ) -> OperatorData {
     OperatorData::Custom(smallbox!(OpCsv {
-        input_file: input_file.into(),
+        input: ReadableTarget::File(input_file.into()),
         header
     }))
 }

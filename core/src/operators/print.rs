@@ -128,7 +128,7 @@ pub fn build_tf_print<'a>(
         current_stream_val: None,
         streams_kept_alive: 0,
         iter_id: jd.claim_iter_for_tf_state(tf_state),
-        target: op.target.create_writer(true),
+        target: op.target.create_writer_hide_error(true),
         opts: op.opts,
     })
 }
