@@ -1,4 +1,4 @@
-use csv::create_op_csv;
+use csv::{create_op_csv, create_op_csv_from_file};
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
@@ -37,7 +37,7 @@ impl Extension for CsvExtension {
                     header = true;
                 }
             }
-            return Ok(Some(create_op_csv(
+            return Ok(Some(create_op_csv_from_file(
                 args[0].stringify_as_text(expr.op_name, sess)?.to_string(),
                 header,
             )));

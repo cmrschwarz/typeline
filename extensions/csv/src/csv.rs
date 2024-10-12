@@ -298,7 +298,11 @@ fn read_in_lines<R: BufRead>(
     }
 }
 
-pub fn create_op_csv(
+pub fn create_op_csv(input: ReadableTarget, header: bool) -> OperatorData {
+    OperatorData::Custom(smallbox!(OpCsv { input, header }))
+}
+
+pub fn create_op_csv_from_file(
     input_file: impl Into<PathBuf>,
     header: bool,
 ) -> OperatorData {

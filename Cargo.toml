@@ -48,6 +48,7 @@ scr_ext_sqlite = { path = "./extensions/sqlite", optional = true }
 scr_ext_python = { path = "./extensions/python", optional = true }
 scr_ext_http = { path = "./extensions/http", optional = true }
 scr_ext_utils = { path = "./extensions/utils", optional = true }
+scr_ext_csv = { path = "./extensions/csv", optional = true }
 
 [profile.release]
 panic = "abort"

@@ -8,7 +8,7 @@ use std::{
 
 use parking_lot::{
     lock_api::{MappedMutexGuard, MutexGuard},
-    RawMutex,
+    Mutex, RawMutex,
 };
 
 pub trait CustomReadableTarget: Send + Sync {
@@ -113,10 +113,8 @@ pub enum AquiredBufReader<'a> {
     CustomReaderBufAdapter(AquiredCustomReaderBufAdapter<'a>),
 }
 
-#[derive(Default)]
 pub struct MutexedReadableTargetOwner<W: Read>(Arc<MutexedReadableTarget<W>>);
 
-#[derive(Default)]
 pub struct MutexedReadableTarget<W: Read>(pub parking_lot::Mutex<W>);
 
 pub struct MutexedReader<'a, W: Read>(pub &'a parking_lot::Mutex<W>);
@@ -142,7 +140,7 @@ impl<'a, R: Deref<Target = dyn CustomReader + 'a>>
     }
 }
 
-pub fn adapt_reader<'a>(r: AnyReader<'a>) -> AnyBufReader<'a> {
+pub fn adapt_reader(r: AnyReader) -> AnyBufReader {
     match r {
         AnyReader::Stdin => AnyBufReader::Stdin,
         AnyReader::File(file) => {
@@ -164,16 +162,19 @@ pub fn adapt_reader<'a>(r: AnyReader<'a>) -> AnyBufReader<'a> {
     }
 }
 
-impl<W: Read + Send + 'static> MutexedReadableTargetOwner<W> {
-    pub fn get(&self) -> MutexGuard<RawMutex, W> {
+impl<R: Read + Send + 'static> MutexedReadableTargetOwner<R> {
+    pub fn new(reader: R) -> Self {
+        Self(Arc::new(MutexedReadableTarget(Mutex::new(reader))))
+    }
+    pub fn get(&self) -> MutexGuard<RawMutex, R> {
         self.0 .0.lock()
     }
     pub fn create_target(&self) -> ReadableTarget {
         ReadableTarget::CustomArc(self.0.clone())
     }
 }
-impl<W: Read + Send + 'static> CustomReadableTarget
-    for MutexedReadableTarget<W>
+impl<R: Read + Send + 'static> CustomReadableTarget
+    for MutexedReadableTarget<R>
 {
     fn target_path(&self) -> String {
         String::from("<custom readable>")
