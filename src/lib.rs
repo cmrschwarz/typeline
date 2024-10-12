@@ -45,6 +45,11 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
         .extensions
         .push(Box::<scr_ext_python::PythonExtension>::default());
 
+    #[cfg(feature = "csv")]
+    extensions
+        .extensions
+        .push(Box::<scr_ext_csv::CsvExtension>::default());
+
     extensions.setup();
     Arc::new(extensions)
 }
