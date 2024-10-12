@@ -18,11 +18,11 @@ pub static CSV_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
 #[test]
 fn first_column_becomes_output() -> Result<(), ScrError> {
     let target = MutexedReadableTargetOwner::new(SliceReader::new(
-        "a,b,c\n1,2".as_bytes(),
+        "a,b,c\n1,2\r\nx,y,z,w".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .add_op(create_op_csv(target.create_target(), false))
         .run_collect_stringified()?;
-    assert_eq!(res, ["a, 1"]);
+    assert_eq!(res, ["a", "1", "x"]);
     Ok(())
 }

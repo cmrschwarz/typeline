@@ -1,5 +1,6 @@
 use std::{
-    cell::RefMut,
+    borrow::BorrowMut,
+    cell::{RefCell, RefMut},
     io::{BufRead, Write},
     path::PathBuf,
 };
@@ -29,7 +30,10 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
-    utils::{temp_vec::TransmutableContainer, test_utils::read_until_2},
+    utils::{
+        stable_vec::StableVec, temp_vec::TransmutableContainer,
+        test_utils::read_until_2,
+    },
 };
 
 pub struct OpCsv {
@@ -49,6 +53,7 @@ pub struct TfCsv<'a> {
     input: Input<'a>,
     output_fields: Vec<FieldId>,
     inserters: Vec<VaryingTypeInserter<RefMut<'static, FieldData>>>,
+    additional_fields: StableVec<RefCell<FieldData>>,
     lines_produced: usize,
     actor: ActorId,
 }
@@ -96,10 +101,11 @@ impl Operator for OpCsv {
             TfCsv {
                 op: self,
                 inserters: Default::default(),
-                output_fields: Default::default(),
+                output_fields: vec![tf_state.output_field],
                 input: Input::NotStarted,
                 lines_produced: 0,
-                actor: job.job_data.add_actor_for_tf_state(tf_state)
+                actor: job.job_data.add_actor_for_tf_state(tf_state),
+                additional_fields: StableVec::new()
             }
         )))
     }
@@ -122,6 +128,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];
+        let ms_id = tf.match_set_id;
         let target_batch_size = tf.desired_batch_size;
         let op_id = tf.op_id.unwrap();
 
@@ -132,6 +139,8 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             self.output_fields.iter().copied(),
         );
 
+        let mut additional_inserters =
+            self.additional_fields.borrow_container();
         let mut inserters = self.inserters.borrow_container();
 
         for &f in &self.output_fields {
@@ -177,11 +186,12 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             // TODO: process header
         }
 
-        let mut lines_produced = 0;
+        let mut lines_produced = self.lines_produced;
         let mut col_idx = 0;
 
         match read_in_lines(
             reader.aquire(),
+            &additional_inserters,
             &mut inserters,
             &mut lines_produced,
             &mut col_idx,
@@ -212,18 +222,42 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                 }
             }
         }
+        self.lines_produced = lines_produced;
+        drop(inserters);
+
+        if !additional_inserters.is_empty() {
+            let actor = jd.field_mgr.fields[self.output_fields[0]]
+                .borrow()
+                .first_actor
+                .get();
+            for i in &mut *additional_inserters {
+                self.output_fields.push(jd.field_mgr.add_field_with_data(
+                    &jd.match_set_mgr,
+                    ms_id,
+                    actor,
+                    i.borrow_mut().take(),
+                ));
+            }
+            additional_inserters.clear();
+        }
     }
 }
 
-fn add_inserter(
-    inserters: &mut Vec<VaryingTypeInserter<RefMut<'_, FieldData>>>,
+fn add_inserter<'a>(
+    additional_fields: &'a StableVec<RefCell<FieldData>>,
+    inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
 ) {
     // TODO: add additional inserter and fill him up with nones
+    additional_fields.push(RefCell::default());
+    inserters.push(VaryingTypeInserter::new(
+        additional_fields.last().unwrap().borrow_mut(),
+    ));
 }
 
-fn read_in_lines<R: BufRead>(
+fn read_in_lines<'a, R: BufRead>(
     mut reader: R,
-    inserters: &mut Vec<VaryingTypeInserter<RefMut<'_, FieldData>>>,
+    additional_fields: &'a StableVec<RefCell<FieldData>>,
+    inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
     lines_produced: &mut usize,
     col_idx: &mut usize,
     lines_max: usize,
@@ -283,7 +317,7 @@ fn read_in_lines<R: BufRead>(
         if !newline {
             *col_idx += 1;
             if *col_idx >= inserters.len() {
-                add_inserter(inserters);
+                add_inserter(additional_fields, inserters);
             }
             continue;
         }

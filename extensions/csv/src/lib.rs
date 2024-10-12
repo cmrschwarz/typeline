@@ -1,4 +1,4 @@
-use csv::{create_op_csv, create_op_csv_from_file};
+use csv::create_op_csv_from_file;
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,

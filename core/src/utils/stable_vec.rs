@@ -195,6 +195,7 @@ impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
             self.push(elem)
         }
     }
+    // TODO: implement drain
 }
 
 impl<T, const CHUNK_SIZE: usize> Drop for StableVec<T, CHUNK_SIZE> {

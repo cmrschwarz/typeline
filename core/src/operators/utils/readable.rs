@@ -386,7 +386,7 @@ impl<'a> BufRead for AquiredCustomReaderBufAdapter<'a> {
     }
 
     fn consume(&mut self, amt: usize) {
-        debug_assert!(amt < self.buffer.data.len() - self.buffer.consumed);
+        debug_assert!(amt <= self.buffer.data.len() - self.buffer.consumed);
         self.buffer.consumed += amt;
     }
 }
