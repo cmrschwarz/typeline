@@ -356,10 +356,12 @@ fn read_in_lines<'a, R: BufRead>(
             newline = buf[l - 1] == b'\n';
             if newline && l > 1 && buf[l - 2] == b'\r' {
                 stream.truncate(l - 2);
-            } else {
+            } else if newline || buf[l - 1] == b',' {
                 stream.truncate(l - 1);
+            } else {
+                *col_idx += 1;
+                return Ok(true);
             }
-            stream.commit();
         }
         if !newline {
             *col_idx += 1;
