@@ -76,11 +76,11 @@ pub struct OpPrint {
     opts: PrintOptions,
 }
 
-pub struct TfPrint {
+pub struct TfPrint<'a> {
     current_stream_val: Option<StreamValueId>,
     iter_id: IterId,
     streams_kept_alive: usize,
-    target: AnyWriter,
+    target: AnyWriter<'a>,
     flush_on_every_print: bool,
     rationals_print_mode: RationalsPrintMode,
     opts: PrintOptions,
@@ -116,7 +116,7 @@ pub fn parse_op_print(
 pub fn build_tf_print<'a>(
     jd: &mut JobData,
     _op_base: &OperatorBase,
-    op: &OpPrint,
+    op: &'a OpPrint,
     tf_state: &mut TransformState,
 ) -> TransformData<'a> {
     TransformData::Print(TfPrint {
@@ -128,7 +128,7 @@ pub fn build_tf_print<'a>(
         current_stream_val: None,
         streams_kept_alive: 0,
         iter_id: jd.claim_iter_for_tf_state(tf_state),
-        target: op.target.take_writer(true),
+        target: op.target.create_writer(true),
         opts: op.opts,
     })
 }

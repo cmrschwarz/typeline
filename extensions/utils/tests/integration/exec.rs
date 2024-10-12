@@ -4,9 +4,9 @@ use scr::{
         join::create_op_join,
         print::{create_op_print_with_opts, PrintOptions},
         sequence::create_op_seq,
+        utils::writable::MutexedWriteableTargetOwner,
     },
     options::session_setup::ScrSetupOptions,
-    utils::test_utils::DummyWritableTarget,
 };
 use scr_core::{
     options::context_builder::ContextBuilder, scr_error::ScrError,
@@ -53,17 +53,17 @@ fn parse_exec_2() -> Result<(), ScrError> {
 
 #[test]
 fn run_multi_exec() -> Result<(), ScrError> {
-    let target = DummyWritableTarget::new();
+    let target = MutexedWriteableTargetOwner::<Vec<u8>>::default();
 
     ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_exec_from_strings(["echo", "a"]).unwrap())
         .add_op(create_op_print_with_opts(
-            target.get_target(),
+            target.create_target(),
             PrintOptions::default(),
         ))
         .run()?;
-    assert_eq!(&**target.get(), "a\n\na\n\na\n\n");
+    assert_eq!(&**target.get(), b"a\n\na\n\na\n\n");
     Ok(())
 }
 

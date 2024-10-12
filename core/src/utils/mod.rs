@@ -25,11 +25,13 @@ pub mod io;
 pub mod lazy_lock_guard;
 pub mod maybe_boxed;
 pub mod maybe_text;
+pub mod multi_ref_mut_handout;
 pub mod offset_vec_deque;
 pub mod paths_store;
 pub mod phantom_slot;
 pub mod plattform;
 pub mod printable_unicode;
+pub mod random_access_container;
 pub mod ringbuf;
 pub mod size_classed_vec_deque;
 pub mod small_box;
@@ -40,8 +42,6 @@ pub mod test_utils;
 pub mod text_write;
 pub mod type_list;
 pub mod universe;
-pub mod multi_ref_mut_handout;
-pub mod random_access_container;
 
 pub const fn ilog2_usize(v: usize) -> usize {
     (std::mem::size_of::<usize>() * 8) - v.leading_zeros() as usize

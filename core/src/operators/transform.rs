@@ -95,7 +95,7 @@ pub enum TransformData<'a> {
     CalleeConcurrent(TfCalleeConcurrent),
     ToStr(TfToStr),
     Count(TfCount),
-    Print(TfPrint),
+    Print(TfPrint<'a>),
     Join(TfJoin<'a>),
     StringSink(TfStringSink<'a>),
     FieldValueSink(TfFieldValueSink<'a>),
@@ -235,9 +235,10 @@ pub struct TransformState {
     // the last group that this transform is supposed to truncate
     pub group_to_truncate: Option<GroupIdxStable>,
 
-    // used to warn if an actor is added using `JobData::add_actor_for_tf_state`
-    // *after* an iterator has been added using `JobData::claim_iter_for_tf_state`,
-    // which would lead to the iterator containing an incorrect actor index
+    // used to warn if an actor is added using
+    // `JobData::add_actor_for_tf_state` *after* an iterator has been
+    // added using `JobData::claim_iter_for_tf_state`, which would lead to
+    // the iterator containing an incorrect actor index
     #[cfg(debug_assertions)]
     pub iters_added: std::cell::Cell<bool>,
 }

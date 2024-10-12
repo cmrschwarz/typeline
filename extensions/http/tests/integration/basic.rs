@@ -4,10 +4,10 @@ use scr_core::{
         print::{create_op_print_with_opts, PrintOptions},
         regex::create_op_regex,
         sequence::create_op_seqn,
+        utils::writable::MutexedWriteableTargetOwner,
     },
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
-    utils::test_utils::DummyWritableTarget,
 };
 use scr_ext_http::http::create_op_GET;
 
@@ -72,17 +72,17 @@ fn multi_get_http_regex() -> Result<(), ScrError> {
 fn multi_get_into_print() -> Result<(), ScrError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/echo/{{}}", server.url());
-    let target = DummyWritableTarget::default();
+    let target = MutexedWriteableTargetOwner::<Vec<u8>>::default();
     ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_format(&fmt).unwrap())
         .add_op(create_op_GET())
         .add_op(create_op_print_with_opts(
-            target.get_target(),
+            target.create_target(),
             PrintOptions::default(),
         ))
         .run()?;
-    assert_eq!(&*target.get(), "1\n2\n3\n");
+    assert_eq!(&*target.get(), b"1\n2\n3\n");
     Ok(())
 }
 

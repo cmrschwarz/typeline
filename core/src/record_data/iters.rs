@@ -93,7 +93,13 @@ impl<'a> DestructuredFieldDataRef<'a> {
         }
     }
 }
-
+// While this type does not implement the `std::iter::Iterator` trait directly,
+// it is crutial that it has the same basic property:
+// References handed out by it have a constant lifetime 'a that is independant
+// of the lifetime of the iterator itself.
+// This is necessary because `AutoDerefIterator` will temporarily construct
+// iterators to referenced fields but need the lifetimes to elements returned
+// by these temporary 
 pub trait FieldIterator<'a>: Sized + Clone {
     type FieldDataRefType: FieldDataRef<'a>;
     fn field_data_ref(&self) -> &Self::FieldDataRefType;

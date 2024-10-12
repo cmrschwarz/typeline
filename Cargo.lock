@@ -1839,6 +1839,7 @@ dependencies = [
  "metamatch",
  "num",
  "once_cell",
+ "parking_lot",
  "reedline",
  "ref-cast",
  "regex",

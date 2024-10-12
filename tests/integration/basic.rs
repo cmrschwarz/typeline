@@ -5,9 +5,10 @@ use scr::{
         foreach::create_op_foreach,
         print::{create_op_print_with_opts, PrintOptions},
         sequence::create_op_enum_unbounded,
+        utils::writable::MutexedWriteableTargetOwner,
     },
     options::chain_settings::SettingConversionError,
-    utils::test_utils::{int_sequence_strings, DummyWritableTarget},
+    utils::test_utils::int_sequence_strings,
 };
 use scr_core::{
     operators::{
@@ -670,7 +671,7 @@ fn stream_error_into_print() -> Result<(), ScrError> {
     // we have to make print take two streams. stdout and stderr respectively
     // it should then have options about where / if to report errors
     let offfset = 0;
-    let print_target = DummyWritableTarget::new();
+    let print_target = MutexedWriteableTargetOwner::<Vec<u8>>::default();
     let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(1)?
         .set_stream_size_threshold(1)?
@@ -682,7 +683,7 @@ fn stream_error_into_print() -> Result<(), ScrError> {
             0,
         ))
         .add_op(create_op_print_with_opts(
-            print_target.get_target(),
+            print_target.create_target(),
             PrintOptions {
                 ignore_nulls: false,
                 propagate_errors: false,
@@ -692,7 +693,7 @@ fn stream_error_into_print() -> Result<(), ScrError> {
     assert_eq!(res, ["null"]);
     assert_eq!(
         &*print_target.get(),
-        "ERROR: in op id 0: ErroringStream: Error\n"
+        b"ERROR: in op id 0: ErroringStream: Error\n"
     );
     Ok(())
 }
