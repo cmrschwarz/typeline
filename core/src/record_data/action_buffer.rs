@@ -532,6 +532,7 @@ impl ActionBuffer {
         let res = self.build_actions_from_snapshot(actor_id, field_snapshot);
 
         let Some(agi) = res else {
+            self.drop_snapshot_refcount(field_snapshot);
             return;
         };
 
@@ -543,6 +544,7 @@ impl ActionBuffer {
         let Some(first_action_index) =
             s1.first().or_else(|| s2.first()).map(|a| a.field_idx)
         else {
+            self.drop_snapshot_refcount(field_snapshot);
             return;
         };
 
@@ -733,6 +735,9 @@ impl ActionBuffer {
         pending_actions.extend(s1);
         pending_actions.extend(s2);
         self.release_temp_action_group(&agi);
+    }
+    pub fn action_group_count(&self) -> usize {
+        self.action_groups.len()
     }
 }
 

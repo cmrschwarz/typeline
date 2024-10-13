@@ -982,6 +982,52 @@ impl<'a> Job<'a> {
     pub fn is_in_streaming_mode(&self) -> bool {
         !self.job_data.tf_mgr.stream_producers.is_empty()
     }
+    fn cleanup_action_lists(&mut self) {
+        #[cfg(feature = "debug_log")]
+        let mut count_diff = 0;
+
+        #[cfg(feature = "debug_log")]
+        {
+            for ms in &self.job_data.match_set_mgr.match_sets {
+                count_diff += ms.action_buffer.borrow().action_group_count();
+            }
+        }
+
+        for field_id in self.job_data.field_mgr.fields.indices() {
+            self.job_data.field_mgr.apply_field_actions(
+                &self.job_data.match_set_mgr,
+                field_id,
+                false,
+            );
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            for ms in &self.job_data.match_set_mgr.match_sets {
+                debug_assert_eq!(
+                    0,
+                    ms.action_buffer.borrow().action_group_count()
+                );
+            }
+        }
+
+        #[cfg(feature = "debug_log")]
+        {
+            #[cfg(feature = "debug_logging_field_action_group_accel")]
+            eprintln!("action list cleanup: {count_diff} cleaned");
+
+            if let Some(dl) = &mut self.debug_log {
+                crate::debug_log::write_action_list_cleanup_to_html(
+                    &self.job_data,
+                    &self.transform_data,
+                    self.job_data.start_tf.unwrap(),
+                    count_diff,
+                    dl,
+                )
+                .expect("debug log write succeeds");
+            }
+        }
+    }
     pub(crate) fn run(
         &mut self,
         ctx: Option<&Arc<ContextData>>,
@@ -1019,6 +1065,17 @@ impl<'a> Job<'a> {
         //      - it's produced stream values must have been fully propagated
         loop {
             self.job_data.transform_step_count += 1;
+
+            if self.job_data.transform_step_count
+                % self
+                    .job_data
+                    .session_data
+                    .settings
+                    .action_list_cleanup_frequency
+                == 0
+            {
+                self.cleanup_action_lists();
+            }
 
             if option_env!("SCR_DEBUG_BREAK_ON_STEP")
                 .and_then(|v| v.parse().ok())

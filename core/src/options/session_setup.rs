@@ -40,8 +40,8 @@ use std::{
 use super::{
     chain_settings::{
         chain_settings_list, ChainSetting, ChainSettingNames,
-        SettingBatchSize, SettingDebugLog, SettingDebugLogNoApply,
-        SettingMaxThreads,
+        SettingActionListCleanupFrequency, SettingBatchSize, SettingDebugLog,
+        SettingDebugLogNoApply, SettingMaxThreads,
     },
     setting::{CliArgIdx, Setting},
 };
@@ -350,11 +350,17 @@ impl SessionSetupData {
             }
         };
 
+        let action_list_cleanup_frequency = self
+            .lookup_initial_chain_setting::<SettingActionListCleanupFrequency>(
+            ChainId::ZERO,
+        );
+
         Ok(SessionSettings {
             chain_setting_names: self.chain_setting_names,
             max_threads,
             debug_log_path,
             debug_log_no_apply,
+            action_list_cleanup_frequency,
             repl: self.setup_settings.repl.unwrap_or(false),
             skipped_first_cli_arg: self.setup_settings.skipped_first_cli_arg,
         })

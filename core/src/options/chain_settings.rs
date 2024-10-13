@@ -458,6 +458,14 @@ impl ChainSetting for SettingMaxThreads {
     type Converter = SettingConverterUsize<Self, true>;
 }
 
+pub struct SettingActionListCleanupFrequency;
+impl ChainSetting for SettingActionListCleanupFrequency {
+    type Type = usize;
+    const NAME: &'static str = "alcf";
+    const DEFAULT: usize = 64;
+    type Converter = SettingConverterUsize<Self, true>;
+}
+
 typelist! {
     pub mod chain_settings_list: (ChainSetting) = [
         SettingBatchSize,
@@ -468,6 +476,7 @@ typelist! {
         SettingBufferingMode,
         SettingDebugLog,
         SettingDebugLogNoApply,
-        SettingMaxThreads
+        SettingMaxThreads,
+        SettingActionListCleanupFrequency
     ]{}
 }

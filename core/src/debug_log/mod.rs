@@ -1187,6 +1187,24 @@ pub fn write_transform_update_to_html(
     )
 }
 
+pub fn write_action_list_cleanup_to_html(
+    jd: &JobData,
+    tf_data: &IndexSlice<TransformId, TransformData>,
+    root_tf: TransformId,
+    action_lists_dropped: usize,
+    w: &mut impl std::io::Write,
+) -> Result<(), std::io::Error> {
+    write_update_to_html(
+        jd,
+        tf_data,
+        &format!("Action List Cleanup: {action_lists_dropped} cleaned"),
+        "action-list-cleanup",
+        None,
+        root_tf,
+        w,
+    )
+}
+
 pub fn write_stream_value_update_to_html(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
