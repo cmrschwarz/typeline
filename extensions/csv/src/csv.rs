@@ -269,6 +269,9 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             Ok(done) => {
                 if col_idx != 0 {
                     debug_assert!(done);
+                    for i in col_idx..inserters.len() {
+                        inserters[i].push_null(1, true);
+                    }
                     lines_produced += 1;
                 }
                 let produced_fields = lines_produced - self.lines_produced;
@@ -393,6 +396,7 @@ fn read_in_lines<'a, R: BufRead>(
             continue;
         }
         let inserter = &mut inserters[*col_idx];
+        *col_idx += 1;
         let newline;
         if c == b'"' {
             // todo: parse quoted text
@@ -411,18 +415,16 @@ fn read_in_lines<'a, R: BufRead>(
             } else if newline || buf[l - 1] == b',' {
                 stream.truncate(l - 1);
             } else {
-                *col_idx += 1;
                 return Ok(true);
             }
         }
         if !newline {
-            *col_idx += 1;
             if *col_idx >= inserters.len() {
                 add_inserter(additional_fields, inserters);
             }
             continue;
         }
-        for i in &mut inserters[*col_idx + 1..] {
+        for i in &mut inserters[*col_idx..] {
             i.push_null(1, true);
         }
         *col_idx = 0;

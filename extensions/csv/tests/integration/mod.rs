@@ -53,3 +53,16 @@ fn access_second_field() -> Result<(), ScrError> {
     assert_eq!(res, ["b\"b\"", "null", "b\"y\""]);
     Ok(())
 }
+
+#[test]
+fn last_row_filled_up_with_nulls() -> Result<(), ScrError> {
+    let target = MutexedReadableTargetOwner::new(SliceReader::new(
+        "1,\r\na,b\nx".as_bytes(),
+    ));
+    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_format("{1:?}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["\"\"", "b\"b\"", "null"]);
+    Ok(())
+}
