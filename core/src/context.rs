@@ -81,6 +81,7 @@ pub struct SessionSettings {
     pub repl: bool,
     pub skipped_first_cli_arg: bool,
     pub debug_log_path: Option<PathBuf>,
+    pub debug_log_no_apply: bool,
     pub chain_setting_names: [StringStoreEntry; chain_settings_list::COUNT],
 }
 

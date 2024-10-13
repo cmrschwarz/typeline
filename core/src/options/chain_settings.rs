@@ -442,6 +442,14 @@ impl ChainSetting for SettingDebugLog {
     type Converter = SettingConverterOptionalPath<Self>;
 }
 
+pub struct SettingDebugLogNoApply;
+impl ChainSetting for SettingDebugLogNoApply {
+    type Type = bool;
+    const NAME: &'static str = "debug_log_no_apply";
+    const DEFAULT: bool = false;
+    type Converter = SettingConverterBool<Self>;
+}
+
 pub struct SettingMaxThreads;
 impl ChainSetting for SettingMaxThreads {
     type Type = usize;
@@ -459,6 +467,7 @@ typelist! {
         SettingUseFloatingPointMath,
         SettingBufferingMode,
         SettingDebugLog,
+        SettingDebugLogNoApply,
         SettingMaxThreads
     ]{}
 }

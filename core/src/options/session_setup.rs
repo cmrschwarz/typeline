@@ -3,7 +3,7 @@ use crate::{
     cli::{
         call_expr::{Argument, Span},
         cli_args_into_arguments_iter, parse_cli_raw, parse_operator_data,
-        CliArgumentError,
+        try_parse_bool, CliArgumentError,
     },
     context::{SessionData, SessionSettings},
     extension::ExtensionRegistry,
@@ -31,6 +31,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     num::NonZeroUsize,
+    os::unix::ffi::OsStrExt,
     path::PathBuf,
     str::FromStr,
     sync::{atomic::AtomicBool, Arc, RwLock},
@@ -39,7 +40,8 @@ use std::{
 use super::{
     chain_settings::{
         chain_settings_list, ChainSetting, ChainSettingNames,
-        SettingBatchSize, SettingDebugLog, SettingMaxThreads,
+        SettingBatchSize, SettingDebugLog, SettingDebugLogNoApply,
+        SettingMaxThreads,
     },
     setting::{CliArgIdx, Setting},
 };
@@ -111,6 +113,13 @@ macro_rules! DEBUG_LOG_ENV_VAR_CONST {
     };
 }
 static DEBUG_LOG_ENV_VAR: &str = DEBUG_LOG_ENV_VAR_CONST!();
+
+macro_rules! DEBUG_LOG_NO_APPLY_ENV_VAR_CONST {
+    () => {
+        "SCR_DEBUG_LOG_NO_APPLY"
+    };
+}
+static DEBUG_LOG_NO_APPLY_ENV_VAR: &str = DEBUG_LOG_NO_APPLY_ENV_VAR_CONST!();
 
 impl SessionSetupSettings {
     pub fn new(opts: &ScrSetupOptions) -> Self {
@@ -213,7 +222,7 @@ impl SessionSetupData {
 
     fn build_debug_log_path(
         &self,
-    ) -> Result<Option<PathBuf>, CliArgumentError> {
+    ) -> Result<(Option<PathBuf>, bool), CliArgumentError> {
         let mut debug_log_path = {
             if let Some((res, span)) = SettingDebugLog::lookup(
                 &self.scope_mgr,
@@ -252,20 +261,78 @@ impl SessionSetupData {
             }
         }
 
-        if debug_log_path.is_some() && !cfg!(feature = "debug_log") {
+        let debug_log_no_apply = {
+            if let Some((res, span)) = SettingDebugLogNoApply::lookup(
+                &self.scope_mgr,
+                &self.chain_setting_names,
+                self.chains[ChainId::ZERO].scope_id,
+            ) {
+                Setting::new(
+                    Some(res.map_err(|e| {
+                        CliArgumentError::new_s(e.message, span)
+                    })?),
+                    span,
+                )
+            } else if let Some(value) =
+                std::env::var_os(DEBUG_LOG_NO_APPLY_ENV_VAR)
+            {
+                let span = Span::EnvVar {
+                    compile_time: false,
+                    var_name: DEBUG_LOG_NO_APPLY_ENV_VAR,
+                };
+                Setting::new(
+                    Some(try_parse_bool(value.as_bytes()).ok_or_else(
+                        || {
+                            CliArgumentError::new_s(
+                                format!(
+                                    "failed to parse as boolean: {}",
+                                    value.to_string_lossy()
+                                ),
+                                span,
+                            )
+                        },
+                    )?),
+                    span,
+                )
+            } else {
+                Setting::new(
+                    option_env!(DEBUG_LOG_NO_APPLY_ENV_VAR_CONST!()).map(
+                        |v| {
+                            try_parse_bool(v.as_bytes()).expect(
+                                "valid compile time specified value for debug_log_no_apply",
+                            )
+                        },
+                    ),
+                    Span::EnvVar {
+                        compile_time: true,
+                        var_name: DEBUG_LOG_NO_APPLY_ENV_VAR,
+                    },
+                )
+            }
+        };
+
+        if (debug_log_path.is_some() || debug_log_no_apply.value.is_some())
+            && !cfg!(feature = "debug_log")
+        {
             return Err(CliArgumentError::new(
                 "Debug log not supported. Please compile with --features=debug_log",
                 debug_log_path.span,
             ));
         }
 
-        Ok(debug_log_path.value)
+        Ok((
+            debug_log_path.value,
+            debug_log_no_apply
+                .value
+                .unwrap_or(SettingDebugLogNoApply::DEFAULT),
+        ))
     }
 
     fn build_session_settings(
         &mut self,
     ) -> Result<SessionSettings, CliArgumentError> {
-        let debug_log_path = self.build_debug_log_path()?;
+        let (debug_log_path, debug_log_no_apply) =
+            self.build_debug_log_path()?;
 
         let max_threads = if self.setup_settings.deny_threading {
             1
@@ -287,6 +354,7 @@ impl SessionSetupData {
             chain_setting_names: self.chain_setting_names,
             max_threads,
             debug_log_path,
+            debug_log_no_apply,
             repl: self.setup_settings.repl.unwrap_or(false),
             skipped_first_cli_arg: self.setup_settings.skipped_first_cli_arg,
         })

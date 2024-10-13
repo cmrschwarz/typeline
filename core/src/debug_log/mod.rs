@@ -179,7 +179,7 @@ fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
     for mc in &mut tc.match_chains {
         for env in &mc.tf_envs {
             for &field_id in &env.fields {
-                if !cfg!(feature = "debug_log_no_apply") {
+                if !jd.session_data.settings.debug_log_no_apply {
                     // we have to do this here because doing json in a second
                     // phase means that the fields have not been touched yet
                     jd.field_mgr.apply_field_actions(
@@ -194,12 +194,12 @@ fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
                 mc.dead_slots.resize(mc.dead_slots.len().max(fc), 0);
                 // if we don't apply, dead fields won't line up anyways
                 // so we don't use dead slots
-                if !cfg!(feature = "debug_log_no_apply") {
+                if !jd.session_data.settings.debug_log_no_apply {
                     add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
                 }
             }
             for &gt_id in &env.group_tracks {
-                if !cfg!(feature = "debug_log_no_apply") {
+                if !jd.session_data.settings.debug_log_no_apply {
                     // we have to do this here because doing json in a second
                     // phase means that the fields have not been touched yet
                     jd.group_track_manager
@@ -659,7 +659,7 @@ pub fn field_data_to_json<'a>(
             iters_end += 1;
         }
         let h = fd.headers()[iter.get_next_header_index()];
-        let dead_slot_count = if cfg!(feature = "debug_log_no_apply") {
+        let dead_slot_count = if jd.session_data.settings.debug_log_no_apply {
             0
         } else if h.deleted() {
             del_count += 1;
@@ -751,7 +751,7 @@ pub fn field_data_to_json<'a>(
         "iters_before_start": iters_to_json(&iters[..iters_before_start]),
     });
 
-    if cfg!(feature = "debug_log_no_apply") {
+    if jd.session_data.settings.debug_log_no_apply {
         let mut pending_actions_json = Vec::new();
         for action in pending_actions {
             pending_actions_json.push(json!({
@@ -870,8 +870,11 @@ fn group_track_iters_to_json(iters: &[Cell<GroupTrackIterState>]) -> Value {
                 iter_kind_to_json(
                     &it.kind,
                     &format!(
-                        "GID: {}, GOFF: {}, FP: {}",
-                        it.group_idx, it.group_offset, it.field_pos
+                        "GID: {}, GOFF: {}, FP: {}, FRLA: {}",
+                        it.group_idx,
+                        it.group_offset,
+                        it.field_pos,
+                        it.first_right_leaning_actor_id
                     ),
                 )
             })
@@ -946,15 +949,16 @@ fn group_track_to_json(
             if group_len_rem == 0 {
                 del_count += 1;
             } else {
-                dead_slot_count = if cfg!(feature = "debug_log_no_apply") {
-                    0
-                } else {
-                    dead_slots
-                        .get(iter.field_pos())
-                        .copied()
-                        .unwrap_or(0)
-                        .saturating_sub(del_count)
-                };
+                dead_slot_count =
+                    if jd.session_data.settings.debug_log_no_apply {
+                        0
+                    } else {
+                        dead_slots
+                            .get(iter.field_pos())
+                            .copied()
+                            .unwrap_or(0)
+                            .saturating_sub(del_count)
+                    };
                 iter.next_n_fields(1);
                 del_count = 0;
             }
