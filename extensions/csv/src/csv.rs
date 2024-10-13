@@ -25,7 +25,7 @@ use scr_core::{
         utils::readable::{AnyBufReader, ReadableTarget},
     },
     record_data::{
-        action_buffer::ActorId,
+        action_buffer::{ActorId, ActorRef},
         field::{FieldId, FieldIterRef},
         field_action::FieldActionKind,
         field_data::FieldData,
@@ -36,8 +36,8 @@ use scr_core::{
     },
     smallbox,
     utils::{
-        stable_vec::StableVec, temp_vec::TransmutableContainer,
-        test_utils::read_until_2,
+        int_string_conversions::usize_to_str, stable_vec::StableVec,
+        temp_vec::TransmutableContainer, test_utils::read_until_2,
     },
 };
 
@@ -64,13 +64,17 @@ pub struct TfCsv<'a> {
     dummy_iter: FieldIterRef,
 }
 
+// HACK
+// TODO: proper dynamic field management
+const INITIAL_OUTPUT_COUNT: usize = 3;
+
 impl Operator for OpCsv {
     fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "csv".into()
     }
 
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
-        1
+        INITIAL_OUTPUT_COUNT
     }
 
     fn has_dynamic_outputs(
@@ -96,6 +100,18 @@ impl Operator for OpCsv {
         None
     }
 
+    fn register_output_var_names(
+        &self,
+        ld: &mut LivenessData,
+        sess: &SessionData,
+        _op_id: OperatorId,
+    ) {
+        let mut ss = sess.string_store.write().unwrap();
+        for i in 0..INITIAL_OUTPUT_COUNT {
+            ld.add_var_name(ss.intern_cloned(&usize_to_str(i)));
+        }
+    }
+
     fn build_transforms<'a>(
         &'a self,
         job: &mut Job,
@@ -103,15 +119,36 @@ impl Operator for OpCsv {
         _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        let dummy_field = job.job_data.match_set_mgr.match_sets
-            [tf_state.match_set_id]
-            .dummy_field;
         let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
+
+        let ms =
+            &mut job.job_data.match_set_mgr.match_sets[tf_state.match_set_id];
+        let dummy_field = ms.dummy_field;
+        let next_actor = ms.action_buffer.borrow().peek_next_actor_id();
+
+        let mut output_fields = vec![tf_state.output_field];
+        for _ in 1..INITIAL_OUTPUT_COUNT {
+            output_fields.push(job.job_data.field_mgr.add_field(
+                &job.job_data.match_set_mgr,
+                tf_state.match_set_id,
+                ActorRef::Unconfirmed(next_actor),
+            ));
+        }
+        let mut ssm = job.job_data.session_data.string_store.write().unwrap();
+        for (i, &field_id) in output_fields.iter().enumerate() {
+            job.job_data.scope_mgr.insert_field_name(
+                job.job_data.match_set_mgr.match_sets[tf_state.match_set_id]
+                    .active_scope,
+                ssm.intern_cloned(&usize_to_str(i)),
+                field_id,
+            );
+        }
+
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfCsv {
                 op: self,
                 inserters: Default::default(),
-                output_fields: vec![tf_state.output_field],
+                output_fields,
                 input: Input::NotStarted,
                 lines_produced: 0,
                 actor_id,
@@ -142,6 +179,14 @@ fn distribute_errors(
 impl<'a> Transform<'a> for TfCsv<'a> {
     fn display_name(&self) -> DefaultTransformName {
         "csv".into()
+    }
+
+    fn get_out_fields(
+        &self,
+        _tf_state: &TransformState,
+        fields: &mut Vec<FieldId>,
+    ) {
+        fields.extend_from_slice(&self.output_fields);
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
@@ -276,13 +321,20 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                 .borrow()
                 .first_actor
                 .get();
-            for i in &mut *additional_inserters {
-                self.output_fields.push(jd.field_mgr.add_field_with_data(
+            let mut ssm = jd.session_data.string_store.write().unwrap();
+            for ins in additional_inserters.iter_mut() {
+                let field_id = jd.field_mgr.add_field_with_data(
                     &jd.match_set_mgr,
                     ms_id,
                     actor,
-                    i.borrow_mut().take(),
-                ));
+                    ins.borrow_mut().take(),
+                );
+                self.output_fields.push(field_id);
+                jd.scope_mgr.insert_field_name(
+                    jd.match_set_mgr.match_sets[ms_id].active_scope,
+                    ssm.intern_cloned(&usize_to_str(self.output_fields.len())),
+                    field_id,
+                );
             }
             additional_inserters.clear();
         }

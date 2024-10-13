@@ -1,6 +1,8 @@
 use scr_core::{
     extension::{Extension, ExtensionRegistry},
-    operators::utils::readable::MutexedReadableTargetOwner,
+    operators::{
+        format::create_op_format, utils::readable::MutexedReadableTargetOwner,
+    },
     options::context_builder::ContextBuilder,
     scr_error::ScrError,
     utils::test_utils::SliceReader,
@@ -36,5 +38,18 @@ fn end_correctly_truncates_first_column() -> Result<(), ScrError> {
         .add_op(create_op_csv(target.create_target(), false))
         .run_collect_stringified()?;
     assert_eq!(res, ["a", "b", "xyz"]);
+    Ok(())
+}
+
+#[test]
+fn access_second_field() -> Result<(), ScrError> {
+    let target = MutexedReadableTargetOwner::new(SliceReader::new(
+        "a,b,c\r\nb\nx,y,".as_bytes(),
+    ));
+    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_format("{1:?}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["b\"b\"", "null", "b\"y\""]);
     Ok(())
 }
