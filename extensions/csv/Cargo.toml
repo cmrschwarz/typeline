@@ -16,3 +16,6 @@ doctest = false
 
 [dependencies]
 scr_core = { path = "../../core" }
+
+[dev-dependencies]
+scr_ext_utils = { path = "../utils" }

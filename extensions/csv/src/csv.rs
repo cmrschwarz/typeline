@@ -191,7 +191,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+        let (batch_size, mut ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];
         let ms_id = tf.match_set_id;
         let target_batch_size = tf.desired_batch_size;
@@ -288,6 +288,8 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                 ab.end_action_group();
 
                 jd.tf_mgr.unclaim_batch_size(tf_id, batch_size);
+                ps.next_batch_ready = !done;
+                ps.input_done = !done;
                 jd.tf_mgr.submit_batch_ready_for_more(
                     tf_id,
                     produced_fields,

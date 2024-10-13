@@ -1863,6 +1863,7 @@ name = "scr_ext_csv"
 version = "0.1.0"
 dependencies = [
  "scr_core",
+ "scr_ext_utils",
 ]
 
 [[package]]

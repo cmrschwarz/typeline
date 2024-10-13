@@ -3,12 +3,20 @@ use scr_core::{
     operators::{
         format::create_op_format, utils::readable::MutexedReadableTargetOwner,
     },
-    options::context_builder::ContextBuilder,
+    options::{
+        chain_settings::{ChainSetting, SettingBatchSize},
+        context_builder::ContextBuilder,
+    },
     scr_error::ScrError,
     utils::test_utils::SliceReader,
 };
 use scr_ext_csv::{csv::create_op_csv, CsvExtension};
-use std::sync::{Arc, LazyLock};
+use scr_ext_utils::sum::create_op_sum;
+use std::{
+    fmt::Write,
+    io::Cursor,
+    sync::{Arc, LazyLock},
+};
 
 pub static CSV_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
     LazyLock::new(|| {
@@ -77,5 +85,27 @@ fn csv_parses_integers() -> Result<(), ScrError> {
         .add_op(create_op_format("{1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "b\"b\"", "null"]);
+    Ok(())
+}
+
+#[test]
+fn multibatch() -> Result<(), ScrError> {
+    const BS: usize = 5; // SettingBatchSize::DEFAULT
+    const COUNT: usize = BS * 5;
+    let mut input = String::new();
+
+    for i in 0..COUNT {
+        input.write_fmt(format_args!("{i},\n")).unwrap();
+    }
+
+    let target = MutexedReadableTargetOwner::new(Cursor::new(input));
+
+    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+        .set_batch_size(BS)
+        .unwrap()
+        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_sum())
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [(COUNT * (COUNT - 1) / 2) as i64]);
     Ok(())
 }
