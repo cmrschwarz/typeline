@@ -33,7 +33,7 @@ impl Extension for CsvExtension {
             // TODO: this is non exhaustive.
             // add proper, generalized cli parsing code ala CLAP
             if let Some(flags) = flags {
-                if flags.get("h").is_some() {
+                if flags.get("-h").is_some() {
                     header = true;
                 }
             }

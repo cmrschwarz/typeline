@@ -1862,6 +1862,7 @@ dependencies = [
 name = "scr_ext_csv"
 version = "0.1.0"
 dependencies = [
+ "memchr",
  "scr_core",
  "scr_ext_utils",
 ]

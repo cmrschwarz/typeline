@@ -1,3 +1,4 @@
+use core::str;
 use std::{
     borrow::BorrowMut,
     cell::{RefCell, RefMut},
@@ -35,10 +36,11 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
-    tyson::TysonParser,
     utils::{
-        int_string_conversions::usize_to_str, stable_vec::StableVec,
-        temp_vec::TransmutableContainer, test_utils::read_until_2,
+        int_string_conversions::usize_to_str,
+        stable_vec::StableVec,
+        temp_vec::TransmutableContainer,
+        test_utils::{read_until_2, read_until_match},
     },
 };
 
@@ -109,7 +111,7 @@ impl Operator for OpCsv {
     ) {
         let mut ss = sess.string_store.write().unwrap();
         for i in 0..INITIAL_OUTPUT_COUNT {
-            ld.add_var_name(ss.intern_cloned(&usize_to_str(i)));
+            ld.add_var_name(ss.intern_cloned(&format!("_{i}")));
         }
     }
 
@@ -140,7 +142,7 @@ impl Operator for OpCsv {
             job.job_data.scope_mgr.insert_field_name(
                 job.job_data.match_set_mgr.match_sets[tf_state.match_set_id]
                     .active_scope,
-                ssm.intern_cloned(&usize_to_str(i)),
+                ssm.intern_moved(format!("_{i}")),
                 field_id,
             );
         }
@@ -246,10 +248,6 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             }
         };
 
-        if !header_processed {
-            // TODO: process header
-        }
-
         let mut lines_produced = self.lines_produced;
         let mut col_idx = 0;
 
@@ -260,6 +258,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
 
         match read_in_lines(
             reader.aquire(),
+            !header_processed,
             &additional_inserters,
             &mut inserters,
             &mut lines_produced,
@@ -372,12 +371,18 @@ impl<'a> Transform<'a> for TfCsv<'a> {
 
 fn read_in_lines<'a, R: BufRead>(
     mut reader: R,
+    process_header: bool,
     additional_fields: &'a StableVec<RefCell<FieldData>>,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
     lines_produced: &mut usize,
     col_idx: &mut usize,
     lines_max: usize,
 ) -> Result<bool, std::io::Error> {
+    if process_header {
+        read_until_match(&mut reader, &mut std::io::empty(), |buf| {
+            memchr::memchr(b'\n', buf)
+        })?;
+    }
     let max_line = *lines_produced + lines_max;
     loop {
         let mut c = 0;
@@ -436,16 +441,30 @@ fn read_in_lines<'a, R: BufRead>(
                 eof = true;
             }
             // HACK: this sucks. we will do weird stuff to quotes etc.
-            match TysonParser::new(&buf[..l], true, None).parse_value() {
-                Ok(v) => {
+            if let Ok(buf) = str::from_utf8(&buf[..l]) {
+                if let Ok(v) = buf.parse::<i64>() {
                     stream.abort();
-                    inserter.push_field_value_unpacked(v, 1, true, true);
-                }
-                Err(_) => {
+                    inserter.push_int(v, 1, true, false);
+                } else {
                     stream.truncate(l);
-                    stream.commit()
+                    unsafe {
+                        stream.commit_as_text();
+                    }
                 }
+            } else {
+                stream.truncate(l);
+                stream.commit();
             }
+            // match TysonParser::new(&buf[..l], true, None).parse_value() {
+            // Ok(v) => {
+            // stream.abort();
+            // inserter.push_field_value_unpacked(v, 1, true, true);
+            // }
+            // Err(_) => {
+            // stream.truncate(l);
+            // stream.commit()
+            // }
+            // }
             if eof {
                 return Ok(true);
             }

@@ -152,6 +152,9 @@ impl<'a> BytesInsertionStream<'a> {
     pub fn commit_maybe_text(mut self) {
         unsafe { self.0.commit_maybe_text() }
     }
+    pub unsafe fn commit_as_text(mut self) {
+        unsafe { self.0.commit(true) }
+    }
     pub fn abort(mut self) {
         self.0.free_memory();
         std::mem::forget(self);

@@ -16,6 +16,7 @@ doctest = false
 
 [dependencies]
 scr_core = { path = "../../core" }
+memchr = "2.7.4"
 
 [dev-dependencies]
 scr_ext_utils = { path = "../utils" }

@@ -52,7 +52,7 @@ scr_ext_csv = { path = "./extensions/csv", optional = true }
 
 [profile.release]
 panic = "abort"
-lto = "thin"
+lto = "fat"
 
 [profile.dev]
 panic = "unwind"
