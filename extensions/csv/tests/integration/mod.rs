@@ -66,3 +66,16 @@ fn last_row_filled_up_with_nulls() -> Result<(), ScrError> {
     assert_eq!(res, ["\"\"", "b\"b\"", "null"]);
     Ok(())
 }
+
+#[test]
+fn csv_parses_integers() -> Result<(), ScrError> {
+    let target = MutexedReadableTargetOwner::new(SliceReader::new(
+        "1,2,3\r\na,b,c\nx".as_bytes(),
+    ));
+    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_format("{1:?}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2", "b\"b\"", "null"]);
+    Ok(())
+}

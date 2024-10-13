@@ -35,6 +35,7 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,
+    tyson::TysonParser,
     utils::{
         int_string_conversions::usize_to_str, stable_vec::StableVec,
         temp_vec::TransmutableContainer, test_utils::read_until_2,
@@ -344,17 +345,6 @@ impl<'a> Transform<'a> for TfCsv<'a> {
     }
 }
 
-fn add_inserter<'a>(
-    additional_fields: &'a StableVec<RefCell<FieldData>>,
-    inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
-) {
-    // TODO: add additional inserter and fill him up with nones
-    additional_fields.push(RefCell::default());
-    inserters.push(VaryingTypeInserter::new(
-        additional_fields.last().unwrap().borrow_mut(),
-    ));
-}
-
 fn read_in_lines<'a, R: BufRead>(
     mut reader: R,
     additional_fields: &'a StableVec<RefCell<FieldData>>,
@@ -408,19 +398,40 @@ fn read_in_lines<'a, R: BufRead>(
                 return Ok(true);
             }
             let buf = stream.get_inserted_data();
-            let l = buf.len();
-            newline = buf[l - 1] == b'\n';
+            let mut l = buf.len();
+            let last = buf[l - 1];
+            let mut eof = false;
+            newline = last == b'\n';
+
             if newline && l > 1 && buf[l - 2] == b'\r' {
-                stream.truncate(l - 2);
-            } else if newline || buf[l - 1] == b',' {
-                stream.truncate(l - 1);
+                l -= 2;
+            } else if newline || last == b',' {
+                l -= 1;
             } else {
+                eof = true;
+            }
+            // HACK: this sucks. we will do weird stuff to quotes etc.
+            match TysonParser::new(&buf[..l], true, None).parse_value() {
+                Ok(v) => {
+                    stream.abort();
+                    inserter.push_field_value_unpacked(v, 1, true, true);
+                }
+                Err(_) => {
+                    stream.truncate(l);
+                    stream.commit()
+                }
+            }
+            if eof {
                 return Ok(true);
             }
         }
         if !newline {
             if *col_idx >= inserters.len() {
-                add_inserter(additional_fields, inserters);
+                additional_fields.push(RefCell::default());
+                inserters.push(VaryingTypeInserter::new(
+                    additional_fields.last().unwrap().borrow_mut(),
+                ));
+                inserters[*col_idx].push_null(*lines_produced, false);
             }
             continue;
         }
