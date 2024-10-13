@@ -72,6 +72,7 @@ pub fn insert_tf_foreach(
     let parent_group_track_iter =
         job.job_data.group_track_manager.claim_group_track_iter(
             parent_group_track,
+            next_actor_id.get_id(),
             IterKind::Transform(header_tf_id_peek),
         );
     let group_track = job.job_data.group_track_manager.add_group_track(

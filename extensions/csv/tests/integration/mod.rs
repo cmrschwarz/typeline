@@ -3,10 +3,7 @@ use scr_core::{
     operators::{
         format::create_op_format, utils::readable::MutexedReadableTargetOwner,
     },
-    options::{
-        chain_settings::{ChainSetting, SettingBatchSize},
-        context_builder::ContextBuilder,
-    },
+    options::context_builder::ContextBuilder,
     scr_error::ScrError,
     utils::test_utils::SliceReader,
 };

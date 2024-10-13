@@ -123,6 +123,11 @@ impl ActorRef {
             ActorRef::Unconfirmed(_) => None,
         }
     }
+    pub fn get_id(&self) -> ActorId {
+        match *self {
+            ActorRef::Present(id) | ActorRef::Unconfirmed(id) => id,
+        }
+    }
     pub fn unwrap(&self) -> ActorId {
         self.confirmed_id().unwrap()
     }

@@ -1202,6 +1202,10 @@ impl<'a> JobData<'a> {
     ) -> GroupTrackIterRef {
         self.group_track_manager.claim_group_track_iter_ref(
             tf_state.input_group_track_id,
+            self.match_set_mgr.match_sets[tf_state.match_set_id]
+                .action_buffer
+                .borrow()
+                .peek_next_actor_id(),
             IterKind::Transform(self.tf_mgr.transforms.peek_claim_id()),
         )
     }

@@ -22,7 +22,7 @@ use crate::{
             Formattable, FormattingContext, RealizedFormatKey, TypeReprFormat,
         },
         group_track::GroupTrackIterRef,
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         iters::{FieldIterOpts, FieldIterator},
         push_interface::PushInterface,
         ref_iter::{
@@ -41,7 +41,6 @@ use crate::{
     scr_error::ScrError,
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
-        indexing_type::IndexingType,
         int_string_conversions::{f64_to_str, i64_to_str, usize_to_str},
         lazy_lock_guard::LazyRwLockGuard,
         maybe_text::{MaybeText, MaybeTextBoxed, MaybeTextCow, MaybeTextRef},
@@ -220,7 +219,6 @@ pub fn build_tf_join<'a>(
         jd.get_setting_from_tf_state::<SettingStreamSizeThreshold>(tf_state);
     let rationals_print_mode =
         jd.get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state);
-    let tf_id_peek = jd.tf_mgr.transforms.peek_claim_id();
     let actor_id = jd.add_actor_for_tf_state(tf_state);
     TransformData::Join(TfJoin {
         separator: op.separator.as_ref().map(|s| s.as_ref()),
@@ -230,17 +228,8 @@ pub fn build_tf_join<'a>(
         stream_buffer_size,
         rationals_print_mode,
         input_field_ref_offset,
-        group_track_iter_ref: jd
-            .group_track_manager
-            .claim_group_track_iter_ref(
-                tf_state.input_group_track_id,
-                IterKind::Transform(tf_id_peek),
-            ),
-        iter_id: jd.field_mgr.claim_iter(
-            tf_state.input_field,
-            actor_id + ActorId::one(),
-            IterKind::Transform(tf_id_peek),
-        ),
+        group_track_iter_ref: jd.claim_group_track_iter_for_tf_state(tf_state),
+        iter_id: jd.claim_iter_for_tf_state(tf_state),
         actor_id,
         first_record_added: false,
         buffer: MaybeText::default(),

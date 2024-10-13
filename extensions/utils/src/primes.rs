@@ -23,11 +23,9 @@ use scr_core::{
         },
     },
     record_data::{
-        action_buffer::ActorId,
-        field::Field,
+        action_buffer::ActorId, field::Field,
         fixed_sized_type_inserter::FixedSizeTypeInserter,
-        group_track::GroupTrackIterRef,
-        iter_hall::{IterId, IterKind},
+        group_track::GroupTrackIterRef, iter_hall::IterId,
     },
     smallbox,
 };
@@ -84,12 +82,7 @@ impl Operator for OpPrimes {
         let jd = &mut job.job_data;
         let actor_id = jd.add_actor_for_tf_state(tf_state);
         let iter_id = jd.claim_iter_for_tf_state(tf_state);
-        let iter_kind =
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());
-        let group_iter = jd.group_track_manager.claim_group_track_iter_ref(
-            tf_state.input_group_track_id,
-            iter_kind,
-        );
+        let group_iter = jd.claim_group_track_iter_for_tf_state(tf_state);
 
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfPrimes {

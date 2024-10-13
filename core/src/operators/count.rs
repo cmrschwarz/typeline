@@ -1,7 +1,6 @@
 use crate::{
-    cli::call_expr::CallExpr,
-    job::JobData,
-    record_data::{group_track::GroupTrackIterRef, iter_hall::IterKind},
+    cli::call_expr::CallExpr, job::JobData,
+    record_data::group_track::GroupTrackIterRef,
 };
 
 use super::{
@@ -25,10 +24,7 @@ pub fn build_tf_count<'a>(
 ) -> TransformData<'a> {
     TransformData::Count(TfCount {
         count: 0,
-        iter: jd.group_track_manager.claim_group_track_iter_ref(
-            tf_state.input_group_track_id,
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-        ),
+        iter: jd.claim_group_track_iter_for_tf_state(tf_state),
     })
 }
 

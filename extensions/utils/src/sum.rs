@@ -26,7 +26,7 @@ use scr_core::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
         group_track::GroupTrackIterRef,
-        iter_hall::{IterId, IterKind},
+        iter_hall::IterId,
         iters::FieldIterOpts,
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueRangeIter,
@@ -95,20 +95,13 @@ impl Operator for OpSum {
                 tf_state,
             );
 
-        let actor_id =
-            jd.add_actor_for_tf_state(tf_state);
+        let actor_id = jd.add_actor_for_tf_state(tf_state);
         let iter_id = jd.claim_iter_for_tf_state(tf_state);
 
-        let iter_kind =
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id());
         TransformInstatiation::Simple(TransformData::Custom(smallbox!(
             TfSum {
                 group_track_iter: jd
-                    .group_track_manager
-                    .claim_group_track_iter_ref(
-                        tf_state.input_group_track_id,
-                        iter_kind
-                    ),
+                    .claim_group_track_iter_for_tf_state(tf_state),
                 input_iter_id: iter_id,
                 aggregate: AnyNumber::Int(0),
                 actor_id,

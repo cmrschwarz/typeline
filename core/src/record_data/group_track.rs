@@ -47,6 +47,7 @@ pub struct GroupTrackIterState {
     pub group_idx: GroupIdx,
     pub group_offset: GroupLen,
     pub iter_id: GroupTrackIterId,
+    pub first_right_leaning_actor_id: ActorId,
     #[cfg(feature = "debug_state")]
     pub kind: IterKind,
 }
@@ -827,8 +828,8 @@ impl GroupTrack {
         iter: &GroupTrackIter<T>,
     ) {
         let iter_sorting_idx = self.iter_lookup_table[iter_id] as usize;
-        #[cfg(feature = "debug_state")]
-        let kind = self.iter_states[iter_sorting_idx].get().kind;
+        let prev = self.iter_states[iter_sorting_idx].get();
+
         let iter_state = GroupTrackIterState {
             field_pos: iter.field_pos,
             group_idx: iter.group_idx,
@@ -839,8 +840,9 @@ impl GroupTrack {
                 .unwrap_or(0)
                 - iter.group_len_rem,
             iter_id,
+            first_right_leaning_actor_id: prev.first_right_leaning_actor_id,
             #[cfg(feature = "debug_state")]
-            kind,
+            kind: prev.kind,
         };
 
         // #[cfg(feature = "debug_logging_iter_states")]
@@ -902,6 +904,7 @@ impl GroupTrack {
 
     pub fn claim_iter(
         &mut self,
+        first_right_leaning_actor_id: ActorId,
         #[cfg_attr(not(feature = "debug_state"), allow(unused))]
         kind: IterKind,
     ) -> GroupTrackIterId {
@@ -913,6 +916,7 @@ impl GroupTrack {
             field_pos: self.passed_fields_count,
             group_idx: 0,
             group_offset: 0,
+            first_right_leaning_actor_id,
             #[cfg(feature = "debug_state")]
             kind,
         };
@@ -1148,18 +1152,26 @@ impl GroupTrackManager {
     pub fn claim_group_track_iter(
         &mut self,
         list_id: GroupTrackId,
+        first_right_leaning_actor_id: ActorId,
         kind: IterKind,
     ) -> GroupTrackIterId {
-        self.group_tracks[list_id].borrow_mut().claim_iter(kind)
+        self.group_tracks[list_id]
+            .borrow_mut()
+            .claim_iter(first_right_leaning_actor_id, kind)
     }
     pub fn claim_group_track_iter_ref(
         &mut self,
         list_id: GroupTrackId,
+        first_right_leaning_actor_id: ActorId,
         kind: IterKind,
     ) -> GroupTrackIterRef {
         GroupTrackIterRef {
             track_id: list_id,
-            iter_id: self.claim_group_track_iter(list_id, kind),
+            iter_id: self.claim_group_track_iter(
+                list_id,
+                first_right_leaning_actor_id,
+                kind,
+            ),
         }
     }
     pub fn lookup_group_track_iter(
@@ -1897,6 +1909,8 @@ impl<'a, T: DerefMut<Target = GroupTrack>> Drop for GroupTrackIterMut<'a, T> {
 #[cfg(test)]
 pub(crate) mod testing_helpers {
 
+    use crate::record_data::action_buffer::ActorId;
+
     use super::{GroupIdx, GroupTrackIterId, GroupTrackIterState};
 
     #[derive(Clone, Copy)]
@@ -1905,6 +1919,7 @@ pub(crate) mod testing_helpers {
         pub group_idx: GroupIdx,
         pub group_offset: GroupIdx,
         pub iter_id: GroupTrackIterId,
+        pub first_right_leaning_actor_id: ActorId,
     }
 
     impl GroupTrackIterStateRaw {
@@ -1914,6 +1929,8 @@ pub(crate) mod testing_helpers {
                 group_idx: self.group_idx,
                 group_offset: self.group_offset,
                 iter_id: self.iter_id,
+                first_right_leaning_actor_id: self
+                    .first_right_leaning_actor_id,
                 #[cfg(feature = "debug_state")]
                 kind: crate::record_data::iter_hall::IterKind::Undefined,
             }
@@ -2027,12 +2044,14 @@ mod test_action_lists_throug_iter {
                     group_idx: 0,
                     group_offset: 0,
                     iter_id: 0,
+                    first_right_leaning_actor_id: ActorId::ZERO,
                 },
                 GroupTrackIterStateRaw {
                     field_pos: 4,
                     group_idx: 0,
                     group_offset: 3,
                     iter_id: 1,
+                    first_right_leaning_actor_id: ActorId::ZERO,
                 },
             ],
             1,
@@ -2043,12 +2062,14 @@ mod test_action_lists_throug_iter {
                     group_idx: 0,
                     group_offset: 2,
                     iter_id: 0,
+                    first_right_leaning_actor_id: ActorId::ZERO,
                 },
                 GroupTrackIterStateRaw {
                     field_pos: 3,
                     group_idx: 0,
                     group_offset: 2,
                     iter_id: 1,
+                    first_right_leaning_actor_id: ActorId::ZERO,
                 },
             ],
             |iter| {
@@ -2063,10 +2084,12 @@ mod test_action_lists_throug_iter {
 mod test_action_lists {
     use crate::{
         record_data::{
+            action_buffer::ActorId,
             field_action::{FieldAction, FieldActionKind},
             group_track::{GroupTrack, GroupTrackIterSortedIndex},
         },
         utils::{
+            indexing_type::IndexingType,
             size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
         },
     };
@@ -2152,6 +2175,7 @@ mod test_action_lists {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
+                first_right_leaning_actor_id: ActorId::ZERO,
             }],
             [FieldAction::new(FieldActionKind::Drop, 0, 1)],
             1,
@@ -2161,6 +2185,7 @@ mod test_action_lists {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
+                first_right_leaning_actor_id: ActorId::ZERO,
             }],
         );
     }
@@ -2176,12 +2201,14 @@ mod test_action_lists {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
+                    first_right_leaning_actor_id: ActorId::ZERO,
                 },
                 GroupTrackIterStateRaw {
                     field_pos: 3,
                     group_idx: 0,
                     group_offset: 2,
                     iter_id: 1,
+                    first_right_leaning_actor_id: ActorId::ZERO,
                 },
             ],
             [FieldAction::new(FieldActionKind::Drop, 2, 1)],
@@ -2193,12 +2220,14 @@ mod test_action_lists {
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 0,
+                    first_right_leaning_actor_id: ActorId::ZERO,
                 },
                 GroupTrackIterStateRaw {
                     field_pos: 2,
                     group_idx: 0,
                     group_offset: 1,
                     iter_id: 1,
+                    first_right_leaning_actor_id: ActorId::ZERO,
                 },
             ],
         );
@@ -2214,6 +2243,7 @@ mod test_action_lists {
                 group_idx: 0,
                 group_offset: 2,
                 iter_id: 0,
+                first_right_leaning_actor_id: ActorId::ZERO,
             }],
             [
                 FieldAction::new(FieldActionKind::Drop, 0, 1),
@@ -2226,6 +2256,7 @@ mod test_action_lists {
                 group_idx: 0,
                 group_offset: 1,
                 iter_id: 0,
+                first_right_leaning_actor_id: ActorId::ZERO,
             }],
         );
     }
@@ -2241,6 +2272,7 @@ mod test_action_lists {
                 group_idx: 1,
                 group_offset: 0,
                 iter_id: 0,
+                first_right_leaning_actor_id: ActorId::ZERO,
             }],
             [
                 FieldAction::new(FieldActionKind::Drop, 0, 1),
@@ -2254,6 +2286,7 @@ mod test_action_lists {
                 group_idx: 1,
                 group_offset: 0,
                 iter_id: 0,
+                first_right_leaning_actor_id: ActorId::ZERO,
             }],
         );
     }

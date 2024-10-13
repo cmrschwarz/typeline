@@ -576,6 +576,10 @@ fn setup_subchain<'a>(
     let group_track_iter_ref =
         job.job_data.group_track_manager.claim_group_track_iter_ref(
             instantiation.next_group_track,
+            job.job_data.match_set_mgr.match_sets[sc_ms_id]
+                .action_buffer
+                .borrow()
+                .peek_next_actor_id(),
             IterKind::Transform(trailer_tf_id_peek),
         );
 
