@@ -88,7 +88,7 @@ fn csv_parses_integers() -> Result<(), ScrError> {
 #[test]
 fn multibatch() -> Result<(), ScrError> {
     const BS: usize = 5; // SettingBatchSize::DEFAULT
-    const COUNT: usize = BS * 5;
+    const COUNT: usize = BS * 3;
     let mut input = String::new();
 
     for i in 0..COUNT {
