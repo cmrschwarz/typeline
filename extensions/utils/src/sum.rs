@@ -123,7 +123,7 @@ impl TfSum {
         if let Some(err_type) = self.current_group_error_type.take() {
             inserter.push_error(
                 OperatorApplicationError::new_s(
-                    format!("cannot sum over type `{err_type}`"),
+                    format!("cannot sum over type `{}`", err_type.kind()),
                     op_id,
                 ),
                 1,
