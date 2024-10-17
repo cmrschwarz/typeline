@@ -27,11 +27,10 @@ use scr_core::{
     },
     record_data::{
         action_buffer::{ActorId, ActorRef},
-        field::{FieldId, FieldIterRef},
-        field_action::FieldActionKind,
+        field::FieldId,
         field_data::FieldData,
+        group_track::GroupTrackIterRef,
         iter_hall::IterKind,
-        iters::FieldIterator,
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -64,7 +63,7 @@ pub struct TfCsv<'a> {
     additional_fields: StableVec<RefCell<FieldData>>,
     lines_produced: usize,
     actor_id: ActorId,
-    dummy_iter: FieldIterRef,
+    group_iter: GroupTrackIterRef,
 }
 
 // HACK
@@ -124,10 +123,11 @@ impl Operator for OpCsv {
     ) -> TransformInstatiation<'a> {
         let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
 
-        let ms =
-            &mut job.job_data.match_set_mgr.match_sets[tf_state.match_set_id];
-        let dummy_field = ms.dummy_field;
-        let next_actor = ms.action_buffer.borrow().peek_next_actor_id();
+        let next_actor = job.job_data.match_set_mgr.match_sets
+            [tf_state.match_set_id]
+            .action_buffer
+            .borrow()
+            .peek_next_actor_id();
 
         let mut output_fields = vec![tf_state.output_field];
         for _ in 1..INITIAL_OUTPUT_COUNT {
@@ -156,13 +156,16 @@ impl Operator for OpCsv {
                 lines_produced: 0,
                 actor_id,
                 additional_fields: StableVec::new(),
-                dummy_iter: job.job_data.field_mgr.claim_iter_ref(
-                    dummy_field,
-                    next_actor,
-                    IterKind::Transform(
-                        job.job_data.tf_mgr.transforms.peek_claim_id()
-                    )
-                ),
+                group_iter: job
+                    .job_data
+                    .group_track_manager
+                    .claim_group_track_iter_ref(
+                        tf_state.input_group_track_id,
+                        next_actor,
+                        IterKind::Transform(
+                            job.job_data.tf_mgr.transforms.peek_claim_id()
+                        )
+                    ),
             }
         )))
     }
@@ -191,7 +194,8 @@ impl<'a> Transform<'a> for TfCsv<'a> {
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        let (batch_size, mut ps) = jd.tf_mgr.claim_batch(tf_id);
+        let (mut batch_size, mut ps) = jd.tf_mgr.claim_batch(tf_id);
+
         let tf = &jd.tf_mgr.transforms[tf_id];
         let ms_id = tf.match_set_id;
         let target_batch_size = tf.desired_batch_size;
@@ -211,8 +215,35 @@ impl<'a> Transform<'a> for TfCsv<'a> {
         for &f in &self.output_fields {
             inserters.push(jd.field_mgr.get_varying_type_inserter(f));
         }
-        let mut nudge_iter = false;
         let (reader, header_processed);
+
+        let mut iter =
+            jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
+                self.group_iter,
+                &jd.match_set_mgr,
+                self.actor_id,
+            );
+
+        let mut fields_produced = 0;
+
+        if Some(iter.group_idx_stable()) == ps.group_to_truncate {
+            self.input = Input::NotStarted;
+            if self.lines_produced > 0 {
+                iter.drop(1);
+            }
+
+            fields_produced += batch_size.min(iter.group_len_rem());
+            batch_size = batch_size.saturating_sub(fields_produced);
+            if !iter.try_next_group() || batch_size == 0 {
+                jd.tf_mgr.submit_batch_ready_for_more(
+                    tf_id,
+                    fields_produced,
+                    ps,
+                );
+                return;
+            }
+        }
+
         match &mut self.input {
             Input::NotStarted => match self.op.input.create_buf_reader() {
                 Err(e) => {
@@ -231,7 +262,6 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                     };
                     reader = file;
                     header_processed = !self.op.header;
-                    nudge_iter = true;
                 }
             },
             Input::Running(buf_reader) => {
@@ -251,11 +281,6 @@ impl<'a> Transform<'a> for TfCsv<'a> {
         let mut lines_produced = self.lines_produced;
         let mut col_idx = 0;
 
-        let field = jd
-            .field_mgr
-            .get_cow_field_ref(&jd.match_set_mgr, self.dummy_iter.field_id);
-        let iter = jd.field_mgr.lookup_iter_from_ref(self.dummy_iter, &field);
-
         match read_in_lines(
             reader.aquire(),
             !header_processed,
@@ -274,42 +299,19 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                     lines_produced += 1;
                 }
                 let produced_fields = lines_produced - self.lines_produced;
-                let mut ab = jd.match_set_mgr.match_sets[ms_id]
-                    .action_buffer
-                    .borrow_mut();
 
-                ab.begin_action_group(self.actor_id);
                 if produced_fields == 0 {
-                    if done {
-                        ab.push_action(
-                            FieldActionKind::Drop,
-                            iter.get_next_field_pos(),
-                            1,
-                        );
+                    if done && self.lines_produced != 0 {
+                        iter.drop(1);
                     }
                 } else {
-                    ab.push_action(
-                        FieldActionKind::Dup,
-                        iter.get_next_field_pos(),
-                        produced_fields - usize::from(done),
-                    );
+                    iter.dup(produced_fields - usize::from(done));
+                    iter.next_n_fields(produced_fields);
                 }
-                ab.end_action_group();
-                drop(ab);
-                drop(field);
-                if nudge_iter {
-                    let field = jd.field_mgr.get_cow_field_ref(
-                        &jd.match_set_mgr,
-                        self.dummy_iter.field_id,
-                    );
-                    let mut iter = jd
-                        .field_mgr
-                        .lookup_iter_from_ref(self.dummy_iter, &field);
-                    iter.next_n_fields(produced_fields, true);
-                    jd.field_mgr.store_iter_from_ref(self.dummy_iter, iter);
-                }
+                iter.store_iter(self.group_iter.iter_id);
 
-                jd.tf_mgr.unclaim_batch_size(tf_id, batch_size);
+                jd.tf_mgr
+                    .unclaim_batch_size(tf_id, batch_size - fields_produced);
                 ps.next_batch_ready = !done;
                 ps.input_done = done;
                 jd.tf_mgr.submit_batch_ready_for_more(
@@ -338,7 +340,6 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                         if col_idx == 0 || col_idx < idx { 1 } else { 2 };
                     ins.push_error(err.clone(), count, true, true);
                 }
-                drop(field);
             }
         }
         self.lines_produced = lines_produced;

@@ -8,7 +8,7 @@ use scr_core::{
     utils::test_utils::SliceReader,
 };
 use scr_ext_csv::{csv::create_op_csv, CsvExtension};
-use scr_ext_utils::sum::create_op_sum;
+use scr_ext_utils::{head::create_op_head, sum::create_op_sum};
 use std::{
     fmt::Write,
     io::Cursor,
@@ -53,9 +53,9 @@ fn access_second_field() -> Result<(), ScrError> {
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .add_op(create_op_csv(target.create_target(), false))
-        .add_op(create_op_format("{1:?}").unwrap())
+        .add_op(create_op_format("{_1:?}").unwrap())
         .run_collect_stringified()?;
-    assert_eq!(res, ["b\"b\"", "null", "b\"y\""]);
+    assert_eq!(res, ["\"b\"", "null", "\"y\""]);
     Ok(())
 }
 
@@ -66,9 +66,9 @@ fn last_row_filled_up_with_nulls() -> Result<(), ScrError> {
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .add_op(create_op_csv(target.create_target(), false))
-        .add_op(create_op_format("{1:?}").unwrap())
+        .add_op(create_op_format("{_1:?}").unwrap())
         .run_collect_stringified()?;
-    assert_eq!(res, ["\"\"", "b\"b\"", "null"]);
+    assert_eq!(res, ["\"\"", "\"b\"", "null"]);
     Ok(())
 }
 
@@ -79,9 +79,9 @@ fn csv_parses_integers() -> Result<(), ScrError> {
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .add_op(create_op_csv(target.create_target(), false))
-        .add_op(create_op_format("{1:?}").unwrap())
+        .add_op(create_op_format("{_1:?}").unwrap())
         .run_collect_stringified()?;
-    assert_eq!(res, ["2", "b\"b\"", "null"]);
+    assert_eq!(res, ["2", "\"b\"", "null"]);
     Ok(())
 }
 
@@ -104,5 +104,25 @@ fn multibatch() -> Result<(), ScrError> {
         .add_op(create_op_sum())
         .run_collect_as::<i64>()?;
     assert_eq!(res, [(COUNT * (COUNT - 1) / 2) as i64]);
+    Ok(())
+}
+
+#[test]
+fn head() -> Result<(), ScrError> {
+    let mut input = String::new();
+
+    for i in 0..10 {
+        input.write_fmt(format_args!("{i},\n")).unwrap();
+    }
+
+    let target = MutexedReadableTargetOwner::new(Cursor::new(input));
+
+    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+        .set_batch_size(3)
+        .unwrap()
+        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_head(5))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["0", "1", "2", "3", "4"]);
     Ok(())
 }

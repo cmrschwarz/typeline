@@ -142,7 +142,7 @@ impl Transform<'_> for TfHead {
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+        let (batch_size, mut ps) = jd.tf_mgr.claim_all(tf_id);
 
         let mut iter =
             jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
@@ -153,7 +153,7 @@ impl Transform<'_> for TfHead {
 
         let mut batch_size_rem = batch_size;
         let mut output_count = 0;
-        let mut next_group_done = false;
+        let mut flag_group_done = false;
 
         loop {
             let group_len_rem = iter.group_len_rem();
@@ -173,6 +173,7 @@ impl Transform<'_> for TfHead {
             output_count += self.remaining;
             if consumable != group_len_rem {
                 iter.next_n_fields(consumable);
+                flag_group_done = true;
                 self.remaining = 0;
                 break;
             }
@@ -180,23 +181,20 @@ impl Transform<'_> for TfHead {
             iter.drop(overflow);
             if !iter.try_next_group() {
                 self.remaining = 0;
-                next_group_done = true;
+                flag_group_done = true;
                 break;
             }
             self.remaining = self.retain_total;
         }
-        let group_to_truncate = if next_group_done {
+        let group_to_truncate = if flag_group_done {
             Some(iter.group_idx_stable())
         } else {
             None
         };
         iter.store_iter(self.group_track_iter.iter_id);
-        jd.tf_mgr.submit_batch(
-            tf_id,
-            output_count,
-            group_to_truncate,
-            ps.input_done,
-        );
+        ps.group_to_truncate = group_to_truncate;
+        jd.tf_mgr
+            .submit_batch_ready_for_more(tf_id, output_count, ps);
     }
 }
 
