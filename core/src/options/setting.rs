@@ -7,7 +7,7 @@ use crate::{
 pub type CliArgIdx = DebuggableNonMaxU32;
 
 #[derive(Clone, derive_more::Deref)]
-pub struct Setting<T: Clone> {
+pub struct Setting<T> {
     #[deref]
     pub value: Option<T>,
     pub span: Span,
@@ -36,7 +36,7 @@ impl<T: Clone> Default for Setting<T> {
     }
 }
 
-impl<T: Clone> Setting<T> {
+impl<T> Setting<T> {
     pub const fn new(value: Option<T>, span: Span) -> Self {
         Self { value, span }
     }
@@ -74,11 +74,13 @@ impl<T: Clone> Setting<T> {
         self.value = Some(value);
         self.span = span;
     }
-    pub fn get(&self) -> Option<T> {
-        self.value.clone()
-    }
     pub fn get_ref(&self) -> Option<&T> {
         self.value.as_ref()
+    }
+}
+impl<T: Clone> Setting<T> {
+    pub fn get(&self) -> Option<T> {
+        self.value.clone()
     }
     pub fn unwrap(&self) -> T {
         self.value.as_ref().unwrap().clone()

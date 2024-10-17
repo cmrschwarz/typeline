@@ -83,6 +83,7 @@ pub struct SessionSettings {
     pub debug_log_path: Option<PathBuf>,
     pub debug_log_no_apply: bool,
     pub debug_log_step_min: usize,
+    pub debug_break_on_step: Option<usize>,
     pub action_list_cleanup_frequency: usize,
     pub chain_setting_names: [StringStoreEntry; chain_settings_list::COUNT],
 }

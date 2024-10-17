@@ -3,7 +3,7 @@ use crate::{
     cli::{
         call_expr::{Argument, Span},
         cli_args_into_arguments_iter, parse_cli_raw, parse_operator_data,
-        try_parse_bool, CliArgumentError,
+        CliArgumentError,
     },
     context::{SessionData, SessionSettings},
     extension::ExtensionRegistry,
@@ -18,13 +18,16 @@ use crate::{
         success_updater::create_op_success_updator,
         utils::writable::WritableTarget,
     },
-    record_data::scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
+    options::chain_settings::SettingTypeConverter,
+    record_data::{
+        field_value_ref::FieldValueRef,
+        scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
+    },
     scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
     utils::{
         identity_hasher::BuildIdentityHasher,
         index_vec::IndexVec,
         indexing_type::IndexingType,
-        int_string_conversions::parse_int_with_units_from_bytes,
         string_store::{StringStore, StringStoreEntry},
     },
 };
@@ -33,16 +36,15 @@ use std::{
     collections::HashMap,
     num::NonZeroUsize,
     os::unix::ffi::OsStrExt,
-    path::PathBuf,
-    str::FromStr,
     sync::{atomic::AtomicBool, Arc, RwLock},
 };
 
 use super::{
     chain_settings::{
         chain_settings_list, ChainSetting, ChainSettingNames,
-        SettingActionListCleanupFrequency, SettingBatchSize, SettingDebugLog,
-        SettingDebugLogNoApply, SettingDebugStepMin, SettingMaxThreads,
+        SettingActionListCleanupFrequency, SettingBatchSize,
+        SettingDebugBreakOnStep, SettingDebugLog, SettingDebugLogNoApply,
+        SettingDebugLogStepMin, SettingMaxThreads,
     },
     setting::{CliArgIdx, Setting},
 };
@@ -108,25 +110,32 @@ pub struct SessionSetupData {
     pub extensions: Arc<ExtensionRegistry>,
 }
 
-macro_rules! DEBUG_LOG_ENV_VAR_CONST {
+macro_rules! ENV_VAR_CONST_DEBUG_LOG {
     () => {
         "SCR_DEBUG_LOG_PATH"
     };
 }
-macro_rules! DEBUG_LOG_NO_APPLY_ENV_VAR_CONST {
+macro_rules! ENV_VAR_CONST_DEBUG_LOG_NO_APPLY {
     () => {
         "SCR_DEBUG_LOG_NO_APPLY"
     };
 }
-macro_rules! DEBUG_LOG_STEP_MIN_ENV_VAR_CONST {
+macro_rules! ENV_VAR_CONST_DEBUG_LOG_STEP_MIN {
     () => {
         "SCR_DEBUG_LOG_STEP_MIN"
     };
 }
+macro_rules! ENV_VAR_CONST_DEBUG_BREAK_ON_STEP {
+    () => {
+        "SCR_DEBUG_BREAK_ON_STEP"
+    };
+}
 
-static DEBUG_LOG_ENV_VAR: &str = DEBUG_LOG_ENV_VAR_CONST!();
-static DEBUG_LOG_NO_APPLY_ENV_VAR: &str = DEBUG_LOG_NO_APPLY_ENV_VAR_CONST!();
-static DEBUG_LOG_STEP_MIN_ENV_VAR: &str = DEBUG_LOG_STEP_MIN_ENV_VAR_CONST!();
+static ENV_VAR_DEBUG_LOG: &str = ENV_VAR_CONST_DEBUG_LOG!();
+static ENV_VAR_DEBUG_LOG_NO_APPLY: &str = ENV_VAR_CONST_DEBUG_LOG_NO_APPLY!();
+static ENV_VAR_DEBUG_LOG_STEP_MIN: &str = ENV_VAR_CONST_DEBUG_LOG_STEP_MIN!();
+static ENV_VAR_DEBUG_BREAK_ON_STEP: &str =
+    ENV_VAR_CONST_DEBUG_BREAK_ON_STEP!();
 
 impl SessionSetupSettings {
     pub fn new(opts: &ScrSetupOptions) -> Self {
@@ -227,174 +236,89 @@ impl SessionSetupData {
         self.curr_chain
     }
 
-    fn build_debug_log_path(
+    fn get_debug_setting_value<S: ChainSetting>(
         &self,
-    ) -> Result<(Option<PathBuf>, bool, usize), CliArgumentError> {
-        let mut debug_log_path = {
-            if let Some((res, span)) = SettingDebugLog::lookup(
-                &self.scope_mgr,
-                &self.chain_setting_names,
-                self.chains[ChainId::ZERO].scope_id,
-            ) {
-                Setting::new(
-                    res.map_err(|e| CliArgumentError::new_s(e.message, span))?,
-                    span,
-                )
-            } else if let Some(path) = std::env::var_os(DEBUG_LOG_ENV_VAR) {
-                Setting::new(
-                    Some(PathBuf::from(path)),
-                    Span::EnvVar {
-                        compile_time: false,
-                        var_name: DEBUG_LOG_ENV_VAR,
-                    },
-                )
-            } else {
-                Setting::new(
-                    option_env!(DEBUG_LOG_ENV_VAR_CONST!()).map(|p| {
-                        PathBuf::from_str(p).expect(
-                            "valid compile time specified debug log path",
-                        )
-                    }),
-                    Span::EnvVar {
-                        compile_time: true,
-                        var_name: DEBUG_LOG_ENV_VAR,
-                    },
-                )
-            }
-        };
-        if let Some(path) = debug_log_path.as_ref() {
-            if path.as_os_str().is_empty() {
-                debug_log_path.reset_value();
-            }
-        }
-
-        let debug_log_no_apply = {
-            if let Some((res, span)) = SettingDebugLogNoApply::lookup(
-                &self.scope_mgr,
-                &self.chain_setting_names,
-                self.chains[ChainId::ZERO].scope_id,
-            ) {
-                Setting::new(
-                    Some(res.map_err(|e| {
-                        CliArgumentError::new_s(e.message, span)
-                    })?),
-                    span,
-                )
-            } else if let Some(value) =
-                std::env::var_os(DEBUG_LOG_NO_APPLY_ENV_VAR)
-            {
-                let span = Span::EnvVar {
-                    compile_time: false,
-                    var_name: DEBUG_LOG_NO_APPLY_ENV_VAR,
-                };
-                Setting::new(
-                    Some(try_parse_bool(value.as_bytes()).ok_or_else(
-                        || {
-                            CliArgumentError::new_s(
-                                format!(
-                                    "failed to parse as boolean: {}",
-                                    value.to_string_lossy()
-                                ),
-                                span,
-                            )
-                        },
-                    )?),
-                    span,
-                )
-            } else {
-                Setting::new(
-                    option_env!(DEBUG_LOG_NO_APPLY_ENV_VAR_CONST!()).map(
-                        |v| {
-                            try_parse_bool(v.as_bytes()).expect(
-                                "valid compile time specified value for debug_log_no_apply",
-                            )
-                        },
-                    ),
-                    Span::EnvVar {
-                        compile_time: true,
-                        var_name: DEBUG_LOG_NO_APPLY_ENV_VAR,
-                    },
-                )
-            }
-        };
-
-        let debug_log_step_min = {
-            if let Some((res, span)) = SettingDebugStepMin::lookup(
-                &self.scope_mgr,
-                &self.chain_setting_names,
-                self.chains[ChainId::ZERO].scope_id,
-            ) {
-                Setting::new(
-                    Some(res.map_err(|e| {
-                        CliArgumentError::new_s(e.message, span)
-                    })?),
-                    span,
-                )
-            } else if let Some(value) =
-                std::env::var_os(DEBUG_LOG_STEP_MIN_ENV_VAR)
-            {
-                let span = Span::EnvVar {
-                    compile_time: false,
-                    var_name: DEBUG_LOG_NO_APPLY_ENV_VAR,
-                };
-                Setting::new(
-                    Some(
-                        parse_int_with_units_from_bytes(value.as_bytes())
-                            .ok()
-                            .ok_or_else(|| {
-                                CliArgumentError::new_s(
-                                    format!(
-                                        "failed to parse as usize: {}",
-                                        value.to_string_lossy()
-                                    ),
-                                    span,
-                                )
-                            })?,
-                    ),
-                    span,
-                )
-            } else {
-                Setting::new(
-                    option_env!(DEBUG_LOG_STEP_MIN_ENV_VAR_CONST!()).map(
-                        |v| {
-                            parse_int_with_units_from_bytes(v.as_bytes()).expect(
-                                "valid compile time specified value for debug_log_step_min",
-                            )
-                        },
-                    ),
-                    Span::EnvVar {
-                        compile_time: true,
-                        var_name: DEBUG_LOG_STEP_MIN_ENV_VAR,
-                    },
-                )
-            }
-        };
-
-        if (debug_log_path.is_some() || debug_log_no_apply.value.is_some())
-            && !cfg!(feature = "debug_log")
-        {
-            return Err(CliArgumentError::new(
-                "Debug log not supported. Please compile with --features=debug_log",
-                debug_log_path.span,
+        env_var_name: &'static str,
+        ct_env_value: Option<&str>,
+    ) -> Result<(S::Type, Span), CliArgumentError> {
+        if let Some((res, span)) = S::lookup(
+            &self.scope_mgr,
+            &self.chain_setting_names,
+            self.chains[ChainId::ZERO].scope_id,
+        ) {
+            return Ok((
+                res.map_err(|e| CliArgumentError::new_s(e.message, span))?,
+                span,
             ));
         }
 
-        Ok((
-            debug_log_path.value,
-            debug_log_no_apply
-                .value
-                .unwrap_or(SettingDebugLogNoApply::DEFAULT),
-            debug_log_step_min
-                .value
-                .unwrap_or(SettingDebugStepMin::DEFAULT),
-        ))
+        if let Some(value) = std::env::var_os(env_var_name) {
+            let span = Span::EnvVar {
+                compile_time: false,
+                var_name: env_var_name,
+            };
+            return Ok((
+                S::Converter::convert_to_type(FieldValueRef::Bytes(
+                    value.as_bytes(),
+                ))
+                .map_err(|e| CliArgumentError::new_s(e.message, span))?,
+                span,
+            ));
+        }
+
+        if let Some(ct_env_arg) = ct_env_value {
+            let span = Span::EnvVar {
+                compile_time: true,
+                var_name: env_var_name,
+            };
+            return Ok((
+                S::Converter::convert_to_type(FieldValueRef::Text(ct_env_arg))
+                    .map_err(|e| CliArgumentError::new_s(e.message, span))?,
+                span,
+            ));
+        }
+        Ok((S::DEFAULT, Span::Builtin))
     }
 
     fn build_session_settings(
         &mut self,
     ) -> Result<SessionSettings, CliArgumentError> {
-        let (debug_log_path, debug_log_no_apply, debug_log_step_min) =
-            self.build_debug_log_path()?;
+        let (mut debug_log_path, debug_log_path_span) = self
+            .get_debug_setting_value::<SettingDebugLog>(
+                ENV_VAR_DEBUG_LOG,
+                option_env!(ENV_VAR_CONST_DEBUG_LOG!()),
+            )?;
+
+        if let Some(path) = debug_log_path.as_ref() {
+            if path.as_os_str().is_empty() {
+                debug_log_path = None;
+            }
+        }
+
+        let (debug_log_no_apply, _) = self
+            .get_debug_setting_value::<SettingDebugLogNoApply>(
+                ENV_VAR_DEBUG_LOG_NO_APPLY,
+                option_env!(ENV_VAR_CONST_DEBUG_LOG_NO_APPLY!()),
+            )?;
+
+        let (debug_log_step_min, _) = self
+            .get_debug_setting_value::<SettingDebugLogStepMin>(
+                ENV_VAR_DEBUG_LOG_STEP_MIN,
+                option_env!(ENV_VAR_CONST_DEBUG_LOG_STEP_MIN!()),
+            )?;
+
+        let (debug_break_on_step, _) = self
+            .get_debug_setting_value::<SettingDebugBreakOnStep>(
+                ENV_VAR_DEBUG_BREAK_ON_STEP,
+                option_env!(ENV_VAR_CONST_DEBUG_BREAK_ON_STEP!()),
+            )?;
+
+        if debug_log_path.is_some() && !cfg!(feature = "debug_log") {
+            return Err(CliArgumentError::new(
+                "Debug log not supported. Please compile with --features=debug_log",
+                debug_log_path_span,
+            ));
+        }
 
         let max_threads = if self.setup_settings.deny_threading {
             1
@@ -423,6 +347,7 @@ impl SessionSetupData {
             debug_log_path,
             debug_log_no_apply,
             debug_log_step_min,
+            debug_break_on_step,
             action_list_cleanup_frequency,
             repl: self.setup_settings.repl.unwrap_or(false),
             skipped_first_cli_arg: self.setup_settings.skipped_first_cli_arg,

@@ -5,13 +5,14 @@ use crate::{
     },
     record_data::{
         field_value::FieldValue,
+        field_value_ref::FieldValueRef,
         scope_manager::{Atom, ScopeId, ScopeManager, ScopeValue},
     },
     typelist,
     utils::string_store::StringStoreEntry,
 };
-use bstr::ByteSlice;
 
+use bstr::ByteSlice;
 use num::Zero;
 use std::{
     ffi::OsString, marker::PhantomData, os::unix::ffi::OsStringExt,
@@ -19,12 +20,13 @@ use std::{
 };
 use thiserror::Error;
 
-pub trait SettingTypeConverter<T> {
+pub trait SettingTypeConverter {
+    type Type;
     fn convert_to_type(
-        value: &FieldValue,
-    ) -> Result<T, SettingConversionError>;
+        value: FieldValueRef,
+    ) -> Result<Self::Type, SettingConversionError>;
     fn convert_from_type(
-        value: T,
+        value: Self::Type,
     ) -> Result<FieldValue, SettingConversionError>;
 }
 
@@ -60,7 +62,7 @@ pub trait ChainSetting: chain_settings_list::TypeList {
     const NAME: &'static str;
     const DEFAULT: Self::Type;
     type Type;
-    type Converter: SettingTypeConverter<Self::Type>;
+    type Converter: SettingTypeConverter<Type = Self::Type>;
 
     fn lookup(
         sm: &ScopeManager,
@@ -71,10 +73,13 @@ pub trait ChainSetting: chain_settings_list::TypeList {
             let atom = v.atom()?;
             let value = atom.value.read().unwrap();
             if let FieldValue::Argument(arg) = &*value {
-                Some((Self::Converter::convert_to_type(&arg.value), arg.span))
+                Some((
+                    Self::Converter::convert_to_type(arg.value.as_ref()),
+                    arg.span,
+                ))
             } else {
                 Some((
-                    Self::Converter::convert_to_type(&value),
+                    Self::Converter::convert_to_type(value.as_ref()),
                     Span::Generated,
                 ))
             }
@@ -139,13 +144,14 @@ pub struct SettingConverterUsize<
     const ALLOW_ZERO: bool = true,
 >(PhantomData<S>);
 
-impl<S: ChainSetting, const ALLOW_ZERO: bool> SettingTypeConverter<usize>
+impl<S: ChainSetting, const ALLOW_ZERO: bool> SettingTypeConverter
     for SettingConverterUsize<S, ALLOW_ZERO>
 {
+    type Type = usize;
     fn convert_to_type(
-        v: &FieldValue,
+        v: FieldValueRef,
     ) -> Result<usize, SettingConversionError> {
-        let &FieldValue::Int(value) = v else {
+        let FieldValueRef::Int(&value) = v else {
             return Err(SettingConversionError::new(format!(
                 "value for setting %{} must be an integer",
                 S::NAME
@@ -188,17 +194,18 @@ impl<S: ChainSetting, const ALLOW_ZERO: bool> SettingTypeConverter<usize>
 }
 
 pub struct SettingConverterBool<S: ChainSetting>(PhantomData<S>);
-impl<S: ChainSetting> SettingTypeConverter<bool> for SettingConverterBool<S> {
+impl<S: ChainSetting> SettingTypeConverter for SettingConverterBool<S> {
+    type Type = bool;
     fn convert_to_type(
-        value: &FieldValue,
+        value: FieldValueRef,
     ) -> Result<bool, SettingConversionError> {
         match value {
-            FieldValue::Undefined | FieldValue::Null => Ok(false),
-            FieldValue::Int(v) => Ok(*v == 0),
-            FieldValue::BigInt(v) => Ok(v.is_zero()),
-            FieldValue::Float(v) => Ok(*v == 0.0),
-            FieldValue::BigRational(v) => Ok(v.is_zero()),
-            FieldValue::Text(_) | FieldValue::Bytes(_) => {
+            FieldValueRef::Undefined | FieldValueRef::Null => Ok(false),
+            FieldValueRef::Int(v) => Ok(*v == 0),
+            FieldValueRef::BigInt(v) => Ok(v.is_zero()),
+            FieldValueRef::Float(v) => Ok(*v == 0.0),
+            FieldValueRef::BigRational(v) => Ok(v.is_zero()),
+            FieldValueRef::Text(_) | FieldValueRef::Bytes(_) => {
                 let value = value.as_maybe_text_ref().unwrap();
                 if let Some(v) = try_parse_bool(value.as_bytes()) {
                     return Ok(v);
@@ -209,19 +216,21 @@ impl<S: ChainSetting> SettingTypeConverter<bool> for SettingConverterBool<S> {
                     value.as_bytes().to_str_lossy()
                 )))
             }
-            FieldValue::Argument(v) => Self::convert_to_type(&v.value),
-            FieldValue::Array(_)
-            | FieldValue::Object(_)
-            | FieldValue::Custom(_)
-            | FieldValue::Error(_)
-            | FieldValue::Macro(_)
-            | FieldValue::StreamValueId(_)
-            | FieldValue::FieldReference(_)
-            | FieldValue::SlicedFieldReference(_) => {
+            FieldValueRef::Argument(v) => {
+                Self::convert_to_type(v.value.as_ref())
+            }
+            FieldValueRef::Array(_)
+            | FieldValueRef::Object(_)
+            | FieldValueRef::Custom(_)
+            | FieldValueRef::Error(_)
+            | FieldValueRef::Macro(_)
+            | FieldValueRef::StreamValueId(_)
+            | FieldValueRef::FieldReference(_)
+            | FieldValueRef::SlicedFieldReference(_) => {
                 Err(SettingConversionError::new(format!(
                     "setting %{} expects a boolean, got type {}",
                     S::NAME,
-                    value.kind().to_str()
+                    value.repr().kind().to_str()
                 )))
             }
         }
@@ -237,20 +246,21 @@ impl<S: ChainSetting> SettingTypeConverter<bool> for SettingConverterBool<S> {
 }
 
 pub struct SettingConverterBufferingMode<S: ChainSetting>(PhantomData<S>);
-impl<S: ChainSetting> SettingTypeConverter<BufferingMode>
+impl<S: ChainSetting> SettingTypeConverter
     for SettingConverterBufferingMode<S>
 {
+    type Type = BufferingMode;
     fn convert_to_type(
-        value: &FieldValue,
+        value: FieldValueRef,
     ) -> Result<BufferingMode, SettingConversionError> {
-        let FieldValue::Text(value) = value else {
+        let FieldValueRef::Text(value) = value else {
             return Err(SettingConversionError::new(format!(
                 "invalid line buffering condition for %{}, got type `{}`",
                 S::NAME,
                 value.kind().to_str()
             )));
         };
-        match &**value {
+        match value {
             "never" => Ok(BufferingMode::BlockBuffer),
             "always" => Ok(BufferingMode::LineBuffer),
             "stdin" => Ok(BufferingMode::LineBufferStdin),
@@ -279,20 +289,21 @@ impl<S: ChainSetting> SettingTypeConverter<BufferingMode>
 }
 
 pub struct SettingConverterRationalsPrintMode<S: ChainSetting>(PhantomData<S>);
-impl<S: ChainSetting> SettingTypeConverter<RationalsPrintMode>
+impl<S: ChainSetting> SettingTypeConverter
     for SettingConverterRationalsPrintMode<S>
 {
+    type Type = RationalsPrintMode;
     fn convert_to_type(
-        value: &FieldValue,
+        value: FieldValueRef,
     ) -> Result<RationalsPrintMode, SettingConversionError> {
-        let FieldValue::Text(value) = value else {
+        let FieldValueRef::Text(value) = value else {
             return Err(SettingConversionError::new(format!(
                 "invalid rational printing variant for %{}, got type `{}`",
                 S::NAME,
                 value.kind().to_str()
             )));
         };
-        match &**value {
+        match value {
             "raw" => return Ok(RationalsPrintMode::Raw),
             "dynamic" => return Ok(RationalsPrintMode::Dynamic),
             "cutoff" => {
@@ -337,32 +348,31 @@ impl<S: ChainSetting> SettingTypeConverter<RationalsPrintMode>
     }
 }
 
-pub struct SettingConverterOptionalPath<S: ChainSetting>(PhantomData<S>);
-impl<S: ChainSetting> SettingTypeConverter<Option<PathBuf>>
-    for SettingConverterOptionalPath<S>
-{
+pub struct SettingConverterPath<S: ChainSetting>(PhantomData<S>);
+impl<S: ChainSetting> SettingTypeConverter for SettingConverterPath<S> {
+    type Type = PathBuf;
     fn convert_to_type(
-        value: &FieldValue,
-    ) -> Result<Option<PathBuf>, SettingConversionError> {
+        value: FieldValueRef,
+    ) -> Result<PathBuf, SettingConversionError> {
         match value {
-            FieldValue::Undefined | FieldValue::Null => Ok(None),
-            FieldValue::Text(v) => Ok(Some(PathBuf::from(v))),
-            FieldValue::Bytes(v) => {
-                Ok(Some(PathBuf::from(OsString::from_vec(v.clone()))))
+            FieldValueRef::Text(v) => Ok(PathBuf::from(v)),
+            FieldValueRef::Bytes(v) => {
+                Ok(PathBuf::from(OsString::from_vec(v.to_owned())))
             }
-            FieldValue::Int(_)
-            | FieldValue::BigInt(_)
-            | FieldValue::Float(_)
-            | FieldValue::BigRational(_)
-            | FieldValue::Array(_)
-            | FieldValue::Object(_)
-            | FieldValue::Custom(_)
-            | FieldValue::Error(_)
-            | FieldValue::Macro(_)
-            | FieldValue::Argument(_)
-            | FieldValue::StreamValueId(_)
-            | FieldValue::FieldReference(_)
-            | FieldValue::SlicedFieldReference(_) => {
+             FieldValueRef::Undefined | FieldValueRef::Null  |
+            FieldValueRef::Int(_)
+            | FieldValueRef::BigInt(_)
+            | FieldValueRef::Float(_)
+            | FieldValueRef::BigRational(_)
+            | FieldValueRef::Array(_)
+            | FieldValueRef::Object(_)
+            | FieldValueRef::Custom(_)
+            | FieldValueRef::Error(_)
+            | FieldValueRef::Macro(_)
+            | FieldValueRef::Argument(_)
+            | FieldValueRef::StreamValueId(_)
+            | FieldValueRef::FieldReference(_)
+            | FieldValueRef::SlicedFieldReference(_) => {
                 Err(SettingConversionError::new(format!(
                     "invalid value for setting %{}, expected string, got type `{}`",
                     S::NAME,
@@ -373,13 +383,35 @@ impl<S: ChainSetting> SettingTypeConverter<Option<PathBuf>>
     }
 
     fn convert_from_type(
-        value: Option<PathBuf>,
+        value: PathBuf,
+    ) -> Result<FieldValue, SettingConversionError> {
+        match value.into_os_string().into_string() {
+            Ok(v) => Ok(FieldValue::Text(v)),
+            Err(v) => Ok(FieldValue::Bytes(v.into_encoded_bytes())),
+        }
+    }
+}
+
+pub struct SettingConverterOptional<SC: SettingTypeConverter>(PhantomData<SC>);
+
+impl<SC: SettingTypeConverter> SettingTypeConverter
+    for SettingConverterOptional<SC>
+{
+    type Type = Option<SC::Type>;
+    fn convert_to_type(
+        value: FieldValueRef,
+    ) -> Result<Option<SC::Type>, SettingConversionError> {
+        match value {
+            FieldValueRef::Null | FieldValueRef::Undefined => Ok(None),
+            _ => Ok(Some(SC::convert_to_type(value)?)),
+        }
+    }
+
+    fn convert_from_type(
+        value: Option<SC::Type>,
     ) -> Result<FieldValue, SettingConversionError> {
         match value {
-            Some(v) => match v.into_os_string().into_string() {
-                Ok(v) => Ok(FieldValue::Text(v)),
-                Err(v) => Ok(FieldValue::Bytes(v.into_encoded_bytes())),
-            },
+            Some(v) => SC::convert_from_type(v),
             None => Ok(FieldValue::Null),
         }
     }
@@ -439,7 +471,7 @@ impl ChainSetting for SettingDebugLog {
     type Type = Option<PathBuf>;
     const NAME: &'static str = "debug_log";
     const DEFAULT: Option<PathBuf> = None;
-    type Converter = SettingConverterOptionalPath<Self>;
+    type Converter = SettingConverterOptional<SettingConverterPath<Self>>;
 }
 
 pub struct SettingDebugLogNoApply;
@@ -450,12 +482,20 @@ impl ChainSetting for SettingDebugLogNoApply {
     type Converter = SettingConverterBool<Self>;
 }
 
-pub struct SettingDebugStepMin;
-impl ChainSetting for SettingDebugStepMin {
+pub struct SettingDebugLogStepMin;
+impl ChainSetting for SettingDebugLogStepMin {
     type Type = usize;
     const NAME: &'static str = "debug_log_step_min";
     const DEFAULT: usize = 0;
     type Converter = SettingConverterUsize<Self>;
+}
+
+pub struct SettingDebugBreakOnStep;
+impl ChainSetting for SettingDebugBreakOnStep {
+    type Type = Option<usize>;
+    const NAME: &'static str = "debug_break_on_step";
+    const DEFAULT: Option<usize> = None;
+    type Converter = SettingConverterOptional<SettingConverterUsize<Self>>;
 }
 
 pub struct SettingMaxThreads;
@@ -484,7 +524,8 @@ typelist! {
         SettingBufferingMode,
         SettingDebugLog,
         SettingDebugLogNoApply,
-        SettingDebugStepMin,
+        SettingDebugLogStepMin,
+        SettingDebugBreakOnStep,
         SettingMaxThreads,
         SettingActionListCleanupFrequency
     ]{}

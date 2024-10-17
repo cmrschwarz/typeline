@@ -1093,8 +1093,7 @@ impl<'a> Job<'a> {
             }
 
             #[cfg(debug_assertions)]
-            if option_env!("SCR_DEBUG_BREAK_ON_STEP")
-                .and_then(|v| v.parse().ok())
+            if self.job_data.session_data.settings.debug_break_on_step
                 == Some(self.job_data.transform_step_count)
             {
                 debugbreak!();

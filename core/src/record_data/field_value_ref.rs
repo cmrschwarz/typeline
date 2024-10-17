@@ -11,13 +11,17 @@ use super::{
         FieldValueFormat, FieldValueHeader, FieldValueRepr, FieldValueType,
         RunLength,
     },
-    field_value::{FieldReference, FieldValue, Object, SlicedFieldReference},
+    field_value::{
+        FieldReference, FieldValue, FieldValueKind, Object,
+        SlicedFieldReference,
+    },
     iters::FieldDataRef,
     stream_value::StreamValueId,
 };
 use crate::{
     cli::call_expr::Argument,
     operators::{errors::OperatorApplicationError, macro_def::MacroRef},
+    utils::maybe_text::MaybeTextRef,
 };
 
 #[derive(Clone, Copy)]
@@ -233,6 +237,18 @@ impl<'a> FieldValueRef<'a> {
             | FieldValueRef::FieldReference(_)
             | FieldValueRef::SlicedFieldReference(_) => None,
         }
+    }
+
+    pub fn as_maybe_text_ref(&self) -> Option<MaybeTextRef> {
+        match self {
+            FieldValueRef::Text(v) => Some(MaybeTextRef::Text(v)),
+            FieldValueRef::Bytes(v) => Some(MaybeTextRef::Bytes(v)),
+            _ => None,
+        }
+    }
+
+    pub fn kind(&self) -> FieldValueKind {
+        self.repr().kind()
     }
 }
 
