@@ -450,6 +450,14 @@ impl ChainSetting for SettingDebugLogNoApply {
     type Converter = SettingConverterBool<Self>;
 }
 
+pub struct SettingDebugStepMin;
+impl ChainSetting for SettingDebugStepMin {
+    type Type = usize;
+    const NAME: &'static str = "debug_log_step_min";
+    const DEFAULT: usize = 0;
+    type Converter = SettingConverterUsize<Self>;
+}
+
 pub struct SettingMaxThreads;
 impl ChainSetting for SettingMaxThreads {
     type Type = usize;
@@ -476,6 +484,7 @@ typelist! {
         SettingBufferingMode,
         SettingDebugLog,
         SettingDebugLogNoApply,
+        SettingDebugStepMin,
         SettingMaxThreads,
         SettingActionListCleanupFrequency
     ]{}

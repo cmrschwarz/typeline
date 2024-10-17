@@ -427,14 +427,16 @@ impl ActionBuffer {
         &mut self,
         lhs: &ActionGroupIdentifier,
         rhs: &ActionGroupIdentifier,
-        temp_idx: TempBufferIndex,
     ) -> ActionGroupIdentifier {
         if rhs.location.is_emtpy(&self.action_temp_buffers) {
+            self.release_temp_action_group(rhs);
             return *lhs;
         }
         if lhs.location.is_emtpy(&self.action_temp_buffers) {
+            self.release_temp_action_group(lhs);
             return *rhs;
         }
+        let temp_idx = self.claim_temp_buffer_index();
         let res =
             self.merge_action_groups_into_temp_buffer(lhs, rhs, temp_idx);
         self.release_temp_action_group(rhs);
@@ -544,6 +546,7 @@ impl ActionBuffer {
         let Some(first_action_index) =
             s1.first().or_else(|| s2.first()).map(|a| a.field_idx)
         else {
+            self.release_temp_action_group(&agi);
             self.drop_snapshot_refcount(field_snapshot);
             return;
         };
@@ -637,6 +640,10 @@ impl ActionBuffer {
         actor_id: ActorId,
         field_snapshot: SnapshotRef,
     ) -> Option<ActionGroupIdentifier> {
+        debug_assert_eq!(
+            self.free_temp_buffers.len(),
+            self.action_temp_buffers.len()
+        );
         let mut count = 0usize;
         let mut ag_idx = self
             .action_groups
@@ -667,12 +674,10 @@ impl ActionBuffer {
             };
             for i in 0..pow2 {
                 let prev_merge = self.merges[i];
-                let temp_idx = self.claim_temp_buffer_index();
                 rhs = self
                     .merge_action_groups_into_temp_buffer_release_inputs(
                         &prev_merge,
                         &rhs,
-                        temp_idx,
                     );
             }
             if self.merges.len() == pow2 {
@@ -700,11 +705,12 @@ impl ActionBuffer {
             }
             aggregated_count += pow2_count;
             let rhs = self.merges[pow2];
-            let temp_idx = self.claim_temp_buffer_index();
             lhs = self.merge_action_groups_into_temp_buffer_release_inputs(
-                &lhs, &rhs, temp_idx,
+                &lhs, &rhs,
             );
         }
+
+        self.merges.clear();
 
         if cfg!(debug_assertions) {
             for (i, b) in self.action_temp_buffers.iter_enumerated() {
@@ -712,8 +718,12 @@ impl ActionBuffer {
                     debug_assert!(b.is_empty());
                 }
             }
+            debug_assert!(
+                self.free_temp_buffers.len() + 1
+                    >= self.action_temp_buffers.len()
+            );
         }
-        self.merges.clear();
+
         Some(lhs)
     }
 
@@ -822,6 +832,7 @@ mod test {
     #[case(10)]
     #[case(11)]
     #[case(12)]
+    #[case(41)]
     fn merge_n(#[case] count: usize) {
         test_action_merge(
             std::iter::repeat(0).take(count),

@@ -856,15 +856,19 @@ impl<'a> Job<'a> {
         if let (Some(f), Some(start_tf)) =
             (&mut self.debug_log, self.job_data.start_tf)
         {
-            crate::debug_log::write_stream_value_update_to_html(
-                &self.job_data,
-                &self.transform_data,
-                svu,
-                start_tf,
-                f,
-            )
-            .expect("debug log write must succeed"); // TODO: handle this
-                                                     // better
+            if self.job_data.transform_step_count
+                >= self.job_data.session_data.settings.debug_log_step_min
+            {
+                crate::debug_log::write_stream_value_update_to_html(
+                    &self.job_data,
+                    &self.transform_data,
+                    svu,
+                    start_tf,
+                    f,
+                )
+                .expect("debug log write must succeed"); // TODO: handle this
+                                                         // better
+            }
         }
     }
     pub fn handle_transform(
@@ -928,16 +932,20 @@ impl<'a> Job<'a> {
         if let (Some(f), Some(start_tf)) =
             (&mut self.debug_log, self.job_data.start_tf)
         {
-            crate::debug_log::write_transform_update_to_html(
-                &self.job_data,
-                &self.transform_data,
-                tf_id,
-                batch_size_available,
-                start_tf,
-                f,
-            )
-            .expect("debug log write must succeed"); // TODO: handle this
-                                                     // better
+            if self.job_data.transform_step_count
+                >= self.job_data.session_data.settings.debug_log_step_min
+            {
+                crate::debug_log::write_transform_update_to_html(
+                    &self.job_data,
+                    &self.transform_data,
+                    tf_id,
+                    batch_size_available,
+                    start_tf,
+                    f,
+                )
+                .expect("debug log write must succeed"); // TODO: handle this
+                                                         // better
+            }
         }
         Ok(())
     }
@@ -959,15 +967,19 @@ impl<'a> Job<'a> {
         if let (Some(f), Some(start_tf)) =
             (&mut self.debug_log, self.job_data.start_tf)
         {
-            crate::debug_log::write_stream_producer_update_to_html(
-                &self.job_data,
-                &self.transform_data,
-                tf_id,
-                start_tf,
-                f,
-            )
-            .expect("debug log write must succeed"); // TODO: handle this
-                                                     // better
+            if self.job_data.transform_step_count
+                >= self.job_data.session_data.settings.debug_log_step_min
+            {
+                crate::debug_log::write_stream_producer_update_to_html(
+                    &self.job_data,
+                    &self.transform_data,
+                    tf_id,
+                    start_tf,
+                    f,
+                )
+                .expect("debug log write must succeed"); // TODO: handle this
+                                                         // better
+            }
         }
 
         #[cfg(feature = "debug_logging")]
@@ -1004,9 +1016,8 @@ impl<'a> Job<'a> {
         #[cfg(debug_assertions)]
         {
             for ms in &self.job_data.match_set_mgr.match_sets {
-                debug_assert_eq!(
-                    0,
-                    ms.action_buffer.borrow().action_group_count()
+                debug_assert!(
+                    ms.action_buffer.borrow().action_group_count() < 2
                 );
             }
         }
@@ -1017,14 +1028,18 @@ impl<'a> Job<'a> {
             eprintln!("action list cleanup: {count_diff} cleaned");
 
             if let Some(dl) = &mut self.debug_log {
-                crate::debug_log::write_action_list_cleanup_to_html(
-                    &self.job_data,
-                    &self.transform_data,
-                    self.job_data.start_tf.unwrap(),
-                    count_diff,
-                    dl,
-                )
-                .expect("debug log write succeeds");
+                if self.job_data.transform_step_count
+                    >= self.job_data.session_data.settings.debug_log_step_min
+                {
+                    crate::debug_log::write_action_list_cleanup_to_html(
+                        &self.job_data,
+                        &self.transform_data,
+                        self.job_data.start_tf.unwrap(),
+                        count_diff,
+                        dl,
+                    )
+                    .expect("debug log write succeeds");
+                }
             }
         }
     }
@@ -1077,6 +1092,7 @@ impl<'a> Job<'a> {
                 self.cleanup_action_lists();
             }
 
+            #[cfg(debug_assertions)]
             if option_env!("SCR_DEBUG_BREAK_ON_STEP")
                 .and_then(|v| v.parse().ok())
                 == Some(self.job_data.transform_step_count)

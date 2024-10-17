@@ -7,8 +7,9 @@ use crate::{
     operators::foreach::TfForeachTrailer,
     options::session_setup::SessionSetupData,
     record_data::{
+        dyn_ref_iter::RefAwareDynFieldValueRangeIter,
         group_track::{GroupTrackIterId, GroupTrackIterRef},
-        iter_hall::IterKind,
+        iter_hall::{IterId, IterKind},
     },
     scr_error::ScrError,
     utils::indexing_type::IndexingType,
@@ -28,6 +29,7 @@ pub struct OpForeachUnique {
     pub subchain_idx: SubchainIndex,
 }
 pub struct TfForeachUniqueHeader {
+    iter: IterId,
     parent_group_track_iter: GroupTrackIterId,
     unrealized_group_skips: usize,
 }
@@ -85,12 +87,19 @@ pub fn insert_tf_foreach_unique(
 
     let mut trailer_output_field = input_field;
 
+    let iter = job.job_data.field_mgr.claim_iter(
+        input_field,
+        next_actor_id.get_id(),
+        IterKind::Transform(header_tf_id_peek),
+    );
+
     let header_tf_id = add_transform_to_job(
         &mut job.job_data,
         &mut job.transform_data,
         tf_state,
         TransformData::ForeachUniqueHeader(TfForeachUniqueHeader {
             parent_group_track_iter,
+            iter,
             unrealized_group_skips: 0,
         }),
     );
@@ -177,7 +186,7 @@ pub fn handle_tf_foreach_unique_header(
     tf_id: TransformId,
     feh: &mut TfForeachUniqueHeader,
 ) {
-    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+    let (batch_size, ps) = jd.tf_mgr.claim_batch_with_limit_bump(tf_id, 1);
     if batch_size == 0 {
         jd.tf_mgr.submit_batch(
             tf_id,
@@ -195,6 +204,15 @@ pub fn handle_tf_foreach_unique_header(
     let mut group_track = jd
         .group_track_manager
         .borrow_group_track_mut(out_group_track_id);
+
+    let input_field = jd
+        .field_mgr
+        .get_cow_field_ref(&jd.match_set_mgr, tf.input_field);
+    let mut iter = jd.field_mgr.get_auto_deref_iter(
+        tf.input_field,
+        &input_field,
+        feh.iter,
+    );
 
     group_track.apply_field_actions(&jd.match_set_mgr);
     let mut parent_record_group_iter =
@@ -220,6 +238,12 @@ pub fn handle_tf_foreach_unique_header(
             debug_assert!(gs_rem != 0);
         }
 
+        let range = iter.next_range(&jd.match_set_mgr).unwrap();
+        let mut range_iter = RefAwareDynFieldValueRangeIter::new(range);
+
+        // TODO: implement this
+        let _block = range_iter.next_block();
+
         parent_record_group_iter.next_n_fields(gs_rem);
 
         group_track
@@ -241,8 +265,9 @@ pub fn handle_tf_foreach_unique_header(
         feh.unrealized_group_skips = 1;
     }
     parent_record_group_iter.store_iter(feh.parent_group_track_iter);
-
-    jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+    jd.tf_mgr.unclaim_batch_size(tf_id, 1);
+    jd.tf_mgr
+        .submit_batch_ready_for_more(tf_id, batch_size - 1, ps);
 
     #[cfg(feature = "debug_logging_output_fields")]
     {
@@ -251,34 +276,6 @@ pub fn handle_tf_foreach_unique_header(
             out_group_track_id, group_track
         );
     }
-}
-
-pub fn handle_tf_foreach_trailer(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    _fet: &TfForeachTrailer,
-) {
-    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
-
-    let tf = &jd.tf_mgr.transforms[tf_id];
-
-    let in_group_track_id = tf.input_group_track_id;
-    let out_group_track_id = tf.output_group_track_id;
-
-    jd.group_track_manager.merge_leading_groups_into_parent(
-        &jd.match_set_mgr,
-        in_group_track_id,
-        batch_size,
-        ps.input_done,
-        out_group_track_id,
-    );
-
-    jd.tf_mgr.submit_batch(
-        tf_id,
-        batch_size,
-        ps.group_to_truncate,
-        ps.input_done,
-    );
 }
 
 pub fn create_op_foreach_unique_with_spans(

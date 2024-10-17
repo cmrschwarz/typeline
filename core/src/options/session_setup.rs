@@ -24,6 +24,7 @@ use crate::{
         identity_hasher::BuildIdentityHasher,
         index_vec::IndexVec,
         indexing_type::IndexingType,
+        int_string_conversions::parse_int_with_units_from_bytes,
         string_store::{StringStore, StringStoreEntry},
     },
 };
@@ -41,7 +42,7 @@ use super::{
     chain_settings::{
         chain_settings_list, ChainSetting, ChainSettingNames,
         SettingActionListCleanupFrequency, SettingBatchSize, SettingDebugLog,
-        SettingDebugLogNoApply, SettingMaxThreads,
+        SettingDebugLogNoApply, SettingDebugStepMin, SettingMaxThreads,
     },
     setting::{CliArgIdx, Setting},
 };
@@ -112,14 +113,20 @@ macro_rules! DEBUG_LOG_ENV_VAR_CONST {
         "SCR_DEBUG_LOG_PATH"
     };
 }
-static DEBUG_LOG_ENV_VAR: &str = DEBUG_LOG_ENV_VAR_CONST!();
-
 macro_rules! DEBUG_LOG_NO_APPLY_ENV_VAR_CONST {
     () => {
         "SCR_DEBUG_LOG_NO_APPLY"
     };
 }
+macro_rules! DEBUG_LOG_STEP_MIN_ENV_VAR_CONST {
+    () => {
+        "SCR_DEBUG_LOG_STEP_MIN"
+    };
+}
+
+static DEBUG_LOG_ENV_VAR: &str = DEBUG_LOG_ENV_VAR_CONST!();
 static DEBUG_LOG_NO_APPLY_ENV_VAR: &str = DEBUG_LOG_NO_APPLY_ENV_VAR_CONST!();
+static DEBUG_LOG_STEP_MIN_ENV_VAR: &str = DEBUG_LOG_STEP_MIN_ENV_VAR_CONST!();
 
 impl SessionSetupSettings {
     pub fn new(opts: &ScrSetupOptions) -> Self {
@@ -222,7 +229,7 @@ impl SessionSetupData {
 
     fn build_debug_log_path(
         &self,
-    ) -> Result<(Option<PathBuf>, bool), CliArgumentError> {
+    ) -> Result<(Option<PathBuf>, bool, usize), CliArgumentError> {
         let mut debug_log_path = {
             if let Some((res, span)) = SettingDebugLog::lookup(
                 &self.scope_mgr,
@@ -311,6 +318,58 @@ impl SessionSetupData {
             }
         };
 
+        let debug_log_step_min = {
+            if let Some((res, span)) = SettingDebugStepMin::lookup(
+                &self.scope_mgr,
+                &self.chain_setting_names,
+                self.chains[ChainId::ZERO].scope_id,
+            ) {
+                Setting::new(
+                    Some(res.map_err(|e| {
+                        CliArgumentError::new_s(e.message, span)
+                    })?),
+                    span,
+                )
+            } else if let Some(value) =
+                std::env::var_os(DEBUG_LOG_STEP_MIN_ENV_VAR)
+            {
+                let span = Span::EnvVar {
+                    compile_time: false,
+                    var_name: DEBUG_LOG_NO_APPLY_ENV_VAR,
+                };
+                Setting::new(
+                    Some(
+                        parse_int_with_units_from_bytes(value.as_bytes())
+                            .ok()
+                            .ok_or_else(|| {
+                                CliArgumentError::new_s(
+                                    format!(
+                                        "failed to parse as usize: {}",
+                                        value.to_string_lossy()
+                                    ),
+                                    span,
+                                )
+                            })?,
+                    ),
+                    span,
+                )
+            } else {
+                Setting::new(
+                    option_env!(DEBUG_LOG_STEP_MIN_ENV_VAR_CONST!()).map(
+                        |v| {
+                            parse_int_with_units_from_bytes(v.as_bytes()).expect(
+                                "valid compile time specified value for debug_log_step_min",
+                            )
+                        },
+                    ),
+                    Span::EnvVar {
+                        compile_time: true,
+                        var_name: DEBUG_LOG_STEP_MIN_ENV_VAR,
+                    },
+                )
+            }
+        };
+
         if (debug_log_path.is_some() || debug_log_no_apply.value.is_some())
             && !cfg!(feature = "debug_log")
         {
@@ -325,13 +384,16 @@ impl SessionSetupData {
             debug_log_no_apply
                 .value
                 .unwrap_or(SettingDebugLogNoApply::DEFAULT),
+            debug_log_step_min
+                .value
+                .unwrap_or(SettingDebugStepMin::DEFAULT),
         ))
     }
 
     fn build_session_settings(
         &mut self,
     ) -> Result<SessionSettings, CliArgumentError> {
-        let (debug_log_path, debug_log_no_apply) =
+        let (debug_log_path, debug_log_no_apply, debug_log_step_min) =
             self.build_debug_log_path()?;
 
         let max_threads = if self.setup_settings.deny_threading {
@@ -360,6 +422,7 @@ impl SessionSetupData {
             max_threads,
             debug_log_path,
             debug_log_no_apply,
+            debug_log_step_min,
             action_list_cleanup_frequency,
             repl: self.setup_settings.repl.unwrap_or(false),
             skipped_first_cli_arg: self.setup_settings.skipped_first_cli_arg,

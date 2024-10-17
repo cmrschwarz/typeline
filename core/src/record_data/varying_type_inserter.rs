@@ -314,6 +314,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         run_length: usize,
     ) -> BytesInsertionStream {
         self.commit();
+        self.max = 0;
         self.fd.bytes_insertion_stream(run_length)
     }
 
@@ -322,6 +323,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         run_length: usize,
     ) -> TextInsertionStream {
         self.commit();
+        self.max = 0;
         self.fd.text_insertion_stream(run_length)
     }
     fn maybe_text_insertion_stream(
@@ -329,6 +331,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         run_length: usize,
     ) -> MaybeTextInsertionStream {
         self.commit();
+        self.max = 0;
         self.fd.maybe_text_insertion_stream(run_length)
     }
 }
