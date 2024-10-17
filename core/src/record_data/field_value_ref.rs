@@ -252,6 +252,15 @@ impl<'a> FieldValueRef<'a> {
     }
 }
 
+impl<'a> From<MaybeTextRef<'a>> for FieldValueRef<'a> {
+    fn from(value: MaybeTextRef<'a>) -> Self {
+        match value {
+            MaybeTextRef::Text(v) => FieldValueRef::Text(v),
+            MaybeTextRef::Bytes(v) => FieldValueRef::Bytes(v),
+        }
+    }
+}
+
 impl<'a> TypedField<'a> {
     pub unsafe fn new<R: FieldDataRef<'a>>(
         fdr: R,

@@ -9,7 +9,10 @@ use crate::{
         scope_manager::{Atom, ScopeId, ScopeManager, ScopeValue},
     },
     typelist,
-    utils::string_store::StringStoreEntry,
+    utils::{
+        int_string_conversions::parse_int_with_units_from_bytes,
+        maybe_text::MaybeTextRef, string_store::StringStoreEntry,
+    },
 };
 
 use bstr::ByteSlice;
@@ -22,6 +25,9 @@ use thiserror::Error;
 
 pub trait SettingTypeConverter {
     type Type;
+    fn convert_to_type_from_maybe_text(
+        value: MaybeTextRef,
+    ) -> Result<Self::Type, SettingConversionError>;
     fn convert_to_type(
         value: FieldValueRef,
     ) -> Result<Self::Type, SettingConversionError>;
@@ -191,6 +197,26 @@ impl<S: ChainSetting, const ALLOW_ZERO: bool> SettingTypeConverter
             ))),
         }
     }
+
+    fn convert_to_type_from_maybe_text(
+        value: MaybeTextRef,
+    ) -> Result<Self::Type, SettingConversionError> {
+        let v = parse_int_with_units_from_bytes(value.as_bytes()).map_err(
+            |e| {
+                SettingConversionError::new(format!(
+                    "value for setting %{} must be an integer: {e}",
+                    S::NAME
+                ))
+            },
+        )?;
+        if v == 0 && !ALLOW_ZERO {
+            return Err(SettingConversionError::new(format!(
+                "value for setting %{} cannot be zero",
+                S::NAME
+            )));
+        }
+        Ok(v)
+    }
 }
 
 pub struct SettingConverterBool<S: ChainSetting>(PhantomData<S>);
@@ -206,15 +232,10 @@ impl<S: ChainSetting> SettingTypeConverter for SettingConverterBool<S> {
             FieldValueRef::Float(v) => Ok(*v == 0.0),
             FieldValueRef::BigRational(v) => Ok(v.is_zero()),
             FieldValueRef::Text(_) | FieldValueRef::Bytes(_) => {
-                let value = value.as_maybe_text_ref().unwrap();
-                if let Some(v) = try_parse_bool(value.as_bytes()) {
-                    return Ok(v);
-                };
-                Err(SettingConversionError::new(format!(
-                    "setting %{} expects a boolean, got '{}'",
-                    S::NAME,
-                    value.as_bytes().to_str_lossy()
-                )))
+                // TODO: get rid of this once we have a bool type?
+                Self::convert_to_type_from_maybe_text(
+                    value.as_maybe_text_ref().unwrap(),
+                )
             }
             FieldValueRef::Argument(v) => {
                 Self::convert_to_type(v.value.as_ref())
@@ -235,6 +256,18 @@ impl<S: ChainSetting> SettingTypeConverter for SettingConverterBool<S> {
             }
         }
     }
+    fn convert_to_type_from_maybe_text(
+        value: MaybeTextRef,
+    ) -> Result<Self::Type, SettingConversionError> {
+        if let Some(v) = try_parse_bool(value.as_bytes()) {
+            return Ok(v);
+        };
+        Err(SettingConversionError::new(format!(
+            "setting %{} expects a boolean, got '{}'",
+            S::NAME,
+            value.as_bytes().to_str_lossy()
+        )))
+    }
 
     fn convert_from_type(
         value: bool,
@@ -250,6 +283,13 @@ impl<S: ChainSetting> SettingTypeConverter
     for SettingConverterBufferingMode<S>
 {
     type Type = BufferingMode;
+
+    fn convert_to_type_from_maybe_text(
+        value: MaybeTextRef,
+    ) -> Result<Self::Type, SettingConversionError> {
+        Self::convert_to_type(FieldValueRef::from(value))
+    }
+
     fn convert_to_type(
         value: FieldValueRef,
     ) -> Result<BufferingMode, SettingConversionError> {
@@ -293,6 +333,12 @@ impl<S: ChainSetting> SettingTypeConverter
     for SettingConverterRationalsPrintMode<S>
 {
     type Type = RationalsPrintMode;
+
+    fn convert_to_type_from_maybe_text(
+        value: MaybeTextRef,
+    ) -> Result<Self::Type, SettingConversionError> {
+        Self::convert_to_type(FieldValueRef::from(value))
+    }
     fn convert_to_type(
         value: FieldValueRef,
     ) -> Result<RationalsPrintMode, SettingConversionError> {
@@ -351,6 +397,13 @@ impl<S: ChainSetting> SettingTypeConverter
 pub struct SettingConverterPath<S: ChainSetting>(PhantomData<S>);
 impl<S: ChainSetting> SettingTypeConverter for SettingConverterPath<S> {
     type Type = PathBuf;
+
+    fn convert_to_type_from_maybe_text(
+        value: MaybeTextRef,
+    ) -> Result<Self::Type, SettingConversionError> {
+        Self::convert_to_type(FieldValueRef::from(value))
+    }
+
     fn convert_to_type(
         value: FieldValueRef,
     ) -> Result<PathBuf, SettingConversionError> {
@@ -392,17 +445,39 @@ impl<S: ChainSetting> SettingTypeConverter for SettingConverterPath<S> {
     }
 }
 
-pub struct SettingConverterOptional<SC: SettingTypeConverter>(PhantomData<SC>);
+pub struct SettingConverterOptional<
+    SC: SettingTypeConverter,
+    const EMPTY_STRING_AS_NONE: bool = false,
+>(PhantomData<SC>);
 
-impl<SC: SettingTypeConverter> SettingTypeConverter
-    for SettingConverterOptional<SC>
+impl<SC: SettingTypeConverter, const EMPTY_STRING_AS_NONE: bool>
+    SettingTypeConverter
+    for SettingConverterOptional<SC, EMPTY_STRING_AS_NONE>
 {
     type Type = Option<SC::Type>;
+
+    fn convert_to_type_from_maybe_text(
+        value: MaybeTextRef,
+    ) -> Result<Self::Type, SettingConversionError> {
+        if EMPTY_STRING_AS_NONE && value.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(SC::convert_to_type_from_maybe_text(value)?))
+    }
+
     fn convert_to_type(
         value: FieldValueRef,
     ) -> Result<Option<SC::Type>, SettingConversionError> {
         match value {
             FieldValueRef::Null | FieldValueRef::Undefined => Ok(None),
+            FieldValueRef::Text(v) if v.is_empty() && EMPTY_STRING_AS_NONE => {
+                Ok(None)
+            }
+            FieldValueRef::Bytes(v)
+                if v.is_empty() && EMPTY_STRING_AS_NONE =>
+            {
+                Ok(None)
+            }
             _ => Ok(Some(SC::convert_to_type(value)?)),
         }
     }

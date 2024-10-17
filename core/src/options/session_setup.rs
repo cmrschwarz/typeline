@@ -19,15 +19,13 @@ use crate::{
         utils::writable::WritableTarget,
     },
     options::chain_settings::SettingTypeConverter,
-    record_data::{
-        field_value_ref::FieldValueRef,
-        scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
-    },
+    record_data::scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
     scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
     utils::{
         identity_hasher::BuildIdentityHasher,
         index_vec::IndexVec,
         indexing_type::IndexingType,
+        maybe_text::MaybeTextRef,
         string_store::{StringStore, StringStoreEntry},
     },
 };
@@ -258,9 +256,9 @@ impl SessionSetupData {
                 var_name: env_var_name,
             };
             return Ok((
-                S::Converter::convert_to_type(FieldValueRef::Bytes(
-                    value.as_bytes(),
-                ))
+                S::Converter::convert_to_type_from_maybe_text(
+                    MaybeTextRef::from_bytes_try_str(value.as_bytes()),
+                )
                 .map_err(|e| CliArgumentError::new_s(e.message, span))?,
                 span,
             ));
@@ -272,8 +270,10 @@ impl SessionSetupData {
                 var_name: env_var_name,
             };
             return Ok((
-                S::Converter::convert_to_type(FieldValueRef::Text(ct_env_arg))
-                    .map_err(|e| CliArgumentError::new_s(e.message, span))?,
+                S::Converter::convert_to_type_from_maybe_text(
+                    MaybeTextRef::Text(ct_env_arg),
+                )
+                .map_err(|e| CliArgumentError::new_s(e.message, span))?,
                 span,
             ));
         }
