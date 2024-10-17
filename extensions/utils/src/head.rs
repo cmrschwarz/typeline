@@ -173,7 +173,7 @@ impl Transform<'_> for TfHead {
             output_count += self.remaining;
             if consumable != group_len_rem {
                 iter.next_n_fields(consumable);
-                self.remaining -= consumable;
+                self.remaining = 0;
                 break;
             }
             let overflow = group_len_rem - self.remaining;
