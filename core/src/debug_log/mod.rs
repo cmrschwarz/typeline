@@ -887,8 +887,6 @@ fn group_track_to_json(
     group_track_id: GroupTrackId,
     dead_slots: &[usize],
 ) -> serde_json::Value {
-    jd.group_track_manager
-        .apply_actions_to_track(&jd.match_set_mgr, group_track_id);
     let mut gt =
         jd.group_track_manager.group_tracks[group_track_id].borrow_mut();
     gt.sort_iters();

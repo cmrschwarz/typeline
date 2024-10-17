@@ -1012,12 +1012,21 @@ impl<'a> Job<'a> {
                 false,
             );
         }
+        for track_id in
+            self.job_data.group_track_manager.group_tracks.indices()
+        {
+            self.job_data.group_track_manager.apply_actions_to_track(
+                &self.job_data.match_set_mgr,
+                track_id,
+            );
+        }
 
         #[cfg(debug_assertions)]
         {
             for ms in &self.job_data.match_set_mgr.match_sets {
-                debug_assert!(
-                    ms.action_buffer.borrow().action_group_count() < 2
+                debug_assert_eq!(
+                    ms.action_buffer.borrow().action_group_count(),
+                    0
                 );
             }
         }
