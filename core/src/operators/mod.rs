@@ -32,3 +32,4 @@ pub mod to_str;
 pub mod transform;
 pub mod transparent;
 pub mod utils;
+pub mod foreach_unique;

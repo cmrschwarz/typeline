@@ -48,6 +48,7 @@ use super::{
         handle_tf_foreach_header, handle_tf_foreach_trailer, TfForeachHeader,
         TfForeachTrailer,
     },
+    foreach_unique::{handle_tf_foreach_unique_header, TfForeachUniqueHeader},
     fork::{handle_fork_expansion, handle_tf_fork, TfFork},
     forkcat::{
         handle_tf_forcat_subchain_trailer, handle_tf_forkcat, TfForkCat,
@@ -111,6 +112,7 @@ pub enum TransformData<'a> {
     AggregatorHeader(TfAggregatorHeader),
     AggregatorTrailer(TfAggregatorTrailer),
     ForeachHeader(TfForeachHeader),
+    ForeachUniqueHeader(TfForeachUniqueHeader),
     ForeachTrailer(TfForeachTrailer),
     ChunksHeader(TfChunksHeader),
     ChunksTrailer(TfChunksTrailer),
@@ -150,8 +152,9 @@ impl TransformData<'_> {
             TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
-            TransformData::ForeachHeader(_) => "each_header",
-            TransformData::ForeachTrailer(_) => "each_trailer",
+            TransformData::ForeachHeader(_) => "foreach_header",
+            TransformData::ForeachUniqueHeader(_) => "foreach_unique_header",
+            TransformData::ForeachTrailer(_) => "foreach_trailer",
             TransformData::ChunksHeader(_) => "chunks_header",
             TransformData::ChunksTrailer(_) => "chunks_trailer",
             TransformData::ForkCatSubchainTrailer(_) => {
@@ -194,6 +197,7 @@ impl TransformData<'_> {
             | TransformData::Fork(_)
             | TransformData::AggregatorHeader(_)
             | TransformData::ForeachHeader(_)
+            | TransformData::ForeachUniqueHeader(_)
             | TransformData::ForeachTrailer(_)
             | TransformData::ChunksHeader(_)
             | TransformData::ChunksTrailer(_)
@@ -335,6 +339,7 @@ pub fn transform_pre_update(
         TransformData::Disabled
         | TransformData::ForkCat(_)
         | TransformData::ForeachHeader(_)
+        | TransformData::ForeachUniqueHeader(_)
         | TransformData::ForeachTrailer(_)
         | TransformData::ChunksHeader(_)
         | TransformData::ChunksTrailer(_)
@@ -428,6 +433,9 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::ForeachHeader(eh) => {
             handle_tf_foreach_header(jd, tf_id, eh)
         }
+        TransformData::ForeachUniqueHeader(eh) => {
+            handle_tf_foreach_unique_header(jd, tf_id, eh)
+        }
         TransformData::ForeachTrailer(et) => {
             handle_tf_foreach_trailer(jd, tf_id, et)
         }
@@ -468,6 +476,7 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::AggregatorHeader(_)
             | TransformData::AggregatorTrailer(_)
             | TransformData::ForeachHeader(_)
+            | TransformData::ForeachUniqueHeader(_)
             | TransformData::ForeachTrailer(_)
             | TransformData::ChunksHeader(_)
             | TransformData::ChunksTrailer(_) => unreachable!(),
@@ -536,6 +545,7 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::Fork(_) |
         TransformData::ForkCat(_) |
         TransformData::ForeachHeader(_) |
+        TransformData::ForeachUniqueHeader(_) |
         TransformData::ForeachTrailer(_) |
         TransformData::ChunksHeader(_) |
         TransformData::ChunksTrailer(_) |

@@ -659,6 +659,13 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
             span,
         )
     }
+
+    pub fn error_flags_unsupported(&self, span: Span) -> CliArgumentError {
+        CliArgumentError::new_s(
+            format!("operator `{}` does not support flags", self.op_name,),
+            span,
+        )
+    }
     pub fn error_reject_flag_value(
         &self,
         flag: &str,

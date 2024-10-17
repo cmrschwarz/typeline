@@ -4,6 +4,7 @@ use crate::{
     chain::{ChainId, SubchainIndex},
     cli::call_expr::{Argument, CallExpr, Span},
     job::{add_transform_to_job, Job, JobData},
+    operators::foreach::TfForeachTrailer,
     options::session_setup::SessionSetupData,
     record_data::{
         group_track::{GroupTrackIterId, GroupTrackIterRef},
@@ -14,7 +15,6 @@ use crate::{
 };
 
 use super::{
-    foreach_unique::parse_op_foreach_unique,
     nop::create_op_nop,
     operator::{
         OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
@@ -23,18 +23,17 @@ use super::{
     transform::{TransformData, TransformId, TransformState},
 };
 
-pub struct OpForeach {
+pub struct OpForeachUnique {
     pub subchain: Vec<(OperatorData, Span)>,
     pub subchain_idx: SubchainIndex,
 }
-pub struct TfForeachHeader {
+pub struct TfForeachUniqueHeader {
     parent_group_track_iter: GroupTrackIterId,
     unrealized_group_skips: usize,
 }
-pub struct TfForeachTrailer {}
 
-pub fn setup_op_foreach(
-    op: &mut OpForeach,
+pub fn setup_op_foreach_unique(
+    op: &mut OpForeachUnique,
     sess: &mut SessionSetupData,
     op_data_id: OperatorDataId,
     chain_id: ChainId,
@@ -47,9 +46,9 @@ pub fn setup_op_foreach(
     Ok(op_id)
 }
 
-pub fn insert_tf_foreach(
+pub fn insert_tf_foreach_unique(
     job: &mut Job,
-    op: &OpForeach,
+    op: &OpForeachUnique,
     mut tf_state: TransformState,
     chain_id: ChainId,
     op_id: OperatorId,
@@ -90,7 +89,7 @@ pub fn insert_tf_foreach(
         &mut job.job_data,
         &mut job.transform_data,
         tf_state,
-        TransformData::ForeachHeader(TfForeachHeader {
+        TransformData::ForeachUniqueHeader(TfForeachUniqueHeader {
             parent_group_track_iter,
             unrealized_group_skips: 0,
         }),
@@ -173,10 +172,10 @@ pub fn insert_tf_foreach(
     }
 }
 
-pub fn handle_tf_foreach_header(
+pub fn handle_tf_foreach_unique_header(
     jd: &mut JobData,
     tf_id: TransformId,
-    feh: &mut TfForeachHeader,
+    feh: &mut TfForeachUniqueHeader,
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
     if batch_size == 0 {
@@ -282,47 +281,41 @@ pub fn handle_tf_foreach_trailer(
     );
 }
 
-pub fn create_op_foreach_with_spans(
+pub fn create_op_foreach_unique_with_spans(
     subchain: impl IntoIterator<Item = (OperatorData, Span)>,
 ) -> OperatorData {
     let mut subchain = subchain.into_iter().collect::<Vec<_>>();
     if subchain.is_empty() {
         subchain.push((create_op_nop(), Span::Generated));
     }
-    OperatorData::Foreach(OpForeach {
+    OperatorData::ForeachUnique(OpForeachUnique {
         subchain,
         subchain_idx: SubchainIndex::MAX_VALUE,
     })
 }
 
-pub fn create_op_foreach(
+pub fn create_op_foreach_unique(
     subchain: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    create_op_foreach_with_spans(
+    create_op_foreach_unique_with_spans(
         subchain.into_iter().map(|v| (v, Span::Generated)),
     )
 }
 
-pub fn parse_op_foreach(
+pub fn parse_op_foreach_unique(
     sess: &mut SessionSetupData,
     mut arg: Argument,
 ) -> Result<OperatorData, ScrError> {
     let mut subchain = Vec::new();
-    let expr = CallExpr::from_argument(&arg)?;
-    if let (Some(flags), _) = expr.split_flags_arg(false) {
-        if flags.contains_key("-u") {
-            return parse_op_foreach_unique(sess, arg);
-        }
-        return Err(expr.error_flags_unsupported(arg.span).into());
-    }
+    assert!(CallExpr::from_argument(&arg)?.has_flags_arg(false));
     for arg in std::mem::take(arg.expect_arg_array_mut()?)
         .into_iter()
-        .skip(1)
+        .skip(2)
     {
         let span = arg.span;
         let op = sess.parse_argument(arg)?;
         subchain.push((op, span));
     }
 
-    Ok(create_op_foreach_with_spans(subchain))
+    Ok(create_op_foreach_unique_with_spans(subchain))
 }
