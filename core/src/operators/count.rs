@@ -1,6 +1,7 @@
 use crate::{
-    cli::call_expr::CallExpr, job::JobData,
-    record_data::group_track::GroupTrackIterRef,
+    cli::call_expr::CallExpr,
+    job::JobData,
+    record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
 };
 
 use super::{
@@ -13,6 +14,7 @@ use super::{
 pub struct OpCount {}
 pub struct TfCount {
     count: i64,
+    actor: ActorId,
     iter: GroupTrackIterRef,
 }
 
@@ -24,6 +26,7 @@ pub fn build_tf_count<'a>(
 ) -> TransformData<'a> {
     TransformData::Count(TfCount {
         count: 0,
+        actor: jd.add_actor_for_tf_state(tf_state),
         iter: jd.claim_group_track_iter_for_tf_state(tf_state),
     })
 }
@@ -35,9 +38,12 @@ pub fn handle_tf_count(
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
 
-    let mut iter = jd
-        .group_track_manager
-        .lookup_group_track_iter(tfc.iter, &jd.match_set_mgr);
+    let mut iter =
+        jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
+            tfc.iter,
+            &jd.match_set_mgr,
+            tfc.actor,
+        );
 
     let mut groups_emitted = 0;
 
@@ -61,6 +67,7 @@ pub fn handle_tf_count(
     loop {
         let gl_rem = iter.group_len_rem();
         let consumed = iter.next_n_fields(gl_rem.min(batch_size_rem));
+        iter.drop_backwards(consumed.saturating_sub(usize::from(count == 0)));
         count += consumed as i64;
         batch_size_rem -= consumed;
 
@@ -84,12 +91,8 @@ pub fn handle_tf_count(
     }
     tfc.count = count;
     iter.store_iter(tfc.iter.iter_id);
-    jd.tf_mgr.submit_batch(
-        tf_id,
-        groups_emitted,
-        ps.group_to_truncate,
-        ps.input_done,
-    );
+    jd.tf_mgr
+        .submit_batch_ready_for_more(tf_id, groups_emitted, ps);
 }
 
 pub fn parse_op_count(

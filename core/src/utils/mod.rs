@@ -302,6 +302,7 @@ pub unsafe fn force_cast<T, Q>(v: T) -> Q {
     unsafe { std::ptr::read(std::ptr::addr_of!(v).cast::<Q>()) }
 }
 
+#[macro_export]
 macro_rules! debugbreak {
     () => {
         unsafe {
