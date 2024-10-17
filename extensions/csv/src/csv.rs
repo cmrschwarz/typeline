@@ -7,6 +7,7 @@ use std::{
 };
 
 use scr_core::{
+    cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -25,6 +26,7 @@ use scr_core::{
         },
         utils::readable::{AnyBufReader, ReadableTarget},
     },
+    options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::FieldId,
@@ -34,6 +36,7 @@ use scr_core::{
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
+    scr_error::ScrError,
     smallbox,
     utils::{
         int_string_conversions::usize_to_str,
@@ -45,6 +48,7 @@ use scr_core::{
 
 pub struct OpCsv {
     header: bool,
+    disable_quotes: bool,
     // TODO: add form that takes this from input
     input: ReadableTarget,
 }
@@ -286,9 +290,11 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             !header_processed,
             &additional_inserters,
             &mut inserters,
+            iter.field_pos(),
             &mut lines_produced,
             &mut col_idx,
             target_batch_size,
+            self.op.disable_quotes,
         ) {
             Ok(done) => {
                 if col_idx != 0 {
@@ -340,6 +346,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                         if col_idx == 0 || col_idx < idx { 1 } else { 2 };
                     ins.push_error(err.clone(), count, true, true);
                 }
+                drop(iter);
             }
         }
         self.lines_produced = lines_produced;
@@ -375,15 +382,18 @@ fn read_in_lines<'a, R: BufRead>(
     process_header: bool,
     additional_fields: &'a StableVec<RefCell<FieldData>>,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
+    prefix_nulls: usize,
     lines_produced: &mut usize,
     col_idx: &mut usize,
     lines_max: usize,
+    disable_quotes: bool,
 ) -> Result<bool, std::io::Error> {
     if process_header {
         read_until_match(&mut reader, &mut std::io::empty(), |buf| {
             memchr::memchr(b'\n', buf)
         })?;
     }
+    let lines_before = *lines_produced;
     let max_line = *lines_produced + lines_max;
     loop {
         let mut c = 0;
@@ -419,9 +429,9 @@ fn read_in_lines<'a, R: BufRead>(
         let inserter = &mut inserters[*col_idx];
         *col_idx += 1;
         let newline;
-        if c == b'"' {
+        if !disable_quotes && c == b'"' {
             // todo: parse quoted text
-            newline = false;
+            unimplemented!();
         } else {
             let mut stream = inserter.bytes_insertion_stream(1);
             let _ = stream.write_all(std::slice::from_mut(&mut c));
@@ -476,7 +486,10 @@ fn read_in_lines<'a, R: BufRead>(
                 inserters.push(VaryingTypeInserter::new(
                     additional_fields.last().unwrap().borrow_mut(),
                 ));
-                inserters[*col_idx].push_null(*lines_produced, false);
+                inserters[*col_idx].push_null(
+                    prefix_nulls + *lines_produced - lines_before,
+                    false,
+                );
             }
             continue;
         }
@@ -491,16 +504,53 @@ fn read_in_lines<'a, R: BufRead>(
     }
 }
 
-pub fn create_op_csv(input: ReadableTarget, header: bool) -> OperatorData {
-    OperatorData::Custom(smallbox!(OpCsv { input, header }))
+pub fn create_op_csv(
+    input: ReadableTarget,
+    header: bool,
+    disable_quotes: bool,
+) -> OperatorData {
+    OperatorData::Custom(smallbox!(OpCsv {
+        input,
+        header,
+        disable_quotes
+    }))
 }
 
 pub fn create_op_csv_from_file(
     input_file: impl Into<PathBuf>,
     header: bool,
+    disable_quotes: bool,
 ) -> OperatorData {
-    OperatorData::Custom(smallbox!(OpCsv {
-        input: ReadableTarget::File(input_file.into()),
-        header
-    }))
+    create_op_csv(
+        ReadableTarget::File(input_file.into()),
+        header,
+        disable_quotes,
+    )
+}
+
+pub fn parse_op_csv(
+    sess: &mut SessionSetupData,
+    expr: CallExpr,
+) -> Result<Option<OperatorData>, ScrError> {
+    let (flags, args) = expr.split_flags_arg(false);
+    if args.len() != 1 {
+        return Err(expr.error_require_exact_positional_count(1).into());
+    }
+    let mut header = false;
+    let mut disable_quotes = false;
+    // TODO: this is non exhaustive.
+    // add proper, generalized cli parsing code ala CLAP
+    if let Some(flags) = flags {
+        if flags.get("-h").is_some() {
+            header = true;
+        }
+        if flags.get("-r").is_some() {
+            disable_quotes = true;
+        }
+    }
+    return Ok(Some(create_op_csv_from_file(
+        args[0].stringify_as_text(expr.op_name, sess)?.to_string(),
+        header,
+        disable_quotes,
+    )));
 }
