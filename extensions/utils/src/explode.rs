@@ -109,6 +109,7 @@ impl Operator for OpExplode {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
+        _outputs_offset: usize,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         access_flags.may_dup_or_drop = false;
         // Counterintuitively, this operator does not impact liveness analysis,

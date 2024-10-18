@@ -63,6 +63,7 @@ impl Operator for OpDup {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
+        _outputs_offset: usize,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         access_flags.input_accessed = false;
         None

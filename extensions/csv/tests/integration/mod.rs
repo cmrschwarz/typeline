@@ -1,3 +1,4 @@
+use rstest::rstest;
 use scr_core::{
     extension::{Extension, ExtensionRegistry},
     operators::{
@@ -28,7 +29,7 @@ fn first_column_becomes_output() -> Result<(), ScrError> {
         "a,b,c\n1,2\r\nx,y,z,w".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_csv(target.create_target(), false, false))
         .run_collect_stringified()?;
     assert_eq!(res, ["a", "1", "x"]);
     Ok(())
@@ -40,7 +41,7 @@ fn end_correctly_truncates_first_column() -> Result<(), ScrError> {
         "a,b,c\nb\nxyz".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_csv(target.create_target(), false, false))
         .run_collect_stringified()?;
     assert_eq!(res, ["a", "b", "xyz"]);
     Ok(())
@@ -52,7 +53,7 @@ fn access_second_field() -> Result<(), ScrError> {
         "a,b,c\r\nb\nx,y,".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_csv(target.create_target(), false, false))
         .add_op(create_op_format("{_1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["\"b\"", "null", "\"y\""]);
@@ -65,7 +66,7 @@ fn last_row_filled_up_with_nulls() -> Result<(), ScrError> {
         "1,\r\na,b\nx".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_csv(target.create_target(), false, false))
         .add_op(create_op_format("{_1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["\"\"", "\"b\"", "null"]);
@@ -78,32 +79,35 @@ fn csv_parses_integers() -> Result<(), ScrError> {
         "1,2,3\r\na,b,c\nx".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_csv(target.create_target(), false, false))
         .add_op(create_op_format("{_1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "\"b\"", "null"]);
     Ok(())
 }
 
-#[test]
-fn multibatch() -> Result<(), ScrError> {
-    const BS: usize = 5; // SettingBatchSize::DEFAULT
-    const COUNT: usize = BS * 3;
+#[rstest]
+#[case(5, 3)]
+#[case(1024, 4096)]
+fn multibatch(
+    #[case] batch_size: usize,
+    #[case] count: usize,
+) -> Result<(), ScrError> {
     let mut input = String::new();
 
-    for i in 0..COUNT {
+    for i in 0..count {
         input.write_fmt(format_args!("{i},\n")).unwrap();
     }
 
     let target = MutexedReadableTargetOwner::new(Cursor::new(input));
 
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .set_batch_size(BS)
+        .set_batch_size(batch_size)
         .unwrap()
-        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_csv(target.create_target(), false, false))
         .add_op(create_op_sum())
         .run_collect_as::<i64>()?;
-    assert_eq!(res, [(COUNT * (COUNT - 1) / 2) as i64]);
+    assert_eq!(res, [(count * (count - 1) / 2) as i64]);
     Ok(())
 }
 
@@ -120,7 +124,7 @@ fn head() -> Result<(), ScrError> {
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .set_batch_size(3)
         .unwrap()
-        .add_op(create_op_csv(target.create_target(), false))
+        .add_op(create_op_csv(target.create_target(), false, false))
         .add_op(create_op_head(5))
         .run_collect_stringified()?;
     assert_eq!(res, ["0", "1", "2", "3", "4"]);

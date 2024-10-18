@@ -145,6 +145,7 @@ impl Operator for OpHttpRequest {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
+        _output_offset: usize,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         access_flags.non_stringified_input_access = false;
         access_flags.may_dup_or_drop = false;

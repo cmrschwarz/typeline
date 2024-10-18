@@ -77,6 +77,7 @@ impl Operator for OpSum {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
+        _outputs_offset: usize,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         None
     }

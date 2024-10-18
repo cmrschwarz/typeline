@@ -1003,6 +1003,7 @@ impl OperatorData {
                     op_id,
                     bb_id,
                     input_field,
+                    outputs_offset,
                 ) {
                     return res;
                 }
@@ -1017,6 +1018,7 @@ impl OperatorData {
                     op_id,
                     bb_id,
                     input_field,
+                    outputs_offset,
                 ) {
                     return res;
                 }
@@ -1030,6 +1032,7 @@ impl OperatorData {
                     op_id,
                     bb_id,
                     input_field,
+                    outputs_offset,
                 ) {
                     return res;
                 }
@@ -1414,6 +1417,7 @@ pub trait Operator: Send + Sync {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
+        _outputs_offset: usize,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)>;
     fn setup(
         &mut self,

@@ -96,6 +96,7 @@ impl Operator for OpFlatten {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
+        _outputs_offset: usize,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         None
     }
@@ -113,8 +114,7 @@ impl Operator for OpFlatten {
             tf_state.output_field,
             tf_state.input_field,
         );
-        let actor_id =
-            jd.add_actor_for_tf_state(tf_state);
+        let actor_id = jd.add_actor_for_tf_state(tf_state);
         let input_iter_id = jd.claim_iter_for_tf_state(tf_state);
 
         let tfe = TfFlatten {

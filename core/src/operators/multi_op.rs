@@ -72,9 +72,9 @@ impl Operator for OpMultiOp {
         op_id: OperatorId,
         bb_id: BasicBlockId,
         input_field: OpOutputIdx,
+        mut outputs_offset: usize,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         let mut next_input = input_field;
-        let mut outputs_offset = 0;
         for (agg_offset, &sub_op_id) in self.sub_op_ids.iter_enumerated() {
             // TODO: manage access flags for subsequent ops correctly
             let op = &sess.operator_data[sess.op_data_id(sub_op_id)];

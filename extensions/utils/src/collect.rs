@@ -74,6 +74,7 @@ impl Operator for OpCollect {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
+        _outputs_offset: usize,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         None
     }
@@ -92,8 +93,7 @@ impl Operator for OpCollect {
                 tf_state,
             );
 
-        let actor_id =
-            jd.add_actor_for_tf_state(tf_state);
+        let actor_id = jd.add_actor_for_tf_state(tf_state);
         let input_iter_id = jd.claim_iter_for_tf_state(tf_state);
         let group_track_iter =
             jd.claim_group_track_iter_for_tf_state(tf_state);

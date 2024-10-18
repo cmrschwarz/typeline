@@ -6,8 +6,10 @@ use std::{
     path::PathBuf,
 };
 
+use memchr::memchr2;
 use scr_core::{
-    cli::call_expr::CallExpr,
+    chain::ChainId,
+    cli::call_expr::{CallExpr, Span},
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
@@ -17,8 +19,8 @@ use scr_core::{
     operators::{
         errors::OperatorApplicationError,
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId,
-            PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+            OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
@@ -39,8 +41,10 @@ use scr_core::{
     scr_error::ScrError,
     smallbox,
     utils::{
+        indexing_type::IndexingType,
         int_string_conversions::usize_to_str,
         stable_vec::StableVec,
+        string_store::StringStoreEntry,
         temp_vec::TransmutableContainer,
         test_utils::{read_until_2, read_until_match},
     },
@@ -49,6 +53,8 @@ use scr_core::{
 pub struct OpCsv {
     header: bool,
     disable_quotes: bool,
+    var_names: Vec<StringStoreEntry>,
+    unused_fields: Vec<bool>,
     // TODO: add form that takes this from input
     input: ReadableTarget,
 }
@@ -83,6 +89,21 @@ impl Operator for OpCsv {
         INITIAL_OUTPUT_COUNT
     }
 
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        for i in 0..INITIAL_OUTPUT_COUNT {
+            let var_name = sess.string_store.intern_cloned(&format!("_{i}"));
+            self.var_names.push(var_name);
+        }
+        Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
+    }
+
     fn has_dynamic_outputs(
         &self,
         _sess: &SessionData,
@@ -93,29 +114,47 @@ impl Operator for OpCsv {
 
     fn update_variable_liveness(
         &self,
-        _sess: &SessionData,
-        _ld: &mut LivenessData,
+        sess: &SessionData,
+        ld: &mut LivenessData,
         access_flags: &mut AccessFlags,
         _op_offset_after_last_write: OffsetInChain,
-        _op_id: OperatorId,
+        op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
+        outputs_offset: usize,
     ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
         access_flags.input_accessed = false;
         access_flags.non_stringified_input_access = false;
+        let primary_output_idx = OpOutputIdx::from_usize(
+            sess.operator_bases[op_id].outputs_start.into_usize()
+                + outputs_offset,
+        );
+
+        for (i, var_name) in self.var_names.iter().enumerate() {
+            ld.vars_to_op_outputs_map[ld.var_names[var_name]] =
+                primary_output_idx + OpOutputIdx::from_usize(i);
+        }
+
         None
     }
 
     fn register_output_var_names(
         &self,
         ld: &mut LivenessData,
-        sess: &SessionData,
+        _sess: &SessionData,
         _op_id: OperatorId,
     ) {
-        let mut ss = sess.string_store.write().unwrap();
         for i in 0..INITIAL_OUTPUT_COUNT {
-            ld.add_var_name(ss.intern_cloned(&format!("_{i}")));
+            ld.add_var_name(self.var_names[i]);
         }
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        _sess: &mut SessionData,
+        _ld: &LivenessData,
+        _op_id: OperatorId,
+    ) {
     }
 
     fn build_transforms<'a>(
@@ -141,12 +180,11 @@ impl Operator for OpCsv {
                 ActorRef::Unconfirmed(next_actor),
             ));
         }
-        let mut ssm = job.job_data.session_data.string_store.write().unwrap();
         for (i, &field_id) in output_fields.iter().enumerate() {
             job.job_data.scope_mgr.insert_field_name(
                 job.job_data.match_set_mgr.match_sets[tf_state.match_set_id]
                     .active_scope,
-                ssm.intern_moved(format!("_{i}")),
+                self.var_names[i],
                 field_id,
             );
         }
@@ -282,51 +320,53 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             }
         };
 
-        let mut lines_produced = self.lines_produced;
-        let mut col_idx = 0;
+        let mut status = ReadStatus {
+            lines_produced: 0,
+            col_idx: 0,
+            done: false,
+        };
 
         match read_in_lines(
             reader.aquire(),
-            !header_processed,
-            &additional_inserters,
             &mut inserters,
-            iter.field_pos(),
-            &mut lines_produced,
-            &mut col_idx,
-            target_batch_size,
+            &additional_inserters,
+            &self.op.unused_fields,
+            !header_processed,
             self.op.disable_quotes,
+            iter.field_pos(),
+            target_batch_size,
+            &mut status,
         ) {
-            Ok(done) => {
-                if col_idx != 0 {
-                    debug_assert!(done);
-                    for i in col_idx..inserters.len() {
+            Ok(()) => {
+                if status.col_idx != 0 {
+                    debug_assert!(status.done);
+                    for i in status.col_idx..inserters.len() {
                         inserters[i].push_null(1, true);
                     }
-                    lines_produced += 1;
+                    status.lines_produced += 1;
                 }
-                let produced_fields = lines_produced - self.lines_produced;
 
-                if produced_fields == 0 {
-                    if done && self.lines_produced != 0 {
+                if status.lines_produced == 0 {
+                    if status.done && self.lines_produced != 0 {
                         iter.drop(1);
                     }
                 } else {
-                    iter.dup(produced_fields - usize::from(done));
-                    iter.next_n_fields(produced_fields);
+                    iter.dup(status.lines_produced - usize::from(status.done));
+                    iter.next_n_fields(status.lines_produced);
                 }
                 iter.store_iter(self.group_iter.iter_id);
 
                 jd.tf_mgr
                     .unclaim_batch_size(tf_id, batch_size - fields_produced);
-                ps.next_batch_ready = !done;
-                ps.input_done = done;
+                ps.next_batch_ready = !status.done;
+                ps.input_done = status.done;
                 jd.tf_mgr.submit_batch_ready_for_more(
                     tf_id,
-                    produced_fields,
+                    status.lines_produced,
                     ps,
                 );
 
-                if done {
+                if status.done {
                     self.input = Input::NotStarted;
                 }
             }
@@ -335,21 +375,25 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                     format!(
                         "{}:{}:{} {}",
                         self.op.input.target_path(),
-                        lines_produced,
-                        col_idx,
+                        self.lines_produced + status.lines_produced,
+                        status.col_idx,
                         io_error
                     ),
                     op_id,
                 );
                 for (idx, ins) in inserters.iter_mut().enumerate() {
-                    let count =
-                        if col_idx == 0 || col_idx < idx { 1 } else { 2 };
+                    let count = if status.col_idx == 0 || status.col_idx < idx
+                    {
+                        1
+                    } else {
+                        2
+                    };
                     ins.push_error(err.clone(), count, true, true);
                 }
                 drop(iter);
             }
         }
-        self.lines_produced = lines_produced;
+        self.lines_produced += status.lines_produced;
         drop(inserters);
 
         if !additional_inserters.is_empty() {
@@ -377,131 +421,239 @@ impl<'a> Transform<'a> for TfCsv<'a> {
     }
 }
 
+struct ReadStatus {
+    lines_produced: usize,
+    col_idx: usize,
+    done: bool,
+}
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
 fn read_in_lines<'a, R: BufRead>(
     mut reader: R,
-    process_header: bool,
-    additional_fields: &'a StableVec<RefCell<FieldData>>,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
-    prefix_nulls: usize,
-    lines_produced: &mut usize,
-    col_idx: &mut usize,
-    lines_max: usize,
+    additional_fields: &'a StableVec<RefCell<FieldData>>,
+    unused_fields: &[bool],
+    process_header: bool,
     disable_quotes: bool,
-) -> Result<bool, std::io::Error> {
+    prefix_nulls: usize,
+    lines_max: usize,
+    status: &mut ReadStatus,
+) -> Result<(), std::io::Error> {
     if process_header {
         read_until_match(&mut reader, &mut std::io::empty(), |buf| {
             memchr::memchr(b'\n', buf)
         })?;
     }
-    let lines_before = *lines_produced;
-    let max_line = *lines_produced + lines_max;
-    loop {
-        let mut c = 0;
-        if reader.read(std::slice::from_mut(&mut c))? != 1 {
-            return Ok(true);
+    let mut offset;
+    let mut buffer: &[u8];
+    let mut newline = false;
+    let mut post_element = false;
+    'refill: loop {
+        buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            status.done = true;
+            return Ok(());
         }
-        if c == b'\r' {
-            if reader.read(std::slice::from_mut(&mut c))? != 1 {
-                return Ok(true);
-            }
-            if c != b'\n' {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "expected \\n after \\r",
-                ));
-            }
-        }
-        if c == b'\n' {
-            let remaining_inserters = &mut inserters[*col_idx..];
-            if let Some(i) = remaining_inserters.first_mut() {
-                i.push_str("", 1, true, true);
-            }
-            for i in remaining_inserters.iter_mut().skip(1) {
-                i.push_null(1, true);
-            }
-            *col_idx = 0;
-            *lines_produced += 1;
-            if *lines_produced == max_line {
-                return Ok(reader.fill_buf()?.is_empty());
-            }
-            continue;
-        }
-        let inserter = &mut inserters[*col_idx];
-        *col_idx += 1;
-        let newline;
-        if !disable_quotes && c == b'"' {
-            // todo: parse quoted text
-            unimplemented!();
-        } else {
-            let mut stream = inserter.bytes_insertion_stream(1);
-            let _ = stream.write_all(std::slice::from_mut(&mut c));
-            if read_until_2(&mut reader, &mut stream, b',', b'\n')? == 0 {
-                return Ok(true);
-            }
-            let buf = stream.get_inserted_data();
-            let mut l = buf.len();
-            let last = buf[l - 1];
-            let mut eof = false;
-            newline = last == b'\n';
-
-            if newline && l > 1 && buf[l - 2] == b'\r' {
-                l -= 2;
-            } else if newline || last == b',' {
-                l -= 1;
-            } else {
-                eof = true;
-            }
-            // HACK: this sucks. we will do weird stuff to quotes etc.
-            if let Ok(buf) = str::from_utf8(&buf[..l]) {
-                if let Ok(v) = buf.parse::<i64>() {
-                    stream.abort();
-                    inserter.push_int(v, 1, true, false);
+        offset = 0;
+        'newline: loop {
+            if newline {
+                newline = false;
+                let remaining_inserters = &mut inserters[status.col_idx..];
+                if post_element {
+                    for i in remaining_inserters {
+                        i.push_null(1, true);
+                    }
+                    post_element = false;
                 } else {
-                    stream.truncate(l);
-                    unsafe {
-                        stream.commit_as_text();
+                    if let Some(i) = remaining_inserters.first_mut() {
+                        i.push_str("", 1, true, true);
+                    }
+                    for i in remaining_inserters.iter_mut().skip(1) {
+                        i.push_null(1, true);
                     }
                 }
-            } else {
-                stream.truncate(l);
-                stream.commit();
+                status.col_idx = 0;
+                status.lines_produced += 1;
+                if status.lines_produced == lines_max {
+                    reader.consume(offset);
+                    status.done = reader.fill_buf()?.is_empty();
+                    return Ok(());
+                }
+                if offset == buffer.len() {
+                    reader.consume(offset);
+                    continue 'refill;
+                }
             }
-            // match TysonParser::new(&buf[..l], true, None).parse_value() {
-            // Ok(v) => {
-            // stream.abort();
-            // inserter.push_field_value_unpacked(v, 1, true, true);
-            // }
-            // Err(_) => {
-            // stream.truncate(l);
-            // stream.commit()
-            // }
-            // }
+            let mut c = buffer[offset];
+
+            if c == b'\r' {
+                offset += 1;
+                if offset == buffer.len() {
+                    buffer = reader.fill_buf()?;
+                    if buffer.is_empty() {
+                        status.done = true;
+                        return Ok(());
+                    }
+                    offset = 0;
+                }
+                c = buffer[offset];
+                if c != b'\n' {
+                    reader.consume(offset);
+                    if insert_unquoted_from_stream(
+                        &mut inserters[status.col_idx],
+                        Some(b'\r'),
+                        None,
+                        &mut reader,
+                        &mut newline,
+                    )? {
+                        status.done = true;
+                        return Ok(());
+                    }
+                    continue 'refill;
+                }
+            }
+            if c == b'\n' {
+                offset += 1;
+                newline = true;
+                continue;
+            }
+
+            loop {
+                if !disable_quotes && c == b'"' {
+                    // todo: parse quoted text
+                    unimplemented!();
+                }
+
+                let Some(end_index) = memchr2(b',', b'\n', &buffer[offset..])
+                else {
+                    break;
+                };
+                let cell_end = offset + end_index;
+                let mut val_end = cell_end;
+                c = buffer[cell_end];
+
+                if c == b'\n' {
+                    newline = true;
+                    if val_end > 0 && buffer[val_end - 1] == b'\r' {
+                        val_end -= 1;
+                    }
+                }
+                let val = &buffer[offset..val_end];
+                offset = cell_end + 1;
+
+                let inserter = &mut inserters[status.col_idx];
+                if unused_fields.get(status.col_idx) == Some(&true) {
+                    inserter.push_undefined(1, true);
+                } else if let Ok(v) = lexical_core::parse::<i64>(val) {
+                    inserter.push_int(v, 1, true, false);
+                } else if let Ok(v) = std::str::from_utf8(val) {
+                    inserter.push_str(v, 1, true, false);
+                } else {
+                    inserter.push_bytes(val, 1, true, false);
+                }
+
+                status.col_idx += 1;
+                post_element = true;
+
+                if newline {
+                    continue 'newline;
+                }
+
+                if status.col_idx >= inserters.len() {
+                    add_inserter(
+                        additional_fields,
+                        inserters,
+                        status,
+                        prefix_nulls,
+                    );
+                }
+                if offset == buffer.len() {
+                    reader.consume(offset);
+                    continue 'refill;
+                }
+                c = buffer[offset];
+            }
+            let eof = insert_unquoted_from_stream(
+                &mut inserters[status.col_idx],
+                None,
+                Some(offset),
+                &mut reader,
+                &mut newline,
+            )?;
+            status.col_idx += 1;
             if eof {
-                return Ok(true);
+                status.done = true;
+                return Ok(());
             }
-        }
-        if !newline {
-            if *col_idx >= inserters.len() {
-                additional_fields.push(RefCell::default());
-                inserters.push(VaryingTypeInserter::new(
-                    additional_fields.last().unwrap().borrow_mut(),
-                ));
-                inserters[*col_idx].push_null(
-                    prefix_nulls + *lines_produced - lines_before,
-                    false,
-                );
-            }
-            continue;
-        }
-        for i in &mut inserters[*col_idx..] {
-            i.push_null(1, true);
-        }
-        *col_idx = 0;
-        *lines_produced += 1;
-        if *lines_produced == max_line {
-            return Ok(reader.fill_buf()?.is_empty());
+            post_element = true;
+            continue 'refill;
         }
     }
+}
+
+#[cold]
+fn add_inserter<'a>(
+    additional_fields: &'a StableVec<RefCell<FieldData>>,
+    inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
+    status: &ReadStatus,
+    prefix_nulls: usize,
+) {
+    additional_fields.push(RefCell::default());
+    inserters.push(VaryingTypeInserter::new(
+        additional_fields.last().unwrap().borrow_mut(),
+    ));
+    inserters[status.col_idx]
+        .push_null(prefix_nulls + status.lines_produced, false);
+}
+
+#[cold]
+fn insert_unquoted_from_stream<R: BufRead>(
+    inserter: &mut VaryingTypeInserter<RefMut<FieldData>>,
+    prefix_byte: Option<u8>,
+    tail_of_reader: Option<usize>,
+    reader: &mut R,
+    newline: &mut bool,
+) -> Result<bool, std::io::Error> {
+    let mut stream = inserter.bytes_insertion_stream(1);
+    if let Some(c) = prefix_byte {
+        let _ = stream.write_all(std::slice::from_ref(&c));
+    }
+    if let Some(reader_tail) = tail_of_reader {
+        let buf = reader.fill_buf()?;
+        let _ = stream.write_all(&buf[reader_tail..]);
+        let len = buf.len();
+        reader.consume(len);
+    }
+    if read_until_2(reader, &mut stream, b',', b'\n')? == 0 {
+        return Ok(true);
+    }
+    let buf = stream.get_inserted_data();
+    let mut l = buf.len();
+    let last = buf[l - 1];
+    let mut eof = false;
+    *newline = last == b'\n';
+    if *newline && l > 1 && buf[l - 2] == b'\r' {
+        l -= 2;
+    } else if *newline || last == b',' {
+        l -= 1;
+    } else {
+        eof = true;
+    }
+    if let Ok(buf) = str::from_utf8(&buf[..l]) {
+        if let Ok(v) = buf.parse::<i64>() {
+            stream.abort();
+            inserter.push_int(v, 1, true, false);
+        } else {
+            stream.truncate(l);
+            unsafe {
+                stream.commit_as_text();
+            }
+        }
+    } else {
+        stream.truncate(l);
+        stream.commit();
+    }
+    Ok(eof)
 }
 
 pub fn create_op_csv(
@@ -512,7 +664,9 @@ pub fn create_op_csv(
     OperatorData::Custom(smallbox!(OpCsv {
         input,
         header,
-        disable_quotes
+        unused_fields: Vec::new(),
+        var_names: Vec::new(),
+        disable_quotes,
     }))
 }
 
@@ -548,9 +702,9 @@ pub fn parse_op_csv(
             disable_quotes = true;
         }
     }
-    return Ok(Some(create_op_csv_from_file(
+    Ok(Some(create_op_csv_from_file(
         args[0].stringify_as_text(expr.op_name, sess)?.to_string(),
         header,
         disable_quotes,
-    )));
+    )))
 }
