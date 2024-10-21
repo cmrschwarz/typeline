@@ -604,12 +604,15 @@ impl GroupTrack {
         &mut self,
         make_passed: bool,
         lgts: LeadingGroupTrackSlice,
-        #[cfg_attr(not(feature = "debug_logging"), allow(unused))]
+        #[cfg_attr(
+            not(feature = "debug_logging_field_actions"),
+            allow(unused)
+        )]
         end_of_input: bool,
     ) {
         let total_field_count =
             lgts.full_group_field_count + lgts.partial_group_len.unwrap_or(0);
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug_logging_field_actions")]
         {
             eprintln!(
                 "{} {total_field_count} leading fields for group {}{}:",
@@ -661,7 +664,7 @@ impl GroupTrack {
                 Ordering::Greater => it.group_idx -= lgts.full_group_count,
             }
         }
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug_logging_field_actions")]
         {
             eprint!("   after:   {self}",);
             #[cfg(feature = "debug_logging_iter_states")]

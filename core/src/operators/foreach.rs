@@ -140,13 +140,15 @@ pub fn insert_tf_foreach(
         .action_buffer
         .borrow()
         .next_actor_ref();
-    trailer_tf_state.output_group_track_id =
+
+    let continuation_group_track =
         job.job_data.group_track_manager.add_group_track(
             &job.job_data.match_set_mgr,
             parent_group_track_parent,
             out_ms_id,
             next_actor_ref,
         );
+    trailer_tf_state.output_group_track_id = continuation_group_track;
 
     #[cfg(feature = "debug_state")]
     {
@@ -168,7 +170,7 @@ pub fn insert_tf_foreach(
         tfs_begin: header_tf_id,
         tfs_end: trailer_tf_id,
         next_input_field: trailer_output_field,
-        next_group_track: parent_group_track,
+        next_group_track: continuation_group_track,
         next_match_set: out_ms_id,
     }
 }

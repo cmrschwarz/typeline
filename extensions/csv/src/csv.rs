@@ -78,7 +78,7 @@ pub struct TfCsv<'a> {
 
 // HACK
 // TODO: proper dynamic field management
-const INITIAL_OUTPUT_COUNT: usize = 3;
+const INITIAL_OUTPUT_COUNT: usize = 6;
 
 impl Operator for OpCsv {
     fn default_name(&self) -> scr_core::operators::operator::OperatorName {
