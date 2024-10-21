@@ -172,15 +172,9 @@ impl Transform<'_> for TfHead {
             }
             iter.next_n_fields(self.remaining);
             output_count += self.remaining;
-            if consumable != group_len_rem {
-                iter.next_n_fields(consumable);
-                flag_group_done = true;
-                self.remaining = 0;
-                break;
-            }
-            let overflow = group_len_rem - self.remaining;
+            let overflow = consumable - self.remaining;
             iter.drop(overflow);
-            if !iter.try_next_group() {
+            if consumable != group_len_rem || !iter.try_next_group() {
                 self.remaining = 0;
                 flag_group_done = true;
                 break;
