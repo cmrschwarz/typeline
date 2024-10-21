@@ -272,6 +272,10 @@ body {
     background-color: yellow;
 }
 
+.dirty .group-track-id {
+    background-color: yellow;
+}
+
 .group-track .header .group-track-id {
     font-weight: bold;
     font-family: monospace;

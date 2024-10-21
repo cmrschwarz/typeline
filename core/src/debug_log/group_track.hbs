@@ -15,13 +15,17 @@
 </div>
 <div class="group-track-container" collapse_tag="[{{group_track_container_id}}]">
     <table
+        {{#if pending_actions}}
+        class="group-track dirty"
+        {{else}}
         class="group-track"
+        {{/if}}
         highlight_tag="[{{update_id}}_group_track_{{id}}]"
         collapse_tag="[group_track_{{id}}]"
     >
         <thead>
             <th
-                class="header-row"
+                class="header-row tooltip-parent"
                 colspan="5"
                 onclick="toggle_collapsable('{{group_track_container_id}}', '{{collapsed_group_track_container_id}}', 'inline-block')"
             >
@@ -32,6 +36,18 @@
                     <div class="group-track-producing-arg"></div>
                     <div class="group-track-tag">Group Track</div>
                 </div>
+                {{#if pending_actions includeZero=true}}
+                <span class="tooltip-text">
+                    Pending Actions:
+                    {{#if pending_actions}}
+                        {{#each pending_actions as |action|}}
+                            <br> {{action.field_pos}}: ({{action.kind}}, {{action.run_length}})
+                        {{/each}}
+                    {{else}}
+                        None
+                    {{/if}}
+                </span>
+                {{/if}}
             </th>
         </thead>
         <thead>

@@ -752,14 +752,7 @@ pub fn field_data_to_json<'a>(
     });
 
     if jd.session_data.settings.debug_log_no_apply {
-        let mut pending_actions_json = Vec::new();
-        for action in pending_actions {
-            pending_actions_json.push(json!({
-                "field_pos": action.field_idx,
-                "kind": action.kind.to_str(),
-                "run_length": action.run_len,
-            }));
-        }
+        let pending_actions_json = pending_actions_to_json(pending_actions);
         res.as_object_mut().unwrap().insert(
             "pending_actions".to_string(),
             pending_actions_json.into(),
@@ -767,6 +760,18 @@ pub fn field_data_to_json<'a>(
     }
 
     res
+}
+
+fn pending_actions_to_json(pending_actions: &[FieldAction]) -> Vec<Value> {
+    let mut pending_actions_json = Vec::new();
+    for action in pending_actions {
+        pending_actions_json.push(json!({
+            "field_pos": action.field_idx,
+            "kind": action.kind.to_str(),
+            "run_length": action.run_len,
+        }));
+    }
+    pending_actions_json
 }
 
 pub fn field_to_json(
@@ -987,7 +992,7 @@ fn group_track_to_json(
         }
     }
 
-    json!({
+    let mut res = json!({
         "id":  group_track_id.into_usize(),
         "rows": rows,
         "iters": group_track_iters_to_json(&gt.iter_states),
@@ -995,7 +1000,27 @@ fn group_track_to_json(
         "parent": gt.parent_group_track_id().map(IndexingType::into_usize),
         "alias_source": gt.alias_source.map(IndexingType::into_usize),
         "corresponding_header": gt.corresponding_header.map(IndexingType::into_usize),
-    })
+    });
+
+    if jd.session_data.settings.debug_log_no_apply {
+        let mut pending_actions = Vec::new();
+
+        let mut ab = jd.match_set_mgr.match_sets[gt.ms_id]
+            .action_buffer
+            .borrow_mut();
+
+        ab.gather_pending_actions(
+            &mut pending_actions,
+            gt.actor_ref,
+            gt.snapshot,
+        );
+        res.as_object_mut().unwrap().insert(
+            "pending_actions".to_string(),
+            pending_actions_to_json(&pending_actions).into(),
+        );
+    }
+
+    res
 }
 
 pub fn write_debug_log_html_head(
