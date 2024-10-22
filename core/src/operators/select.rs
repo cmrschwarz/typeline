@@ -42,9 +42,9 @@ pub fn setup_op_select(
     Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
 }
 
-pub fn create_op_select(key: String) -> OperatorData {
+pub fn create_op_select(key: impl Into<String>) -> OperatorData {
     OperatorData::Select(OpSelect {
-        key,
+        key: key.into(),
         key_interned: None,
     })
 }

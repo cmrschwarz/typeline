@@ -2293,6 +2293,35 @@ mod test_action_lists {
             }],
         );
     }
+
+    #[test]
+    fn test_iter_adjustment_on_dup() {
+        // reduced from scr_ext_csv/integration::imdb_actor_count
+        test_apply_field_actions(
+            1,
+            [0, 1, 0, 1],
+            [GroupTrackIterStateRaw {
+                field_pos: 0,
+                group_idx: 3,
+                group_offset: 0,
+                iter_id: 0,
+                first_right_leaning_actor_id: ActorId::MAX_VALUE,
+            }],
+            [
+                FieldAction::new(FieldActionKind::Drop, 1, 1),
+                FieldAction::new(FieldActionKind::Dup, 1, 1),
+            ],
+            1,
+            [0, 0, 0, 2],
+            [GroupTrackIterStateRaw {
+                field_pos: 0,
+                group_idx: 3,
+                group_offset: 0,
+                iter_id: 0,
+                first_right_leaning_actor_id: ActorId::MAX_VALUE,
+            }],
+        );
+    }
 }
 
 #[cfg(test)]
