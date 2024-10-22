@@ -159,13 +159,15 @@ nm0000018,Kirk Douglas,1916,2020,actor;producer;director,tt0080736;tt0054331;tt0
 nm0000019,Federico Fellini,1920,1993,writer;director;actor,tt0056801;tt0050783;tt0047528;tt0053779
 "#;
 
-#[test]
-fn imdb_actor_count() -> Result<(), ScrError> {
+#[rstest]
+#[case(7)]
+#[case(2)]
+fn imdb_actor_count(#[case] batch_size: usize) -> Result<(), ScrError> {
     let target =
         MutexedReadableTargetOwner::new(Cursor::new(IMDB_CSV_EXAMPLE));
 
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .set_batch_size(7)
+        .set_batch_size(batch_size)
         .unwrap()
         .add_op(create_op_csv(target.create_target(), true, false))
         .add_op(create_op_select("_4"))

@@ -410,14 +410,19 @@ impl IterHallActionApplicator {
             }
             it.header_idx =
                 it.header_idx.saturating_sub(drop_info.dead_headers_leading);
-            if it.header_idx > last_header_idx {
-                it.header_idx = last_header_idx;
-                it.data = drop_info.last_header_data_pos;
+            match it.header_idx.cmp(&last_header_idx) {
+                std::cmp::Ordering::Less => (),
+                std::cmp::Ordering::Equal => {
+                    it.header_rl_offset =
+                        it.header_rl_offset.min(drop_info.last_header_run_len);
+                }
+                std::cmp::Ordering::Greater => {
+                    it.header_idx = last_header_idx;
+                    it.data = drop_info.last_header_data_pos;
+                    it.header_rl_offset = drop_info.last_header_run_len;
+                }
             }
-            if it.header_idx == last_header_idx {
-                it.header_rl_offset =
-                    it.header_rl_offset.min(drop_info.last_header_run_len);
-            }
+
             if it.header_idx == 0 {
                 // subtracting the 'actual_drop' is not enough to arrive at
                 // this because some of the 'semantic drop'
@@ -1439,6 +1444,52 @@ mod test_dead_data_drop {
             },
             [],
             [],
+        );
+    }
+
+    #[test]
+    fn test_trailing_iter_after_dead_data_adjusted_correctly() {
+        test_drop_dead_data(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        size: 8,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        size: 8,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Int,
+                    size: 8,
+                    flags: field_value_flags::DEFAULT,
+                },
+                run_length: 2,
+            }],
+            [IterStateRaw {
+                field_pos: 2,
+                data: 16,
+                header_idx: 1,
+                header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+            [IterStateRaw {
+                field_pos: 2,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 2,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
         );
     }
 }
