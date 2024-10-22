@@ -346,6 +346,9 @@ impl<'a> RecordGroupActionsApplicator<'a> {
         is.group_offset = (is.group_offset as isize
             + self.curr_iters_field_pos_delta)
             as usize;
+        debug_assert!(
+            is.field_pos as isize + self.curr_iters_field_pos_delta >= 0
+        );
         is.field_pos =
             (is.field_pos as isize + self.curr_iters_field_pos_delta) as usize;
     }
@@ -657,6 +660,7 @@ impl GroupTrack {
                     it.group_offset = 0;
                 }
                 Ordering::Equal => {
+                    it.group_idx = 0;
                     it.group_offset = it
                         .group_offset
                         .saturating_sub(lgts.partial_group_len.unwrap_or(0))
@@ -2299,23 +2303,24 @@ mod test_action_lists {
         // reduced from scr_ext_csv/integration::imdb_actor_count
         test_apply_field_actions(
             1,
-            [0, 1, 0, 1],
+            [1, 4, 3],
             [GroupTrackIterStateRaw {
-                field_pos: 0,
-                group_idx: 3,
+                field_pos: 2,
+                group_idx: 1,
                 group_offset: 0,
                 iter_id: 0,
                 first_right_leaning_actor_id: ActorId::MAX_VALUE,
             }],
             [
                 FieldAction::new(FieldActionKind::Drop, 1, 1),
-                FieldAction::new(FieldActionKind::Dup, 1, 1),
+                FieldAction::new(FieldActionKind::Drop, 2, 3),
+                FieldAction::new(FieldActionKind::Drop, 3, 1),
             ],
             1,
-            [0, 0, 0, 2],
+            [0, 1, 2],
             [GroupTrackIterStateRaw {
-                field_pos: 0,
-                group_idx: 3,
+                field_pos: 1,
+                group_idx: 1,
                 group_offset: 0,
                 iter_id: 0,
                 first_right_leaning_actor_id: ActorId::MAX_VALUE,

@@ -32,7 +32,7 @@ fn primes() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
         .add_op_with_key("p", create_op_primes())
         .add_op(create_op_enum(0, 3, 1).unwrap())
-        .add_op(create_op_select("p".into()))
+        .add_op(create_op_select("p"))
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "3", "5"]);
     Ok(())
@@ -140,7 +140,7 @@ fn explode_into_select() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_v("{'foo': 3}").unwrap())
         .add_op(create_op_explode())
-        .add_op(create_op_select("foo".into()))
+        .add_op(create_op_select("foo"))
         .run_collect_stringified()?;
     assert_eq!(res, ["3"]);
     Ok(())
