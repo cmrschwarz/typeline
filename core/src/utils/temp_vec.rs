@@ -1,6 +1,6 @@
 use std::mem::{align_of, size_of, ManuallyDrop};
 
-use super::index_vec::IndexVec;
+use super::{index_vec::IndexVec, phantom_slot::PhantomSlot};
 
 pub struct LayoutCompatible<T, U>(std::marker::PhantomData<(T, U)>);
 impl<T, U> LayoutCompatible<T, U> {
@@ -47,14 +47,28 @@ pub trait TransmutableContainer: Default {
     }
 }
 
+#[derive(derive_more::Deref, derive_more::DerefMut)]
+pub struct BorrowedContainer<'a, T, C: TransmutableContainer> {
+    source: &'a mut C,
+    #[deref]
+    #[deref_mut]
+    vec: <C as TransmutableContainer>::ContainerType<T>,
+}
+
+#[derive(Clone)]
+pub struct TempVec<T>(Vec<PhantomSlot<T>>);
+
+// unlike `transmute vec`, this version dynamically falls back to not reusing
+// the allocation if the size or align are incompatible
 #[inline]
 pub fn convert_vec_cleared<T, U>(mut v: Vec<T>) -> Vec<U> {
-    let same_align = align_of::<T>() == align_of::<U>();
+    let align_compatible = align_of::<T>() % align_of::<U>() == 0;
+
     let space = v.capacity() * size_of::<T>();
     let capacity_new = space / size_of::<U>();
     let capacity_compatible = capacity_new * size_of::<U>() == space;
 
-    if !(same_align && capacity_compatible) {
+    if !(align_compatible && capacity_compatible) {
         return Vec::new();
     }
     // SAFETY: This clear is the reason why this function is sound.
@@ -75,14 +89,6 @@ pub fn transmute_vec<T, U>(mut v: Vec<T>) -> Vec<U> {
 
     let (ptr, len, cap) = (v.as_mut_ptr(), v.len(), v.capacity());
     unsafe { Vec::from_raw_parts(ptr.cast(), len, cap) }
-}
-
-#[derive(derive_more::Deref, derive_more::DerefMut)]
-pub struct BorrowedContainer<'a, T, C: TransmutableContainer> {
-    source: &'a mut C,
-    #[deref]
-    #[deref_mut]
-    vec: <C as TransmutableContainer>::ContainerType<T>,
 }
 
 impl<'a, T, C: TransmutableContainer> BorrowedContainer<'a, T, C> {
@@ -135,5 +141,29 @@ impl<I, T> TransmutableContainer for IndexVec<I, T> {
         src: <Self as TransmutableContainer>::ContainerType<Q>,
     ) -> Self {
         IndexVec::from(transmute_vec(Vec::from(src)))
+    }
+}
+
+impl<T> Default for TempVec<T> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<T> TransmutableContainer for TempVec<T> {
+    type ElementType = T;
+
+    type ContainerType<Q> = Vec<Q>;
+
+    fn transmute<Q>(
+        self,
+    ) -> <Self as TransmutableContainer>::ContainerType<Q> {
+        self.0.transmute()
+    }
+
+    fn transmute_from<Q>(
+        src: <Self as TransmutableContainer>::ContainerType<Q>,
+    ) -> Self {
+        TempVec(src.transmute())
     }
 }

@@ -7,7 +7,7 @@ use num::Integer;
 
 use crate::{
     record_data::{action_buffer::eprint_action_list, iter_hall::CowVariant},
-    utils::{phantom_slot::PhantomSlot, temp_vec::transmute_vec},
+    utils::{phantom_slot::PhantomSlot, temp_vec::TransmutableContainer},
 };
 
 use super::{
@@ -855,9 +855,9 @@ impl IterHallActionApplicator {
         first_action_index: usize,
     ) {
         let mut full_cow_fields =
-            transmute_vec(std::mem::take(&mut self.full_cow_field_refs_temp));
+            self.full_cow_field_refs_temp.take_transmute();
         let mut data_cow_fields =
-            transmute_vec(std::mem::take(&mut self.data_cow_field_refs_temp));
+            self.data_cow_field_refs_temp.take_transmute();
 
         self.apply_field_actions_inner(
             fm,
@@ -872,8 +872,8 @@ impl IterHallActionApplicator {
             &mut data_cow_fields,
         );
 
-        self.full_cow_field_refs_temp = transmute_vec(full_cow_fields);
-        self.data_cow_field_refs_temp = transmute_vec(data_cow_fields);
+        self.full_cow_field_refs_temp.reclaim_temp(full_cow_fields);
+        self.data_cow_field_refs_temp.reclaim_temp(data_cow_fields);
     }
 }
 

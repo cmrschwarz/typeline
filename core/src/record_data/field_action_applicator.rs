@@ -9,7 +9,7 @@ use crate::{
     record_data::{
         field_action::FieldActionKind, field_data::field_value_flags,
     },
-    utils::temp_vec::transmute_vec,
+    utils::temp_vec::{TempVec, TransmutableContainer},
 };
 
 use super::{
@@ -35,7 +35,7 @@ struct CopyCommand {
 pub(super) struct FieldActionApplicator {
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
-    iters: Vec<&'static mut FieldAction>,
+    iters: TempVec<&'static mut FieldAction>,
 }
 
 struct FieldActionApplicationState {
@@ -872,7 +872,8 @@ impl FieldActionApplicator {
         field_count: &mut usize,
         iterators: impl Iterator<Item = &'a mut IterState>,
     ) -> isize {
-        let mut iters = transmute_vec(std::mem::take(&mut self.iters));
+        let mut iters = self.iters.take_transmute();
+
         iters.extend(iterators);
         iters.sort_by(|lhs, rhs| match lhs.field_pos.cmp(&rhs.field_pos) {
             ord @ (Ordering::Less | Ordering::Greater) => ord,
@@ -889,7 +890,8 @@ impl FieldActionApplicator {
         *field_count = (*field_count as isize + field_count_delta) as usize;
         self.execute_commands(headers);
         Self::canonicalize_iters(*field_count, headers, &mut iters);
-        self.iters = transmute_vec(iters);
+
+        self.iters.reclaim_temp(iters);
         field_count_delta
     }
 }

@@ -8,7 +8,7 @@ pub mod executor;
 pub mod lexer;
 pub mod parser;
 
-use std::{mem::size_of, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     chain::ChainId,
@@ -30,12 +30,9 @@ use crate::{
     },
     scr_error::ScrError,
     utils::{
-        index_slice::IndexSlice,
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
-        phantom_slot::PhantomSlot,
-        temp_vec::TransmutableContainer,
-        universe::{Universe, UniverseEntry},
+        index_slice::IndexSlice, index_vec::IndexVec,
+        indexing_type::IndexingType, phantom_slot::PhantomSlot,
+        temp_vec::TransmutableContainer, universe::Universe,
     },
 };
 use ast::{AccessIdx, ExternIdentId, UnboundIdentData};
@@ -291,26 +288,6 @@ pub fn handle_tf_compute(
     );
     let mut extern_field_refs = c.extern_field_refs.take_transmute();
     let mut extern_field_iters = c.extern_field_iters.take_transmute();
-    assert_eq!(
-        size_of::<
-            UniverseEntry<
-                PhantomSlot<
-                    AutoDerefIter<
-                        'static,
-                        FieldIter<'static, DestructuredFieldDataRef<'static>>,
-                    >,
-                >,
-            >,
-        >(),
-        size_of::<
-            UniverseEntry<
-                AutoDerefIter<
-                    'static,
-                    FieldIter<'static, DestructuredFieldDataRef<'static>>,
-                >,
-            >,
-        >()
-    );
     let extern_field_temp_iters = c.extern_field_temp_iters.take_transmute();
     for uf in &c.extern_fields {
         extern_field_refs.push(
