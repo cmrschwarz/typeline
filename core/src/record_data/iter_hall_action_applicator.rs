@@ -1492,4 +1492,78 @@ mod test_dead_data_drop {
             }],
         );
     }
+
+    #[test]
+    fn test_iter_in_trailing_zst_header_adjusted_correctly() {
+        test_drop_dead_data_explicit(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 2,
+                },
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        size: 1,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        size: 0,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 2,
+                },
+            ],
+            2,
+            2,
+            DeadDataReport {
+                // we have a data-cow target that still uses the first field
+                dead_data_leading: 0,
+                dead_data_trailing: 1,
+            },
+            // This iter sits on the alive ZST after the dead 'Text' header.
+            // Because dead headers and alive ZSTs could be interleaved,
+            // This makes it difficult to adjust these iterators correctly.
+            [IterStateRaw {
+                field_pos: 1,
+                data: 2,
+                header_idx: 2,
+                header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+            [IterStateRaw {
+                field_pos: 1,
+                data: 1,
+                header_idx: 1,
+                header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+        );
+    }
 }
