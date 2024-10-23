@@ -1,7 +1,10 @@
 use std::{
     fmt::Debug,
     marker::PhantomData,
-    ops::{Deref, DerefMut},
+    ops::{
+        Deref, DerefMut, Index, IndexMut, Range, RangeFrom, RangeInclusive,
+        RangeTo, RangeToInclusive,
+    },
 };
 
 use ref_cast::RefCast;
@@ -211,3 +214,61 @@ impl<I: IndexingType, T: PartialEq> PartialEq<[T]> for IndexVec<I, T> {
         self.as_slice() == other
     }
 }
+
+impl<I: IndexingType, T> Index<I> for IndexVec<I, T> {
+    type Output = T;
+    #[inline]
+    fn index(&self, index: I) -> &Self::Output {
+        &self.data[index.into_usize()]
+    }
+}
+
+impl<I: IndexingType, T> IndexMut<I> for IndexVec<I, T> {
+    #[inline]
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        &mut self.data[index.into_usize()]
+    }
+}
+
+impl<I: IndexingType, T> Index<Range<I>> for IndexVec<I, T> {
+    type Output = IndexSlice<I, T>;
+
+    fn index(&self, index: Range<I>) -> &Self::Output {
+        IndexSlice::ref_cast(
+            &self.data[index.start.into_usize()..index.end.into_usize()],
+        )
+    }
+}
+
+impl<I: IndexingType, T> IndexMut<Range<I>> for IndexVec<I, T> {
+    fn index_mut(&mut self, index: Range<I>) -> &mut Self::Output {
+        IndexSlice::ref_cast_mut(
+            &mut self.data[index.start.into_usize()..index.end.into_usize()],
+        )
+    }
+}
+
+macro_rules! slice_index_impl {
+    ($range_type: ident) => {
+        impl<I: IndexingType, T> Index<$range_type<I>> for IndexVec<I, T> {
+            type Output = IndexSlice<I, T>;
+            #[inline]
+            fn index(&self, rb: $range_type<I>) -> &Self::Output {
+                IndexSlice::ref_cast(&self.data[$crate::utils::range_bounds_to_range_usize(rb, self.len())])
+            }
+        }
+
+        impl<I: IndexingType, T> IndexMut<$range_type<I>> for IndexVec<I, T> {
+            #[inline]
+            fn index_mut(&mut self, rb: $range_type<I>) -> &mut Self::Output {
+                let range = $crate::utils::range_bounds_to_range_usize(rb, self.len());
+                IndexSlice::ref_cast_mut(&mut self.data[range])
+            }
+        }
+    };
+    ($($range_types: ident),+) => {
+        $( slice_index_impl!($range_types); ) *
+    };
+}
+
+slice_index_impl!(RangeInclusive, RangeFrom, RangeTo, RangeToInclusive);

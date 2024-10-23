@@ -1,6 +1,9 @@
 use std::mem::{align_of, size_of, ManuallyDrop};
 
-use super::{index_vec::IndexVec, phantom_slot::PhantomSlot};
+use super::{
+    index_vec::IndexVec, indexing_type::IndexingType,
+    phantom_slot::PhantomSlot,
+};
 
 pub struct LayoutCompatible<T, U>(std::marker::PhantomData<(T, U)>);
 impl<T, U> LayoutCompatible<T, U> {
@@ -57,6 +60,9 @@ pub struct BorrowedContainer<'a, T, C: TransmutableContainer> {
 
 #[derive(Clone)]
 pub struct TempVec<T>(Vec<PhantomSlot<T>>);
+
+#[derive(Clone)]
+pub struct TempIndexVec<I, T>(IndexVec<I, PhantomSlot<T>>);
 
 // unlike `transmute vec`, this version dynamically falls back to not reusing
 // the allocation if the size or align are incompatible
@@ -146,7 +152,7 @@ impl<I, T> TransmutableContainer for IndexVec<I, T> {
 
 impl<T> Default for TempVec<T> {
     fn default() -> Self {
-        Self(Default::default())
+        Self(Vec::default())
     }
 }
 
@@ -165,5 +171,29 @@ impl<T> TransmutableContainer for TempVec<T> {
         src: <Self as TransmutableContainer>::ContainerType<Q>,
     ) -> Self {
         TempVec(src.transmute())
+    }
+}
+
+impl<I, T> Default for TempIndexVec<I, T> {
+    fn default() -> Self {
+        Self(IndexVec::default())
+    }
+}
+
+impl<I: IndexingType, T> TransmutableContainer for TempIndexVec<I, T> {
+    type ElementType = T;
+
+    type ContainerType<Q> = IndexVec<I, Q>;
+
+    fn transmute<Q>(
+        self,
+    ) -> <Self as TransmutableContainer>::ContainerType<Q> {
+        self.0.transmute()
+    }
+
+    fn transmute_from<Q>(
+        src: <Self as TransmutableContainer>::ContainerType<Q>,
+    ) -> Self {
+        TempIndexVec(src.transmute())
     }
 }

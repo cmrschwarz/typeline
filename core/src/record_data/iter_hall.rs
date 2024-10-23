@@ -1,6 +1,7 @@
 use core::panic;
 use std::{
     cell::{Cell, UnsafeCell},
+    cmp::Ordering,
     collections::VecDeque,
     marker::PhantomData,
 };
@@ -140,6 +141,27 @@ impl From<IterState> for IterStateRaw {
             header_idx: is.header_idx,
             header_rl_offset: is.header_rl_offset,
             first_right_leaning_actor_id: is.first_right_leaning_actor_id,
+        }
+    }
+}
+
+impl PartialOrd for IterState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for IterState {
+    fn cmp(&self, rhs: &Self) -> Ordering {
+        match self.field_pos.cmp(&rhs.field_pos) {
+            ord @ (Ordering::Less | Ordering::Greater) => ord,
+            // the smaller the min right leaning id is, the more right
+            // leaning the iterator is, leading to a
+            // potentially larger final position
+            Ordering::Equal => self
+                .first_right_leaning_actor_id
+                .cmp(&rhs.first_right_leaning_actor_id)
+                .reverse(),
         }
     }
 }

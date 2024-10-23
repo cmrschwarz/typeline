@@ -3,13 +3,10 @@
 // where headers and data are inconsistent. That would cause the iterators
 // which rely on this consistency to run unsafe typecasts on invalid memory.
 
-use std::{cmp::Ordering, collections::VecDeque};
+use std::collections::VecDeque;
 
-use crate::{
-    record_data::{
-        field_action::FieldActionKind, field_data::field_value_flags,
-    },
-    utils::temp_vec::{TempVec, TransmutableContainer},
+use crate::record_data::{
+    field_action::FieldActionKind, field_data::field_value_flags,
 };
 
 use super::{
@@ -35,7 +32,6 @@ struct CopyCommand {
 pub(super) struct FieldActionApplicator {
     copies: Vec<CopyCommand>,
     insertions: Vec<InsertionCommand>,
-    iters: TempVec<&'static mut FieldAction>,
 }
 
 struct FieldActionApplicationState {
@@ -864,34 +860,21 @@ impl FieldActionApplicator {
             it.header_rl_offset = headers[it.header_idx].run_length;
         }
     }
-
-    pub fn run<'a>(
+    pub fn run(
         &mut self,
         actions: impl Iterator<Item = FieldAction>,
         headers: &mut VecDeque<FieldValueHeader>,
         field_count: &mut usize,
-        iterators: impl Iterator<Item = &'a mut IterState>,
+        iterators: &mut [&mut IterState],
     ) -> isize {
-        let mut iters = self.iters.take_transmute();
-
-        iters.extend(iterators);
-        iters.sort_by(|lhs, rhs| match lhs.field_pos.cmp(&rhs.field_pos) {
-            ord @ (Ordering::Less | Ordering::Greater) => ord,
-            // the smaller the min right leaning id is, the more right leaning
-            // the iterator is, leading to a potentially larger final position
-            Ordering::Equal => lhs
-                .first_right_leaning_actor_id
-                .cmp(&rhs.first_right_leaning_actor_id)
-                .reverse(),
-        });
+        iterators.sort_unstable();
         let field_count_delta =
-            self.generate_commands_from_actions(actions, headers, &mut iters);
+            self.generate_commands_from_actions(actions, headers, iterators);
         debug_assert!(*field_count as isize + field_count_delta >= 0);
         *field_count = (*field_count as isize + field_count_delta) as usize;
         self.execute_commands(headers);
-        Self::canonicalize_iters(*field_count, headers, &mut iters);
+        Self::canonicalize_iters(*field_count, headers, iterators);
 
-        self.iters.reclaim_temp(iters);
         field_count_delta
     }
 }
@@ -937,6 +920,9 @@ mod test {
             .into_iter()
             .map(IterState::from_raw_with_dummy_kind)
             .collect::<Vec<_>>();
+
+        let mut iter_state_refs = iter_states.iter_mut().collect::<Vec<_>>();
+
         let iter_states_out = iter_states_out
             .into_iter()
             .map(IterState::from_raw_with_dummy_kind)
@@ -945,7 +931,7 @@ mod test {
             actions.into_iter(),
             &mut headers,
             &mut field_count,
-            iter_states.iter_mut(),
+            &mut iter_state_refs,
         );
         let headers_got = headers.iter().copied().collect::<Vec<_>>();
         let headers_expected = output.into_iter().collect::<Vec<_>>();
@@ -973,15 +959,18 @@ mod test {
             .into_iter()
             .map(IterState::from_raw_with_dummy_kind)
             .collect::<Vec<_>>();
+        let mut iter_state_refs =
+            iter_states_in.iter_mut().collect::<Vec<_>>();
         let iter_states_out = iter_states_out
             .into_iter()
             .map(IterState::from_raw_with_dummy_kind)
             .collect::<Vec<_>>();
+
         let fc_delta = faa.run(
             actions.into_iter(),
             &mut fd.headers,
             &mut fd.field_count,
-            iter_states_in.iter_mut(),
+            &mut iter_state_refs,
         );
         let mut iter = fd.iter();
         let mut results = Vec::new();

@@ -1,13 +1,21 @@
 use std::{
-    cell::{Cell, Ref},
+    cell::{Cell, Ref, RefMut},
     collections::VecDeque,
 };
 
 use num::Integer;
 
 use crate::{
+    index_newtype,
     record_data::{action_buffer::eprint_action_list, iter_hall::CowVariant},
-    utils::{phantom_slot::PhantomSlot, temp_vec::TransmutableContainer},
+    utils::{
+        debuggable_nonmax::DebuggableNonMaxU32,
+        index_slice::IndexSlice,
+        index_vec::IndexVec,
+        indexing_type::IndexingType,
+        temp_vec::{TempIndexVec, TempVec, TransmutableContainer},
+        universe::Universe,
+    },
 };
 
 use super::{
@@ -15,21 +23,13 @@ use super::{
     field::{Field, FieldId, FieldManager},
     field_action::FieldAction,
     field_action_applicator::FieldActionApplicator,
-    field_data::{FieldValueHeader, RunLength, MAX_FIELD_ALIGN},
-    iter_hall::{FieldDataSource, IterState},
+    field_data::{
+        FieldDataBuffer, FieldValueHeader, RunLength, MAX_FIELD_ALIGN,
+    },
+    iter_hall::{FieldDataSource, IterId, IterState},
     iters::FieldIterator,
     match_set::{MatchSetId, MatchSetManager},
 };
-
-// used to adjust iterators based on the dropped headers
-#[derive(Default)]
-struct HeaderDropInfo {
-    dead_headers_leading: usize,
-    header_count_rem: usize,
-    first_header_dropped_elem_count: RunLength,
-    last_header_run_len: RunLength,
-    last_header_data_pos: usize,
-}
 
 #[derive(Clone, Copy)]
 struct DeadDataReport {
@@ -49,30 +49,35 @@ struct HeaderDropInstructions {
     trailing_drop: usize,
 }
 
+index_newtype! {
+    struct DataCowIndex(DebuggableNonMaxU32);
+    struct FullCowIndex(DebuggableNonMaxU32);
+}
+
+enum CowFieldIndex {
+    Full(FullCowIndex),
+    Data(DataCowIndex),
+}
+
 struct DataCowFieldRef<'a> {
     #[allow(unused)]
     #[cfg(feature = "debug_state")]
     field_id: FieldId,
-    field: Option<std::cell::RefMut<'a, Field>>,
+    field: Option<RefMut<'a, Field>>,
     // For fields that have only partially copied over the data.
     // `dead_data_trailing` needs to take that into account
     data_end: usize,
-    // required for the corresponding full cow fields
-    // (`FullCowFieldRef::data_cow_idx`) that need this do adjust their
-    // iterators
-    drop_info: HeaderDropInfo,
+    // linked list of full cows belonging to this data cow
+    full_cow_list: Option<FullCowIndex>,
 }
 
 struct FullCowFieldRef<'a> {
     #[allow(unused)]
     #[cfg(feature = "debug_state")]
     field_id: FieldId,
-    field: Option<std::cell::RefMut<'a, Field>>,
-    data_cow_idx: Option<usize>,
-    // a full cow of a data cow. still relevant for advancing iterators
-    // after dropping data, but not relevant for adjusting iterators during
-    // action application
-    through_data_cow: bool,
+    field: Option<RefMut<'a, Field>>,
+    // linked list of full cows belonging to the original field or a data cow
+    prev: Option<FullCowIndex>,
 }
 
 #[derive(Default)]
@@ -81,8 +86,11 @@ pub struct IterHallActionApplicator {
     // that live between dead data
     preserved_headers: Vec<FieldValueHeader>,
 
-    full_cow_field_refs_temp: Vec<PhantomSlot<FullCowFieldRef<'static>>>,
-    data_cow_field_refs_temp: Vec<PhantomSlot<DataCowFieldRef<'static>>>,
+    full_cow_field_refs_temp:
+        TempIndexVec<FullCowIndex, FullCowFieldRef<'static>>,
+    data_cow_field_refs_temp:
+        TempIndexVec<DataCowIndex, DataCowFieldRef<'static>>,
+    iters_temp: TempVec<&'static mut IterState>,
 
     actions_applicator: FieldActionApplicator,
 }
@@ -97,62 +105,98 @@ impl DeadDataReport {
 }
 
 impl IterHallActionApplicator {
+    fn push_full_cow<'a>(
+        full_cow_field_refs: &mut IndexVec<FullCowIndex, FullCowFieldRef<'a>>,
+        data_cow_field_refs: &mut IndexVec<DataCowIndex, DataCowFieldRef<'a>>,
+        tgt_field_id: FieldId,
+        data_cow_idx: Option<DataCowIndex>,
+        starting_field_full_cow_list_head: &mut Option<FullCowIndex>,
+    ) -> FullCowIndex {
+        let full_cow_idx = full_cow_field_refs.next_idx();
+        let mut next = None;
+        if let Some(dci) = data_cow_idx {
+            let dc = &mut data_cow_field_refs[dci];
+            next = dc.full_cow_list;
+            dc.full_cow_list = Some(full_cow_idx);
+        } else if let Some(fci) = *starting_field_full_cow_list_head {
+            next = Some(fci);
+        } else {
+            *starting_field_full_cow_list_head = Some(full_cow_idx);
+        }
+        full_cow_field_refs.push(FullCowFieldRef {
+            #[cfg(feature = "debug_state")]
+            field_id: tgt_field_id,
+            field: None,
+            prev: next,
+        });
+        full_cow_idx
+    }
+    fn push_data_cow(
+        data_cow_field_refs: &mut IndexVec<DataCowIndex, DataCowFieldRef>,
+        tgt_field_id: FieldId,
+        field_headers: &VecDeque<FieldValueHeader>,
+        tgt_cow_end: IterState,
+    ) -> DataCowIndex {
+        let idx = data_cow_field_refs.next_idx();
+        data_cow_field_refs.push(DataCowFieldRef {
+            #[cfg(feature = "debug_state")]
+            field_id: tgt_field_id,
+            field: None,
+            data_end: Self::get_data_cow_data_end(field_headers, &tgt_cow_end),
+            full_cow_list: None,
+        });
+        idx
+    }
+
     // returns the target index of the field and whether or not it is data cow
     fn push_cow_field<'a>(
         fm: &'a FieldManager,
         tgt_field_id: FieldId,
-        through_data_cow: bool,
         field: &Field,
         // might be different in case of nested cow
         field_headers: &VecDeque<FieldValueHeader>,
-        data_cow_field_refs: &mut Vec<DataCowFieldRef<'a>>,
+        data_cow_field_refs: &mut IndexVec<DataCowIndex, DataCowFieldRef<'a>>,
         update_cow_ms: Option<MatchSetId>,
-        full_cow_field_refs: &mut Vec<FullCowFieldRef<'a>>,
-        data_cow_idx: Option<usize>,
+        full_cow_field_refs: &mut IndexVec<FullCowIndex, FullCowFieldRef<'a>>,
+        data_cow_idx: Option<DataCowIndex>,
         first_action_index: usize,
-    ) -> (usize, bool) {
+        starting_field_full_cow_list_head: &mut Option<FullCowIndex>,
+    ) -> CowFieldIndex {
         let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
 
         let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
         let is_data_cow = matches!(cow_variant, Some(CowVariant::DataCow));
         let ms_id = tgt_field.match_set;
 
-        if !is_data_cow && through_data_cow {
-            full_cow_field_refs.push(FullCowFieldRef {
-                #[cfg(feature = "debug_state")]
-                field_id: tgt_field_id,
-                field: None,
+        if !is_data_cow && data_cow_idx.is_some() {
+            return CowFieldIndex::Full(Self::push_full_cow(
+                full_cow_field_refs,
+                data_cow_field_refs,
+                tgt_field_id,
                 data_cow_idx,
-                through_data_cow,
-            });
-            return (full_cow_field_refs.len() - 1, false);
+                starting_field_full_cow_list_head,
+            ));
         }
         let cds = tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
         let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
 
         if is_data_cow {
-            data_cow_field_refs.push(DataCowFieldRef {
-                #[cfg(feature = "debug_state")]
-                field_id: tgt_field_id,
-                field: None,
-                data_end: Self::get_data_cow_data_end(
-                    field_headers,
-                    &tgt_cow_end,
-                ),
-                drop_info: HeaderDropInfo::default(),
-            });
-            return (data_cow_field_refs.len() - 1, true);
+            return CowFieldIndex::Data(Self::push_data_cow(
+                data_cow_field_refs,
+                tgt_field_id,
+                field_headers,
+                tgt_cow_end,
+            ));
         }
         debug_assert!(cow_variant == Some(CowVariant::FullCow));
         if Some(ms_id) == update_cow_ms {
-            full_cow_field_refs.push(FullCowFieldRef {
-                #[cfg(feature = "debug_state")]
-                field_id: tgt_field_id,
-                field: None,
+            return CowFieldIndex::Full(Self::push_full_cow(
+                full_cow_field_refs,
+                data_cow_field_refs,
+                tgt_field_id,
                 data_cow_idx,
-                through_data_cow,
-            });
-            return (full_cow_field_refs.len() - 1, false);
+                starting_field_full_cow_list_head,
+            ));
         }
         if tgt_cow_end.field_pos > first_action_index {
             tgt_field.iter_hall.data_source = FieldDataSource::DataCow(*cds);
@@ -163,29 +207,22 @@ impl IterHallActionApplicator {
             // TODO: we could optimize this case because we might
             // end up calculating the dead data multiple times because of
             // this, but we don't care for now
-            data_cow_field_refs.push(DataCowFieldRef {
-                #[cfg(feature = "debug_state")]
-                field_id: tgt_field_id,
-                field: None,
-                data_end: Self::get_data_cow_data_end(
-                    field_headers,
-                    &tgt_cow_end,
-                ),
-                drop_info: HeaderDropInfo::default(),
-            });
-            return (data_cow_field_refs.len() - 1, true);
+            return CowFieldIndex::Data(Self::push_data_cow(
+                data_cow_field_refs,
+                tgt_field_id,
+                field_headers,
+                tgt_cow_end,
+            ));
         }
-        full_cow_field_refs.push(FullCowFieldRef {
-            #[cfg(feature = "debug_state")]
-            field_id: tgt_field_id,
-            field: None,
+        CowFieldIndex::Full(Self::push_full_cow(
+            full_cow_field_refs,
+            data_cow_field_refs,
+            tgt_field_id,
             data_cow_idx,
-            through_data_cow,
-        });
+            starting_field_full_cow_list_head,
+        ))
         // TODO: support RecordBuffers
-        (full_cow_field_refs.len() - 1, false)
     }
-
     #[allow(clippy::only_used_in_recursion)] // msm used for assertion
     fn gather_cow_field_info_pre_exec<'a>(
         fm: &'a FieldManager,
@@ -193,10 +230,10 @@ impl IterHallActionApplicator {
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
         first_action_index: usize,
-        through_data_cow: bool,
-        full_cow_field_refs: &mut Vec<FullCowFieldRef<'a>>,
-        data_cow_field_refs: &mut Vec<DataCowFieldRef<'a>>,
-        data_cow_idx: Option<usize>,
+        full_cow_field_refs: &mut IndexVec<FullCowIndex, FullCowFieldRef<'a>>,
+        data_cow_field_refs: &mut IndexVec<DataCowIndex, DataCowFieldRef<'a>>,
+        data_cow_idx: Option<DataCowIndex>,
+        starting_field_full_cow_list_head: &mut Option<FullCowIndex>,
     ) {
         let field = fm.fields[field_id].borrow();
         let field_headers = fm.get_field_headers(Ref::clone(&field));
@@ -204,10 +241,9 @@ impl IterHallActionApplicator {
             return;
         }
         for &tgt_field_id in &field.iter_hall.cow_targets {
-            let (curr_field_tgt_idx, data_cow) = Self::push_cow_field(
+            let field_idx = Self::push_cow_field(
                 fm,
                 tgt_field_id,
-                through_data_cow,
                 &field,
                 &field_headers.0,
                 data_cow_field_refs,
@@ -215,6 +251,7 @@ impl IterHallActionApplicator {
                 full_cow_field_refs,
                 data_cow_idx,
                 first_action_index,
+                starting_field_full_cow_list_head,
             );
             Self::gather_cow_field_info_pre_exec(
                 fm,
@@ -222,14 +259,15 @@ impl IterHallActionApplicator {
                 tgt_field_id,
                 None,
                 first_action_index,
-                data_cow || through_data_cow,
                 full_cow_field_refs,
                 data_cow_field_refs,
-                if data_cow {
-                    Some(curr_field_tgt_idx)
-                } else {
-                    data_cow_idx
+                match field_idx {
+                    CowFieldIndex::Full(_) => data_cow_idx,
+                    CowFieldIndex::Data(data_cow_index) => {
+                        Some(data_cow_index)
+                    }
                 },
+                starting_field_full_cow_list_head,
             );
             let tgt_field = fm.fields[tgt_field_id].borrow_mut();
 
@@ -248,13 +286,15 @@ impl IterHallActionApplicator {
             // };
             // debug_assert!(cow_target_is_up_to_date);
             // }
-
-            if data_cow {
-                data_cow_field_refs[curr_field_tgt_idx].field =
-                    Some(tgt_field);
-            } else {
-                full_cow_field_refs[curr_field_tgt_idx].field =
-                    Some(tgt_field);
+            match field_idx {
+                CowFieldIndex::Full(full_cow_index) => {
+                    full_cow_field_refs[full_cow_index].field =
+                        Some(tgt_field);
+                }
+                CowFieldIndex::Data(data_cow_index) => {
+                    data_cow_field_refs[data_cow_index].field =
+                        Some(tgt_field);
+                }
             }
         }
     }
@@ -349,104 +389,20 @@ impl IterHallActionApplicator {
             trailing_drop: trail,
         }
     }
-    fn drop_dead_field_data(
-        &mut self,
-        #[cfg_attr(
-            not(feature = "debug_logging_field_actions"),
-            allow(unused)
-        )]
-        fm: &FieldManager,
-        field: &mut Field,
-        drop_instructions: HeaderDropInstructions,
-    ) -> HeaderDropInfo {
-        let field_data_size = field.iter_hall.field_data.data.len();
-        let drop_info = self.drop_dead_headers(
-            &mut field.iter_hall.field_data.headers,
-            &mut field.iter_hall.iters,
-            drop_instructions,
-            field_data_size,
-            field_data_size,
-        );
-        let fd = &mut field.iter_hall.field_data;
-        // LEAK this leaks all resources of the data. //TODO: drop before
-        fd.data.drop_front(
-            drop_instructions
-                .leading_drop
-                .prev_multiple_of(&MAX_FIELD_ALIGN),
-        );
-        fd.data.drop_back(drop_instructions.trailing_drop);
-        #[cfg(feature = "debug_logging_field_actions")]
-        {
-            eprintln!(
-            "   + dropping dead data (leading: {}, pad: {}, rem: {}, trailing: {})",
-            drop_instructions.leading_drop,
-            drop_instructions.first_header_padding,
-            field_data_size - drop_instructions.leading_drop - drop_instructions.trailing_drop,
-            drop_instructions.trailing_drop
-        );
-            eprint!("    ");
-            fm.print_field_header_data_for_ref(field, 4);
-            #[cfg(feature = "debug_logging_iter_states")]
-            {
-                eprint!("\n    ");
-                fm.print_field_iter_data_for_ref(field, 4);
-            }
-            eprintln!();
-        }
-        drop_info
-    }
-    fn adjust_iters_to_data_drop<'a>(
-        iters: impl IntoIterator<Item = &'a mut Cell<IterState>>,
-        dead_data_leading: usize,
-        drop_info: &HeaderDropInfo,
-    ) {
-        let last_header_idx = drop_info.header_count_rem.saturating_sub(1);
-        let actual_drop = dead_data_leading.prev_multiple_of(&MAX_FIELD_ALIGN);
-        for it in iters.into_iter().map(Cell::get_mut) {
-            if it.header_idx == drop_info.dead_headers_leading {
-                it.header_rl_offset = it
-                    .header_rl_offset
-                    .saturating_sub(drop_info.first_header_dropped_elem_count);
-            }
-            it.header_idx =
-                it.header_idx.saturating_sub(drop_info.dead_headers_leading);
-            match it.header_idx.cmp(&last_header_idx) {
-                std::cmp::Ordering::Less => (),
-                std::cmp::Ordering::Equal => {
-                    it.header_rl_offset =
-                        it.header_rl_offset.min(drop_info.last_header_run_len);
-                }
-                std::cmp::Ordering::Greater => {
-                    it.header_idx = last_header_idx;
-                    it.data = drop_info.last_header_data_pos;
-                    it.header_rl_offset = drop_info.last_header_run_len;
-                }
-            }
 
-            if it.header_idx == 0 {
-                // subtracting the 'actual_drop' is not enough to arrive at
-                // this because some of the 'semantic drop'
-                // might have ended up as padding of this
-                // header, which would then not be subtracted from the data
-                // offset
-                it.data = 0;
-            } else {
-                it.data = it.data.saturating_sub(actual_drop);
-            }
-        }
-    }
-    fn drop_dead_headers<'a>(
+    fn drop_dead_headers(
         &mut self,
         headers: &mut VecDeque<FieldValueHeader>,
-        iters: impl IntoIterator<Item = &'a mut Cell<IterState>>,
+        data: Option<&mut FieldDataBuffer>,
+        iters: &mut [&mut IterState],
         drop_instructions: HeaderDropInstructions,
         origin_field_data_size: usize,
         field_data_size: usize,
-    ) -> HeaderDropInfo {
+    ) {
+        iters.sort_unstable();
         debug_assert!(self.preserved_headers.is_empty());
         let mut dead_data_leading_rem = drop_instructions.leading_drop;
         let mut dead_headers_leading = 0;
-        let mut first_header_dropped_elem_count = 0;
 
         while dead_headers_leading < headers.len() {
             let h = &mut headers[dead_headers_leading];
@@ -454,10 +410,10 @@ impl IterHallActionApplicator {
             if dead_data_leading_rem < h_ds {
                 let header_elem_size = h.fmt.size as usize;
                 let header_padding = h.leading_padding();
-                first_header_dropped_elem_count =
+                let dropped_elem_count =
                     ((dead_data_leading_rem - header_padding)
                         / header_elem_size) as RunLength;
-                h.run_length -= first_header_dropped_elem_count;
+                h.run_length -= dropped_elem_count;
                 h.set_leading_padding(drop_instructions.first_header_padding);
                 break;
             }
@@ -469,7 +425,6 @@ impl IterHallActionApplicator {
             dead_headers_leading += 1;
         }
         headers.drain(0..dead_headers_leading);
-        dead_headers_leading -= self.preserved_headers.len();
         while let Some(h) = self.preserved_headers.pop() {
             headers.push_front(h);
         }
@@ -503,32 +458,17 @@ impl IterHallActionApplicator {
                 elem_count as RunLength;
         }
         headers.drain(first_dead_header..);
-        first_dead_header += self.preserved_headers.len();
         headers.extend(self.preserved_headers.drain(0..).rev());
-        let last_header = headers.back().copied().unwrap_or_default();
 
-        let field_end_new = field_data_size
-            + drop_instructions.first_header_padding
-            - drop_instructions.trailing_drop
-            - drop_instructions.leading_drop;
-
-        let last_header_size = last_header.total_size_unique();
-
-        let drop_info = HeaderDropInfo {
-            dead_headers_leading,
-            first_header_dropped_elem_count,
-            header_count_rem: first_dead_header,
-            last_header_run_len: last_header.run_length,
-            last_header_data_pos: field_end_new - last_header_size,
-        };
-
-        Self::adjust_iters_to_data_drop(
-            iters,
-            drop_instructions.leading_drop,
-            &drop_info,
-        );
-
-        drop_info
+        if let Some(data) = data {
+            // LEAK this leaks all resources of the data. //TODO: drop before
+            data.drop_front(
+                drop_instructions
+                    .leading_drop
+                    .prev_multiple_of(&MAX_FIELD_ALIGN),
+            );
+            data.drop_back(drop_instructions.trailing_drop);
+        }
     }
     fn calc_dead_data(
         headers: &VecDeque<FieldValueHeader>,
@@ -597,7 +537,8 @@ impl IterHallActionApplicator {
         fm: &FieldManager,
         field_id: FieldId,
         actions: impl Iterator<Item = FieldAction>,
-        full_cow_field_refs: &mut [FullCowFieldRef],
+        full_cow_field_refs: &mut IndexSlice<FullCowIndex, FullCowFieldRef>,
+        full_cow_fields_start: Option<FullCowIndex>,
     ) {
         let mut field_ref_mut = fm.fields[field_id].borrow_mut();
         let field = &mut *field_ref_mut;
@@ -617,26 +558,50 @@ impl IterHallActionApplicator {
                 panic!("cannot execute commands on FullCow iter hall")
             }
         };
-        let iterators = field
-            .iter_hall
-            .iters
-            .iter_mut()
-            .chain(
-                full_cow_field_refs
-                    .iter_mut()
-                    .filter(|fcf| !fcf.through_data_cow)
-                    .flat_map(|f| {
-                        f.field.as_mut().unwrap().iter_hall.iters.iter_mut()
-                    }),
-            )
-            .map(Cell::get_mut);
+
+        let mut iterators = self.iters_temp.borrow_container();
+        Self::collect_full_cow_iters(
+            &mut iterators,
+            &mut field.iter_hall.iters,
+            full_cow_field_refs,
+            full_cow_fields_start,
+        );
 
         let _field_count_delta = self.actions_applicator.run(
             actions,
             headers,
             field_count,
-            iterators,
+            &mut iterators,
         );
+    }
+
+    fn collect_full_cow_iters<'a>(
+        iterators: &mut Vec<&'a mut IterState>,
+        field_iters: &'a mut Universe<IterId, Cell<IterState>>,
+        full_cow_field_refs: &'a mut IndexSlice<
+            FullCowIndex,
+            FullCowFieldRef<'_>,
+        >,
+        full_cow_fields_start: Option<FullCowIndex>,
+    ) {
+        iterators.extend(field_iters.iter_mut().map(Cell::get_mut));
+        let mut full_cow_idx = full_cow_fields_start;
+        let mut full_cow_refs_head = full_cow_field_refs;
+        while let Some(idx) = full_cow_idx {
+            full_cow_idx = full_cow_refs_head[idx].prev;
+            let (head, tail) = full_cow_refs_head.split_at_mut(idx);
+            iterators.extend(
+                tail[FullCowIndex::ZERO]
+                    .field
+                    .as_mut()
+                    .unwrap()
+                    .iter_hall
+                    .iters
+                    .iter_mut()
+                    .map(Cell::get_mut),
+            );
+            full_cow_refs_head = head;
+        }
     }
 
     fn execute_actions(
@@ -644,7 +609,8 @@ impl IterHallActionApplicator {
         fm: &FieldManager,
         field_id: FieldId,
         actions: impl Iterator<Item = FieldAction> + Clone,
-        full_cow_field_refs: &mut [FullCowFieldRef],
+        full_cow_field_refs: &mut IndexSlice<FullCowIndex, FullCowFieldRef>,
+        full_cow_fields_start: Option<FullCowIndex>,
     ) {
         #[cfg(feature = "debug_logging_field_actions")]
         {
@@ -665,7 +631,13 @@ impl IterHallActionApplicator {
             }
             eprintln!();
         }
-        self.execute_actions_inner(fm, field_id, actions, full_cow_field_refs);
+        self.execute_actions_inner(
+            fm,
+            field_id,
+            actions,
+            full_cow_field_refs,
+            full_cow_fields_start,
+        );
         #[cfg(feature = "debug_logging_field_actions")]
         {
             eprint!("   + after: ");
@@ -688,8 +660,8 @@ impl IterHallActionApplicator {
         actions: impl Iterator<Item = FieldAction> + Clone,
         actions_field_count_delta: isize,
         first_action_index: usize,
-        full_cow_fields: &mut Vec<FullCowFieldRef<'a>>,
-        data_cow_fields: &mut Vec<DataCowFieldRef<'a>>,
+        full_cow_fields: &mut IndexVec<FullCowIndex, FullCowFieldRef<'a>>,
+        data_cow_fields: &mut IndexVec<DataCowIndex, DataCowFieldRef<'a>>,
     ) {
         let mut field = fm.fields[field_id].borrow_mut();
         field.iter_hall.uncow_headers(fm);
@@ -698,6 +670,7 @@ impl IterHallActionApplicator {
         let field_ms_id = field.match_set;
         let field_data_size: usize = field.iter_hall.get_field_data_len(fm);
         let data_owned = field.iter_hall.data_source == FieldDataSource::Owned;
+        let mut full_cow_field_list = None;
 
         drop(field);
         Self::gather_cow_field_info_pre_exec(
@@ -706,10 +679,10 @@ impl IterHallActionApplicator {
             field_id,
             update_cow_ms,
             first_action_index,
-            false,
             full_cow_fields,
             data_cow_fields,
             None,
+            &mut full_cow_field_list,
         );
         let mut dead_data = DeadDataReport::all_dead(field_data_size);
         for dcf in &mut *data_cow_fields {
@@ -736,6 +709,7 @@ impl IterHallActionApplicator {
                 field_id,
                 actions.clone(),
                 full_cow_fields,
+                full_cow_field_list,
             );
         }
         let mut field = fm.fields[field_id].borrow_mut();
@@ -771,74 +745,130 @@ impl IterHallActionApplicator {
             field.iter_hall.field_data.clear();
         }
         if data_partially_dead {
-            let root_drop_instructions = Self::build_header_drop_instructions(
+            self.drop_dead_data(
                 dead_data,
                 field_data_size,
+                &mut field,
+                fm,
+                data_cow_fields,
+                full_cow_fields,
+                full_cow_field_list,
+            );
+        }
+    }
+
+    fn drop_dead_data<'a>(
+        &mut self,
+        dead_data: DeadDataReport,
+        field_data_size: usize,
+        field: &mut Field,
+        fm: &FieldManager,
+        data_cow_fields: &mut IndexSlice<DataCowIndex, DataCowFieldRef<'a>>,
+        full_cow_fields: &mut IndexSlice<FullCowIndex, FullCowFieldRef<'a>>,
+        full_cow_field_list: Option<FullCowIndex>,
+    ) {
+        let root_drop_instructions = Self::build_header_drop_instructions(
+            dead_data,
+            field_data_size,
+            field_data_size,
+        );
+
+        let field_data_size = field.iter_hall.field_data.data.len();
+        {
+            let mut iterators = self.iters_temp.take_transmute();
+            Self::collect_full_cow_iters(
+                &mut iterators,
+                &mut field.iter_hall.iters,
+                full_cow_fields,
+                full_cow_field_list,
+            );
+
+            self.drop_dead_headers(
+                &mut field.iter_hall.field_data.headers,
+                Some(&mut field.iter_hall.field_data.data),
+                &mut iterators,
+                root_drop_instructions,
+                field_data_size,
                 field_data_size,
             );
-            let root_drop_info = self.drop_dead_field_data(
-                fm,
-                &mut field,
-                root_drop_instructions,
+            self.iters_temp.reclaim_temp(iterators);
+        }
+
+        #[cfg(feature = "debug_logging_field_actions")]
+        {
+            eprintln!(
+                "   + dropping dead data (leading: {}, pad: {}, rem: {}, trailing: {})",
+                root_drop_instructions.leading_drop,
+                root_drop_instructions.first_header_padding,
+                field_data_size - root_drop_instructions.leading_drop - root_drop_instructions.trailing_drop,
+                root_drop_instructions.trailing_drop
             );
-            for dcf in &mut *data_cow_fields {
-                let cow_field = &mut **dcf.field.as_mut().unwrap();
+            eprint!("    ");
+            fm.print_field_header_data_for_ref(&*field, 4);
+            #[cfg(feature = "debug_logging_iter_states")]
+            {
+                eprint!("\n    ");
+                fm.print_field_iter_data_for_ref(&*field, 4);
+            }
+            eprintln!();
+        }
 
-                let cow_drop_instructions =
-                    Self::build_header_drop_instructions(
-                        dead_data,
-                        field_data_size,
-                        dcf.data_end,
-                    );
+        for dcf in &mut *data_cow_fields {
+            let cow_field = &mut **dcf.field.as_mut().unwrap();
 
-                #[cfg(feature = "debug_logging_field_actions")]
+            let cow_drop_instructions = Self::build_header_drop_instructions(
+                dead_data,
+                field_data_size,
+                dcf.data_end,
+            );
+
+            #[cfg(feature = "debug_logging_field_actions")]
+            {
+                eprintln!(
+                    "   + dropping dead data for cow field {}: before",
+                    dcf.field_id
+                );
+                eprint!("    ");
+                fm.print_field_header_data_for_ref(cow_field, 4);
+                #[cfg(feature = "debug_logging_iter_states")]
                 {
-                    eprintln!(
-                        "   + dropping dead data for cow field {}: before",
-                        dcf.field_id
-                    );
-                    eprint!("    ");
-                    fm.print_field_header_data_for_ref(cow_field, 4);
-                    #[cfg(feature = "debug_logging_iter_states")]
-                    {
-                        eprint!("\n    ");
-                        fm.print_field_iter_data_for_ref(cow_field, 4);
-                    }
-                    eprintln!();
+                    eprint!("\n    ");
+                    fm.print_field_iter_data_for_ref(cow_field, 4);
                 }
-                dcf.drop_info = self.drop_dead_headers(
-                    &mut cow_field.iter_hall.field_data.headers,
+                eprintln!();
+            }
+            {
+                let mut iterators = self.iters_temp.take_transmute();
+                Self::collect_full_cow_iters(
+                    &mut iterators,
                     &mut cow_field.iter_hall.iters,
+                    full_cow_fields,
+                    dcf.full_cow_list,
+                );
+                self.drop_dead_headers(
+                    &mut cow_field.iter_hall.field_data.headers,
+                    None,
+                    &mut iterators,
                     cow_drop_instructions,
                     field_data_size,
                     dcf.data_end,
                 );
-                #[cfg(feature = "debug_logging_field_actions")]
-                {
-                    eprintln!(
-                        "   + dropping dead data for cow field {}: after",
-                        dcf.field_id
-                    );
-                    eprint!("    ");
-                    fm.print_field_header_data_for_ref(cow_field, 4);
-                    #[cfg(feature = "debug_logging_iter_states")]
-                    {
-                        eprint!("\n    ");
-                        fm.print_field_iter_data_for_ref(cow_field, 4);
-                    }
-                    eprintln!();
-                }
+                self.iters_temp.reclaim_temp(iterators);
             }
-            for fcf in &mut *full_cow_fields {
-                let drop_info = fcf
-                    .data_cow_idx
-                    .map(|idx| &data_cow_fields[idx].drop_info)
-                    .unwrap_or(&root_drop_info);
-                Self::adjust_iters_to_data_drop(
-                    &mut fcf.field.as_mut().unwrap().iter_hall.iters,
-                    root_drop_instructions.leading_drop,
-                    drop_info,
-                )
+            #[cfg(feature = "debug_logging_field_actions")]
+            {
+                eprintln!(
+                    "   + dropping dead data for cow field {}: after",
+                    dcf.field_id
+                );
+                eprint!("    ");
+                fm.print_field_header_data_for_ref(cow_field, 4);
+                #[cfg(feature = "debug_logging_iter_states")]
+                {
+                    eprint!("\n    ");
+                    fm.print_field_iter_data_for_ref(cow_field, 4);
+                }
+                eprintln!();
             }
         }
     }
@@ -879,7 +909,7 @@ impl IterHallActionApplicator {
 
 #[cfg(test)]
 mod test_dead_data_drop {
-    use std::{cell::Cell, collections::VecDeque};
+    use std::collections::VecDeque;
 
     use crate::{
         record_data::{
@@ -917,16 +947,16 @@ mod test_dead_data_drop {
     ) {
         fn collect_iters(
             iters: impl IntoIterator<Item = IterStateRaw>,
-        ) -> Vec<Cell<IterState>> {
+        ) -> Vec<IterState> {
             iters
                 .into_iter()
                 .map(IterState::from_raw_with_dummy_kind)
-                .map(Cell::new)
                 .collect::<Vec<_>>()
         }
 
         let mut iters = collect_iters(iters_before);
         let iters_after = collect_iters(iters_after);
+        let mut iter_refs = iters.iter_mut().collect::<Vec<_>>();
 
         let mut headers = headers_before.into_iter().collect::<VecDeque<_>>();
         let headers_after = headers_after.into_iter().collect::<VecDeque<_>>();
@@ -942,7 +972,8 @@ mod test_dead_data_drop {
 
         aa.drop_dead_headers(
             &mut headers,
-            &mut iters,
+            None,
+            &mut iter_refs,
             header_drop_instructions,
             field_data_size_before,
             cow_data_end,

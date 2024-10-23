@@ -129,7 +129,7 @@ struct ActionMergeData<'a, L, R, T>
 where
     L: Iterator<Item = FieldAction>,
     R: Iterator<Item = FieldAction>,
-    T: RandomAccessContainer<FieldAction>,
+    T: RandomAccessContainer<usize, FieldAction>,
 {
     left: Peekable<L>,
     right: Peekable<R>,
@@ -145,7 +145,7 @@ impl<'a, L, R, T> ActionMergeData<'a, L, R, T>
 where
     L: Iterator<Item = FieldAction>,
     R: Iterator<Item = FieldAction>,
-    T: RandomAccessContainer<FieldAction>,
+    T: RandomAccessContainer<usize, FieldAction>,
 {
     fn release_action(&mut self, mut faf: FieldActionFullRl) {
         let mut action = FieldAction {
@@ -591,7 +591,7 @@ pub fn merge_action_lists<'a>(
     left: impl IntoIterator<Item = &'a FieldAction>,
     right: impl IntoIterator<Item = &'a FieldAction>,
     pending_actions: &mut Vec<PendingAction>,
-    target: &mut impl RandomAccessContainer<FieldAction>,
+    target: &mut impl RandomAccessContainer<usize, FieldAction>,
 ) {
     let left = left.into_iter().copied().peekable();
     let right = right.into_iter().copied().peekable();

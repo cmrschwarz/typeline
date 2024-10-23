@@ -3,13 +3,17 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+use super::{
+    index_slice::IndexSlice, index_vec::IndexVec, indexing_type::IndexingType,
+};
+
 /// Very crude generalization over `Vec<T>` and `VecDeque<T>`,
 /// used for cases where algorithms need to work on both, like
 /// `merge_action_lists`
-pub trait RandomAccessContainer<T>:
-    Index<usize, Output = T> + IndexMut<usize, Output = T>
+pub trait RandomAccessContainer<I: IndexingType, T>:
+    Index<I, Output = T> + IndexMut<I, Output = T>
 {
-    fn get(&self, index: usize) -> Option<&T>;
+    fn get(&self, index: I) -> Option<&T>;
     fn last_mut(&mut self) -> Option<&mut T>;
     fn push(&mut self, v: T);
     fn len(&self) -> usize;
@@ -17,8 +21,21 @@ pub trait RandomAccessContainer<T>:
         self.len() == 0
     }
 }
-
-impl<T> RandomAccessContainer<T> for Vec<T> {
+impl<I: IndexingType, T> RandomAccessContainer<I, T> for IndexVec<I, T> {
+    fn get(&self, index: I) -> Option<&T> {
+        <IndexSlice<I, T>>::get(self, index)
+    }
+    fn last_mut(&mut self) -> Option<&mut T> {
+        <IndexSlice<I, T>>::last_mut(self)
+    }
+    fn push(&mut self, v: T) {
+        <IndexVec<I, T>>::push(self, v)
+    }
+    fn len(&self) -> usize {
+        <IndexSlice<I, T>>::len(self)
+    }
+}
+impl<T> RandomAccessContainer<usize, T> for Vec<T> {
     fn get(&self, index: usize) -> Option<&T> {
         <[T]>::get(self, index)
     }
@@ -32,7 +49,7 @@ impl<T> RandomAccessContainer<T> for Vec<T> {
         <[T]>::len(self)
     }
 }
-impl<T> RandomAccessContainer<T> for VecDeque<T> {
+impl<T> RandomAccessContainer<usize, T> for VecDeque<T> {
     fn get(&self, index: usize) -> Option<&T> {
         <VecDeque<_>>::get(self, index)
     }

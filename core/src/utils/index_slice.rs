@@ -61,8 +61,14 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
     pub fn first(&self) -> Option<&T> {
         self.data.first()
     }
+    pub fn first_mut(&mut self) -> Option<&mut T> {
+        self.data.first_mut()
+    }
     pub fn last(&self) -> Option<&T> {
         self.data.last()
+    }
+    pub fn last_mut(&mut self) -> Option<&mut T> {
+        self.data.last_mut()
     }
     pub fn as_slice(&self) -> &[T] {
         &self.data
@@ -107,6 +113,14 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
     }
     pub fn ref_handout_stack(&mut self) -> RefHandoutStackBase<I, T> {
         RefHandoutStackBase::new(self)
+    }
+
+    pub fn split_at_mut(
+        &mut self,
+        idx: I,
+    ) -> (&mut IndexSlice<I, T>, &mut IndexSlice<I, T>) {
+        let (l, r) = self.data.split_at_mut(idx.into_usize());
+        (IndexSlice::ref_cast_mut(l), IndexSlice::ref_cast_mut(r))
     }
 }
 
