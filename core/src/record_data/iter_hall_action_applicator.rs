@@ -390,6 +390,7 @@ impl IterHallActionApplicator {
         }
     }
 
+    #[allow(clippy::mut_mut)]
     fn drop_dead_headers(
         &mut self,
         headers: &mut VecDeque<FieldValueHeader>,
@@ -399,13 +400,17 @@ impl IterHallActionApplicator {
         origin_field_data_size: usize,
         field_data_size: usize,
     ) {
-        iters.sort_unstable();
         debug_assert!(self.preserved_headers.is_empty());
-        let mut dead_data_leading_rem = drop_instructions.leading_drop;
-        let mut dead_headers_leading = 0;
 
-        while dead_headers_leading < headers.len() {
-            let h = &mut headers[dead_headers_leading];
+        iters.sort_unstable();
+        // includes alive zst headers that we drain and then reinsert
+        let mut leading_headers_to_drain = 0;
+        let mut iter_idx_fwd = 0;
+        let mut header_idx_new = 0;
+        let mut dead_data_leading_rem = drop_instructions.leading_drop;
+
+        while leading_headers_to_drain < headers.len() {
+            let h = &mut headers[leading_headers_to_drain];
             let h_ds = h.total_size_unique();
             if dead_data_leading_rem < h_ds {
                 let header_elem_size = h.fmt.size as usize;
@@ -415,50 +420,135 @@ impl IterHallActionApplicator {
                         / header_elem_size) as RunLength;
                 h.run_length -= dropped_elem_count;
                 h.set_leading_padding(drop_instructions.first_header_padding);
+
+                while iter_idx_fwd < iters.len() {
+                    let it = &mut iters[iter_idx_fwd];
+                    if it.header_idx > leading_headers_to_drain {
+                        break;
+                    }
+                    if it.header_idx == leading_headers_to_drain {
+                        it.header_rl_offset = it
+                            .header_rl_offset
+                            .saturating_sub(dropped_elem_count);
+                    } else {
+                        it.header_rl_offset = 0;
+                    }
+                    it.header_idx = header_idx_new;
+                    it.data = 0;
+                    iter_idx_fwd += 1;
+                }
                 break;
             }
-            if !h.deleted() {
-                debug_assert_eq!(h_ds, 0);
-                self.preserved_headers.push(*h);
-            }
             dead_data_leading_rem -= h_ds;
-            dead_headers_leading += 1;
+            leading_headers_to_drain += 1;
+            if h.deleted() {
+                continue;
+            }
+            debug_assert_eq!(h_ds, 0);
+            self.preserved_headers.push(*h);
+
+            while iter_idx_fwd < iters.len() {
+                let it = &mut iters[iter_idx_fwd];
+                if it.header_idx >= leading_headers_to_drain {
+                    break;
+                }
+                if it.header_idx + 1 != leading_headers_to_drain {
+                    it.header_rl_offset = 0;
+                }
+                it.header_idx = header_idx_new;
+                it.data = 0;
+                iter_idx_fwd += 1;
+            }
+            header_idx_new += 1;
         }
-        headers.drain(0..dead_headers_leading);
+        let preserved_headers_leading = self.preserved_headers.len();
+        headers.drain(0..leading_headers_to_drain);
         while let Some(h) = self.preserved_headers.pop() {
             headers.push_front(h);
         }
 
         let field_size_diff = origin_field_data_size - field_data_size;
-        let mut dead_data_rem_trailing = drop_instructions
+        let real_leading_drop = drop_instructions
+            .leading_drop
+            .prev_multiple_of(&MAX_FIELD_ALIGN);
+        let trailing_drop_total = drop_instructions
             .trailing_drop
             .saturating_sub(field_size_diff);
-        let mut first_dead_header = headers.len();
-        while first_dead_header > 0 {
-            let h = headers[first_dead_header - 1];
+        let data_size_after =
+            field_data_size - real_leading_drop - trailing_drop_total;
+        let mut trailing_drop_rem = trailing_drop_total;
+        let mut last_header_alive = headers.len();
+        let mut iter_idx_bwd = iters.len();
+        let mut dropped_headers_back = 0;
+        while last_header_alive > preserved_headers_leading {
+            let h = &mut headers[last_header_alive - 1];
             let h_ds = h.total_size_unique();
-            if dead_data_rem_trailing < h_ds {
+            if trailing_drop_rem < h_ds {
+                let header_elem_size = h.fmt.size as usize;
+                let elems_to_drop = trailing_drop_rem / header_elem_size;
+                debug_assert_eq!(
+                    elems_to_drop * header_elem_size,
+                    trailing_drop_rem
+                );
+                h.run_length -= elems_to_drop as RunLength;
+                for it in &mut iters[iter_idx_bwd..] {
+                    it.header_idx -= dropped_headers_back;
+                }
+                let data_size_header_start =
+                    data_size_after - h.total_size_unique();
+                while iter_idx_bwd > iter_idx_fwd {
+                    let it = &mut iters[iter_idx_bwd - 1];
+                    if it.header_idx < last_header_alive - 1 {
+                        break;
+                    }
+                    if it.header_idx == last_header_alive - 1 {
+                        it.header_rl_offset = it
+                            .header_rl_offset
+                            .saturating_sub(elems_to_drop as RunLength);
+                    } else {
+                        it.header_rl_offset = h.run_length;
+                    }
+                    it.data = data_size_header_start;
+                    it.header_idx = header_idx_new;
+
+                    iter_idx_bwd -= 1;
+                }
                 break;
             }
-            if !h.deleted() {
-                debug_assert_eq!(h_ds, 0);
-                self.preserved_headers.push(h);
+            last_header_alive -= 1;
+            trailing_drop_rem -= h_ds;
+            if h.deleted() {
+                dropped_headers_back += 1;
+                continue;
             }
-            first_dead_header -= 1;
-            dead_data_rem_trailing -= h_ds;
+            debug_assert_eq!(h_ds, 0);
+            self.preserved_headers.push(*h);
+            while iter_idx_bwd > iter_idx_fwd {
+                let it = &mut iters[iter_idx_bwd - 1];
+                if it.header_idx < last_header_alive {
+                    break;
+                }
+                if it.header_idx != last_header_alive {
+                    it.header_rl_offset = h.run_length;
+                }
+                // we do a final pass afterwards were we subtract the
+                // amount of dropped headers from all affected iters.
+                // to counteract those headers already dropped before
+                // us (going backwards), we add them here
+                it.header_idx = last_header_alive + dropped_headers_back;
+                it.data = data_size_after;
+                iter_idx_bwd -= 1;
+            }
+            continue;
         }
-        if dead_data_rem_trailing > 0 {
-            let header_elem_size =
-                headers[first_dead_header - 1].fmt.size as usize;
-            let elem_count = dead_data_rem_trailing / header_elem_size;
-            debug_assert!(
-                elem_count * header_elem_size == dead_data_rem_trailing
-            );
-            headers[first_dead_header - 1].run_length -=
-                elem_count as RunLength;
-        }
-        headers.drain(first_dead_header..);
+
+        headers.drain(last_header_alive..);
         headers.extend(self.preserved_headers.drain(0..).rev());
+
+        while iter_idx_bwd > iter_idx_fwd {
+            iter_idx_bwd -= 1;
+            iters[iter_idx_bwd].data -= real_leading_drop;
+        }
 
         if let Some(data) = data {
             // LEAK this leaks all resources of the data. //TODO: drop before
@@ -993,7 +1083,7 @@ mod test_dead_data_drop {
             headers_before.into_iter().collect::<VecDeque<_>>();
         let field_data_size_before = headers_before
             .iter()
-            .map(FieldValueHeader::data_size_unique)
+            .map(FieldValueHeader::total_size_unique)
             .sum();
         let dead_data = IterHallActionApplicator::calc_dead_data(
             &headers_before,
