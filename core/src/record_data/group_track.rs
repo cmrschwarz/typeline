@@ -226,7 +226,6 @@ impl<'a> RecordGroupActionsApplicator<'a> {
             return;
         }
         self.modified = false;
-        self.phase_out_current_iters();
         if self.inside_passed_elems {
             self.gl.passed_fields_count = self.group_len;
             return;
@@ -234,6 +233,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
         self.gl.group_lengths.set(self.group_idx, self.group_len);
     }
     fn next_group(&mut self) {
+        self.phase_out_current_iters();
         self.apply_modifications();
         if self.inside_passed_elems {
             self.inside_passed_elems = false;
@@ -258,7 +258,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
                 self.modified = true;
             }
             FieldActionKind::Drop => {
-                let group_offset = self.group_len - self.group_len_rem;
+                let mut group_offset = self.group_len - self.group_len_rem;
                 if action_run_len > self.group_len_rem {
                     for is_idx in
                         self.affected_iters_start..self.affected_iters_end
@@ -270,33 +270,51 @@ impl<'a> RecordGroupActionsApplicator<'a> {
                     }
                     self.affected_iters_start = self.affected_iters_end;
                     while action_run_len > self.group_len_rem {
+                        self.skip_same_pos_iters_for_drop(
+                            self.group_len_rem,
+                            group_offset,
+                        );
                         self.group_len = group_offset;
                         self.curr_iters_field_pos_delta -=
                             self.group_len_rem as isize;
                         action_run_len -= self.group_len_rem;
                         self.modified = true;
+                        // this resets group len rem so we don't have to change
+                        // it
                         self.next_group();
+                        self.advance_affected_iters_to_group();
+                        group_offset = 0;
                     }
                 }
-                let field_pos_unmodified = (self.field_pos as isize
-                    - self.curr_iters_field_pos_delta)
-                    as usize;
-                while self.affected_iters_start < self.affected_iters_end {
-                    let is = self.gl.iter_states
-                        [self.affected_iters_start as usize]
-                        .get_mut();
-                    if is.field_pos - field_pos_unmodified > action_run_len {
-                        break;
-                    }
-                    is.field_pos = self.field_pos;
-                    is.group_offset = group_offset;
-                    self.affected_iters_start += 1;
-                }
+                self.skip_same_pos_iters_for_drop(
+                    action_run_len,
+                    group_offset,
+                );
                 self.curr_iters_field_pos_delta -= action_run_len as isize;
                 self.group_len -= action_run_len;
                 self.group_len_rem -= action_run_len;
                 self.modified = true;
             }
+        }
+    }
+
+    fn skip_same_pos_iters_for_drop(
+        &mut self,
+        action_run_len_rem: usize,
+        group_offset: usize,
+    ) {
+        let field_pos_unmodified = (self.field_pos as isize
+            - self.curr_iters_field_pos_delta)
+            as usize;
+        while self.affected_iters_start < self.affected_iters_end {
+            let is = self.gl.iter_states[self.affected_iters_start as usize]
+                .get_mut();
+            if is.field_pos - field_pos_unmodified > action_run_len_rem {
+                break;
+            }
+            is.field_pos = self.field_pos;
+            is.group_offset = group_offset;
+            self.affected_iters_start += 1;
         }
     }
 
@@ -405,6 +423,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
 
 impl<'a> Drop for RecordGroupActionsApplicator<'a> {
     fn drop(&mut self) {
+        self.phase_out_current_iters();
         self.apply_modifications();
         self.apply_future_iter_modifications();
     }
@@ -1946,7 +1965,7 @@ pub(crate) mod testing_helpers {
 }
 
 #[cfg(test)]
-mod test_action_lists_throug_iter {
+mod test_action_lists_through_iter {
     use std::cell::Cell;
 
     use crate::{
@@ -2321,6 +2340,33 @@ mod test_action_lists {
             [GroupTrackIterStateRaw {
                 field_pos: 1,
                 group_idx: 1,
+                group_offset: 0,
+                iter_id: 0,
+                first_right_leaning_actor_id: ActorId::MAX_VALUE,
+            }],
+        );
+    }
+    #[test]
+    fn test_iter_field_pos_adjustment_on_drop_spanning_passed() {
+        test_apply_field_actions(
+            5,
+            [1, 1, 1, 1, 1],
+            [GroupTrackIterStateRaw {
+                field_pos: 5,
+                group_idx: 0,
+                group_offset: 0,
+                iter_id: 0,
+                first_right_leaning_actor_id: ActorId::MAX_VALUE,
+            }],
+            [
+                FieldAction::new(FieldActionKind::Drop, 1, 6),
+                FieldAction::new(FieldActionKind::Dup, 3, 1),
+            ],
+            1,
+            [0, 0, 1, 1, 2],
+            [GroupTrackIterStateRaw {
+                field_pos: 1,
+                group_idx: 0,
                 group_offset: 0,
                 iter_id: 0,
                 first_right_leaning_actor_id: ActorId::MAX_VALUE,

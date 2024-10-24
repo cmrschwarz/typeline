@@ -882,7 +882,8 @@ impl<'a> Job<'a> {
 
         #[cfg(feature = "debug_logging_transform_update")]
         eprintln!(
-            "> transform update {}",
+            "> {}: transform update {}",
+            self.job_data.transform_step_count,
             self.job_data.tf_mgr.format_transform_state(
                 tf_id,
                 &self.transform_data,
@@ -903,7 +904,8 @@ impl<'a> Job<'a> {
             let tf = &self.job_data.tf_mgr.transforms[tf_id];
             let output_field_id = tf.output_field;
             eprintln!(
-                "/> transform update {}",
+                "/> {}: transform update {}",
+                self.job_data.transform_step_count,
                 self.job_data.tf_mgr.format_transform_state(
                     tf_id,
                     &self.transform_data,
