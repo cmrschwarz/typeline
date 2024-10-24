@@ -40,7 +40,7 @@ impl BitVecDeque {
     }
     pub fn index_to_phys(&self, idx: usize) -> usize {
         let head_space = self.cap - self.head;
-        if idx > head_space {
+        if idx >= head_space {
             idx - head_space
         } else {
             self.head + idx
@@ -50,6 +50,7 @@ impl BitVecDeque {
         &self,
         idx_phys: usize,
     ) -> &usize {
+        debug_assert!(idx_phys < self.cap);
         unsafe { &*self.data.as_ptr().add(idx_phys / BITS_PER_WORD) }
     }
     pub unsafe fn get_phys_word_ref_unchecked_mut(
@@ -109,66 +110,74 @@ impl BitVecDeque {
         let l2 = self.len - l1;
         (l1, l2)
     }
+
     fn get_slices_len_words(&self) -> (usize, usize) {
         let (l1, l2) = self.get_slices_len_bits();
-        (l1.div_ceil(BITS_PER_WORD), l2.div_ceil(BITS_PER_WORD))
+
+        let l1_words = (self.head + l1).div_ceil(BITS_PER_WORD)
+            - self.head / BITS_PER_WORD;
+
+        let l2_words = l2.div_ceil(BITS_PER_WORD);
+
+        (l1_words, l2_words)
     }
+
     pub unsafe fn realloc(&mut self, cap_new: usize) {
         debug_assert!(cap_new % BITS_PER_WORD == 0);
         debug_assert!(cap_new >= self.len + BITS_PER_WORD);
-        let word_cap_old = self.cap / BITS_PER_WORD;
-        let word_cap_new = cap_new / BITS_PER_WORD;
-        let layout_old =
-            unsafe { Layout::array::<usize>(word_cap_old).unwrap_unchecked() };
-        let cap_old = self.cap;
-        self.cap = cap_new;
-        let head_old = self.head;
-        self.head %= BITS_PER_WORD;
+
         if cap_new == 0 {
-            if cap_old != 0 {
-                unsafe {
-                    std::alloc::dealloc(self.data.as_ptr().cast(), layout_old)
-                };
-            }
-            self.data = NonNull::dangling();
+            *self = BitVecDeque::new();
             return;
         }
 
-        let data_old = self.data.as_ptr();
+        let cap_new_words = cap_new / BITS_PER_WORD;
 
         // this could potentially overflow on 32 bit, so we keep the checked
         // unwrap
-        let layout_new = Layout::array::<usize>(word_cap_new).unwrap();
-
+        let layout_new = Layout::array::<usize>(cap_new_words).unwrap();
         #[allow(clippy::cast_ptr_alignment)]
         let data_new =
             unsafe { std::alloc::alloc(layout_new) }.cast::<usize>();
-        self.data = unsafe { NonNull::new_unchecked(data_new) };
 
-        if cap_old == 0 {
-            unsafe { std::ptr::write_bytes(data_new, 0, word_cap_new) }
+        if self.cap == 0 {
+            unsafe { std::ptr::write_bytes(data_new, 0, cap_new_words) }
+            debug_assert_eq!(self.head, 0);
+            self.cap = cap_new;
+            self.data = unsafe { NonNull::new_unchecked(data_new) };
             return;
         }
 
-        let (l1, l2) = self.get_slices_len_words();
-        let word_count_old = l1 + l2;
+        let cap_old_words = self.cap / BITS_PER_WORD;
+        let data_old = self.data.as_ptr();
+        let (l1_words, l2_words) = self.get_slices_len_words();
+        let words_written = l1_words + l2_words;
         unsafe {
-            let start_old = data_old.add(head_old);
-            std::ptr::copy_nonoverlapping(start_old, data_new, l1);
-            std::ptr::copy_nonoverlapping(data_old, data_new.add(l1), l2);
-            std::ptr::write_bytes(
-                data_new.add(word_count_old),
-                0,
-                word_cap_new - word_count_old,
+            let start_old = data_old.add(self.head / BITS_PER_WORD);
+            std::ptr::copy_nonoverlapping(start_old, data_new, l1_words);
+            std::ptr::copy_nonoverlapping(
+                data_old,
+                data_new.add(l1_words),
+                l2_words,
             );
-            std::alloc::dealloc(data_old.cast(), layout_old);
+            std::ptr::write_bytes(
+                data_new.add(words_written),
+                0,
+                cap_new_words - words_written,
+            );
+            let layout_old =
+                Layout::array::<usize>(cap_old_words).unwrap_unchecked();
+            std::alloc::dealloc(self.data.as_ptr().cast(), layout_old);
+            self.data = NonNull::new_unchecked(data_new);
         }
+        self.cap = cap_new;
+        self.head %= BITS_PER_WORD;
     }
     pub fn grow(&mut self, target_cap: usize) {
         assert!(target_cap > self.cap);
-        let mut cap_new = (self.cap * 2).max(1);
+        let mut cap_new = (self.cap * 2).max(BITS_PER_WORD);
         if cap_new < target_cap {
-            cap_new <<= target_cap.leading_zeros() - cap_new.leading_zeros();
+            cap_new <<= target_cap.trailing_zeros() - cap_new.trailing_zeros();
         }
         unsafe { self.realloc(cap_new.next_multiple_of(BITS_PER_WORD)) };
     }
@@ -201,7 +210,9 @@ impl BitVecDeque {
     }
     pub fn push_back(&mut self, value: bool) {
         self.reserve(1);
-        unsafe { self.set_unchecked_idx_phys(self.len, value) };
+        unsafe {
+            self.set_unchecked_idx_phys(self.index_to_phys(self.len), value)
+        };
         self.len += 1;
     }
     pub fn pop_back(&mut self) -> bool {
@@ -235,15 +246,13 @@ impl BitVecDeque {
         &self,
     ) -> (&BitSlice<usize, LocalBits>, &BitSlice<usize, LocalBits>) {
         let (l1, l2) = self.get_slices_len_bits();
+        let (l1_words, l2_words) = self.get_slices_len_words();
         unsafe {
             let s1 = std::slice::from_raw_parts(
                 self.data.as_ptr().add(self.head / BITS_PER_WORD),
-                l1.div_ceil(BITS_PER_WORD),
+                l1_words,
             );
-            let s2 = std::slice::from_raw_parts(
-                self.data.as_ptr(),
-                l2.div_ceil(BITS_PER_WORD),
-            );
+            let s2 = std::slice::from_raw_parts(self.data.as_ptr(), l2_words);
             let bit_offset_first = self.head % BITS_PER_WORD;
             let bs1 = if l1 == 0 {
                 BitSlice::from_slice(&[])
@@ -354,6 +363,12 @@ impl BitVecDeque {
         for v in it {
             self.push_back(v);
         }
+    }
+
+    pub fn with_capacity(cap: usize) -> Self {
+        let mut res = Self::new();
+        res.reserve(cap);
+        res
     }
 }
 
@@ -529,5 +544,30 @@ mod test {
             &(0..5).map(|i| usize::from(foo[i])).collect::<Vec<_>>(),
             &[0, 0, 1, 1, 0]
         );
+    }
+
+    #[test]
+    fn get_with_head_at_end() {
+        use std::iter::repeat;
+        let mut foo = BitVecDeque::with_capacity(128);
+        let mut res = Vec::new();
+
+        foo.extend(repeat(true).take(127));
+        res.extend(repeat(true).take(127));
+
+        foo.drop_front(127);
+        res.truncate(0);
+
+        foo.extend(repeat(false).take(127));
+        res.extend(repeat(false).take(127));
+
+        assert_eq!(foo.iter().collect::<Vec<_>>(), &*res);
+        assert_eq!((0..res.len()).map(|i| foo[i]).collect::<Vec<_>>(), res);
+
+        foo.extend(repeat(true).take(127));
+        res.extend(repeat(true).take(127));
+
+        assert_eq!(foo.iter().collect::<Vec<_>>(), &*res);
+        assert_eq!((0..res.len()).map(|i| foo[i]).collect::<Vec<_>>(), res);
     }
 }
