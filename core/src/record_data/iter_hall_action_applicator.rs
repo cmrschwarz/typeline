@@ -108,6 +108,7 @@ impl IterHallActionApplicator {
     fn push_full_cow<'a>(
         full_cow_field_refs: &mut IndexVec<FullCowIndex, FullCowFieldRef<'a>>,
         data_cow_field_refs: &mut IndexVec<DataCowIndex, DataCowFieldRef<'a>>,
+        #[cfg_attr(not(feature = "debug_state"), allow(unused))]
         tgt_field_id: FieldId,
         data_cow_idx: Option<DataCowIndex>,
         starting_field_full_cow_list_head: &mut Option<FullCowIndex>,
@@ -133,6 +134,7 @@ impl IterHallActionApplicator {
     }
     fn push_data_cow(
         data_cow_field_refs: &mut IndexVec<DataCowIndex, DataCowFieldRef>,
+        #[cfg_attr(not(feature = "debug_state"), allow(unused))]
         tgt_field_id: FieldId,
         field_headers: &VecDeque<FieldValueHeader>,
         tgt_cow_end: IterState,
@@ -480,8 +482,11 @@ impl IterHallActionApplicator {
         let mut last_header_alive = headers.len();
         let mut iter_idx_bwd = iters.len();
         let mut dropped_headers_back = 0;
+        let leading_header_drops =
+            leading_headers_to_drain - preserved_headers_leading;
         while last_header_alive > preserved_headers_leading {
-            let h = &mut headers[last_header_alive - 1];
+            let header_idx = last_header_alive - 1;
+            let h = &mut headers[header_idx];
             let h_ds = h.total_size_unique();
             if trailing_drop_rem < h_ds {
                 let header_elem_size = h.fmt.size as usize;
@@ -498,10 +503,11 @@ impl IterHallActionApplicator {
                     data_size_after - h.total_size_unique();
                 while iter_idx_bwd > iter_idx_fwd {
                     let it = &mut iters[iter_idx_bwd - 1];
-                    if it.header_idx < last_header_alive - 1 {
+                    let old_header_idx = it.header_idx - leading_header_drops;
+                    if old_header_idx < header_idx {
                         break;
                     }
-                    if it.header_idx == last_header_alive - 1 {
+                    if old_header_idx == header_idx {
                         it.header_rl_offset = it
                             .header_rl_offset
                             .saturating_sub(elems_to_drop as RunLength);
@@ -509,7 +515,7 @@ impl IterHallActionApplicator {
                         it.header_rl_offset = h.run_length;
                     }
                     it.data = data_size_header_start;
-                    it.header_idx = header_idx_new;
+                    it.header_idx = header_idx;
 
                     iter_idx_bwd -= 1;
                 }
@@ -525,17 +531,18 @@ impl IterHallActionApplicator {
             self.preserved_headers.push(*h);
             while iter_idx_bwd > iter_idx_fwd {
                 let it = &mut iters[iter_idx_bwd - 1];
-                if it.header_idx < last_header_alive {
+                let old_header_idx = it.header_idx - leading_header_drops;
+                if old_header_idx < header_idx {
                     break;
                 }
-                if it.header_idx != last_header_alive {
+                if old_header_idx != header_idx {
                     it.header_rl_offset = h.run_length;
                 }
                 // we do a final pass afterwards were we subtract the
                 // amount of dropped headers from all affected iters.
                 // to counteract those headers already dropped before
                 // us (going backwards), we add them here
-                it.header_idx = last_header_alive + dropped_headers_back;
+                it.header_idx = header_idx + dropped_headers_back;
                 it.data = data_size_after;
                 iter_idx_bwd -= 1;
             }
@@ -547,7 +554,9 @@ impl IterHallActionApplicator {
 
         while iter_idx_bwd > iter_idx_fwd {
             iter_idx_bwd -= 1;
-            iters[iter_idx_bwd].data -= real_leading_drop;
+            let it = &mut iters[iter_idx_bwd];
+            it.data -= real_leading_drop;
+            it.header_idx -= leading_header_drops;
         }
 
         if let Some(data) = data {
@@ -852,6 +861,10 @@ impl IterHallActionApplicator {
         dead_data: DeadDataReport,
         field_data_size: usize,
         field: &mut Field,
+        #[cfg_attr(
+            not(feature = "debug_logging_field_actions"),
+            allow(unused)
+        )]
         fm: &FieldManager,
         data_cow_fields: &mut IndexSlice<DataCowIndex, DataCowFieldRef<'a>>,
         full_cow_fields: &mut IndexSlice<FullCowIndex, FullCowFieldRef<'a>>,
