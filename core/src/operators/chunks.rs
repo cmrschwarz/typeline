@@ -294,7 +294,7 @@ pub fn handle_tf_chunks_trailer(
     let in_group_track_id = tf.input_group_track_id;
     let out_group_track_id = tf.output_group_track_id;
 
-    jd.group_track_manager.merge_leading_groups_into_parent(
+    jd.group_track_manager.pass_on_leading_groups_to_parent(
         &jd.match_set_mgr,
         in_group_track_id,
         batch_size,

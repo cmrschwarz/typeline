@@ -1014,7 +1014,7 @@ impl GroupTrack {
     }
 }
 
-pub fn merge_leading_groups_into_parent_raw(
+pub fn pass_on_leading_groups_to_parent_raw(
     parent_prev_gt: &GroupTrack,
     child_gt: &mut GroupTrack,
     parent_new_gt: &mut GroupTrack,
@@ -1305,7 +1305,7 @@ impl GroupTrackManager {
             gt.drop_leading_groups(true, lgts, end_of_input);
         }
     }
-    pub fn merge_leading_groups_into_parent(
+    pub fn pass_on_leading_groups_to_parent(
         &self,
         msm: &MatchSetManager,
         child_group_track_id: GroupTrackId,
@@ -1327,7 +1327,7 @@ impl GroupTrackManager {
         // PERF: is that actually neccessary?
         parent_new_gt.apply_field_actions(msm);
 
-        merge_leading_groups_into_parent_raw(
+        pass_on_leading_groups_to_parent_raw(
             &parent_prev_gt,
             &mut child_gt,
             &mut parent_new_gt,
@@ -2376,18 +2376,18 @@ mod test_action_lists {
 }
 
 #[cfg(test)]
-mod test_merge {
+mod test_pass_on {
     use std::iter;
 
     use crate::{
         record_data::group_track::{
-            merge_leading_groups_into_parent_raw, GroupTrack,
+            pass_on_leading_groups_to_parent_raw, GroupTrack,
         },
         utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
 
     #[track_caller]
-    fn test_merge_leading_groups(
+    fn test_pass_on_leading_groups_to_parent(
         prev_parent_advancements: impl IntoIterator<
             IntoIter = impl Iterator<Item = usize> + Clone,
         >,
@@ -2436,7 +2436,7 @@ mod test_merge {
             ),
             ..Default::default()
         };
-        merge_leading_groups_into_parent_raw(
+        pass_on_leading_groups_to_parent_raw(
             &prev_parent,
             &mut child,
             &mut new_parent,
@@ -2457,7 +2457,7 @@ mod test_merge {
 
     #[test]
     fn test_simple_merge() {
-        test_merge_leading_groups(
+        test_pass_on_leading_groups_to_parent(
             [42],
             [0, 0, 0],
             [1, 1, 1],
@@ -2472,7 +2472,7 @@ mod test_merge {
 
     #[test]
     fn test_simple_skip() {
-        test_merge_leading_groups(
+        test_pass_on_leading_groups_to_parent(
             [1, 22, 333],
             [0, 2],
             [1, 2],
@@ -2488,7 +2488,7 @@ mod test_merge {
     // reduced from integration::foreach::foreach_empty_group_skip
     #[test]
     fn test_multi_skip() {
-        test_merge_leading_groups(
+        test_pass_on_leading_groups_to_parent(
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
             [5, 1, 1, 0, 1, 1],
             [1, 1, 1, 1, 1, 1],
