@@ -410,6 +410,7 @@ impl IterHallActionApplicator {
         let mut iter_idx_fwd = 0;
         let mut header_idx_new = 0;
         let mut dead_data_leading_rem = drop_instructions.leading_drop;
+        let mut partial_header_dropped_elem_count = 0;
 
         while leading_headers_to_drain < headers.len() {
             let h = &mut headers[leading_headers_to_drain];
@@ -417,28 +418,12 @@ impl IterHallActionApplicator {
             if dead_data_leading_rem < h_ds {
                 let header_elem_size = h.fmt.size as usize;
                 let header_padding = h.leading_padding();
-                let dropped_elem_count =
+                partial_header_dropped_elem_count =
                     ((dead_data_leading_rem - header_padding)
                         / header_elem_size) as RunLength;
-                h.run_length -= dropped_elem_count;
+                h.run_length -= partial_header_dropped_elem_count;
                 h.set_leading_padding(drop_instructions.first_header_padding);
 
-                while iter_idx_fwd < iters.len() {
-                    let it = &mut iters[iter_idx_fwd];
-                    if it.header_idx > leading_headers_to_drain {
-                        break;
-                    }
-                    if it.header_idx == leading_headers_to_drain {
-                        it.header_rl_offset = it
-                            .header_rl_offset
-                            .saturating_sub(dropped_elem_count);
-                    } else {
-                        it.header_rl_offset = 0;
-                    }
-                    it.header_idx = header_idx_new;
-                    it.data = 0;
-                    iter_idx_fwd += 1;
-                }
                 break;
             }
             dead_data_leading_rem -= h_ds;
@@ -462,6 +447,22 @@ impl IterHallActionApplicator {
                 iter_idx_fwd += 1;
             }
             header_idx_new += 1;
+        }
+        while iter_idx_fwd < iters.len() {
+            let it = &mut iters[iter_idx_fwd];
+            if it.header_idx > leading_headers_to_drain {
+                break;
+            }
+            if it.header_idx == leading_headers_to_drain {
+                it.header_rl_offset = it
+                    .header_rl_offset
+                    .saturating_sub(partial_header_dropped_elem_count);
+            } else {
+                it.header_rl_offset = 0;
+            }
+            it.header_idx = header_idx_new;
+            it.data = 0;
+            iter_idx_fwd += 1;
         }
         let preserved_headers_leading = self.preserved_headers.len();
         headers.drain(0..leading_headers_to_drain);
@@ -1696,6 +1697,35 @@ mod test_dead_data_drop {
                 data: 1,
                 header_idx: 1,
                 header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+        );
+    }
+
+    #[test]
+    fn test_cleared_field_does_not_underflow() {
+        test_drop_dead_data(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Int,
+                    size: 8,
+                    flags: field_value_flags::DELETED,
+                },
+                run_length: 1,
+            }],
+            [],
+            [IterStateRaw {
+                field_pos: 0,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 0,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+            [IterStateRaw {
+                field_pos: 0,
+                data: 0,
+                header_idx: 0,
+                header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
         );
