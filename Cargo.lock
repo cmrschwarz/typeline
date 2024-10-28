@@ -1999,6 +1999,7 @@ dependencies = [
  "num",
  "pyo3",
  "scr_core",
+ "scr_ext_utils",
 ]
 
 [[package]]

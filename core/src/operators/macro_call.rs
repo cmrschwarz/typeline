@@ -135,8 +135,8 @@ pub fn create_op_macro_call_raw(
     };
     OpMacroCall {
         name,
-        op_multi_op,
         target,
+        op_multi_op,
         span,
     }
 }

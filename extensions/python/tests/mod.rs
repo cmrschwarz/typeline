@@ -3,8 +3,13 @@ use scr_core::{
     cli::call_expr::Span,
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
+        file_reader::create_op_file_reader_custom,
+        foreach::create_op_foreach,
+        forkcat::create_op_forkcat,
+        join::create_op_join,
         literal::create_op_int,
         operator::OperatorId,
+        regex::{create_op_regex_with_opts, RegexOptions},
         sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
@@ -13,9 +18,13 @@ use scr_core::{
         field_value::{FieldValue, Object},
     },
     scr_error::ScrError,
-    utils::indexing_type::IndexingType,
+    utils::{indexing_type::IndexingType, test_utils::SliceReader},
 };
-use scr_ext_python::py::create_op_py;
+use scr_ext_python::{create_op_to_int, py::create_op_py};
+use scr_ext_utils::{
+    head::create_op_head, string_utils::create_op_lines, sum::create_op_sum,
+    tail::create_op_tail,
+};
 
 #[test]
 fn python_basic() -> Result<(), ScrError> {
@@ -136,5 +145,39 @@ fn python_rational() -> Result<(), ScrError> {
             3.into()
         )))]
     );
+    Ok(())
+}
+
+#[test]
+fn aoc2023_day1_part1() -> Result<(), ScrError> {
+    let input = r#"
+1abc2
+pqr3stu8vwx
+a1b2c3d4e5f
+treb7uchet
+    "#;
+    let res = ContextBuilder::without_exts()
+        .add_ops([
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new(input.trim().as_bytes())),
+                1,
+            ),
+            create_op_lines(),
+            create_op_foreach([
+                create_op_regex_with_opts(
+                    "\\d",
+                    RegexOptions {
+                        multimatch: true,
+                        ..Default::default()
+                    },
+                )?,
+                create_op_forkcat([[create_op_head(1)], [create_op_tail(1)]]),
+                create_op_join(None, None, false),
+                create_op_to_int()?,
+            ]),
+            create_op_sum(),
+        ])
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [154]);
     Ok(())
 }
