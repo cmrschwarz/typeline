@@ -779,7 +779,7 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
                     inserter.push_zst(FieldValueRepr::Null, 1, true);
                     continue;
                 };
-                if PUSH_REF {
+                if PUSH_REF && (cg_end - cg_begin) >= REF_THRRESHOLD {
                     inserter.push_fixed_size_type(
                         SlicedFieldReference {
                             field_ref_offset: rmis.input_field_ref_offset,
@@ -851,6 +851,9 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
     rmis.batch_state.field_pos_output += match_count;
 }
 
+// TODO: use a proper schmidt trigger like approach for switching
+// between refs and inline strings
+static REF_THRRESHOLD: usize = 16;
 fn push_full<const PUSH_REF: bool, R: AnyRegex>(
     data: &<R as AnyRegex>::Data,
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
@@ -858,7 +861,7 @@ fn push_full<const PUSH_REF: bool, R: AnyRegex>(
     offsets: RangeOffsets,
     input_field_ref_offset: FieldRefOffset,
 ) {
-    if !PUSH_REF {
+    if !PUSH_REF || R::as_bytes(data).len() < REF_THRRESHOLD {
         if let Some(v) = R::as_str(data) {
             inserter.push_str(v, rl, true, false);
             return;
