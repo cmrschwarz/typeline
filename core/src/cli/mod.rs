@@ -18,6 +18,8 @@ use crate::{
             parse_op_literal_zst, parse_op_str, parse_op_tyson,
             parse_op_tyson_value, Literal,
         },
+        macro_call::parse_op_macro_call,
+        macro_def::parse_op_macro_def,
         nop::parse_op_nop,
         operator::OperatorData,
         print::parse_op_print,
@@ -168,6 +170,14 @@ pub fn parse_operator_data(
 ) -> Result<OperatorData, ScrError> {
     let mut expr = CallExpr::from_argument_mut(&mut arg)?;
 
+    let scope_id = sess.chains[sess.curr_chain].scope_id;
+    if let Some(mac) = sess
+        .scope_mgr
+        .lookup_macro(scope_id, sess.string_store.intern_cloned(expr.op_name))
+    {
+        return parse_op_macro_call(sess, arg, Some(mac));
+    }
+
     Ok(match expr.op_name {
         "atom" => parse_op_atom(sess, &mut expr)?,
         "int" => parse_op_int(sess, &expr)?,
@@ -211,6 +221,7 @@ pub fn parse_operator_data(
         "forkcat" | "fc" => parse_op_forkcat(sess, arg)?,
         "call" => parse_op_call(&expr)?,
         "callcc" => parse_op_call_concurrent(&expr)?,
+        "macro" => parse_op_macro_def(sess, arg)?,
         _ => {
             let ext_registry = sess.extensions.clone();
             for ext in &ext_registry.extensions {

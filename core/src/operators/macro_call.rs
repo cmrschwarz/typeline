@@ -124,6 +124,7 @@ pub fn macro_call_has_dynamic_outputs(
 
 pub fn create_op_macro_call_raw(
     name: String,
+    target: Option<MacroRef>,
     operations: Vec<(OperatorData, Span)>,
     span: Span,
 ) -> OpMacroCall {
@@ -135,35 +136,40 @@ pub fn create_op_macro_call_raw(
     OpMacroCall {
         name,
         op_multi_op,
-        target: None,
+        target,
         span,
     }
 }
 
 pub fn create_op_macro_call_with_spans(
     name: String,
+    target: Option<MacroRef>,
     operations: Vec<(OperatorData, Span)>,
 ) -> OperatorData {
     OperatorData::MacroCall(create_op_macro_call_raw(
         name,
+        target,
         operations,
         Span::Generated,
     ))
 }
+
 pub fn create_op_macro_call(
     name: String,
+    target: Option<MacroRef>,
     operators: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
     let subchain_with_opts = operators
         .into_iter()
         .map(|op_data| (op_data, Span::Generated))
         .collect();
-    create_op_macro_call_with_spans(name, subchain_with_opts)
+    create_op_macro_call_with_spans(name, target, subchain_with_opts)
 }
 
 pub fn parse_op_macro_call(
     sess_opts: &mut SessionSetupData,
     mut arg: Argument,
+    target: Option<MacroRef>,
 ) -> Result<OperatorData, ScrError> {
     let mut operations = Vec::new();
 
@@ -177,6 +183,7 @@ pub fn parse_op_macro_call(
 
     Ok(OperatorData::MacroCall(create_op_macro_call_raw(
         expr.op_name.to_string(),
+        target,
         operations,
         arg.span,
     )))
