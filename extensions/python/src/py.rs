@@ -399,7 +399,7 @@ impl<'a> Transform<'a> for TfPy<'a> {
             ));
         }
         Python::with_gil(|py| {
-            for _ in 0..batch_size {
+            'next_element: for _ in 0..batch_size {
                 // PERF: only update when changed!
                 for (i, iter) in input_field_iters.iter_mut().enumerate() {
                     let val = iter
@@ -433,7 +433,10 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         FieldValueRef::Object(_) => todo!(),
                         FieldValueRef::Custom(_) => todo!(),
                         FieldValueRef::StreamValueId(_) => todo!(),
-                        FieldValueRef::Error(_) => todo!(),
+                        FieldValueRef::Error(e) => {
+                            inserter.push_error(e.clone(), 1, true, false);
+                            continue 'next_element;
+                        }
                         FieldValueRef::FieldReference(_) => todo!(),
                         FieldValueRef::SlicedFieldReference(_) => todo!(),
                     };
