@@ -232,12 +232,18 @@ impl<'a> ComputeExprLexer<'a> {
         let mut span = self.next_token_start();
 
         let simple_kind = metamatch!(match c {
-            '{' => Some(TokenKind::LBrace),
-            '}' => Some(TokenKind::RBrace),
-            '(' => Some(TokenKind::LParen),
-            ')' => Some(TokenKind::RParen),
-            '[' => Some(TokenKind::LBracket),
-            ']' => Some(TokenKind::RBracket),
+            #[expand((CHAR, TOK_KIND) in [
+                ('{', LBrace),
+                ('}', RBrace),
+                ('(', LParen),
+                (')', RParen),
+                ('[', LBracket),
+                (']', RBracket),
+            ])]
+            CHAR => {
+                self.offset += 1;
+                Some(TokenKind::TOK_KIND)
+            }
 
             #[expand((C, BC, C_PLAIN, C_EQ, C_DOUBLE, C_DOUBLE_EQ) in [
                 ('<', b'<', LAngleBracket, LessThanEquals, LShift, LShiftEquals),

@@ -164,6 +164,46 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         self.parse_expression_after_value(lhs, min_prec)
     }
 
+    fn parse_function_call(
+        &mut self,
+        lhs: Expr,
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
+        self.lexer.drop_token();
+        let mut args = Vec::new();
+        let mut comma_found = false;
+        loop {
+            let Some(peek) = self.lexer.peek_token()? else {
+                return Err(ComputeExprParseError {
+                    span: self.lexer.next_token_start(),
+                    kind: ParseErrorKind::EndOfInputWhileExpectingToken {
+                        expected: "expression or `)`",
+                    },
+                });
+            };
+            if peek.kind == TokenKind::RParen {
+                self.lexer.drop_token();
+                return Ok(Expr::FunctionCall {
+                    lhs: Box::new(lhs),
+                    args: args.into_boxed_slice(),
+                });
+            }
+            if !args.is_empty() && !comma_found {
+                return Err(ComputeExprParseError {
+                    span: peek.span,
+                    kind: ParseErrorKind::UnexpectedToken {
+                        got: self.lexer.munch_token()?.unwrap().kind,
+                        expected: "expression, `,` or `)`",
+                    },
+                });
+            }
+            args.push(self.parse_expression(Precedence::ZERO)?);
+            if self.lexer.peek_token_kind()? == Some(&TokenKind::Comma) {
+                comma_found = true;
+                self.lexer.drop_token();
+            }
+        }
+    }
+
     fn parse_expression_after_value(
         &mut self,
         lhs: Expr,
@@ -209,10 +249,11 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             Tok::DoubleAmpersand => Op::LogicalAnd,
             Tok::DoubleAmpersandEquals => Op::LogicalAndAssign,
 
+            TokenKind::LParen => return self.parse_function_call(lhs),
+
             TokenKind::Literal(_)
             | TokenKind::Identifier(_)
             | TokenKind::Let
-            | TokenKind::LParen
             | TokenKind::RParen
             | TokenKind::LBrace
             | TokenKind::RBrace
