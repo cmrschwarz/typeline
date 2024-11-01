@@ -1999,6 +1999,7 @@ version = "0.1.0"
 dependencies = [
  "num",
  "pyo3",
+ "rstest 0.23.0",
  "scr_core",
  "scr_ext_utils",
 ]

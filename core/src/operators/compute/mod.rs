@@ -362,3 +362,11 @@ pub fn create_op_compute_b(
 ) -> Result<OperatorData, OperatorCreationError> {
     build_op_compute(val, Span::Generated)
 }
+
+pub fn build_op_to_int(span: Span) -> OperatorData {
+    build_op_compute(b"int(_)", span).unwrap()
+}
+
+pub fn create_op_to_int() -> OperatorData {
+    build_op_to_int(Span::Generated)
+}

@@ -21,3 +21,4 @@ pyo3 = { version = "0.22.0", features = ["num-bigint", "gil-refs"] }
 
 [dev-dependencies]
 scr_ext_utils = { path = "../utils" }
+rstest = "0.23.0"

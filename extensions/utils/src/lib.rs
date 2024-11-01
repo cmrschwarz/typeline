@@ -11,7 +11,10 @@ use primes::parse_op_primes;
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::{errors::OperatorCreationError, operator::OperatorData},
+    operators::{
+        compute::create_op_to_int, errors::OperatorCreationError,
+        operator::OperatorData,
+    },
     options::session_setup::SessionSetupData,
     scr_error::ScrError,
 };
@@ -74,6 +77,7 @@ impl Extension for UtilsExtension {
             "trim" => parse_op_reject_args(&expr, create_op_trim)?,
             "from_tyson" => parse_op_reject_args(&expr, create_op_from_tyson)?,
             "to_tyson" => parse_op_reject_args(&expr, create_op_to_tyson)?,
+            "to_int" => parse_op_reject_args(&expr, create_op_to_int)?,
             _ => return Ok(None),
         }))
     }

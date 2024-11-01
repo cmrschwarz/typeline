@@ -2,12 +2,17 @@ use rstest::rstest;
 use scr::{
     operators::{
         chunks::create_op_chunks,
+        compute::create_op_to_int,
+        file_reader::create_op_file_reader_custom,
         foreach::create_op_foreach,
+        forkcat::create_op_forkcat,
         join::create_op_join,
+        regex::{create_op_regex_with_opts, RegexOptions},
         sequence::{create_op_enum, create_op_seq},
     },
     options::session_setup::ScrSetupOptions,
     record_data::array::Array,
+    utils::test_utils::SliceReader,
     CliOptionsWithDefaultExtensions,
 };
 use scr_core::{
@@ -24,6 +29,8 @@ use scr_ext_utils::{
     flatten::create_op_flatten,
     head::create_op_head,
     primes::create_op_primes,
+    string_utils::create_op_lines,
+    sum::create_op_sum,
     tail::{create_op_tail, create_op_tail_add},
 };
 
@@ -204,5 +211,42 @@ fn multi_batch_primes_head() -> Result<(), ScrError> {
         .add_op(create_op_sum())
         .run_collect_stringified()?;
     assert_eq!(res, ["129"]);
+    Ok(())
+}
+
+#[rstest]
+#[case(1024)]
+#[case(3)]
+fn aoc2023_day1_part1(#[case] batch_size: usize) -> Result<(), ScrError> {
+    let input = r#"
+1abc2
+pqr3stu8vwx
+a1b2c3d4e5f
+treb7uchet
+    "#;
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(batch_size)?
+        .add_ops([
+            create_op_file_reader_custom(
+                Box::new(SliceReader::new(input.trim().as_bytes())),
+                1,
+            ),
+            create_op_lines(),
+            create_op_foreach([
+                create_op_regex_with_opts(
+                    "\\d",
+                    RegexOptions {
+                        multimatch: true,
+                        ..Default::default()
+                    },
+                )?,
+                create_op_forkcat([[create_op_head(1)], [create_op_tail(1)]]),
+                create_op_join(None, None, false),
+                create_op_to_int(),
+            ]),
+            create_op_sum(),
+        ])
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [142]);
     Ok(())
 }
