@@ -1,3 +1,15 @@
+use bstr::ByteSlice;
+use num::BigInt;
+
+use super::{
+    ast::{AccessIdx, BinaryOpKind, BuiltinFunction, ExternIdentId},
+    binary_ops::{BinOpAdd, BinOpSub, OverflowingBinOp},
+    compiler::{
+        Compilation, Instruction, InstructionId, TargetRef, TempFieldIdRaw,
+        ValueAccess,
+    },
+    ExternField, ExternFieldIdx, ExternVarData, TempField,
+};
 use crate::{
     index_newtype,
     operators::{errors::OperatorApplicationError, operator::OperatorId},
@@ -13,7 +25,11 @@ use crate::{
         },
         match_set::MatchSetManager,
         push_interface::PushInterface,
-        ref_iter::{AutoDerefIter, RefAwareTypedRange},
+        ref_iter::{
+            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
+            RefAwareInlineTextIter, RefAwareTextBufferIter,
+            RefAwareTypedRange,
+        },
         single_value_iter::{AtomIter, FieldValueIter, SingleValueIter},
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -23,17 +39,8 @@ use crate::{
         universe::{Universe, UniverseMultiRefMutHandout},
     },
 };
+use metamatch::metamatch;
 use std::ops::Range;
-
-use super::{
-    ast::{AccessIdx, BinaryOpKind, BuiltinFunction, ExternIdentId},
-    binary_ops::{BinOpAdd, BinOpSub, OverflowingBinOp},
-    compiler::{
-        Compilation, Instruction, InstructionId, TargetRef, TempFieldIdRaw,
-        ValueAccess,
-    },
-    ExternField, ExternFieldIdx, ExternVarData, TempField,
-};
 
 index_newtype! {
     pub struct ExternFieldTempIterId(u32);
@@ -513,6 +520,100 @@ fn execute_binary_op(
     }
 }
 
+fn execute_builtin_func_on_range(
+    op_id: OperatorId,
+    kind: BuiltinFunction,
+    arg_range: RefAwareTypedRange<'_>,
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    match kind {
+        BuiltinFunction::Cast(FieldValueKind::Int) => {
+            execute_cast_int(op_id, arg_range, inserter)
+        }
+        _ => todo!(),
+    }
+}
+
+fn execute_cast_int(
+    op_id: OperatorId,
+    range: RefAwareTypedRange<'_>,
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    metamatch!(match range.base.data {
+        #[expand((REPR, ITER, VAL_BYTES, VAL_ERR) in [
+            (TextInline, RefAwareInlineTextIter, v.as_bytes(), v),
+            (TextBuffer, RefAwareTextBufferIter, v.as_bytes(), v),
+            (BytesInline, RefAwareInlineBytesIter, v, v.to_str_lossy()),
+            (BytesBuffer, RefAwareBytesBufferIter, v, v.to_str_lossy())
+        ])]
+        FieldValueSlice::REPR(data) => {
+            for (v, rl, _) in ITER::from_range(&range, data) {
+                let rl = rl as usize;
+                match lexical_core::parse::<i64>(VAL_BYTES) {
+                    Ok(v) => {
+                        inserter.push_int(v, rl, true, false);
+                    }
+                    Err(e) => {
+                        if matches!(
+                            e,
+                            lexical_core::Error::Overflow(_)
+                                | lexical_core::Error::Underflow(_)
+                        ) {
+                            if let Some(v) = BigInt::parse_bytes(VAL_BYTES, 10)
+                            {
+                                inserter.push_big_int(v, rl, true, false);
+                                continue;
+                            }
+                        }
+                        inserter.push_error(
+                            OperatorApplicationError::new_s(
+                                format!(
+                                    "failed to parse '{}' as int",
+                                    VAL_ERR,
+                                ),
+                                op_id,
+                            ),
+                            rl,
+                            true,
+                            false,
+                        );
+                    }
+                }
+            }
+        }
+        FieldValueSlice::Float(_) => todo!(),
+        FieldValueSlice::BigRational(_) => todo!(),
+        FieldValueSlice::Int(_)
+        | FieldValueSlice::BigInt(_)
+        | FieldValueSlice::Error(_) => {
+            inserter.extend_from_ref_aware_range(range, true, false)
+        }
+        FieldValueSlice::Null(_)
+        | FieldValueSlice::Undefined(_)
+        | FieldValueSlice::Object(_)
+        | FieldValueSlice::Array(_)
+        | FieldValueSlice::Custom(_)
+        | FieldValueSlice::Argument(_)
+        | FieldValueSlice::Macro(_)
+        | FieldValueSlice::StreamValueId(_)
+        | FieldValueSlice::FieldReference(_)
+        | FieldValueSlice::SlicedFieldReference(_) => {
+            inserter.push_error(
+                OperatorApplicationError::new_s(
+                    format!(
+                        "cannot cast '{}' to int",
+                        range.base.data.kind().to_str()
+                    ),
+                    op_id,
+                ),
+                range.base.field_count,
+                true,
+                false,
+            );
+        }
+    })
+}
+
 impl<'a, 'b> Exectutor<'a, 'b> {
     fn execute_op_binary(
         &mut self,
@@ -531,7 +632,7 @@ impl<'a, 'b> Exectutor<'a, 'b> {
         let mut temp_field_handouts =
             self.temp_fields.multi_ref_mut_handout::<3>();
         let mut extern_field_temp_iter_handouts =
-            self.extern_field_temp_iters.multi_ref_mut_handout::<3>();
+            self.extern_field_temp_iters.multi_ref_mut_handout::<2>();
         let mut inserter = get_inserter(
             self.output,
             &mut temp_field_handouts,
@@ -582,12 +683,81 @@ impl<'a, 'b> Exectutor<'a, 'b> {
     }
 
     fn execute_builtin_fn(
-        &self,
-        _kind: &BuiltinFunction,
-        _args: &[ValueAccess],
-        _target: TargetRef,
+        &mut self,
+        kind: BuiltinFunction,
+        args: &[ValueAccess],
+        tgt: TargetRef,
+        field_pos: usize,
+        count: usize,
     ) {
-        todo!()
+        const MAX_ARGS: usize = 1;
+        let output_tmp_id = match tgt {
+            TargetRef::TempField(id) => Some(id),
+            TargetRef::Output => None,
+            TargetRef::Discard => {
+                return;
+            }
+        };
+        let mut temp_field_handouts =
+            self.temp_fields.multi_ref_mut_handout::<{ MAX_ARGS + 1 }>();
+        let mut extern_field_temp_iter_handouts = self
+            .extern_field_temp_iters
+            .multi_ref_mut_handout::<MAX_ARGS>();
+        let mut inserter = get_inserter(
+            self.output,
+            &mut temp_field_handouts,
+            output_tmp_id,
+            field_pos,
+        );
+
+        if args.len() != 1 {
+            // TODO: once we have builtin fns with more than one
+            // arg make this more sophisticated
+            inserter.push_error(
+                OperatorApplicationError::new_s(
+                    format!(
+                        "invalid argument count for builtin op: '{}' expects 1 argument, got {}",
+                        kind.to_str(),
+                        args.len()
+                    ),
+                    self.op_id
+                ),
+                count,
+                true,
+                false,
+            );
+            return;
+        }
+
+        let mut arg_iter = get_executor_input_iter(
+            &args[0],
+            self.extern_vars,
+            self.extern_fields,
+            self.extern_field_iters,
+            &mut temp_field_handouts,
+            &mut extern_field_temp_iter_handouts,
+            field_pos,
+            count,
+        );
+        let mut count_rem = count;
+
+        while count_rem > 0 {
+            let arg_range = arg_iter
+                .typed_range_fwd(self.msm, count_rem, FieldIterOpts::default())
+                .unwrap();
+
+            count_rem -= arg_range.base.field_count;
+
+            execute_builtin_func_on_range(
+                self.op_id,
+                kind,
+                arg_range,
+                &mut inserter,
+            );
+            if count_rem == 0 {
+                break;
+            }
+        }
     }
 
     fn execute_move(
@@ -678,6 +848,11 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                         *kind, lhs, rhs, *target, field_pos, count,
                     );
                 }
+                Instruction::BuiltinFunction { kind, args, target } => {
+                    self.execute_builtin_fn(
+                        *kind, args, *target, field_pos, count,
+                    );
+                }
                 Instruction::CondCall {
                     cond: _,
                     else_start: _,
@@ -705,9 +880,6 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                     );
                     tmp.data.clear();
                     tmp.field_pos = usize::MAX;
-                }
-                Instruction::BuiltinFunction { kind, args, target } => {
-                    self.execute_builtin_fn(kind, args, *target);
                 }
             }
         }

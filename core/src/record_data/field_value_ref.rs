@@ -373,6 +373,9 @@ impl<'a> FieldValueSlice<'a> {
             FieldValueSlice::REP(_) => FieldValueRepr::REP,
         })
     }
+    pub fn kind(&self) -> FieldValueKind {
+        self.repr().kind()
+    }
     pub fn len(&self) -> usize {
         metamatch!(match self {
             FieldValueSlice::Undefined(v) | FieldValueSlice::Null(v) => *v,

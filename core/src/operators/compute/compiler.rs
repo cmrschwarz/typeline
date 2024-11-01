@@ -666,7 +666,6 @@ impl Compiler<'_> {
                     unimplemented!("extern function calls");
                 };
                 let mut elements = Vec::new();
-                let discard = discard && !kind.has_side_effects();
                 for e in args {
                     if discard {
                         self.compile_expr_for_given_target(
@@ -682,6 +681,9 @@ impl Compiler<'_> {
                         self.defer_release_intermediate(v);
                     }
                 }
+                // none of the builtin functions have side effects (yet)
+                // if they ever do, we have to deal with that here and
+                // don't discard the instruction
                 if !discard {
                     self.instructions.push(Instruction::BuiltinFunction {
                         kind,

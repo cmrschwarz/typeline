@@ -1930,6 +1930,7 @@ dependencies = [
  "encoding_rs",
  "handlebars",
  "indexmap",
+ "lexical-core",
  "memchr",
  "metamatch",
  "num",

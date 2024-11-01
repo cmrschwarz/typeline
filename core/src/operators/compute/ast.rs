@@ -111,22 +111,12 @@ pub struct IfExpr {
     pub else_block: Option<Block>,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum BuiltinFunction {
     Cast(FieldValueKind),
     Trim,
     Upper,
     Lower,
-}
-impl BuiltinFunction {
-    pub fn has_side_effects(&self) -> bool {
-        match self {
-            BuiltinFunction::Cast(_)
-            | BuiltinFunction::Trim
-            | BuiltinFunction::Upper
-            | BuiltinFunction::Lower => false,
-        }
-    }
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -267,5 +257,16 @@ impl BinaryOpKind {
 impl Display for BinaryOpKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.to_str())
+    }
+}
+
+impl BuiltinFunction {
+    pub fn to_str(self) -> &'static str {
+        match self {
+            BuiltinFunction::Cast(kind) => kind.to_str(),
+            BuiltinFunction::Trim => "trim",
+            BuiltinFunction::Upper => "upper",
+            BuiltinFunction::Lower => "lower",
+        }
     }
 }
