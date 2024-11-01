@@ -533,9 +533,8 @@ impl LivenessData {
         let end = sess.chains[chain_id].operators.next_idx();
         bb.operators_end = op_n + OffsetInChain::one();
         if op_n + OffsetInChain::one() != end {
-            bb.operators_end = op_n;
             bb.successors.push(BasicBlockId::from(curr_bb_count));
-            self.basic_blocks.push(BasicBlock {
+            let bb_new = self.basic_blocks.push_get_id(BasicBlock {
                 chain_id,
                 operators_start: op_n + OffsetInChain::one(),
                 operators_end: end,
@@ -547,7 +546,7 @@ impl LivenessData {
                 predecessors: SmallVec::new(),
                 key_aliases: HashMap::default(),
             });
-            self.updates_stack.push(bb_id);
+            self.updates_stack.push(bb_new);
         }
     }
     // returns true if the op ends the block
@@ -1472,7 +1471,8 @@ impl LivenessData {
         for (op_id, old) in self.operator_liveness_data.iter_enumerated() {
             let op_data_id = sess.operator_bases[op_id].op_data_id;
             eprint!(
-                "op {op_id:02} ({}):",
+                "op {op_id:02} (bb {:02}) ({}):",
+                self.operator_liveness_data[op_id].basic_block_id,
                 sess.operator_data[op_data_id].debug_op_name(),
             );
             if !old.accessed_outputs.is_empty() {

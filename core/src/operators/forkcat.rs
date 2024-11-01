@@ -17,6 +17,7 @@ use crate::{
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
+        BB_INPUT_VAR_ID,
     },
     options::{
         chain_settings::SettingBatchSize, session_setup::SessionSetupData,
@@ -211,6 +212,23 @@ pub fn setup_op_forkcat(
     Ok(op_id)
 }
 
+fn declare_var_needed_for_sc(
+    op: &mut OpForkCat,
+    ld: &LivenessData,
+    var_id: VarId,
+    sc_count: usize,
+    sc_idx: usize,
+) {
+    op.input_mappings
+        .entry(ld.vars[var_id])
+        .or_insert_with(|| {
+            let mut bv = BitVec::with_capacity(sc_count);
+            bv.resize(sc_count, false);
+            bv
+        })
+        .set(sc_idx, true);
+}
+
 pub fn setup_op_forkcat_liveness_data(
     _sess: &SessionData,
     op: &mut OpForkCat,
@@ -230,22 +248,38 @@ pub fn setup_op_forkcat_liveness_data(
     for var_id in successor_reads.iter_ones().map(VarId::from_usize) {
         op.continuation_vars.push(ld.vars[var_id]);
     }
+    let input_var_idx = BB_INPUT_VAR_ID.into_usize();
+    let successors_read_input = successor_reads[input_var_idx];
     for (sc_idx, &callee_id) in bb.calls.iter().enumerate() {
         let call_reads = ld.get_var_liveness_slot(
             callee_id,
             VarLivenessSlotGroup::Global,
             VarLivenessSlotKind::Reads,
         );
-        for var_id in call_reads.iter_ones().map(VarId::from_usize) {
-            op.input_mappings
-                .entry(ld.vars[var_id])
-                .or_insert_with(|| {
-                    let mut bv = BitVec::with_capacity(sc_count);
-                    bv.resize(sc_count, false);
-                    bv
-                })
-                .set(sc_idx, true);
+        let reads = call_reads.iter_ones().map(VarId::from_usize);
+
+        for var_id in reads {
+            declare_var_needed_for_sc(op, ld, var_id, sc_count, sc_idx);
         }
+        // In case the input field is 'passed through', we mark it as used
+        // here. Otherwise the the first transform will be passed the dummy
+        // input (since it doesn't read it's input directly), which would cause
+        // that to be passed through.
+        let input_read = call_reads[input_var_idx];
+        let input_survives = ld.get_var_liveness_slot(
+            callee_id,
+            VarLivenessSlotGroup::Local,
+            VarLivenessSlotKind::Survives,
+        )[input_var_idx];
+        if !input_read && input_survives && successors_read_input {
+            declare_var_needed_for_sc(
+                op,
+                ld,
+                BB_INPUT_VAR_ID,
+                sc_count,
+                sc_idx,
+            );
+        };
     }
 }
 

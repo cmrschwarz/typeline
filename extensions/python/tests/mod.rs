@@ -178,6 +178,6 @@ treb7uchet
             create_op_sum(),
         ])
         .run_collect_as::<i64>()?;
-    assert_eq!(res, [154]);
+    assert_eq!(res, [142]);
     Ok(())
 }
