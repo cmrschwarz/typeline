@@ -8,8 +8,8 @@ use crate::{
 };
 
 use super::ast::{
-    AccessIdx, BinaryOpKind, Block, Expr, ExternIdentId, IdentId,
-    LetBindingData, LetBindingId, UnaryOpKind, UnboundIdentData,
+    AccessIdx, BinaryOpKind, Block, BuiltinFunction, Expr, ExternIdentId,
+    IdentId, LetBindingData, LetBindingId, UnaryOpKind, UnboundIdentData,
 };
 
 index_newtype! {
@@ -91,6 +91,11 @@ pub enum Instruction {
     Move {
         src: ValueAccess,
         tgt: TargetRef,
+    },
+    BuiltinFunction {
+        kind: BuiltinFunction,
+        args: Box<[ValueAccess]>,
+        target: TargetRef,
     },
 }
 
@@ -445,9 +450,22 @@ impl Compiler<'_> {
                     release_after_use: true,
                 }
             }
-            Expr::FunctionCall(_, _) => {
+            Expr::FunctionCall { lhs, args } => {
                 // TODO
-                unimplemented!("function calls");
+                let (ssa_id, temp_id) = self.claim_ssa_temporary();
+                self.compile_expr_for_given_target(
+                    Expr::FunctionCall { lhs, args },
+                    TargetRef::TempField(temp_id.index),
+                );
+                IntermediateValue {
+                    value: SsaValue::Temporary(ssa_id),
+                    release_after_use: true,
+                }
+            }
+            Expr::BuiltinFunction(_) => {
+                // would be handled by the parent FunctionCall node for now
+                // as we don't have first class functions yet
+                unreachable!()
             }
             Expr::LetExpression(binding_id, expr) => {
                 debug_assert_eq!(
@@ -643,9 +661,39 @@ impl Compiler<'_> {
                     self.emit_pending_clears();
                 }
             }
-            Expr::FunctionCall(_, _) => {
-                // TODO
-                unimplemented!("function calls");
+            Expr::FunctionCall { lhs, args } => {
+                let Expr::BuiltinFunction(kind) = *lhs else {
+                    unimplemented!("extern function calls");
+                };
+                let mut elements = Vec::new();
+                let discard = discard && !kind.has_side_effects();
+                for e in args {
+                    if discard {
+                        self.compile_expr_for_given_target(
+                            e,
+                            TargetRef::Discard,
+                        )
+                    } else {
+                        let mut v = self.compile_expr_for_temp_target(e);
+                        elements.push(v.take_value_accessed(
+                            &mut self.ssa_temporaries,
+                            self.unbound_idents,
+                        ));
+                        self.defer_release_intermediate(v);
+                    }
+                }
+                if !discard {
+                    self.instructions.push(Instruction::BuiltinFunction {
+                        kind,
+                        args: elements.into_boxed_slice(),
+                        target,
+                    });
+                    self.emit_pending_clears();
+                }
+            }
+            Expr::BuiltinFunction(_) => {
+                // should be handled by the parent FunctionCall node
+                unreachable!()
             }
             Expr::LetExpression(binding_id, expr) => {
                 debug_assert!(discard);

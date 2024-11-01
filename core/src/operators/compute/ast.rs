@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     index_newtype,
-    record_data::field_value::FieldValue,
+    record_data::field_value::{FieldValue, FieldValueKind},
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
 
@@ -112,6 +112,24 @@ pub struct IfExpr {
 }
 
 #[derive(Clone, PartialEq, Debug)]
+pub enum BuiltinFunction {
+    Cast(FieldValueKind),
+    Trim,
+    Upper,
+    Lower,
+}
+impl BuiltinFunction {
+    pub fn has_side_effects(&self) -> bool {
+        match self {
+            BuiltinFunction::Cast(_)
+            | BuiltinFunction::Trim
+            | BuiltinFunction::Upper
+            | BuiltinFunction::Lower => false,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub enum Expr {
     Literal(FieldValue),
     Reference {
@@ -124,8 +142,12 @@ pub enum Expr {
     Block(Block),
     Object(Box<[(Expr, Option<Expr>)]>),
     Array(Vec<Expr>),
-    FunctionCall(ExternIdentId, Box<[Expr]>),
+    FunctionCall {
+        lhs: Box<Expr>,
+        args: Box<[Expr]>,
+    },
     LetExpression(LetBindingId, Box<Expr>),
+    BuiltinFunction(BuiltinFunction),
 }
 
 impl UnaryOpKind {

@@ -140,6 +140,7 @@ impl OverflowingBinOp for BinOpAdd {
     ) -> usize {
         integer_add_stop_on_overflow_avx2(lhs, rhs, res)
     }
+
     #[cfg(target_feature = "avx2")]
     fn calc_until_overflow_rhs_immediate_avx2(
         lhs: &[i64],
@@ -148,6 +149,7 @@ impl OverflowingBinOp for BinOpAdd {
     ) -> usize {
         integer_add_immediate_stop_on_overflow_avx2(lhs, rhs, res)
     }
+
     #[cfg(target_feature = "avx2")]
     fn calc_until_overflow_lhs_immediate_avx2(
         lhs: i64,
@@ -179,6 +181,7 @@ impl OverflowingBinOp for BinOpSub {
     ) -> usize {
         integer_sub_stop_on_overflow_avx2(lhs, rhs, res)
     }
+
     #[cfg(target_feature = "avx2")]
     fn calc_until_overflow_rhs_immediate_avx2(
         lhs: &[i64],
@@ -187,6 +190,7 @@ impl OverflowingBinOp for BinOpSub {
     ) -> usize {
         integer_sub_immediate_stop_on_overflow_avx2(lhs, rhs, res)
     }
+
     #[cfg(target_feature = "avx2")]
     fn calc_until_overflow_lhs_immediate_avx2(
         lhs: i64,

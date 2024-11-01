@@ -26,7 +26,7 @@ use crate::{
 use std::ops::Range;
 
 use super::{
-    ast::{AccessIdx, BinaryOpKind, ExternIdentId},
+    ast::{AccessIdx, BinaryOpKind, BuiltinFunction, ExternIdentId},
     binary_ops::{BinOpAdd, BinOpSub, OverflowingBinOp},
     compiler::{
         Compilation, Instruction, InstructionId, TargetRef, TempFieldIdRaw,
@@ -581,6 +581,15 @@ impl<'a, 'b> Exectutor<'a, 'b> {
         }
     }
 
+    fn execute_builtin_fn(
+        &self,
+        _kind: &BuiltinFunction,
+        _args: &[ValueAccess],
+        _target: TargetRef,
+    ) {
+        todo!()
+    }
+
     fn execute_move(
         &mut self,
         src: &ValueAccess,
@@ -696,6 +705,9 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                     );
                     tmp.data.clear();
                     tmp.field_pos = usize::MAX;
+                }
+                Instruction::BuiltinFunction { kind, args, target } => {
+                    self.execute_builtin_fn(kind, args, *target);
                 }
             }
         }

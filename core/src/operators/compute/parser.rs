@@ -3,6 +3,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use crate::{
     index_newtype,
     operators::compute::ast::BinaryOpKind,
+    record_data::field_value::FieldValueKind,
     tyson::TysonParseErrorKind,
     utils::{
         index_vec::IndexVec, indexing_type::IndexingType,
@@ -13,8 +14,8 @@ use arrayvec::ArrayVec;
 
 use super::{
     ast::{
-        AccessIdx, Block, Expr, IdentId, IfExpr, LetBindingData, LetBindingId,
-        UnaryOpKind,
+        AccessIdx, Block, BuiltinFunction, Expr, IdentId, IfExpr,
+        LetBindingData, LetBindingId, UnaryOpKind,
     },
     lexer::{ComputeExprLexer, ComputeExprSpan, ComputeExprToken, TokenKind},
     ExternIdentId, UnboundIdentData,
@@ -528,40 +529,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             TokenKind::Exclamation => UnaryOpKind::LogicalNot,
             TokenKind::Tilde => UnaryOpKind::BitwiseNot,
             TokenKind::Identifier(ident) => {
-                match self.symbol_table.entry(ident) {
-                    Entry::Occupied(e) => {
-                        let ident_id = *e.get();
-                        let access_count = match ident_id {
-                            IdentId::LetBinding(lb_id) => {
-                                &mut self.let_bindings[lb_id].access_count
-                            }
-                            IdentId::Unbound(ubi) => {
-                                &mut self.unbound_idents[ubi].access_count
-                            }
-                        };
-                        let access_index = *access_count;
-                        *access_count += AccessIdx::one();
-                        return Ok(Expr::Reference {
-                            ident_id,
-                            access_idx: access_index,
-                        });
-                    }
-                    Entry::Vacant(e) => {
-                        let id = self.unbound_idents.push_get_id(
-                            UnboundIdentData {
-                                name: ident.to_owned(),
-                                name_interned: INVALID_STRING_STORE_ENTRY,
-                                access_count: AccessIdx::one(),
-                            },
-                        );
-                        let cref = IdentId::Unbound(id);
-                        e.insert(cref);
-                        return Ok(Expr::Reference {
-                            ident_id: cref,
-                            access_idx: AccessIdx::ZERO,
-                        });
-                    }
-                }
+                return Ok(self.parse_symbol_identifier(ident));
             }
             TokenKind::Literal(v) => return Ok(Expr::Literal(v)),
 
@@ -590,6 +558,67 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         ))
     }
 
+    fn parse_symbol_identifier(&mut self, ident: &'i str) -> Expr {
+        match ident {
+            "str" | "text" => {
+                return Expr::BuiltinFunction(BuiltinFunction::Cast(
+                    FieldValueKind::Text,
+                ))
+            }
+            "int" => {
+                return Expr::BuiltinFunction(BuiltinFunction::Cast(
+                    FieldValueKind::Int,
+                ))
+            }
+            "bytes" => {
+                return Expr::BuiltinFunction(BuiltinFunction::Cast(
+                    FieldValueKind::Bytes,
+                ))
+            }
+            "float" => {
+                return Expr::BuiltinFunction(BuiltinFunction::Cast(
+                    FieldValueKind::Float,
+                ))
+            }
+            "trim" => return Expr::BuiltinFunction(BuiltinFunction::Trim),
+            "upper" => return Expr::BuiltinFunction(BuiltinFunction::Upper),
+            "lower" => return Expr::BuiltinFunction(BuiltinFunction::Lower),
+            _ => (),
+        }
+
+        match self.symbol_table.entry(ident) {
+            Entry::Occupied(e) => {
+                let ident_id = *e.get();
+                let access_count = match ident_id {
+                    IdentId::LetBinding(lb_id) => {
+                        &mut self.let_bindings[lb_id].access_count
+                    }
+                    IdentId::Unbound(ubi) => {
+                        &mut self.unbound_idents[ubi].access_count
+                    }
+                };
+                let access_index = *access_count;
+                *access_count += AccessIdx::one();
+                Expr::Reference {
+                    ident_id,
+                    access_idx: access_index,
+                }
+            }
+            Entry::Vacant(e) => {
+                let id = self.unbound_idents.push_get_id(UnboundIdentData {
+                    name: ident.to_owned(),
+                    name_interned: INVALID_STRING_STORE_ENTRY,
+                    access_count: AccessIdx::one(),
+                });
+                let cref = IdentId::Unbound(id);
+                e.insert(cref);
+                Expr::Reference {
+                    ident_id: cref,
+                    access_idx: AccessIdx::ZERO,
+                }
+            }
+        }
+    }
     pub fn parse(&mut self) -> Result<Expr, ComputeExprParseError<'i>> {
         let res = self.parse_expression(Precedence::ZERO)?;
         if let Some(tok) = self.lexer.munch_token()? {
