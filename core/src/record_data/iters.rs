@@ -99,7 +99,7 @@ impl<'a> DestructuredFieldDataRef<'a> {
 // of the lifetime of the iterator itself.
 // This is necessary because `AutoDerefIterator` will temporarily construct
 // iterators to referenced fields but need the lifetimes to elements returned
-// by these temporary 
+// by these temporary
 pub trait FieldIterator<'a>: Sized + Clone {
     type FieldDataRefType: FieldDataRef<'a>;
     fn field_data_ref(&self) -> &Self::FieldDataRefType;

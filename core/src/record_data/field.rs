@@ -13,10 +13,7 @@ use crate::{
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
-    field_data::{
-        field_value_flags::SAME_VALUE_AS_PREVIOUS, FieldData, FieldDataBuffer,
-        FieldValueFormat, FieldValueHeader,
-    },
+    field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
     iter_hall::{CowDataSource, FieldDataSource, IterHall, IterId, IterKind},
     iters::{
         BoundedIter, DestructuredFieldDataRef, FieldDataRef, FieldIter,
@@ -273,10 +270,14 @@ impl FieldManager {
                 ..
             })
             | FieldDataSource::SameMsCow(src_field)
-            | FieldDataSource::DataCow(CowDataSource {
-                src_field_id: src_field,
-                ..
-            })
+            | FieldDataSource::DataCow {
+                source:
+                    CowDataSource {
+                        src_field_id: src_field,
+                        ..
+                    },
+                observed_data_size: _,
+            }
             | FieldDataSource::Alias(src_field) => {
                 self.get_field_data(self.fields[*src_field].borrow())
             }
@@ -345,56 +346,6 @@ impl FieldManager {
             IterKind::RefLookup,
         );
         self.fields.claim_with_value(RefCell::new(field))
-    }
-    pub fn update_data_cow(&self, field_id: FieldId) {
-        let mut field = self.fields[field_id].borrow_mut();
-        let FieldDataSource::DataCow(cds) = field.iter_hall.data_source else {
-            return;
-        };
-
-        let src = self.fields[cds.src_field_id].borrow();
-        let iter = src.iter_hall.get_iter_state(cds.header_iter_id);
-        let (headers, count) = self.get_field_headers(src);
-        let mut copy_headers_from = iter.header_idx;
-        if iter.header_rl_offset != 0 {
-            let h = headers[iter.header_idx];
-            let additional_run_len = h.run_length - iter.header_rl_offset;
-            if additional_run_len > 0 {
-                field.iter_hall.field_data.headers.push_back(
-                    FieldValueHeader {
-                        fmt: FieldValueFormat {
-                            flags: h.flags
-                                | if h.shared_value() {
-                                    SAME_VALUE_AS_PREVIOUS
-                                } else {
-                                    0
-                                },
-                            ..h.fmt
-                        },
-                        run_length: additional_run_len,
-                    },
-                )
-            }
-            copy_headers_from += 1;
-        }
-        let additional_len = count - iter.field_pos;
-        field
-            .iter_hall
-            .field_data
-            .headers
-            .extend(headers.range(copy_headers_from..));
-        field.iter_hall.field_data.field_count += additional_len;
-        let src = self.fields[cds.src_field_id].borrow();
-        unsafe {
-            src.iter_hall.store_iter_state_unchecked(
-                cds.header_iter_id,
-                src.iter_hall.get_iter_state_at_end(
-                    self,
-                    ActorId::MAX_VALUE,
-                    src.iter_hall.get_iter_kind(cds.header_iter_id),
-                ),
-            );
-        }
     }
 
     pub fn apply_field_actions(
@@ -563,7 +514,7 @@ impl FieldManager {
                     FieldIter::from_start(fr.destructured_field_ref());
                 FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
-            FieldDataSource::DataCow(cds) => {
+            FieldDataSource::DataCow { source: cds, .. } => {
                 std::mem::swap(
                     &mut tgt.field_count,
                     &mut src.iter_hall.field_data.field_count,
@@ -577,6 +528,8 @@ impl FieldManager {
                 unsafe {
                     FieldData::copy_data(iter, &mut |f| f(tgt));
                 }
+                // TODO: this stuff is fundamentally broken
+                unreachable!()
             }
             FieldDataSource::RecordBufferFullCow(rb) => {
                 let fd = unsafe { &mut *(*rb).get() };

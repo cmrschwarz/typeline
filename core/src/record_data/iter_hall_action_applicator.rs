@@ -26,7 +26,7 @@ use super::{
     field_data::{
         FieldDataBuffer, FieldValueHeader, RunLength, MAX_FIELD_ALIGN,
     },
-    iter_hall::{FieldDataSource, IterId, IterState},
+    iter_hall::{FieldDataSource, IterHall, IterId, IterState},
     iters::FieldIterator,
     match_set::{MatchSetId, MatchSetManager},
 };
@@ -179,7 +179,7 @@ impl IterHallActionApplicator {
                 starting_field_full_cow_list_head,
             ));
         }
-        let cds = tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
+        let cds = *tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
         let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
 
         if is_data_cow {
@@ -201,11 +201,14 @@ impl IterHallActionApplicator {
             ));
         }
         if tgt_cow_end.field_pos > first_action_index {
-            tgt_field.iter_hall.data_source = FieldDataSource::DataCow(*cds);
             debug_assert!(tgt_field.iter_hall.field_data.is_empty());
-            tgt_field
+            let observed_data_size = tgt_field
                 .iter_hall
                 .copy_headers_from_cow_src(field_headers, tgt_cow_end);
+            tgt_field.iter_hall.data_source = FieldDataSource::DataCow {
+                source: cds,
+                observed_data_size,
+            };
             // TODO: we could optimize this case because we might
             // end up calculating the dead data multiple times because of
             // this, but we don't care for now
@@ -314,24 +317,39 @@ impl IterHallActionApplicator {
             }
             let cds = *tgt_field.iter_hall.get_cow_data_source().unwrap();
 
-            let cow_variant = tgt_field.iter_hall.data_source.cow_variant();
-            let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
-            // we can assume the snapshot to be up to date because we
-            // just finished running field updates
-            // we can't just use the field directly here because
-            // it could be cow of cow
+            let cow_end_before =
+                field.iter_hall.iters[cds.header_iter_id].get();
+            // 1. We can assume the snapshot to be up to date because we
+            // just finished running field updates.
+            // 2. We can't just use the field directly here because
+            // it could be cow of cow.
+            // 3. We have to do this even in case of full cow because
+            // full cow could turn into data cow in the future and at
+            // that moment we need this iterator to be in the right place.
+            // That's why full cow has the iterator in the first place.
             let field_ref = fm.get_cow_field_ref_raw(field_id);
             let mut iter =
                 fm.lookup_iter(field_id, &field_ref, cds.header_iter_id);
             iter.next_n_fields(batch_size, true);
+            let observed_data_end_new = iter.get_prev_field_data_end();
+            let field_pos_new = iter.get_next_field_pos();
+            let header_idx_new = iter.get_next_header_index();
+            let header_offset_new = iter.field_run_length_bwd();
             fm.store_iter(field_id, cds.header_iter_id, iter);
 
-            if cow_variant != Some(CowVariant::DataCow) {
+            let FieldDataSource::DataCow {
+                source: _,
+                observed_data_size: observed_data_size_before,
+            } = tgt_field.iter_hall.data_source
+            else {
                 // TODO: support RecordBufferDataCow
-                debug_assert!(cow_variant == Some(CowVariant::FullCow));
+                debug_assert!(matches!(
+                    tgt_field.iter_hall.data_source,
+                    FieldDataSource::FullCow(_)
+                ));
                 continue;
-            }
-            if tgt_cow_end.field_pos == 0
+            };
+            if cow_end_before.field_pos == 0
                 && tgt_field.iter_hall.field_data.field_count == 0
             {
                 tgt_field.iter_hall.data_source =
@@ -341,30 +359,18 @@ impl IterHallActionApplicator {
                 debug_assert!(tgt_field.iter_hall.field_data.data.is_empty());
                 continue;
             }
-            let (headers, count) = fm.get_field_headers(Ref::clone(&field));
-            let tgt_fd = &mut tgt_field.iter_hall.field_data;
-            let start_idx = tgt_cow_end.header_idx;
-            if start_idx != headers.len() {
-                let mut first_header = headers[start_idx];
-                first_header.run_length -= tgt_cow_end.header_rl_offset;
-                if first_header.run_length != 0 {
-                    if tgt_cow_end.header_rl_offset != 0 {
-                        first_header.set_leading_padding(0);
-                    }
-                    if first_header.shared_value()
-                        && tgt_cow_end.header_rl_offset != 0
-                    {
-                        // if we already have parts of this header,
-                        // we must make sure to not mess up our data offset
-                        first_header.set_same_value_as_previous(true);
-                    }
-                    tgt_fd.headers.push_back(first_header);
-                }
-            }
-            if start_idx + 1 < headers.len() {
-                tgt_fd.headers.extend(headers.range(start_idx + 1..));
-            }
-            tgt_fd.field_count += count - tgt_cow_end.field_pos;
+            let (headers, _count) = fm.get_field_headers(Ref::clone(&field));
+
+            append_data_cow_headers(
+                &headers,
+                tgt_field,
+                observed_data_size_before,
+                cow_end_before,
+                observed_data_end_new,
+                field_pos_new,
+                header_idx_new,
+                header_offset_new,
+            );
         }
     }
     fn build_header_drop_instructions(
@@ -1009,6 +1015,42 @@ impl IterHallActionApplicator {
         self.full_cow_field_refs_temp.reclaim_temp(full_cow_fields);
         self.data_cow_field_refs_temp.reclaim_temp(data_cow_fields);
     }
+}
+
+fn append_data_cow_headers(
+    headers: &VecDeque<FieldValueHeader>,
+    mut tgt_field: RefMut<'_, Field>,
+    observed_data_size_before: usize,
+    cow_end_before: IterState,
+    field_pos_after: usize,
+    data_end_after: usize,
+    header_idx_after: usize,
+    header_offset_after: RunLength,
+) {
+    let tgt_fd = &mut tgt_field.iter_hall.field_data;
+    let start_idx = cow_end_before.header_idx;
+    if start_idx != headers.len() {
+        let mut first_header = headers[start_idx];
+        first_header.run_length -= cow_end_before.header_rl_offset;
+        if first_header.run_length != 0 {
+            if cow_end_before.header_rl_offset != 0 {
+                first_header.set_leading_padding(0);
+            }
+
+            if first_header.shared_value()
+                && cow_end_before.header_rl_offset != 0
+            {
+                // if we already have parts of this header,
+                // we must make sure to not mess up our data offset
+                first_header.set_same_value_as_previous(true);
+            }
+            tgt_fd.headers.push_back(first_header);
+        }
+    }
+    if start_idx + 1 < headers.len() {
+        tgt_fd.headers.extend(headers.range(start_idx + 1..));
+    }
+    tgt_fd.field_count += field_pos_after - cow_end_before.field_pos;
 }
 
 #[cfg(test)]
