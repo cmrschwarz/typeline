@@ -24,9 +24,10 @@ use super::{
     field_action::FieldAction,
     field_action_applicator::FieldActionApplicator,
     field_data::{
-        FieldDataBuffer, FieldValueHeader, RunLength, MAX_FIELD_ALIGN,
+        FieldData, FieldDataBuffer, FieldValueHeader, RunLength,
+        MAX_FIELD_ALIGN,
     },
-    iter_hall::{FieldDataSource, IterHall, IterId, IterState},
+    iter_hall::{FieldDataSource, FieldOffset, IterId, IterState},
     iters::FieldIterator,
     match_set::{MatchSetId, MatchSetManager},
 };
@@ -101,6 +102,15 @@ impl DeadDataReport {
             dead_data_leading: field_data_size,
             dead_data_trailing: field_data_size,
         }
+    }
+}
+
+impl HeaderDropInstructions {
+    fn physical_drop_leading(&self) -> usize {
+        self.leading_drop - self.first_header_padding
+    }
+    fn physical_drop_total(&self) -> usize {
+        self.physical_drop_leading() + self.trailing_drop
     }
 }
 
@@ -349,6 +359,7 @@ impl IterHallActionApplicator {
                 ));
                 continue;
             };
+
             if cow_end_before.field_pos == 0
                 && tgt_field.iter_hall.field_data.field_count == 0
             {
@@ -363,13 +374,19 @@ impl IterHallActionApplicator {
 
             append_data_cow_headers(
                 &headers,
-                tgt_field,
-                observed_data_size_before,
-                cow_end_before,
-                observed_data_end_new,
-                field_pos_new,
-                header_idx_new,
-                header_offset_new,
+                &mut tgt_field.iter_hall.field_data,
+                FieldOffset {
+                    field_pos: cow_end_before.field_pos,
+                    header_idx: cow_end_before.header_idx,
+                    header_rl_offset: cow_end_before.header_rl_offset,
+                    data_pos: observed_data_size_before,
+                },
+                FieldOffset {
+                    field_pos: field_pos_new,
+                    header_idx: header_idx_new,
+                    header_rl_offset: header_offset_new,
+                    data_pos: observed_data_end_new,
+                },
             );
         }
     }
@@ -568,11 +585,7 @@ impl IterHallActionApplicator {
 
         if let Some(data) = data {
             // LEAK this leaks all resources of the data. //TODO: drop before
-            data.drop_front(
-                drop_instructions
-                    .leading_drop
-                    .prev_multiple_of(&MAX_FIELD_ALIGN),
-            );
+            data.drop_front(drop_instructions.physical_drop_leading());
             data.drop_back(drop_instructions.trailing_drop);
         }
     }
@@ -980,6 +993,15 @@ impl IterHallActionApplicator {
                 }
                 eprintln!();
             }
+
+            let FieldDataSource::DataCow {
+                source: _,
+                observed_data_size,
+            } = &mut cow_field.iter_hall.data_source
+            else {
+                unreachable!()
+            };
+            *observed_data_size -= cow_drop_instructions.physical_drop_total();
         }
     }
 
@@ -1019,38 +1041,36 @@ impl IterHallActionApplicator {
 
 fn append_data_cow_headers(
     headers: &VecDeque<FieldValueHeader>,
-    mut tgt_field: RefMut<'_, Field>,
-    observed_data_size_before: usize,
-    cow_end_before: IterState,
-    field_pos_after: usize,
-    data_end_after: usize,
-    header_idx_after: usize,
-    header_offset_after: RunLength,
+    tgt: &mut FieldData,
+    before: FieldOffset,
+    after: FieldOffset,
 ) {
-    let tgt_fd = &mut tgt_field.iter_hall.field_data;
-    let start_idx = cow_end_before.header_idx;
-    if start_idx != headers.len() {
-        let mut first_header = headers[start_idx];
-        first_header.run_length -= cow_end_before.header_rl_offset;
-        if first_header.run_length != 0 {
-            if cow_end_before.header_rl_offset != 0 {
-                first_header.set_leading_padding(0);
-            }
+    debug_assert!(before.data_pos <= after.data_pos);
+    if before.header_idx == headers.len() {
+        debug_assert_eq!(before.field_pos, after.field_pos);
+        return;
+    }
+    tgt.field_count += after.field_pos - before.field_pos;
+    let mut data_offset = before.data_pos;
 
-            if first_header.shared_value()
-                && cow_end_before.header_rl_offset != 0
-            {
-                // if we already have parts of this header,
-                // we must make sure to not mess up our data offset
-                first_header.set_same_value_as_previous(true);
-            }
-            tgt_fd.headers.push_back(first_header);
+    let mut first_header = headers[before.header_idx];
+    first_header.run_length -= before.header_rl_offset;
+    if first_header.run_length != 0 {
+        if before.header_rl_offset != 0 {
+            first_header.set_leading_padding(0);
         }
+
+        if first_header.shared_value() && before.header_rl_offset != 0 {
+            // if we already have parts of this header,
+            // we must make sure to not mess up our data offset
+            first_header.set_same_value_as_previous(true);
+        }
+        tgt.headers.push_back(first_header);
     }
-    if start_idx + 1 < headers.len() {
-        tgt_fd.headers.extend(headers.range(start_idx + 1..));
+
+    if before.header_idx + 1 < headers.len() {
+        tgt.headers.extend(headers.range(before.header_idx + 1..));
     }
-    tgt_fd.field_count += field_pos_after - cow_end_before.field_pos;
 }
 
 #[cfg(test)]
@@ -1770,6 +1790,142 @@ mod test_dead_data_drop {
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
+        );
+    }
+}
+
+#[cfg(test)]
+mod test_append_data_cow_headers {
+    use crate::{
+        record_data::{
+            field_data::{
+                field_value_flags, FieldData, FieldValueFormat,
+                FieldValueHeader, FieldValueRepr, RunLength,
+            },
+            iter_hall::FieldOffset,
+        },
+        utils::ringbuf::RingBuf,
+    };
+
+    use super::append_data_cow_headers;
+
+    #[track_caller]
+    fn test_append_data_cow_headers(
+        headers_src: &[FieldValueHeader],
+        cow_headers_before: &[FieldValueHeader],
+        cow_headers_after: &[FieldValueHeader],
+        before: FieldOffset,
+        after: FieldOffset,
+    ) {
+        let field_count_before = cow_headers_before
+            .iter()
+            .map(|h| h.effective_run_length() as usize)
+            .sum();
+        let mut tgt = unsafe {
+            FieldData::from_raw_parts(
+                cow_headers_before.iter().copied().collect(),
+                RingBuf::default(),
+                field_count_before,
+            )
+        };
+        append_data_cow_headers(
+            &headers_src.iter().copied().collect(),
+            &mut tgt,
+            before,
+            after,
+        );
+        assert_eq!(
+            cow_headers_after,
+            &*tgt.headers.iter().copied().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            tgt.field_count,
+            field_count_before + after.field_pos - before.field_pos
+        );
+        // to prevent the drop from attempting to free any data
+        tgt.headers.clear();
+        tgt.data.clear();
+        tgt.field_count = 0;
+    }
+
+    #[test]
+    fn from_empty() {
+        test_append_data_cow_headers(
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Int,
+                    flags: field_value_flags::DEFAULT,
+                    size: 8,
+                },
+                run_length: 1,
+            }],
+            &[],
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Int,
+                    flags: field_value_flags::DEFAULT,
+                    size: 8,
+                },
+                run_length: 1,
+            }],
+            FieldOffset {
+                field_pos: 0,
+                header_idx: 0,
+                header_rl_offset: 0,
+                data_pos: 0,
+            },
+            FieldOffset {
+                field_pos: 1,
+                header_idx: 0,
+                header_rl_offset: 1,
+                data_pos: 8,
+            },
+        );
+    }
+
+    #[test]
+    fn after_dropped_head_with_merge() {
+        test_append_data_cow_headers(
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 40,
+                },
+                run_length: 5,
+            }],
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Int,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 40,
+                },
+                run_length: 3,
+            }],
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Int,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 40,
+                },
+                run_length: 8,
+            }],
+            FieldOffset {
+                field_pos: 0,
+                header_idx: 0,
+                header_rl_offset: 0,
+                // we copied over the header last time, but it was split
+                // and the part that we copied over was dropped as deleted
+                // this sort of pattern can be seen on
+                // aoc2023_day1_part1::case_2 (step 17)
+                data_pos: 40,
+            },
+            FieldOffset {
+                field_pos: 5,
+                header_idx: 0,
+                header_rl_offset: 5,
+                data_pos: 40,
+            },
         );
     }
 }

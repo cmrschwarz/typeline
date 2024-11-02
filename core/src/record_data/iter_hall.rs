@@ -127,6 +127,15 @@ pub struct IterState {
     pub kind: IterKind,
 }
 
+/// mainly for testing purposes and temporary passing.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct FieldOffset {
+    pub field_pos: usize,
+    pub header_idx: usize,
+    pub header_rl_offset: RunLength,
+    pub data_pos: usize,
+}
+
 #[derive(Clone, Copy, Default, Debug)]
 pub struct IterStateRaw {
     pub field_pos: usize,
