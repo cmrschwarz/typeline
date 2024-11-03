@@ -1755,7 +1755,12 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
                 .sub_value(group_idx, group_len_to_drop);
             count_rem -= group_len_to_drop;
         }
-        // HACK: //TODO: iters need to be advanced
+        // HACK: //TODO: not sure if this is correct?
+        self.base.group_track.lookup_and_advance_affected_iters_(
+            group_idx,
+            field_pos,
+            -(count as isize),
+        );
     }
     pub fn drop_before(&mut self, field_pos: usize, mut count: usize) {
         if count == 0 {

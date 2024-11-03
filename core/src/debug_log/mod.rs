@@ -177,7 +177,7 @@ fn add_group_track_dead_slots(gt: &GroupTrack, dead_slots: &mut Vec<usize>) {
 
 fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
     for mc in &mut tc.match_chains {
-        for env in &mc.tf_envs {
+        for env in &mut mc.tf_envs {
             for &field_id in &env.fields {
                 if !jd.session_data.settings.debug_log_no_apply {
                     // we have to do this here because doing json in a second
@@ -667,7 +667,12 @@ pub fn field_data_to_json<'a>(
         } else {
             let del_count_prev = del_count;
             del_count = 0;
-            dead_slots[iter.get_next_field_pos()] - del_count_prev
+            let dead_slots = if cfg!(feature = "debug_log_lenient") {
+                *dead_slots.get(iter.get_next_field_pos()).unwrap_or(&0)
+            } else {
+                dead_slots[iter.get_next_field_pos()]
+            };
+            dead_slots - del_count_prev
         };
         let shadow_meta = iter.field_run_length_bwd() != 0;
         let shadow_data = shadow_meta && h.shared_value();
