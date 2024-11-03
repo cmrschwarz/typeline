@@ -185,6 +185,7 @@ impl Transform<'_> for TfTail {
             batch_size_rem -= consumable;
         }
         jd.tf_mgr.unclaim_batch_size(tf_id, batch_size_rem);
+        iter.store_iter(self.group_track_iter.iter_id);
         jd.tf_mgr.submit_batch(
             tf_id,
             output_count,
@@ -228,6 +229,7 @@ impl Transform<'_> for TfTailAdditive {
             iter.next_n_fields_in_group(acceptable);
             break;
         }
+        iter.store_iter(self.group_track_iter.iter_id);
         jd.tf_mgr.submit_batch(
             tf_id,
             output_count,
