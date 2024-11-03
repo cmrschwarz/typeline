@@ -161,6 +161,7 @@ pub mod field_value_flags {
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
     pub const DELETED_OFFSET: FieldValueFlags = 7;
     // When the run_length is one, `SHARED_VALUE` **must** also be set
+    // When the type is a ZST, this **must** also be set.
     pub const SHARED_VALUE: FieldValueFlags = 1 << SHARED_VALUE_OFFSET;
     // NOTE(cmrs): RUF MICH NICHT AN ICH BIN TOT (deine augen machen bling
     // bling und alles ist vergessen)
@@ -538,6 +539,7 @@ impl FieldValueFormat {
     pub fn shared_value(self) -> bool {
         self.flags & field_value_flags::SHARED_VALUE != 0
     }
+
     #[inline(always)]
     pub fn set_shared_value(&mut self, val: bool) {
         self.flags &= !field_value_flags::SHARED_VALUE;
@@ -551,6 +553,18 @@ impl FieldValueFormat {
             self.set_shared_value(true);
         }
     }
+    #[inline(always)]
+    pub fn set_shared_value_if_zst(&mut self) {
+        if self.repr.is_zst() {
+            self.set_shared_value(true);
+        }
+    }
+    pub fn normalize_shared_value(&mut self, rl: RunLength) {
+        if rl == 1 || self.repr.is_zst() {
+            self.set_shared_value(true);
+        }
+    }
+
     #[inline(always)]
     pub fn leading_padding(self) -> usize {
         (self.flags & field_value_flags::LEADING_PADDING_MASK) as usize

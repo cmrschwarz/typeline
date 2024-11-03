@@ -1068,7 +1068,7 @@ fn append_header_try_merge(
             && h.leading_padding() == 0;
 
         if appendable {
-            if !deficit {
+            if !deficit && !h.repr.is_zst() {
                 prev.set_shared_value(false);
             }
             prev.run_length += h.run_length;

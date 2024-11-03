@@ -942,8 +942,11 @@ mod test {
     #[track_caller]
     fn test_actions_on_values(
         input: impl IntoIterator<Item = (FieldValue, RunLength)>,
+        // useful to represent different values sharing the same header
         header_rle: bool,
         actions: impl IntoIterator<IntoIter = impl Iterator<Item = FieldAction>>,
+        // for the output we only test whether the received values are correct
+        // so no header rle there
         output: impl IntoIterator<Item = (FieldValue, RunLength)>,
         iter_states_in: impl IntoIterator<Item = IterStateRaw>,
         iter_states_out: impl IntoIterator<Item = IterStateRaw>,
@@ -1110,12 +1113,87 @@ mod test {
         //    2
         //    3
         test_actions_on_values(
-            [(0i64, 3), (1, 2), (2, 1), (3, 1)]
+            [(0, 3), (1, 2), (2, 1), (3, 1)]
                 .map(|(v, rl)| (FieldValue::Int(v), rl)),
             false,
             [FieldAction::new(FieldActionKind::Drop, 1, 5)],
             [(FieldValue::Int(0), 1), (FieldValue::Int(3), 1)],
             // TODO: test iters
+            [],
+            [],
+        );
+    }
+
+    #[test]
+    fn drop_directly_after_insert_on_same_header() {
+        //  Before   Insert(x, 1, 1)  Drop(2, 1)
+        //    0           0               0
+        //    1           x               x
+        //    2           1               2
+        //                2
+        test_actions_on_values(
+            [0, 1, 2].map(|v| (FieldValue::Int(v), 1)),
+            true,
+            [
+                FieldAction::new(
+                    FieldActionKind::InsertZst {
+                        repr: FieldValueRepr::Undefined,
+                        actor_id: ActorId::ZERO,
+                    },
+                    1,
+                    1,
+                ),
+                FieldAction::new(FieldActionKind::Drop, 2, 1),
+            ],
+            [
+                (FieldValue::Int(0), 1),
+                (FieldValue::Undefined, 1),
+                (FieldValue::Int(2), 1),
+            ],
+            [],
+            [],
+        );
+    }
+
+    #[test]
+    fn drop_directly_after_insert_same_zst() {
+        //  Before   Insert(x, 1, 1)  Drop(2, 1)
+        //    x           x               x
+        //    x           x               x
+        //    x           x               x
+        //                x
+        test_actions_on_headers(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Undefined,
+                    // notice how shared value is set here
+                    // if it isn't this test fails
+                    // TODO: decide on a normalization for this
+                    // it is getting out of hand
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 0,
+                },
+                run_length: 3,
+            }],
+            [
+                FieldAction::new(
+                    FieldActionKind::InsertZst {
+                        repr: FieldValueRepr::Undefined,
+                        actor_id: ActorId::ZERO,
+                    },
+                    1,
+                    1,
+                ),
+                FieldAction::new(FieldActionKind::Drop, 2, 1),
+            ],
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Undefined,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 0,
+                },
+                run_length: 3,
+            }],
             [],
             [],
         );
