@@ -632,7 +632,9 @@ pub fn field_data_to_json<'a>(
 
     let iters_before_start = iters
         .iter()
-        .position(|i| i.field_pos > 0)
+        .position(|i| {
+            i.field_pos > 0 || i.header_idx > 0 || i.header_rl_offset > 0
+        })
         .unwrap_or(iters.len());
     let mut iters_start = iters_before_start;
 

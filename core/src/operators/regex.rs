@@ -531,17 +531,19 @@ pub fn build_tf_regex<'a>(
         } else {
             None
         };
-        if let Some(id) = field_id {
-            let fro = jd
-                .field_mgr
-                .register_field_reference(id, tf_state.input_field);
-            // all output fields should have the same
-            // field ref layout
-            debug_assert!(
-                input_field_ref_offset == fro
-                    || input_field_ref_offset == FieldRefOffset::MAX
-            );
-            input_field_ref_offset = fro;
+        if !cfg!(feature = "debug_reduce_field_refs") {
+            if let Some(id) = field_id {
+                let fro = jd
+                    .field_mgr
+                    .register_field_reference(id, tf_state.input_field);
+                // all output fields should have the same
+                // field ref layout
+                debug_assert!(
+                    input_field_ref_offset == fro
+                        || input_field_ref_offset == FieldRefOffset::MAX
+                );
+                input_field_ref_offset = fro;
+            }
         }
         capture_group_fields.push(field_id);
     }
@@ -779,7 +781,10 @@ fn match_regex_inner<const PUSH_REF: bool, R: AnyRegex>(
                     inserter.push_zst(FieldValueRepr::Null, 1, true);
                     continue;
                 };
-                if PUSH_REF && (cg_end - cg_begin) >= REF_THRRESHOLD {
+                if PUSH_REF
+                    && !cfg!(feature = "debug_reduce_field_refs")
+                    && (cg_end - cg_begin) >= REF_THRRESHOLD
+                {
                     inserter.push_fixed_size_type(
                         SlicedFieldReference {
                             field_ref_offset: rmis.input_field_ref_offset,
@@ -861,7 +866,8 @@ fn push_full<const PUSH_REF: bool, R: AnyRegex>(
     offsets: RangeOffsets,
     input_field_ref_offset: FieldRefOffset,
 ) {
-    if !PUSH_REF || R::as_bytes(data).len() < REF_THRRESHOLD {
+    let push_ref = PUSH_REF && !cfg!(feature = "debug_reduce_field_refs");
+    if !push_ref || R::as_bytes(data).len() < REF_THRRESHOLD {
         if let Some(v) = R::as_str(data) {
             inserter.push_str(v, rl, true, false);
             return;

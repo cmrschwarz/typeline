@@ -81,6 +81,7 @@ unstable = []
 debug_state = []
 
 debug_disable_terminator = []
+debug_reduce_field_refs = []
 
 debug_log = ["debug_state", "handlebars", "serde_json", "serde_derive"]
 debug_log_extern_style_sheet = ["debug_log"]
