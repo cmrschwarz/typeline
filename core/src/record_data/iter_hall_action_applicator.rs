@@ -13,6 +13,7 @@ use crate::{
         index_slice::IndexSlice,
         index_vec::IndexVec,
         indexing_type::IndexingType,
+        random_access_container::RandomAccessContainer,
         temp_vec::{TempIndexVec, TempVec, TransmutableContainer},
         universe::Universe,
     },
@@ -27,7 +28,7 @@ use super::{
         FieldData, FieldDataBuffer, FieldValueHeader, RunLength,
         MAX_FIELD_ALIGN,
     },
-    iter_hall::{FieldDataSource, FieldOffset, IterId, IterState},
+    iter_hall::{FieldDataSource, FieldLocation, IterId, IterState},
     iters::FieldIterator,
     match_set::{MatchSetId, MatchSetManager},
 };
@@ -341,16 +342,13 @@ impl IterHallActionApplicator {
             let mut iter =
                 fm.lookup_iter(field_id, &field_ref, cds.header_iter_id);
             iter.next_n_fields(batch_size, true);
-            let observed_data_end_new = iter.get_prev_field_data_end();
-            let field_pos_new = iter.get_next_field_pos();
-            let header_idx_new = iter.get_next_header_index();
-            let header_offset_new = iter.field_run_length_bwd();
+            let cow_end_after = iter.get_field_location_after_last();
             fm.store_iter(field_id, cds.header_iter_id, iter);
 
             let FieldDataSource::DataCow {
                 source: _,
-                observed_data_size: observed_data_size_before,
-            } = tgt_field.iter_hall.data_source
+                observed_data_size,
+            } = &mut tgt_field.iter_hall.data_source
             else {
                 // TODO: support RecordBufferDataCow
                 debug_assert!(matches!(
@@ -359,6 +357,8 @@ impl IterHallActionApplicator {
                 ));
                 continue;
             };
+            let observed_data_size_before = *observed_data_size;
+            *observed_data_size = cow_end_after.data_pos;
 
             if cow_end_before.field_pos == 0
                 && tgt_field.iter_hall.field_data.field_count == 0
@@ -370,23 +370,19 @@ impl IterHallActionApplicator {
                 debug_assert!(tgt_field.iter_hall.field_data.data.is_empty());
                 continue;
             }
+
+            if cow_end_before.field_pos == cow_end_after.field_pos {
+                continue;
+            }
+
             let (headers, _count) = fm.get_field_headers(Ref::clone(&field));
 
             append_data_cow_headers(
                 &headers,
                 &mut tgt_field.iter_hall.field_data,
-                FieldOffset {
-                    field_pos: cow_end_before.field_pos,
-                    header_idx: cow_end_before.header_idx,
-                    header_rl_offset: cow_end_before.header_rl_offset,
-                    data_pos: observed_data_size_before,
-                },
-                FieldOffset {
-                    field_pos: field_pos_new,
-                    header_idx: header_idx_new,
-                    header_rl_offset: header_offset_new,
-                    data_pos: observed_data_end_new,
-                },
+                observed_data_size_before,
+                cow_end_before.as_field_location(),
+                cow_end_after,
             );
         }
     }
@@ -1039,37 +1035,66 @@ impl IterHallActionApplicator {
     }
 }
 
+fn append_header_try_merge(tgt: &mut FieldData, h: FieldValueHeader) {
+    let mut appended = false;
+    if let Some(prev) = tgt.headers.last_mut() {
+        if prev.is_format_appendable(h.fmt)
+            && (RunLength::MAX - prev.run_length) >= h.run_length
+        {
+            appended = true;
+            prev.run_length += h.run_length;
+        }
+    }
+    if !appended {
+        tgt.headers.push_back(h);
+    }
+}
+
 fn append_data_cow_headers(
     headers: &VecDeque<FieldValueHeader>,
     tgt: &mut FieldData,
-    before: FieldOffset,
-    after: FieldOffset,
+    last_observed_data_size: usize,
+    before: FieldLocation,
+    after: FieldLocation,
 ) {
     debug_assert!(before.data_pos <= after.data_pos);
+    // When iters sit on a header that gets deleted the iter
+    // always moves backwards.
+    debug_assert!(last_observed_data_size >= before.data_pos);
     if before.header_idx == headers.len() {
         debug_assert_eq!(before.field_pos, after.field_pos);
         return;
     }
     tgt.field_count += after.field_pos - before.field_pos;
-    let mut data_offset = before.data_pos;
 
-    let mut first_header = headers[before.header_idx];
-    first_header.run_length -= before.header_rl_offset;
-    if first_header.run_length != 0 {
-        if before.header_rl_offset != 0 {
-            first_header.set_leading_padding(0);
-        }
-
-        if first_header.shared_value() && before.header_rl_offset != 0 {
-            // if we already have parts of this header,
-            // we must make sure to not mess up our data offset
-            first_header.set_same_value_as_previous(true);
-        }
-        tgt.headers.push_back(first_header);
+    let mut data_deficit = last_observed_data_size - before.data_pos;
+    let mut header_idx = before.header_idx;
+    let mut h = headers[header_idx];
+    if before.header_rl_offset > 0 {
+        h.run_length -= before.header_rl_offset;
+        h.set_leading_padding(0);
     }
-
-    if before.header_idx + 1 < headers.len() {
-        tgt.headers.extend(headers.range(before.header_idx + 1..));
+    if h.run_length == 0 {
+        header_idx += 1;
+        if headers.len() == header_idx {
+            return;
+        }
+        h = headers[header_idx];
+    }
+    while data_deficit > 0 {
+        data_deficit -= h.total_size_unique();
+        h.set_same_value_as_previous(true);
+        append_header_try_merge(tgt, h);
+        header_idx += 1;
+        if headers.len() == header_idx {
+            return;
+        }
+        h = headers[header_idx];
+    }
+    append_header_try_merge(tgt, h);
+    header_idx += 1;
+    if header_idx < headers.len() {
+        tgt.headers.extend(headers.range(header_idx..));
     }
 }
 
@@ -1800,9 +1825,9 @@ mod test_append_data_cow_headers {
         record_data::{
             field_data::{
                 field_value_flags, FieldData, FieldValueFormat,
-                FieldValueHeader, FieldValueRepr, RunLength,
+                FieldValueHeader, FieldValueRepr,
             },
-            iter_hall::FieldOffset,
+            iter_hall::FieldLocation,
         },
         utils::ringbuf::RingBuf,
     };
@@ -1814,8 +1839,9 @@ mod test_append_data_cow_headers {
         headers_src: &[FieldValueHeader],
         cow_headers_before: &[FieldValueHeader],
         cow_headers_after: &[FieldValueHeader],
-        before: FieldOffset,
-        after: FieldOffset,
+        last_observed_data_size: usize,
+        before: FieldLocation,
+        after: FieldLocation,
     ) {
         let field_count_before = cow_headers_before
             .iter()
@@ -1831,6 +1857,7 @@ mod test_append_data_cow_headers {
         append_data_cow_headers(
             &headers_src.iter().copied().collect(),
             &mut tgt,
+            last_observed_data_size,
             before,
             after,
         );
@@ -1868,13 +1895,14 @@ mod test_append_data_cow_headers {
                 },
                 run_length: 1,
             }],
-            FieldOffset {
+            0,
+            FieldLocation {
                 field_pos: 0,
                 header_idx: 0,
                 header_rl_offset: 0,
                 data_pos: 0,
             },
-            FieldOffset {
+            FieldLocation {
                 field_pos: 1,
                 header_idx: 0,
                 header_rl_offset: 1,
@@ -1884,7 +1912,7 @@ mod test_append_data_cow_headers {
     }
 
     #[test]
-    fn after_dropped_head_with_merge() {
+    fn with_same_as_previous_merge() {
         test_append_data_cow_headers(
             &[FieldValueHeader {
                 fmt: FieldValueFormat {
@@ -1896,7 +1924,7 @@ mod test_append_data_cow_headers {
             }],
             &[FieldValueHeader {
                 fmt: FieldValueFormat {
-                    repr: FieldValueRepr::Int,
+                    repr: FieldValueRepr::TextInline,
                     flags: field_value_flags::SHARED_VALUE,
                     size: 40,
                 },
@@ -1904,13 +1932,14 @@ mod test_append_data_cow_headers {
             }],
             &[FieldValueHeader {
                 fmt: FieldValueFormat {
-                    repr: FieldValueRepr::Int,
+                    repr: FieldValueRepr::TextInline,
                     flags: field_value_flags::SHARED_VALUE,
                     size: 40,
                 },
                 run_length: 8,
             }],
-            FieldOffset {
+            40,
+            FieldLocation {
                 field_pos: 0,
                 header_idx: 0,
                 header_rl_offset: 0,
@@ -1918,9 +1947,9 @@ mod test_append_data_cow_headers {
                 // and the part that we copied over was dropped as deleted
                 // this sort of pattern can be seen on
                 // aoc2023_day1_part1::case_2 (step 17)
-                data_pos: 40,
+                data_pos: 0,
             },
-            FieldOffset {
+            FieldLocation {
                 field_pos: 5,
                 header_idx: 0,
                 header_rl_offset: 5,

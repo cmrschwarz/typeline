@@ -89,7 +89,7 @@ impl<'a> RawBytesInserter<'a> {
                 self.fd
                     .headers
                     .back()
-                    .map(|h| h.is_compatible(fmt))
+                    .map(|h| h.is_format_appendable(fmt))
                     .unwrap_or(false),
                 false,
             )

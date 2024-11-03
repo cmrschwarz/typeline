@@ -153,7 +153,9 @@ pub mod field_value_flags {
     // is necessary because otherwise we couldn't iterate backwards.
     // We wouldn't know by how much the type before an element had to be padded
     // to make the successor aligned.
-    pub const LEADING_PADDING: FieldValueFlags = 0xF;
+    pub const LEADING_PADDING_BIT_COUNT: FieldValueFlags = 4;
+    pub const LEADING_PADDING_MASK: FieldValueFlags = FieldValueFlags::MAX
+        >> (FieldValueFlags::BITS - LEADING_PADDING_BIT_COUNT as u32);
     pub const LEADING_PADDING_OFFSET: FieldValueFlags = 0;
     pub const SAME_VALUE_AS_PREVIOUS_OFFSET: FieldValueFlags = 4;
     pub const SHARED_VALUE_OFFSET: FieldValueFlags = 5;
@@ -551,12 +553,12 @@ impl FieldValueFormat {
     }
     #[inline(always)]
     pub fn leading_padding(self) -> usize {
-        (self.flags & field_value_flags::LEADING_PADDING) as usize
+        (self.flags & field_value_flags::LEADING_PADDING_MASK) as usize
     }
     pub fn set_leading_padding(&mut self, val: usize) {
         debug_assert!(val < MAX_FIELD_ALIGN);
-        self.flags &= !field_value_flags::LEADING_PADDING;
-        self.flags |= (val as u8) & field_value_flags::LEADING_PADDING;
+        self.flags &= !field_value_flags::LEADING_PADDING_MASK;
+        self.flags |= (val as u8) & field_value_flags::LEADING_PADDING_MASK;
     }
     #[inline(always)]
     pub fn deleted(self) -> bool {
@@ -637,13 +639,19 @@ impl FieldValueHeader {
             self.run_length
         }
     }
-    pub fn is_compatible(&self, other: FieldValueFormat) -> bool {
-        const RELEVANT_FLAGS: field_value_flags::FieldValueFlags =
-            field_value_flags::DELETED;
+    pub fn is_format_appendable(&self, other: FieldValueFormat) -> bool {
+        let type_compatible =
+            self.repr == other.repr && self.size == other.size;
 
-        self.repr == other.repr
-            && self.size == other.size
-            && self.flags & RELEVANT_FLAGS == other.flags & RELEVANT_FLAGS
+        let same_deleted_status = self.flags & field_value_flags::DELETED
+            == other.flags & field_value_flags::DELETED;
+
+        let new_value_appending_to_same_as_prev =
+            self.same_value_as_previous() && !other.same_value_as_previous();
+
+        type_compatible
+            && same_deleted_status
+            && !new_value_appending_to_same_as_prev
     }
 }
 

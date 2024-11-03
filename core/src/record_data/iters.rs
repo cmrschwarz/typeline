@@ -9,6 +9,7 @@ use super::{
     field::{FieldId, FieldManager},
     field_data::FieldDataBuffer,
     field_value_ref::{TypedField, TypedRange, ValidTypedRange},
+    iter_hall::FieldLocation,
     ref_iter::AutoDerefIter,
 };
 
@@ -127,6 +128,22 @@ pub trait FieldIterator<'a>: Sized + Clone {
             return self.field_run_length_fwd();
         }
         0
+    }
+    fn get_field_location_after_last(&self) -> FieldLocation {
+        FieldLocation {
+            field_pos: self.get_next_field_pos(),
+            header_idx: self.get_next_header_index(),
+            header_rl_offset: self.field_run_length_bwd(),
+            data_pos: self.get_prev_field_data_end(),
+        }
+    }
+    fn get_field_location_before_next(&self) -> FieldLocation {
+        FieldLocation {
+            field_pos: self.get_next_field_pos(),
+            header_idx: self.get_next_header_index(),
+            header_rl_offset: self.field_run_length_bwd(),
+            data_pos: self.get_next_field_data(),
+        }
     }
     fn next_header(&mut self) -> RunLength;
     fn prev_header(&mut self) -> RunLength;

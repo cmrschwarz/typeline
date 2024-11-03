@@ -129,7 +129,7 @@ pub struct IterState {
 
 /// mainly for testing purposes and temporary passing.
 #[derive(Clone, Copy, Default, Debug)]
-pub struct FieldOffset {
+pub struct FieldLocation {
     pub field_pos: usize,
     pub header_idx: usize,
     pub header_rl_offset: RunLength,
@@ -196,7 +196,14 @@ impl IterState {
             kind: IterKind::Undefined,
         }
     }
-
+    pub fn as_field_location(&self) -> FieldLocation {
+        FieldLocation {
+            field_pos: self.field_pos,
+            header_idx: self.header_idx,
+            header_rl_offset: self.header_rl_offset,
+            data_pos: self.data,
+        }
+    }
     #[cfg_attr(not(feature = "debug_state"), allow(clippy::unused_self))]
     fn iter_kind(&self) -> IterKind {
         #[cfg(feature = "debug_state")]
