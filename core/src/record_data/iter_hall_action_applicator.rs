@@ -1054,7 +1054,8 @@ fn append_header_try_merge(
 
         let new_value_appending_to_same_as_prev =
             prev.same_value_as_previous() && !h.same_value_as_previous();
-        let different_shared_value = prev.shared_value_and_rl_not_one();
+        let different_shared_value =
+            prev.shared_value_and_rl_not_one() && !h.repr.is_zst();
         let shared_value_conflict =
             new_value_appending_to_same_as_prev || different_shared_value;
 
@@ -1094,6 +1095,9 @@ fn append_data_cow_headers(
     tgt.field_count += after.field_pos - before.field_pos;
     let mut header_idx = before.header_idx;
     let mut h = headers[header_idx];
+    if after.header_idx == header_idx {
+        h.run_length = after.header_rl_offset;
+    }
     if before.header_rl_offset > 0 {
         h.run_length -= before.header_rl_offset;
         h.set_leading_padding(0);
@@ -1140,6 +1144,9 @@ fn append_data_cow_headers(
             return;
         }
         h = headers[header_idx];
+        if after.header_idx == header_idx {
+            h.run_length = after.header_rl_offset;
+        }
     }
 
     if last_observed_data_size > before.data_pos {
@@ -1154,12 +1161,21 @@ fn append_data_cow_headers(
                 return;
             }
             h = headers[header_idx];
+            if after.header_idx == header_idx {
+                h.run_length = after.header_rl_offset;
+            }
         }
     }
     append_header_try_merge(tgt, h, false);
     header_idx += 1;
-    if header_idx < headers.len() {
-        tgt.headers.extend(headers.range(header_idx..));
+    if header_idx < after.header_idx {
+        tgt.headers
+            .extend(headers.range(header_idx..after.header_idx));
+        if after.header_idx < headers.len() {
+            h = headers[after.header_idx];
+            h.run_length = after.header_rl_offset;
+            append_header_try_merge(tgt, h, false);
+        }
     }
 }
 
