@@ -79,6 +79,13 @@ impl<'a> RawBytesInserter<'a> {
             size: self.bytes_inserted as u16,
         };
         self.fd.field_count += self.run_len;
+        let header_rle = self.run_len == 1
+            && self
+                .fd
+                .headers
+                .back()
+                .map(|h| h.is_value_appendable(fmt))
+                .unwrap_or(false);
         unsafe {
             self.fd
                 .data
@@ -86,11 +93,7 @@ impl<'a> RawBytesInserter<'a> {
             self.fd.add_header_for_single_value(
                 fmt,
                 self.run_len,
-                self.fd
-                    .headers
-                    .back()
-                    .map(|h| h.is_format_appendable(fmt))
-                    .unwrap_or(false),
+                header_rle,
                 false,
             )
         }

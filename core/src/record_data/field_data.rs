@@ -556,7 +556,6 @@ impl FieldValueFormat {
         (self.flags & field_value_flags::LEADING_PADDING_MASK) as usize
     }
     pub fn set_leading_padding(&mut self, val: usize) {
-        debug_assert!(val < MAX_FIELD_ALIGN);
         self.flags &= !field_value_flags::LEADING_PADDING_MASK;
         self.flags |= (val as u8) & field_value_flags::LEADING_PADDING_MASK;
     }
@@ -639,9 +638,14 @@ impl FieldValueHeader {
             self.run_length
         }
     }
-    pub fn is_format_appendable(&self, other: FieldValueFormat) -> bool {
-        let type_compatible =
-            self.repr == other.repr && self.size == other.size;
+    pub fn is_type_compatible(&self, other: FieldValueFormat) -> bool {
+        self.repr == other.repr && self.size == other.size
+    }
+    // Chec whether we can run length append a new value
+    // (run length 1, ignoring shared flag, and assumed to not be the same
+    // value as this header) to this header.
+    pub fn is_value_appendable(&self, other: FieldValueFormat) -> bool {
+        let type_compatible = self.is_type_compatible(other);
 
         let same_deleted_status = self.flags & field_value_flags::DELETED
             == other.flags & field_value_flags::DELETED;
@@ -652,6 +656,11 @@ impl FieldValueHeader {
         type_compatible
             && same_deleted_status
             && !new_value_appending_to_same_as_prev
+            && !self.shared_value_and_rl_not_one()
+    }
+
+    pub fn shared_value_and_rl_not_one(&self) -> bool {
+        self.shared_value() && self.run_length != 1
     }
 }
 

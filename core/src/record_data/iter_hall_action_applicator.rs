@@ -7,7 +7,14 @@ use num::Integer;
 
 use crate::{
     index_newtype,
-    record_data::{action_buffer::eprint_action_list, iter_hall::CowVariant},
+    record_data::{
+        action_buffer::eprint_action_list,
+        field_data::{
+            field_value_flags::{self, LEADING_PADDING_BIT_COUNT},
+            FieldValueFormat, FieldValueRepr,
+        },
+        iter_hall::CowVariant,
+    },
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32,
         index_slice::IndexSlice,
@@ -328,8 +335,6 @@ impl IterHallActionApplicator {
             }
             let cds = *tgt_field.iter_hall.get_cow_data_source().unwrap();
 
-            let cow_end_before =
-                field.iter_hall.iters[cds.header_iter_id].get();
             // 1. We can assume the snapshot to be up to date because we
             // just finished running field updates.
             // 2. We can't just use the field directly here because
@@ -341,6 +346,7 @@ impl IterHallActionApplicator {
             let field_ref = fm.get_cow_field_ref_raw(field_id);
             let mut iter =
                 fm.lookup_iter(field_id, &field_ref, cds.header_iter_id);
+            let cow_end_before = iter.get_field_location_before_next();
             iter.next_n_fields(batch_size, true);
             let cow_end_after = iter.get_field_location_after_last();
             fm.store_iter(field_id, cds.header_iter_id, iter);
@@ -381,7 +387,7 @@ impl IterHallActionApplicator {
                 &headers,
                 &mut tgt_field.iter_hall.field_data,
                 observed_data_size_before,
-                cow_end_before.as_field_location(),
+                cow_end_before,
                 cow_end_after,
             );
         }
@@ -1035,17 +1041,39 @@ impl IterHallActionApplicator {
     }
 }
 
-fn append_header_try_merge(tgt: &mut FieldData, h: FieldValueHeader) {
-    let mut appended = false;
+fn append_header_try_merge(
+    tgt: &mut FieldData,
+    h: FieldValueHeader,
+    deficit: bool,
+) {
+    let mut appendable = false;
     if let Some(prev) = tgt.headers.last_mut() {
-        if prev.is_format_appendable(h.fmt)
-            && (RunLength::MAX - prev.run_length) >= h.run_length
-        {
-            appended = true;
+        let type_compatible = prev.is_type_compatible(h.fmt);
+
+        let same_deleted_status = prev.deleted() == h.deleted();
+
+        let new_value_appending_to_same_as_prev =
+            prev.same_value_as_previous() && !h.same_value_as_previous();
+        let different_shared_value = prev.shared_value_and_rl_not_one();
+        let shared_value_conflict =
+            new_value_appending_to_same_as_prev || different_shared_value;
+
+        let run_len_available =
+            (RunLength::MAX - prev.run_length) >= h.run_length;
+
+        appendable = type_compatible
+            && same_deleted_status
+            && run_len_available
+            && (deficit || !shared_value_conflict);
+
+        if appendable {
+            if !deficit {
+                prev.set_shared_value(false);
+            }
             prev.run_length += h.run_length;
         }
     }
-    if !appended {
+    if !appendable {
         tgt.headers.push_back(h);
     }
 }
@@ -1058,21 +1086,52 @@ fn append_data_cow_headers(
     after: FieldLocation,
 ) {
     debug_assert!(before.data_pos <= after.data_pos);
-    // When iters sit on a header that gets deleted the iter
-    // always moves backwards.
-    debug_assert!(last_observed_data_size >= before.data_pos);
     if before.header_idx == headers.len() {
         debug_assert_eq!(before.field_pos, after.field_pos);
         return;
     }
     tgt.field_count += after.field_pos - before.field_pos;
-
-    let mut data_deficit = last_observed_data_size - before.data_pos;
     let mut header_idx = before.header_idx;
     let mut h = headers[header_idx];
     if before.header_rl_offset > 0 {
         h.run_length -= before.header_rl_offset;
         h.set_leading_padding(0);
+    }
+
+    if before.data_pos > last_observed_data_size {
+        let mut padding_to_insert = before.data_pos - last_observed_data_size;
+
+        if padding_to_insert >= (1 << LEADING_PADDING_BIT_COUNT) {
+            // padding this large essentially never happens so there's no point
+            // in wasting cycles on caculating whether we could
+            // somehow do this in one header by finding a product
+            // of size and run_length that would match exactly in
+            // one header
+            while padding_to_insert > u16::MAX as usize {
+                // intentionally truncates
+                let count =
+                    (padding_to_insert / u16::MAX as usize) as RunLength;
+                tgt.headers.push_back(FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::DELETED,
+                        size: u16::MAX,
+                    },
+                    run_length: count,
+                });
+                padding_to_insert -= (count as usize) * u16::MAX as usize;
+            }
+            tgt.headers.push_back(FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::BytesInline,
+                    flags: field_value_flags::DELETED,
+                    // guaranteed to fit now
+                    size: padding_to_insert as u16,
+                },
+                run_length: 1,
+            });
+        }
+        h.set_leading_padding(padding_to_insert);
     }
     if h.run_length == 0 {
         header_idx += 1;
@@ -1081,17 +1140,23 @@ fn append_data_cow_headers(
         }
         h = headers[header_idx];
     }
-    while data_deficit > 0 {
-        data_deficit -= h.total_size_unique();
-        h.set_same_value_as_previous(true);
-        append_header_try_merge(tgt, h);
-        header_idx += 1;
-        if headers.len() == header_idx {
-            return;
+
+    if last_observed_data_size > before.data_pos {
+        let mut data_deficit = last_observed_data_size - before.data_pos;
+
+        while data_deficit > 0 {
+            data_deficit -= h.total_size_unique();
+            h.set_same_value_as_previous(true);
+            append_header_try_merge(tgt, h, true);
+            header_idx += 1;
+            if headers.len() == header_idx {
+                return;
+            }
+            h = headers[header_idx];
         }
-        h = headers[header_idx];
     }
-    append_header_try_merge(tgt, h);
+
+    append_header_try_merge(tgt, h, false);
     header_idx += 1;
     if header_idx < headers.len() {
         tgt.headers.extend(headers.range(header_idx..));
@@ -1953,6 +2018,83 @@ mod test_append_data_cow_headers {
                 field_pos: 5,
                 header_idx: 0,
                 header_rl_offset: 5,
+                data_pos: 40,
+            },
+        );
+    }
+
+    #[test]
+    fn after_deleted() {
+        test_append_data_cow_headers(
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DELETED,
+                        size: 8,
+                    },
+                    run_length: 4,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DEFAULT,
+                        size: 8,
+                    },
+                    run_length: 1,
+                },
+            ],
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DELETED,
+                        size: 8,
+                    },
+                    run_length: 3,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 8,
+                    },
+                    run_length: 1,
+                },
+            ],
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DELETED,
+                        size: 8,
+                    },
+                    run_length: 3,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::DEFAULT,
+                        size: 8,
+                    },
+                    run_length: 2,
+                },
+            ],
+            32,
+            FieldLocation {
+                field_pos: 0,
+                header_idx: 1,
+                header_rl_offset: 0,
+                // we copied over the header last time, but it was split
+                // and the part that we copied over was dropped as deleted
+                // this sort of pattern can be seen on
+                // aoc2023_day1_part1::case_2 (step 17)
+                data_pos: 32,
+            },
+            FieldLocation {
+                field_pos: 1,
+                header_idx: 1,
+                header_rl_offset: 1,
                 data_pos: 40,
             },
         );
