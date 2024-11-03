@@ -2158,4 +2158,47 @@ mod test_append_data_cow_headers {
             },
         );
     }
+
+    #[test]
+    fn partial_append() {
+        test_append_data_cow_headers(
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Undefined,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 0,
+                },
+                run_length: 5,
+            }],
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Undefined,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 0,
+                },
+                run_length: 3,
+            }],
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Undefined,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 0,
+                },
+                run_length: 5,
+            }],
+            0,
+            FieldLocation {
+                field_pos: 0,
+                header_idx: 0,
+                header_rl_offset: 1,
+                data_pos: 0,
+            },
+            FieldLocation {
+                field_pos: 0,
+                header_idx: 0,
+                header_rl_offset: 3,
+                data_pos: 0,
+            },
+        );
+    }
 }
