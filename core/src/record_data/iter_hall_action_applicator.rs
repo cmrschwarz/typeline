@@ -1064,7 +1064,8 @@ fn append_header_try_merge(
         appendable = type_compatible
             && same_deleted_status
             && run_len_available
-            && (deficit || !shared_value_conflict);
+            && (deficit || !shared_value_conflict)
+            && h.leading_padding() == 0;
 
         if appendable {
             if !deficit {
@@ -1155,7 +1156,6 @@ fn append_data_cow_headers(
             h = headers[header_idx];
         }
     }
-
     append_header_try_merge(tgt, h, false);
     header_idx += 1;
     if header_idx < headers.len() {
@@ -2085,10 +2085,6 @@ mod test_append_data_cow_headers {
                 field_pos: 0,
                 header_idx: 1,
                 header_rl_offset: 0,
-                // we copied over the header last time, but it was split
-                // and the part that we copied over was dropped as deleted
-                // this sort of pattern can be seen on
-                // aoc2023_day1_part1::case_2 (step 17)
                 data_pos: 32,
             },
             FieldLocation {
@@ -2096,6 +2092,69 @@ mod test_append_data_cow_headers {
                 header_idx: 1,
                 header_rl_offset: 1,
                 data_pos: 40,
+            },
+        );
+    }
+
+    #[test]
+    fn cannot_merge_if_padding_needed() {
+        test_append_data_cow_headers(
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DELETED,
+                        size: 1,
+                    },
+                    run_length: 3,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+            ],
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    flags: field_value_flags::padding(1),
+                    size: 1,
+                },
+                run_length: 1,
+            }],
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::padding(1),
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::padding(1),
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+            ],
+            2,
+            FieldLocation {
+                field_pos: 0,
+                header_idx: 1,
+                header_rl_offset: 0,
+                data_pos: 3,
+            },
+            FieldLocation {
+                field_pos: 1,
+                header_idx: 1,
+                header_rl_offset: 1,
+                data_pos: 4,
             },
         );
     }
