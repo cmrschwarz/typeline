@@ -488,17 +488,16 @@ fn execute_binary_op(
         FieldValueSlice::Int(lhs_data) => execute_binary_op_for_int_lhs(
             op_id, msm, op_kind, lhs_range, lhs_data, rhs_iter, inserter,
         ),
-        FieldValueSlice::BigInt(_) => todo!(),
-        FieldValueSlice::BigRational(_) => todo!(),
-        FieldValueSlice::Float(_) => todo!(),
-        FieldValueSlice::TextInline(_) => todo!(),
-        FieldValueSlice::TextBuffer(_) => todo!(),
-        FieldValueSlice::BytesInline(_) => todo!(),
-        FieldValueSlice::BytesBuffer(_) => todo!(),
-        FieldValueSlice::Array(_) => todo!(),
-        FieldValueSlice::Object(_) => todo!(),
-
-        FieldValueSlice::Null(_)
+        FieldValueSlice::BigInt(_)
+        | FieldValueSlice::BigRational(_)
+        | FieldValueSlice::Float(_)
+        | FieldValueSlice::TextInline(_)
+        | FieldValueSlice::TextBuffer(_)
+        | FieldValueSlice::BytesInline(_)
+        | FieldValueSlice::BytesBuffer(_)
+        | FieldValueSlice::Array(_)
+        | FieldValueSlice::Object(_)
+        | FieldValueSlice::Null(_)
         | FieldValueSlice::Undefined(_)
         | FieldValueSlice::Custom(_)
         | FieldValueSlice::Error(_)
