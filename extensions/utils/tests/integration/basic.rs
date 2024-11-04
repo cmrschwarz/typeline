@@ -25,6 +25,7 @@ use scr_core::{
     scr_error::ScrError,
 };
 use scr_ext_utils::{
+    collect::create_op_collect,
     explode::create_op_explode,
     flatten::create_op_flatten,
     head::create_op_head,
@@ -123,6 +124,32 @@ fn subtractive_head_multibatch() -> Result<(), ScrError> {
         .add_op(create_op_head(-5))
         .run_collect_as::<i64>()?;
     assert_eq!(res, [1, 2, 3, 4, 5]);
+    Ok(())
+}
+
+#[test]
+fn tail_multibatch() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(2)
+        .unwrap()
+        .add_op(create_op_seqn(1, 10, 1).unwrap())
+        .add_op(create_op_tail(4))
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [7, 8, 9, 10]);
+    Ok(())
+}
+
+#[test]
+fn multigroup_tail_multibatch() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(2)?
+        .add_op(create_op_seq(1, 11, 1)?)
+        .add_op(create_op_chunks(
+            3,
+            [create_op_tail(2), create_op_collect()],
+        )?)
+        .run_collect_stringified()?;
+    assert_eq!(res, ["[2, 3]", "[5, 6]", "[8, 9]", "[10]"]);
     Ok(())
 }
 
