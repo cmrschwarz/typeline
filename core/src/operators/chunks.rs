@@ -231,8 +231,7 @@ pub fn handle_tf_chunks_header(
         ch.curr_stride_rem -= appendable;
         size_rem -= appendable;
         let eog = parent_record_group_iter.is_end_of_group(ps.input_done);
-        if eog {
-            parent_record_group_iter.next_group();
+        if eog && parent_record_group_iter.try_next_group() {
             ch.curr_stride_rem = stride;
         }
         if (!eog && ch.curr_stride_rem > 0) || size_rem == 0 {
