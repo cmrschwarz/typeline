@@ -168,21 +168,20 @@ impl Transform<'_> for TfTail {
 
         loop {
             let group_len_rem = iter.group_len_rem();
-            let consumable = group_len_rem.min(batch_size_rem);
-
-            let droppable = consumable.saturating_sub(self.count);
-            if iter.is_last_group() && !ps.input_done {
-                iter.drop(droppable);
-                batch_size_rem -= consumable;
-                break;
-            }
+            let destined_to_drop = group_len_rem.saturating_sub(self.count);
+            let droppable = destined_to_drop.min(batch_size_rem);
             iter.drop(droppable);
-            output_count += consumable - droppable;
-            if consumable != group_len_rem || !iter.try_next_group() {
+
+            if iter.is_last_group() && !ps.input_done {
                 batch_size_rem -= droppable;
                 break;
             }
+            let consumable = group_len_rem.min(batch_size_rem);
+            output_count += consumable - droppable;
             batch_size_rem -= consumable;
+            if consumable != group_len_rem || !iter.try_next_group() {
+                break;
+            }
         }
         jd.tf_mgr.unclaim_batch_size(tf_id, batch_size_rem);
         iter.store_iter(self.group_track_iter.iter_id);
