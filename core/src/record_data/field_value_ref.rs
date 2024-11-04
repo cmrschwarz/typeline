@@ -505,9 +505,16 @@ unsafe fn to_slice<'a, T: Sized, R: FieldDataRef<'a>>(
     if data_begin == data_end {
         return &[];
     }
+    let data = fdr.data();
+    #[cfg(debug_assertions)]
+    {
+        let slice_0_len = data.slice_lengths().0;
+        debug_assert!(data_begin >= slice_0_len || data_end <= slice_0_len);
+    }
+
     unsafe {
         std::slice::from_raw_parts::<T>(
-            fdr.data().ptr_from_index(data_begin).cast(),
+            data.ptr_from_index(data_begin).cast(),
             (data_end - data_begin) / std::mem::size_of::<T>(),
         )
     }

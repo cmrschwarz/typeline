@@ -24,13 +24,15 @@ pub trait FieldDataRef<'a>: Sized + Clone {
     }
 }
 
-#[bitfield(u8, default = 0b011)]
+#[bitfield(u8, default = 0b0111)]
 pub struct FieldIterOpts {
     #[bit(0, rw)]
     allow_dead: bool,
     #[bit(1, rw)]
-    allow_ring_wrap: bool,
+    allow_header_ring_wrap: bool,
     #[bit(2, rw)]
+    allow_data_ring_wrap: bool,
+    #[bit(3, rw)]
     invert_kinds_check: bool,
 }
 
@@ -174,7 +176,8 @@ pub trait FieldIterator<'a>: Sized + Clone {
             n,
             [],
             FieldIterOpts::default()
-                .with_allow_ring_wrap(allow_ring_wrap)
+                .with_allow_header_ring_wrap(allow_ring_wrap)
+                .with_allow_data_ring_wrap(allow_ring_wrap)
                 .with_invert_kinds_check(true),
         )
     }
@@ -183,7 +186,8 @@ pub trait FieldIterator<'a>: Sized + Clone {
             n,
             [],
             FieldIterOpts::default()
-                .with_allow_ring_wrap(allow_ring_wrap)
+                .with_allow_header_ring_wrap(allow_ring_wrap)
+                .with_allow_data_ring_wrap(allow_ring_wrap)
                 .with_invert_kinds_check(true),
         )
     }
@@ -506,7 +510,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             return 0;
         }
         let mut stride_rem = n;
-        let curr_header_rem =
+        let mut curr_header_rem =
             (self.header_rl_total - self.header_rl_offset) as usize;
         if curr_header_rem == 0
             || (self.header_fmt.deleted() && !opts.allow_dead())
@@ -515,12 +519,25 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         {
             return 0;
         }
-        if curr_header_rem > stride_rem {
-            self.header_rl_offset += stride_rem as RunLength;
-            self.field_pos += stride_rem;
-            return stride_rem;
+
+        let mut data_pos = self.data;
+        if !self.header_fmt.shared_value() {
+            data_pos +=
+                self.header_rl_offset as usize * self.header_fmt.size as usize;
         }
-        let wrap_idx = if opts.allow_ring_wrap() {
+
+        let mut data_wrap_pos = if opts.allow_data_ring_wrap() {
+            usize::MAX
+        } else {
+            let slice_0_len = self.fdr.data().as_slices().0.len();
+            if data_pos < slice_0_len {
+                slice_0_len
+            } else {
+                usize::MAX
+            }
+        };
+
+        let header_wrap_idx = if opts.allow_header_ring_wrap() {
             usize::MAX
         } else {
             let slice_0_len = self.fdr.headers().as_slices().0.len();
@@ -530,7 +547,29 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
                 usize::MAX
             }
         };
+
         loop {
+            let stride_size = if self.header_fmt.shared_value() {
+                self.header_fmt.size as usize
+            } else {
+                self.header_fmt.size as usize * curr_header_rem
+            };
+
+            if data_pos + stride_size > data_wrap_pos {
+                // this is to not be div by zero because otherwise
+                // we woultn't overflow our data pos
+                let rem =
+                    (data_wrap_pos - data_pos) / self.header_fmt.size as usize;
+                self.header_rl_offset += rem as RunLength;
+                self.field_pos += rem;
+                stride_rem -= rem;
+                return n - stride_rem;
+            }
+            if curr_header_rem > stride_rem {
+                self.header_rl_offset += stride_rem as RunLength;
+                self.field_pos += stride_rem;
+                return n;
+            }
             if !opts.allow_dead()
                 && self.fdr.headers().len() != self.header_idx + 1
                 && self.fdr.headers()[self.header_idx + 1].deleted()
@@ -539,20 +578,22 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
                 return n - stride_rem;
             }
             stride_rem -= self.next_header() as usize;
+            curr_header_rem = self.header_rl_total as usize;
+            data_pos = self.data;
+            if data_pos >= data_wrap_pos {
+                if stride_rem == n {
+                    data_wrap_pos = usize::MAX;
+                } else {
+                    return n - stride_rem;
+                }
+            }
             if !self.is_next_valid()
                 || (self.header_fmt.deleted() && !opts.allow_dead())
                 || (kinds.contains(&self.header_fmt.repr)
                     == opts.invert_kinds_check())
-                || self.header_idx == wrap_idx
+                || self.header_idx == header_wrap_idx
             {
                 return n - stride_rem;
-            }
-            if self.header_rl_total as usize - self.header_rl_offset as usize
-                > stride_rem
-            {
-                self.field_pos += stride_rem;
-                self.header_rl_offset += stride_rem as RunLength;
-                return n;
             }
         }
     }
@@ -562,6 +603,10 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         kinds: [FieldValueRepr; N],
         opts: FieldIterOpts,
     ) -> usize {
+        // HACK // SAFETY
+        // TODO: this currently does **not** respect data_ring_wrap
+        // which might lead to invalid memory if somebody decides to
+        // create slices from this
         if n == 0
             || self.prev_field() == 0
             || (self.header_fmt.deleted() && !opts.allow_dead())
@@ -579,7 +624,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             self.field_pos -= stride_rem;
             return stride_rem;
         }
-        let wrap_idx = if opts.allow_ring_wrap() {
+        let wrap_idx = if opts.allow_header_ring_wrap() {
             usize::MAX
         } else {
             self.fdr.headers().as_slices().0.len().saturating_sub(1)
@@ -671,7 +716,9 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         let field_count = self.next_n_fields_with_fmt(
             limit,
             [fmt.repr],
-            opts.with_invert_kinds_check(false),
+            opts.with_invert_kinds_check(false)
+                .with_allow_header_ring_wrap(false)
+                .with_allow_data_ring_wrap(false),
         );
         let mut data_end = self.get_prev_field_data_end();
         let mut oversize_end = 0;
@@ -722,7 +769,9 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         let field_count = self.prev_n_fields_with_fmt(
             limit - 1,
             [fmt.repr],
-            opts.with_invert_kinds_check(false),
+            opts.with_invert_kinds_check(false)
+                .with_allow_data_ring_wrap(false)
+                .with_allow_header_ring_wrap(false),
         ) + 1;
         let header_start = self.header_idx;
         let data_start = self.get_next_field_data();
