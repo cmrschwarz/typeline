@@ -908,7 +908,7 @@ fn group_track_to_json(
     let iters_before_start = gt
         .iter_states
         .iter()
-        .position(|i| i.get().field_pos > gt.passed_fields_count)
+        .position(|i| i.get().field_pos > 0)
         .unwrap_or(gt.iter_states.len());
     let mut iters_start = iters_before_start;
     let mut passed_count_rem = gt.passed_fields_count;
@@ -934,6 +934,15 @@ fn group_track_to_json(
             passed_count_rem -= 1;
             parent_group_advancement = 0;
             is_next_group_start = passed_count_rem == 0;
+
+            while let Some(it) = gt.iter_states.get(iters_end) {
+                if it.get().field_pos
+                    > gt.passed_fields_count - passed_count_rem
+                {
+                    break;
+                }
+                iters_end += 1;
+            }
         } else {
             if iter.group_track().group_lengths.is_empty() {
                 break;
@@ -946,10 +955,7 @@ fn group_track_to_json(
 
             group_len_rem = iter.group_len_rem();
 
-            loop {
-                let Some(it) = gt.iter_states.get(iters_end) else {
-                    break;
-                };
+            while let Some(it) = gt.iter_states.get(iters_end) {
                 if it.get().field_pos > iter.field_pos() + 1 {
                     break;
                 }
