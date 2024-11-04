@@ -351,6 +351,8 @@ impl IterHallActionApplicator {
             let cow_end_after = iter.get_field_location_after_last();
             fm.store_iter(field_id, cds.header_iter_id, iter);
 
+            let tgt_field_count = tgt_field.iter_hall.field_data.field_count;
+
             let FieldDataSource::DataCow {
                 source: _,
                 observed_data_size,
@@ -363,12 +365,8 @@ impl IterHallActionApplicator {
                 ));
                 continue;
             };
-            let observed_data_size_before = *observed_data_size;
-            *observed_data_size = cow_end_after.data_pos;
 
-            if cow_end_before.field_pos == 0
-                && tgt_field.iter_hall.field_data.field_count == 0
-            {
+            if cow_end_before.field_pos == 0 && tgt_field_count == 0 {
                 tgt_field.iter_hall.data_source =
                     FieldDataSource::FullCow(cds);
                 tgt_field.iter_hall.reset_iterators();
@@ -380,6 +378,8 @@ impl IterHallActionApplicator {
             if cow_end_before.field_pos == cow_end_after.field_pos {
                 continue;
             }
+            let observed_data_size_before = *observed_data_size;
+            *observed_data_size = cow_end_after.data_pos;
 
             let (headers, _count) = fm.get_field_headers(Ref::clone(&field));
 
@@ -1046,6 +1046,9 @@ fn append_header_try_merge(
     h: FieldValueHeader,
     deficit: bool,
 ) {
+    if h.run_length == 0 {
+        return;
+    }
     let mut appendable = false;
     if let Some(prev) = tgt.headers.last_mut() {
         let type_compatible = prev.is_type_compatible(h.fmt);
@@ -1142,10 +1145,6 @@ fn append_data_cow_headers(
         header_idx += 1;
         if headers.len() == header_idx {
             return;
-        }
-        h = headers[header_idx];
-        if after.header_idx == header_idx {
-            h.run_length = after.header_rl_offset;
         }
     }
 
