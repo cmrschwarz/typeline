@@ -333,13 +333,13 @@ pub fn handle_tf_print_raw(
                 if print.opts.propagate_errors {
                     output_field
                         .iter_hall
-                        .push_null(*handled_field_count, true);
-                    *handled_field_count += range.base.field_count;
+                        .extend_from_ref_aware_range(range, true, false);
+                } else {
                     output_field
                         .iter_hall
-                        .extend_from_ref_aware_range(range, true, false);
-                    *outputs_produced = *handled_field_count;
+                        .push_null(*handled_field_count, true);
                 }
+                *outputs_produced = *handled_field_count;
             }
             FieldValueSlice::Custom(custom_types) => {
                 for v in RefAwareFieldValueRangeIter::from_range(
@@ -468,11 +468,10 @@ pub fn handle_tf_print(
     match res {
         Ok(()) => {
             if handled_field_count > 0 {
-                output_field
-                    .iter_hall
-                    .push_null(handled_field_count - outputs_produced, true);
+                let diff = handled_field_count - outputs_produced;
+                output_field.iter_hall.push_null(diff, true);
+                outputs_produced += diff;
             }
-            outputs_produced += handled_field_count;
         }
         Err(err) => {
             let nsucc = handled_field_count;
