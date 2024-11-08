@@ -72,7 +72,7 @@ impl Operator for OpFlatten {
         _sess: &SessionData,
         _op_id: OperatorId,
     ) -> bool {
-        true
+        false
     }
 
     fn on_liveness_computed(

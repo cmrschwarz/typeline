@@ -36,11 +36,11 @@ use super::{
     errors::{io_error_to_op_error, OperatorCreationError},
     multi_op::create_multi_op,
     operator::{
-        OperatorBase, OperatorData, OperatorDataId, OperatorId, OperatorName,
-        OperatorOffsetInChain,
+        Operator, OperatorData, OperatorDataId, OperatorId, OperatorName,
+        OperatorOffsetInChain, TransformInstatiation,
     },
     regex::{create_op_regex_lines, create_op_regex_trim_trailing_newline},
-    transform::{TransformData, TransformId, TransformState},
+    transform::{Transform, TransformData, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
 
@@ -72,17 +72,6 @@ pub struct OpFileReader {
     insert_count: Option<usize>,
 }
 
-impl OpFileReader {
-    pub fn default_op_name(&self) -> OperatorName {
-        match self.file_kind {
-            ReadableFileKind::Stdin => "stdin",
-            ReadableFileKind::File(_) => "file",
-            ReadableFileKind::Custom(_) => "<custom_file_stream>",
-        }
-        .into()
-    }
-}
-
 pub struct TfFileReader {
     // in case of errors, we close this by take()ing the file, therefore
     // option
@@ -94,68 +83,6 @@ pub struct TfFileReader {
     stream_size_threshold: usize,
     explicit_count: Option<ExplicitCount>,
     iter_id: IterId,
-}
-
-pub fn build_tf_file_reader<'a>(
-    jd: &mut JobData,
-    _op_base: &OperatorBase,
-    op: &'a OpFileReader,
-    tf_state: &TransformState,
-) -> TransformData<'a> {
-    let mut check_if_tty = false;
-    let mut line_buffered = match op.line_buffered {
-        LineBufferedSetting::Yes => true,
-        LineBufferedSetting::No => false,
-        LineBufferedSetting::IfTTY => {
-            check_if_tty = true;
-            false
-        }
-    };
-    let file = match &op.file_kind {
-        ReadableFileKind::Stdin => {
-            let stdin = std::io::stdin().lock();
-            if check_if_tty {
-                line_buffered = stdin.is_terminal();
-            }
-            AnyFileReader::Stdin
-        }
-        ReadableFileKind::File(path) => match File::open(path) {
-            Ok(f) => {
-                if check_if_tty && f.is_terminal() {
-                    line_buffered = true;
-                    AnyFileReader::BufferedFile(BufReader::new(f))
-                } else {
-                    AnyFileReader::File(f)
-                }
-            }
-            Err(e) => AnyFileReader::FileOpenIoError(Some(e)),
-        },
-        ReadableFileKind::Custom(reader) => {
-            AnyFileReader::Custom(reader
-                .lock()
-                .unwrap()
-                .take()
-                .expect("attempted to create two transforms from a single custom FileKind"))
-        }
-    };
-    let stream_size_threshold =
-        jd.get_setting_from_tf_state::<SettingStreamSizeThreshold>(tf_state);
-    let stream_buffer_size =
-        jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
-
-    TransformData::FileReader(TfFileReader {
-        file: Some(file),
-        stream_value: None,
-        line_buffered,
-        stream_size_threshold,
-        stream_buffer_size,
-        explicit_count: op.insert_count.map(|count| ExplicitCount {
-            count,
-            actor_id: jd.add_actor_for_tf_state(tf_state),
-        }),
-        iter_id: jd.claim_iter_for_tf_state(tf_state),
-        value_committed: false,
-    })
 }
 
 fn read_size_limited<F: Read>(
@@ -331,87 +258,6 @@ fn start_streaming_file(
     jd.tf_mgr.make_stream_producer(tf_id);
 }
 
-pub fn handle_tf_file_reader_stream_producer_update(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    fr: &mut TfFileReader,
-) {
-    let sv_id = fr.stream_value.unwrap();
-    let Some(file) = fr.file.as_mut() else {
-        // this happens if the stream is immediately done,
-        // but we had to wait for subscribers before unregistering it
-        jd.sv_mgr.drop_field_value_subscription(sv_id, None);
-        return;
-    };
-    let sv = &mut jd.sv_mgr.stream_values[sv_id];
-
-    let mut drop_unused = true;
-
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    if !tf.predecessor_done {
-        drop_unused = false;
-        // if we aren't done, subsequent records might need the stream
-        sv.buffer_mode.require_buffered();
-    }
-
-    if sv.ref_count > 1 {
-        drop_unused = false;
-    }
-    let mut done = drop_unused;
-
-    if !drop_unused {
-        let res = sv
-            .data_inserter(sv_id, fr.stream_buffer_size, true)
-            .with_bytes_buffer(|buf| {
-                read_chunk(buf, file, fr.stream_buffer_size, fr.line_buffered)
-            });
-
-        done = match res {
-            Ok((_size, eof)) => {
-                sv.done = eof;
-                eof
-            }
-            Err(err) => {
-                let err = io_error_to_op_error(
-                    jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
-                    &err,
-                );
-                sv.set_error(Arc::new(err));
-                true
-            }
-        };
-    }
-
-    jd.sv_mgr.inform_stream_value_subscribers(sv_id);
-    if done {
-        fr.file.take();
-        // we only drop our stream value once all input is already handled
-        if jd.tf_mgr.transforms[tf_id].done {
-            jd.sv_mgr.drop_field_value_subscription(sv_id, None);
-        }
-        return;
-    }
-    jd.tf_mgr.make_stream_producer(tf_id);
-}
-
-pub fn handle_tf_file_reader(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    fr: &mut TfFileReader,
-) {
-    if !fr.value_committed {
-        fr.value_committed = true;
-        start_streaming_file(jd, tf_id, fr);
-    }
-    let (batch_size, ps) = maintain_single_value(
-        jd,
-        tf_id,
-        fr.explicit_count.as_ref(),
-        fr.iter_id,
-    );
-    jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
-}
-
 #[derive(Default, Clone, Copy)]
 struct FileReaderOptions {
     lines: bool,
@@ -531,7 +377,7 @@ pub fn create_op_file_reader(
     file_kind: ReadableFileKind,
     insert_count: usize,
 ) -> OperatorData {
-    OperatorData::FileReader(OpFileReader {
+    OperatorData::from_custom(OpFileReader {
         file_kind,
         insert_count: if insert_count == 0 {
             None
@@ -555,7 +401,7 @@ pub fn create_op_stream_dummy(
     insert_count: usize,
 ) -> OperatorData {
     create_op_file_reader_custom(
-        Box::new(BytesReader::from_vec(value.to_owned())),
+        Box::new(std::io::Cursor::new(value.to_owned())),
         insert_count,
     )
 }
@@ -584,63 +430,224 @@ pub fn create_op_file_reader_custom_not_cloneable(
     )
 }
 
-pub fn setup_op_file_reader(
-    op: &mut OpFileReader,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    let buffering_mode =
-        sess.get_chain_setting::<SettingBufferingMode>(chain_id);
-    op.line_buffered = match buffering_mode {
-        BufferingMode::BlockBuffer => LineBufferedSetting::No,
-        BufferingMode::LineBuffer => LineBufferedSetting::Yes,
-        BufferingMode::LineBufferStdin => match op.file_kind {
-            ReadableFileKind::Stdin => LineBufferedSetting::Yes,
-            _ => LineBufferedSetting::No,
+impl Operator for OpFileReader {
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let buffering_mode =
+            sess.get_chain_setting::<SettingBufferingMode>(chain_id);
+        self.line_buffered = match buffering_mode {
+            BufferingMode::BlockBuffer => LineBufferedSetting::No,
+            BufferingMode::LineBuffer => LineBufferedSetting::Yes,
+            BufferingMode::LineBufferStdin => match self.file_kind {
+                ReadableFileKind::Stdin => LineBufferedSetting::Yes,
+                _ => LineBufferedSetting::No,
+            },
+            BufferingMode::LineBufferIfTTY => LineBufferedSetting::IfTTY,
+            BufferingMode::LineBufferStdinIfTTY => match self.file_kind {
+                ReadableFileKind::Stdin => LineBufferedSetting::IfTTY,
+                _ => LineBufferedSetting::No,
+            },
+        };
+        Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
+    }
+
+    fn default_name(&self) -> OperatorName {
+        match self.file_kind {
+            ReadableFileKind::Stdin => "stdin",
+            ReadableFileKind::File(_) => "file",
+            ReadableFileKind::Custom(_) => "<custom_file_stream>",
+        }
+        .into()
+    }
+
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> usize {
+        1
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        _ld: &mut crate::liveness_analysis::LivenessData,
+        _op_offset_after_last_write: super::operator::OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.flags.input_accessed = false;
+        output.flags.non_stringified_input_access = false;
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut crate::job::Job<'a>,
+        tf_state: &mut TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        let mut check_if_tty = false;
+        let mut line_buffered = match self.line_buffered {
+            LineBufferedSetting::Yes => true,
+            LineBufferedSetting::No => false,
+            LineBufferedSetting::IfTTY => {
+                check_if_tty = true;
+                false
+            }
+        };
+        let file = match &self.file_kind {
+        ReadableFileKind::Stdin => {
+            let stdin = std::io::stdin().lock();
+            if check_if_tty {
+                line_buffered = stdin.is_terminal();
+            }
+            AnyFileReader::Stdin
+        }
+        ReadableFileKind::File(path) => match File::open(path) {
+            Ok(f) => {
+                if check_if_tty && f.is_terminal() {
+                    line_buffered = true;
+                    AnyFileReader::BufferedFile(BufReader::new(f))
+                } else {
+                    AnyFileReader::File(f)
+                }
+            }
+            Err(e) => AnyFileReader::FileOpenIoError(Some(e)),
         },
-        BufferingMode::LineBufferIfTTY => LineBufferedSetting::IfTTY,
-        BufferingMode::LineBufferStdinIfTTY => match op.file_kind {
-            ReadableFileKind::Stdin => LineBufferedSetting::IfTTY,
-            _ => LineBufferedSetting::No,
-        },
+        ReadableFileKind::Custom(reader) => {
+            AnyFileReader::Custom(reader
+                .lock()
+                .unwrap()
+                .take()
+                .expect("attempted to create two transforms from a single custom FileKind"))
+        }
     };
-    Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
-}
+        let stream_size_threshold = job
+            .job_data
+            .get_setting_from_tf_state::<SettingStreamSizeThreshold>(tf_state);
+        let stream_buffer_size = job
+            .job_data
+            .get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
 
-#[derive(Clone)]
-pub struct BytesReader {
-    pub data: Box<[u8]>,
-    pub pos: usize,
-}
-
-impl BytesReader {
-    pub fn from_string(data: String) -> Self {
-        Self {
-            data: data.into_boxed_str().into_boxed_bytes(),
-            pos: 0,
-        }
+        TransformInstatiation::Single(TransformData::from_custom(
+            TfFileReader {
+                file: Some(file),
+                stream_value: None,
+                line_buffered,
+                stream_size_threshold,
+                stream_buffer_size,
+                explicit_count: self.insert_count.map(|count| ExplicitCount {
+                    count,
+                    actor_id: job.job_data.add_actor_for_tf_state(tf_state),
+                }),
+                iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
+                value_committed: false,
+            },
+        ))
     }
-    pub fn from_vec(data: Vec<u8>) -> Self {
-        Self {
-            data: data.into_boxed_slice(),
-            pos: 0,
-        }
-    }
 }
 
-impl Read for BytesReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let len = self.data.len() - self.pos;
-        if buf.len() >= len {
-            buf[0..len].copy_from_slice(&self.data[self.pos..]);
-            self.pos = self.data.len();
-            return Ok(len);
+impl Transform<'_> for TfFileReader {
+    fn display_name(&self) -> super::transform::DefaultTransformName {
+        "file".into()
+    }
+
+    fn update(&mut self, jd: &mut JobData<'_>, tf_id: TransformId) {
+        if !self.value_committed {
+            self.value_committed = true;
+            start_streaming_file(jd, tf_id, self);
         }
-        buf.copy_from_slice(&self.data[self.pos..(self.pos + buf.len())]);
-        self.pos += buf.len();
-        Ok(buf.len())
+        let (batch_size, ps) = maintain_single_value(
+            jd,
+            tf_id,
+            self.explicit_count.as_ref(),
+            self.iter_id,
+        );
+        jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+    }
+
+    fn stream_producer_update(
+        &mut self,
+        jd: &mut JobData<'_>,
+        tf_id: TransformId,
+    ) {
+        let sv_id = self.stream_value.unwrap();
+        let Some(file) = self.file.as_mut() else {
+            // this happens if the stream is immediately done,
+            // but we had to wait for subscribers before unregistering it
+            jd.sv_mgr.drop_field_value_subscription(sv_id, None);
+            return;
+        };
+        let sv = &mut jd.sv_mgr.stream_values[sv_id];
+
+        let mut drop_unused = true;
+
+        let tf = &jd.tf_mgr.transforms[tf_id];
+        if !tf.predecessor_done {
+            drop_unused = false;
+            // if we aren't done, subsequent records might need the stream
+            sv.buffer_mode.require_buffered();
+        }
+
+        if sv.ref_count > 1 {
+            drop_unused = false;
+        }
+        let mut done = drop_unused;
+
+        if !drop_unused {
+            let res = sv
+                .data_inserter(sv_id, self.stream_buffer_size, true)
+                .with_bytes_buffer(|buf| {
+                    read_chunk(
+                        buf,
+                        file,
+                        self.stream_buffer_size,
+                        self.line_buffered,
+                    )
+                });
+
+            done = match res {
+                Ok((_size, eof)) => {
+                    sv.done = eof;
+                    eof
+                }
+                Err(err) => {
+                    let err = io_error_to_op_error(
+                        jd.tf_mgr.transforms[tf_id].op_id.unwrap(),
+                        &err,
+                    );
+                    sv.set_error(Arc::new(err));
+                    true
+                }
+            };
+        }
+
+        jd.sv_mgr.inform_stream_value_subscribers(sv_id);
+        if done {
+            self.file.take();
+            // we only drop our stream value once all input is already handled
+            if jd.tf_mgr.transforms[tf_id].done {
+                jd.sv_mgr.drop_field_value_subscription(sv_id, None);
+            }
+            return;
+        }
+        jd.tf_mgr.make_stream_producer(tf_id);
     }
 }

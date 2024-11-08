@@ -638,7 +638,6 @@ impl LivenessData {
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
             | OperatorData::MacroDef(_) => (),
 

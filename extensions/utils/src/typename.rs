@@ -56,7 +56,7 @@ impl Operator for OpTypename {
         _sess: &SessionData,
         _op_id: OperatorId,
     ) -> bool {
-        true
+        false
     }
 
     fn update_variable_liveness(

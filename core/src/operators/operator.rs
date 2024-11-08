@@ -37,7 +37,6 @@ use super::{
         update_op_compute_variable_liveness, OpCompute,
     },
     field_value_sink::{build_tf_field_value_sink, OpFieldValueSink},
-    file_reader::{build_tf_file_reader, setup_op_file_reader, OpFileReader},
     foreach::{insert_tf_foreach, setup_op_foreach, OpForeach},
     foreach_unique::{
         insert_tf_foreach_unique, setup_op_foreach_unique, OpForeachUnique,
@@ -92,7 +91,6 @@ pub enum OperatorData {
     Compute(OpCompute),
     StringSink(OpStringSink),
     FieldValueSink(OpFieldValueSink),
-    FileReader(OpFileReader),
     Literal(OpLiteral),
     Foreach(OpForeach),
     ForeachUnique(OpForeachUnique),
@@ -213,14 +211,6 @@ impl OperatorData {
                 span,
             ),
             OperatorData::Select(op) => setup_op_select(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
-            OperatorData::FileReader(op) => setup_op_file_reader(
                 op,
                 sess,
                 op_data_id,
@@ -357,7 +347,6 @@ impl OperatorData {
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
             | OperatorData::MacroDef(_)
             | OperatorData::Foreach(_)
@@ -414,7 +403,6 @@ impl OperatorData {
             OperatorData::Compute(_) => 1,
             OperatorData::StringSink(_) => 1,
             OperatorData::FieldValueSink(_) => 1,
-            OperatorData::FileReader(_) => 1,
             OperatorData::Literal(_) => 1,
             OperatorData::Foreach(_) => 0,
             OperatorData::ForeachUnique(_) => 0,
@@ -463,7 +451,6 @@ impl OperatorData {
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
@@ -493,7 +480,6 @@ impl OperatorData {
             OperatorData::Chunks(_) => "chunks".into(),
             OperatorData::ForkCat(_) => "forkcat".into(),
             OperatorData::Key(_) => "key".into(),
-            OperatorData::FileReader(op) => op.default_op_name(),
             OperatorData::Compute(_) => "c".into(),
             OperatorData::Select(_) => "select".into(),
             OperatorData::Literal(op) => op.default_op_name(),
@@ -539,8 +525,7 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> OutputFieldKind {
         match self {
-            OperatorData::FileReader(_)
-            | OperatorData::Compute(_)
+            OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
@@ -616,7 +601,6 @@ impl OperatorData {
             | OperatorData::NopCopy(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
             | OperatorData::MacroDef(_) => (),
         }
@@ -714,12 +698,6 @@ impl OperatorData {
                     output,
                 );
             }
-            OperatorData::FileReader(_) => {
-                // this only inserts if input is done, so no write flag
-                // neccessary
-                output.flags.input_accessed = false;
-                output.flags.non_stringified_input_access = false;
-            }
             OperatorData::Literal(di) => {
                 output.flags.may_dup_or_drop = di.insert_count.is_some();
                 output.flags.input_accessed = false;
@@ -808,7 +786,6 @@ impl OperatorData {
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
             | OperatorData::MacroDef(_) => (),
         }
@@ -873,9 +850,6 @@ impl OperatorData {
             }
             OperatorData::FieldValueSink(op) => {
                 build_tf_field_value_sink(jd, op_base, op, tfs)
-            }
-            OperatorData::FileReader(op) => {
-                build_tf_file_reader(jd, op_base, op, tfs)
             }
             OperatorData::Literal(op) => {
                 build_tf_literal(jd, op_base, op, tfs)
@@ -977,7 +951,6 @@ impl OperatorData {
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
-            | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)

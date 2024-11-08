@@ -40,10 +40,6 @@ use super::{
         handle_tf_field_value_sink,
         handle_tf_field_value_sink_stream_value_update, TfFieldValueSink,
     },
-    file_reader::{
-        handle_tf_file_reader, handle_tf_file_reader_stream_producer_update,
-        TfFileReader,
-    },
     foreach::{
         handle_tf_foreach_header, handle_tf_foreach_trailer, TfForeachHeader,
         TfForeachTrailer,
@@ -86,7 +82,6 @@ pub enum TransformData<'a> {
     ForkCat(TfForkCat),
     ForkCatSubchainTrailer(TfForkCatSubchainTrailer<'a>),
     Compute(TfCompute<'a>),
-    FileReader(TfFileReader),
     Literal(TfLiteral<'a>),
     AggregatorHeader(TfAggregatorHeader),
     AggregatorTrailer(TfAggregatorTrailer),
@@ -121,7 +116,6 @@ impl<'a> TransformData<'a> {
             TransformData::Fork(_) => "fork",
             TransformData::ForkCat(_) => "forkcat",
             TransformData::Compute(_) => "compute",
-            TransformData::FileReader(_) => "file_reader",
             TransformData::Literal(_) => "literal",
             TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
@@ -147,7 +141,6 @@ impl<'a> TransformData<'a> {
             TransformData::NopCopy(_)
             | TransformData::StringSink(_)
             | TransformData::Compute(_)
-            | TransformData::FileReader(_)
             | TransformData::Literal(_)
             | TransformData::AggregatorTrailer(_)
             | TransformData::FieldValueSink(_) => {
@@ -314,7 +307,6 @@ pub fn transform_pre_update(
         | TransformData::StringSink(_)
         | TransformData::FieldValueSink(_)
         | TransformData::Compute(_)
-        | TransformData::FileReader(_)
         | TransformData::Literal(_)
         | TransformData::Terminator(_)
         | TransformData::AggregatorHeader(_)
@@ -355,9 +347,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         }
         TransformData::FieldValueSink(tf) => {
             handle_tf_field_value_sink(jd, tf_id, tf);
-        }
-        TransformData::FileReader(tf) => {
-            handle_tf_file_reader(jd, tf_id, tf);
         }
         TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
         TransformData::Compute(tf) => handle_tf_compute(jd, tf_id, tf),
@@ -419,9 +408,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::ForeachTrailer(_)
             | TransformData::ChunksHeader(_)
             | TransformData::ChunksTrailer(_) => unreachable!(),
-            TransformData::FileReader(f) => {
-                handle_tf_file_reader_stream_producer_update(&mut job.job_data, tf_id, f)
-            }
             TransformData::Custom(c) => {
                 c.stream_producer_update(&mut job.job_data, tf_id)
             }
@@ -465,7 +451,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::Nop(_) |
         TransformData::NopCopy(_) |
         TransformData::ForkCatSubchainTrailer(_) |
-        TransformData::FileReader(_) |
         TransformData::Disabled |
         TransformData::Literal(_) |
         TransformData::CalleeConcurrent(_) |
