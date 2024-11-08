@@ -636,14 +636,6 @@ impl LivenessData {
                 return self
                     .update_bb_for_op(sess, sub_op_id, op_n, cn, bb_id);
             }
-            OperatorData::Transparent(op) => {
-                let NestedOp::SetUp(sub_op_id) = op.nested_op else {
-                    unreachable!()
-                };
-                return self
-                    .update_bb_for_op(sess, sub_op_id, op_n, cn, bb_id);
-            }
-
             OperatorData::Atom(_)
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)

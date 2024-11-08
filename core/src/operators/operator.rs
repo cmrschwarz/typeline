@@ -70,7 +70,6 @@ use super::{
     select::{setup_op_select, OpSelect},
     string_sink::{build_tf_string_sink, OpStringSink},
     transform::{TransformData, TransformId, TransformState},
-    transparent::{build_tf_transparent, setup_op_transparent, OpTransparent},
     utils::nested_op::{setup_op_outputs_for_nested_op, NestedOp},
 };
 
@@ -98,7 +97,6 @@ pub enum OperatorData {
     ForkCat(OpForkCat),
     Key(OpKey),
     Atom(OpAtom),
-    Transparent(OpTransparent),
     Select(OpSelect),
     Regex(OpRegex),
     Format(OpFormat),
@@ -234,14 +232,6 @@ impl OperatorData {
                 span,
             ),
             OperatorData::Key(op) => setup_op_key(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
-            OperatorData::Transparent(op) => setup_op_transparent(
                 op,
                 sess,
                 op_data_id,
@@ -415,12 +405,7 @@ impl OperatorData {
                 };
                 self.has_dynamic_outputs(sess, op_id)
             }
-            OperatorData::Transparent(op) => {
-                let NestedOp::SetUp(op_id) = op.nested_op else {
-                    unreachable!()
-                };
-                self.has_dynamic_outputs(sess, op_id)
-            }
+
             OperatorData::MultiOp(op) => {
                 Operator::has_dynamic_outputs(op, sess, op_id)
             }
@@ -455,13 +440,6 @@ impl OperatorData {
                     return 0;
                 };
                 let &NestedOp::SetUp(op_id) = nested else {
-                    unreachable!()
-                };
-                sess.operator_data[sess.op_data_id(op_id)]
-                    .output_count(sess, op_id)
-            }
-            OperatorData::Transparent(op) => {
-                let NestedOp::SetUp(op_id) = op.nested_op else {
                     unreachable!()
                 };
                 sess.operator_data[sess.op_data_id(op_id)]
@@ -511,16 +489,6 @@ impl OperatorData {
                     return;
                 }
             }
-            OperatorData::Transparent(op) => {
-                setup_op_outputs_for_nested_op(
-                    &op.nested_op,
-                    sess,
-                    ld,
-                    op_id,
-                    output_count,
-                );
-                return;
-            }
             OperatorData::Nop(_)
             | OperatorData::Atom(_)
             | OperatorData::NopCopy(_)
@@ -567,7 +535,6 @@ impl OperatorData {
             OperatorData::Chunks(_) => "chunks".into(),
             OperatorData::ForkCat(_) => "forkcat".into(),
             OperatorData::Key(_) => "key".into(),
-            OperatorData::Transparent(_) => "transparent".into(),
             OperatorData::Regex(_) => "regex".into(),
             OperatorData::FileReader(op) => op.default_op_name(),
             OperatorData::Format(_) => "f".into(),
@@ -650,13 +617,6 @@ impl OperatorData {
                 sess.operator_data[sess.op_data_id(op_id)]
                     .output_field_kind(sess, op_id)
             }
-            OperatorData::Transparent(op) => {
-                let NestedOp::SetUp(op_id) = op.nested_op else {
-                    unreachable!()
-                };
-                sess.operator_data[sess.op_data_id(op_id)]
-                    .output_field_kind(sess, op_id)
-            }
             OperatorData::Custom(op) => {
                 Operator::output_field_kind(&**op, sess, op_id)
             }
@@ -686,13 +646,6 @@ impl OperatorData {
                     sess.operator_data[sess.op_data_id(op_id)]
                         .register_output_var_names(ld, sess, op_id);
                 }
-            }
-            OperatorData::Transparent(k) => {
-                let NestedOp::SetUp(op_id) = k.nested_op else {
-                    unreachable!()
-                };
-                sess.operator_data[sess.op_data_id(op_id)]
-                    .register_output_var_names(ld, sess, op_id);
             }
             OperatorData::Select(s) => {
                 ld.add_var_name(s.key_interned.unwrap());
@@ -792,23 +745,6 @@ impl OperatorData {
                 }
                 output.primary_output = input_field;
                 output.call_effect = OperatorCallEffect::NoCall;
-            }
-            OperatorData::Transparent(op) => {
-                let NestedOp::SetUp(nested_op_id) = op.nested_op else {
-                    unreachable!()
-                };
-                sess.operator_data[sess.op_data_id(op_id)]
-                    .update_liveness_for_op(
-                        sess,
-                        ld,
-                        op_offset_after_last_write,
-                        nested_op_id,
-                        bb_id,
-                        input_field,
-                        outputs_offset,
-                        output,
-                    );
-                output.primary_output = input_field;
             }
             OperatorData::Select(select) => {
                 let mut var = ld.var_names[&select.key_interned.unwrap()];
@@ -970,15 +906,6 @@ impl OperatorData {
                     sess.operator_data[op_data_id] = op_data;
                 }
             }
-            OperatorData::Transparent(op) => {
-                if let NestedOp::SetUp(op_id) = op.nested_op {
-                    let op_data_id = sess.op_data_id(op_id);
-                    let mut op_data =
-                        std::mem::take(&mut sess.operator_data[op_data_id]);
-                    op_data.on_liveness_computed(sess, ld, op_id);
-                    sess.operator_data[op_data_id] = op_data;
-                }
-            }
             OperatorData::Call(_)
             | OperatorData::Nop(_)
             | OperatorData::Atom(_)
@@ -1015,15 +942,6 @@ impl OperatorData {
             | OperatorData::Atom(_)
             | OperatorData::Select(_) => unreachable!(),
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
-            OperatorData::Transparent(op) => {
-                return build_tf_transparent(
-                    op,
-                    job,
-                    tf_state,
-                    op_id,
-                    prebound_outputs,
-                );
-            }
             OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
             OperatorData::Foreach(op) => {
                 return insert_tf_foreach(
@@ -1159,12 +1077,6 @@ impl OperatorData {
             }
             OperatorData::Key(op) => {
                 if let Some(NestedOp::SetUp(op_id)) = op.nested_op {
-                    return Some(op_id);
-                }
-                None
-            }
-            OperatorData::Transparent(op) => {
-                if let NestedOp::SetUp(op_id) = op.nested_op {
                     return Some(op_id);
                 }
                 None
