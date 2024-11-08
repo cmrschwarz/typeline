@@ -8,7 +8,7 @@ use std::{
 };
 
 use super::binary_ops::{
-    BinOpAdd, BinOpSub, OverflowingBinOp, AVX2_I64_ELEM_COUNT,
+    BinOpAdd, BinOpSub, BinOp, AVX2_I64_ELEM_COUNT,
 };
 
 fn get_i64_add_overflow_mask(

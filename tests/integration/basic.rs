@@ -2,6 +2,7 @@ use rstest::rstest;
 use scr::{
     operators::{
         aggregator::{create_op_aggregate, create_op_aggregate_appending},
+        compute::create_op_compute,
         foreach::create_op_foreach,
         print::{create_op_print_with_opts, PrintOptions},
         sequence::create_op_enum_unbounded,
@@ -694,6 +695,28 @@ fn stream_error_into_print() -> Result<(), ScrError> {
     assert_eq!(
         &*print_target.get(),
         b"ERROR: in op id 0: ErroringStream: Error\n"
+    );
+    Ok(())
+}
+
+#[test]
+fn regular_errors_into_print() -> Result<(), ScrError> {
+    let print_target = MutexedWriteableTargetOwner::<Vec<u8>>::default();
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_compute("1/0").unwrap())
+        .add_op(create_op_dup(2))
+        .add_op(create_op_print_with_opts(
+            print_target.create_target(),
+            PrintOptions {
+                ignore_nulls: false,
+                propagate_errors: false,
+            },
+        ))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["null", "null"]);
+    assert_eq!(
+        std::str::from_utf8(&print_target.get()).unwrap(),
+        "ERROR: in op id 0: Division by Zero\nERROR: in op id 0: Division by Zero\n"
     );
     Ok(())
 }
