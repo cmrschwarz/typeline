@@ -70,7 +70,6 @@ use super::{
     select::{setup_op_select, OpSelect},
     string_sink::{build_tf_string_sink, OpStringSink},
     success_updater::{build_tf_success_updator, OpSuccessUpdator},
-    to_str::{build_tf_to_str, OpToStr},
     transform::{TransformData, TransformId, TransformState},
     transparent::{build_tf_transparent, setup_op_transparent, OpTransparent},
     utils::nested_op::{setup_op_outputs_for_nested_op, NestedOp},
@@ -94,7 +93,6 @@ pub enum OperatorData {
     NopCopy(OpNopCopy),
     Call(OpCall),
     CallConcurrent(OpCallConcurrent),
-    ToStr(OpToStr),
     Print(OpPrint),
     Join(OpJoin),
     Fork(OpFork),
@@ -373,8 +371,7 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::ToStr(_)
-            | OperatorData::Literal(_)
+            OperatorData::Literal(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::NopCopy(_)
@@ -396,7 +393,6 @@ impl OperatorData {
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::ToStr(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
@@ -449,7 +445,6 @@ impl OperatorData {
         match &self {
             OperatorData::Call(_) => 1,
             OperatorData::CallConcurrent(_) => 1,
-            OperatorData::ToStr(_) => 1,
             OperatorData::Print(_) => 1,
             OperatorData::Join(_) => 1,
             OperatorData::Fork(_) => 0,
@@ -536,7 +531,6 @@ impl OperatorData {
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::ToStr(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
@@ -586,7 +580,6 @@ impl OperatorData {
             OperatorData::Compute(_) => "c".into(),
             OperatorData::Select(_) => "select".into(),
             OperatorData::Literal(op) => op.default_op_name(),
-            OperatorData::ToStr(_) => "to_str".into(),
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
@@ -642,7 +635,6 @@ impl OperatorData {
             | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
             | OperatorData::Join(_)
-            | OperatorData::ToStr(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::NopCopy(_) => OutputFieldKind::Unique,
@@ -727,7 +719,6 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::Atom(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::ToStr(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
@@ -914,9 +905,8 @@ impl OperatorData {
                    output.flags.non_stringified_input_access = false;
             }
             OperatorData::Join(_) => {}
-
-            OperatorData::FieldValueSink(_) | OperatorData::ToStr(_) => {
-                  output. flags.may_dup_or_drop = false;
+            OperatorData::FieldValueSink(_)  => {
+                output.flags.may_dup_or_drop = false;
             }
             OperatorData::Custom(op) => {
                Operator::update_variable_liveness(
@@ -1004,8 +994,7 @@ impl OperatorData {
                     sess.operator_data[op_data_id] = op_data;
                 }
             }
-            OperatorData::ToStr(_)
-            | OperatorData::Call(_)
+            OperatorData::Call(_)
             | OperatorData::Nop(_)
             | OperatorData::Atom(_)
             | OperatorData::SuccessUpdator(_)
@@ -1055,7 +1044,6 @@ impl OperatorData {
                 );
             }
             OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
-            OperatorData::ToStr(op) => build_tf_to_str(jd, op_base, op, tfs),
             OperatorData::Foreach(op) => {
                 return insert_tf_foreach(
                     job,
@@ -1208,7 +1196,6 @@ impl OperatorData {
             | OperatorData::Atom(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::ToStr(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Fork(_)

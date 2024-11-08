@@ -73,9 +73,6 @@ use super::{
     },
     success_updater::{handle_tf_success_updator, TfSuccessUpdator},
     terminator::{handle_tf_terminator, TfTerminator},
-    to_str::{
-        handle_tf_to_str, handle_tf_to_str_stream_value_update, TfToStr,
-    },
 };
 
 pub type DefaultTransformName = SmallString<[u8; 32]>;
@@ -93,7 +90,6 @@ pub enum TransformData<'a> {
     Call(TfCall),
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
-    ToStr(TfToStr),
     Print(TfPrint<'a>),
     Join(TfJoin<'a>),
     StringSink(TfStringSink<'a>),
@@ -135,7 +131,6 @@ impl<'a> TransformData<'a> {
             TransformData::Call(_) => "call",
             TransformData::CallConcurrent(_) => "callcc",
             TransformData::CalleeConcurrent(_) => "callcc_callee",
-            TransformData::ToStr(_) => "cast",
             TransformData::Print(_) => "print",
             TransformData::Join(_) => "join",
             TransformData::StringSink(_) => "string_sink",
@@ -170,7 +165,6 @@ impl<'a> TransformData<'a> {
     ) {
         match self {
             TransformData::NopCopy(_)
-            | TransformData::ToStr(_)
             | TransformData::Print(_)
             | TransformData::Join(_)
             | TransformData::StringSink(_)
@@ -340,7 +334,6 @@ pub fn transform_pre_update(
         | TransformData::ChunksHeader(_)
         | TransformData::ChunksTrailer(_)
         | TransformData::CalleeConcurrent(_)
-        | TransformData::ToStr(_)
         | TransformData::Nop(_)
         | TransformData::SuccessUpdator(_)
         | TransformData::NopCopy(_)
@@ -406,7 +399,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
         TransformData::Compute(tf) => handle_tf_compute(jd, tf_id, tf),
         TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
-        TransformData::ToStr(tf) => handle_tf_to_str(jd, tf_id, tf),
         TransformData::CallConcurrent(tf) => {
             handle_tf_call_concurrent(jd, tf_id, tf)
         }
@@ -452,7 +444,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::Call(_)
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_)
-            | TransformData::ToStr(_)
             | TransformData::Print(_)
             | TransformData::StringSink(_)
             | TransformData::FieldValueSink(_)
@@ -530,7 +521,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
             svu.sv_id,
             svu.custom,
         ),
-        TransformData::ToStr(tf) => handle_tf_to_str_stream_value_update(jd, tf, svu),
         TransformData::CallConcurrent(_) |
         TransformData::Fork(_) |
         TransformData::ForkCat(_) |
