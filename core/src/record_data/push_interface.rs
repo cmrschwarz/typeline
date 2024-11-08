@@ -1024,12 +1024,12 @@ pub unsafe trait PushInterface {
     unsafe fn extend_unchecked<T: FieldValueType + Sized>(
         &mut self,
         repr: FieldValueRepr,
-        iter: impl Iterator<Item = T>,
+        iter: impl IntoIterator<Item = T>,
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
         if T::ZST {
-            self.push_zst(T::REPR, iter.count(), try_header_rle);
+            self.push_zst(T::REPR, iter.into_iter().count(), try_header_rle);
             return;
         }
         // PERF: implementers of this trait would do well to specialize this
@@ -1069,7 +1069,7 @@ pub unsafe trait PushInterface {
     }
     fn extend<T: FieldValueType + Sized>(
         &mut self,
-        iter: impl Iterator<Item = T>,
+        iter: impl IntoIterator<Item = T>,
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
@@ -1082,7 +1082,7 @@ pub unsafe trait PushInterface {
         T: FieldValueType + ?Sized + 'a,
     >(
         &mut self,
-        iter: impl Iterator<Item = &'a T>,
+        iter: impl IntoIterator<Item = &'a T>,
         try_header_rle: bool,
         try_data_rle: bool,
     ) {

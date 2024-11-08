@@ -308,6 +308,13 @@ impl ContextBuilder {
         self.input_data.push_null(run_length, true);
         self
     }
+    pub fn with_record_set(
+        mut self,
+        f: impl FnOnce(&mut RecordSet, &mut SessionSetupData),
+    ) -> Self {
+        f(&mut self.input_data, &mut self.setup_data);
+        self
+    }
 }
 
 impl ContextBuilder {

@@ -9,6 +9,10 @@ use scr::{
         utils::writable::MutexedWriteableTargetOwner,
     },
     options::chain_settings::SettingConversionError,
+    record_data::{
+        field_data::FieldData, push_interface::PushInterface,
+        record_set::NamedField,
+    },
     utils::test_utils::int_sequence_strings,
 };
 use scr_core::{
@@ -717,6 +721,41 @@ fn regular_errors_into_print() -> Result<(), ScrError> {
     assert_eq!(
         std::str::from_utf8(&print_target.get()).unwrap(),
         "ERROR: in op id 0: Division by Zero\nERROR: in op id 0: Division by Zero\n"
+    );
+    Ok(())
+}
+
+#[test]
+fn print_error_propagation() -> Result<(), ScrError> {
+    let print_target = MutexedWriteableTargetOwner::<Vec<u8>>::default();
+    let res = ContextBuilder::without_exts()
+        .with_record_set(|r, s| {
+            let mut data = FieldData::default();
+            data.extend([42, 17, 1, 1, 12], true, false);
+            r.fields.push(NamedField {
+                name: Some(s.string_store.intern_static("a")),
+                data,
+            });
+            let mut data2 = FieldData::default();
+            data2.extend([1, 1, 0, 0, 1], true, false);
+            r.fields.push(NamedField {
+                name: Some(s.string_store.intern_static("b")),
+                data: data2,
+            });
+        })
+        .add_op(create_op_compute("a/b").unwrap())
+        .add_op(create_op_print_with_opts(
+            print_target.create_target(),
+            PrintOptions {
+                ignore_nulls: false,
+                propagate_errors: false,
+            },
+        ))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["null", "null", "null", "null", "null"]);
+    assert_eq!(
+        std::str::from_utf8(&print_target.get()).unwrap(),
+        "42\n17\nERROR: in op id 0: Division by Zero\nERROR: in op id 0: Division by Zero\n12\n"
     );
     Ok(())
 }

@@ -220,7 +220,7 @@ fn insert_binary_op_type_error(
 ) {
     inserter.push_error(
         OperatorApplicationError::new_s(
-            format!("invalid operands for binary op: '{lhs_kind}' {op_kind} '{rhs_kind}'"),
+            format!("invalid operands for binary op: `{lhs_kind}` {op_kind} `{rhs_kind}`"),
             op_id,
         ),
         count,
@@ -568,42 +568,49 @@ fn execute_binary_op_for_int_lhs(
 ) {
     let mut lhs_iter = FieldValueRangeIter::from_range(lhs_range, lhs_data);
     while let Some(lhs_block) = lhs_iter.next_block() {
-        let rhs_range = rhs_iter
-            .typed_range_fwd(msm, lhs_block.len(), FieldIterOpts::default())
-            .unwrap();
+        let mut rem = lhs_block.len();
+        while rem > 0 {
+            let rhs_range = rhs_iter
+                .typed_range_fwd(msm, rem, FieldIterOpts::default())
+                .unwrap();
+            rem -= rhs_range.base.field_count;
 
-        match rhs_range.base.data {
-            FieldValueSlice::Int(rhs_data) => execute_binary_op_double_int(
-                op_id, op_kind, lhs_block, &rhs_range, rhs_data, inserter,
-            ),
-            FieldValueSlice::BigInt(_) => todo!(),
-            FieldValueSlice::Float(_) => todo!(),
-            FieldValueSlice::BigRational(_) => todo!(),
-            FieldValueSlice::Null(_)
-            | FieldValueSlice::Undefined(_)
-            | FieldValueSlice::TextInline(_)
-            | FieldValueSlice::TextBuffer(_)
-            | FieldValueSlice::BytesInline(_)
-            | FieldValueSlice::BytesBuffer(_)
-            | FieldValueSlice::Object(_)
-            | FieldValueSlice::Array(_)
-            | FieldValueSlice::Custom(_)
-            | FieldValueSlice::Error(_)
-            | FieldValueSlice::Argument(_)
-            | FieldValueSlice::Macro(_)
-            | FieldValueSlice::StreamValueId(_) => {
-                // PERF: we could consume more values from rhs here
-                insert_binary_op_type_error(
-                    op_id,
-                    op_kind,
-                    lhs_range.base.data.repr().kind(),
-                    rhs_range.base.data.repr().kind(),
-                    rhs_range.base.field_count,
-                    inserter,
-                )
+            match rhs_range.base.data {
+                FieldValueSlice::Int(rhs_data) => {
+                    execute_binary_op_double_int(
+                        op_id, op_kind, lhs_block, &rhs_range, rhs_data,
+                        inserter,
+                    )
+                }
+                FieldValueSlice::BigInt(_) => todo!(),
+                FieldValueSlice::Float(_) => todo!(),
+                FieldValueSlice::BigRational(_) => todo!(),
+                FieldValueSlice::Null(_)
+                | FieldValueSlice::Undefined(_)
+                | FieldValueSlice::TextInline(_)
+                | FieldValueSlice::TextBuffer(_)
+                | FieldValueSlice::BytesInline(_)
+                | FieldValueSlice::BytesBuffer(_)
+                | FieldValueSlice::Object(_)
+                | FieldValueSlice::Array(_)
+                | FieldValueSlice::Custom(_)
+                | FieldValueSlice::Error(_)
+                | FieldValueSlice::Argument(_)
+                | FieldValueSlice::Macro(_)
+                | FieldValueSlice::StreamValueId(_) => {
+                    // PERF: we could consume more values from rhs here
+                    insert_binary_op_type_error(
+                        op_id,
+                        op_kind,
+                        lhs_range.base.data.repr().kind(),
+                        rhs_range.base.data.repr().kind(),
+                        rhs_range.base.field_count,
+                        inserter,
+                    )
+                }
+                FieldValueSlice::FieldReference(_)
+                | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
             }
-            FieldValueSlice::FieldReference(_)
-            | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
         }
     }
 }
