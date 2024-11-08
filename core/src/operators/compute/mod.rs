@@ -44,10 +44,10 @@ use parser::ComputeExprParser;
 use super::{
     errors::OperatorCreationError,
     operator::{
-        OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
-        OperatorOffsetInChain,
+        OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+        OperatorOffsetInChain, TransformInstatiation,
     },
-    transform::{TransformData, TransformId, TransformState},
+    transform::{Transform, TransformData, TransformId, TransformState},
 };
 
 pub struct OpCompute {
@@ -103,53 +103,6 @@ pub struct TfCompute<'a> {
     >,
 }
 
-pub fn setup_op_compute(
-    op: &mut OpCompute,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    for r in &mut op.unbound_refs {
-        r.name_interned = sess.string_store.intern_cloned(&r.name);
-    }
-    Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
-}
-
-pub fn compute_add_var_names(c: &OpCompute, ld: &mut LivenessData) {
-    for r in &c.unbound_refs {
-        if r.name != "_" {
-            ld.add_var_name(r.name_interned);
-        }
-    }
-}
-
-pub fn update_op_compute_variable_liveness(
-    sess: &SessionData,
-    c: &OpCompute,
-    ld: &mut LivenessData,
-    op_id: OperatorId,
-    op_offset_after_last_write: OffsetInChain,
-    output: &mut OperatorLivenessOutput,
-) {
-    output.flags.may_dup_or_drop = false;
-    output.flags.input_accessed = false;
-    for ir in &c.unbound_refs {
-        if ir.name == "_" {
-            output.flags.input_accessed = true;
-            continue;
-        };
-        ld.access_var(
-            sess,
-            op_id,
-            ld.var_names[&ir.name_interned],
-            op_offset_after_last_write,
-            true,
-        );
-    }
-}
-
 pub fn build_op_compute(
     fmt: &[u8],
     span: Span,
@@ -169,180 +122,260 @@ pub fn build_op_compute(
     let compilation =
         Compiler::compile(expr, &let_bindings, &mut unbound_refs);
 
-    Ok(OperatorData::Compute(OpCompute {
+    Ok(OperatorData::from_custom(OpCompute {
         unbound_refs,
         compilation,
     }))
 }
 
-pub fn build_tf_compute<'a>(
-    jd: &mut JobData,
-    _op_base: &OperatorBase,
-    op: &'a OpCompute,
-    tf_state: &TransformState,
-) -> TransformData<'a> {
-    let mut idents = IndexVec::new();
-    let mut unbound_fields = IndexVec::new();
+impl Operator for OpCompute {
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        for r in &mut self.unbound_refs {
+            r.name_interned = sess.string_store.intern_cloned(&r.name);
+        }
+        Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
+    }
+    fn default_name(&self) -> super::operator::OperatorName {
+        "compute".into()
+    }
 
-    let next_actor_id = jd.match_set_mgr.match_sets[tf_state.match_set_id]
-        .action_buffer
-        .borrow()
-        .peek_next_actor_id();
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
+        1
+    }
 
-    let scope_id =
-        jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
 
-    for key_ref in &op.unbound_refs {
-        let field_id = if &key_ref.name == "_" {
-            let mut f = jd.field_mgr.fields[tf_state.input_field].borrow_mut();
-            // while the ref count was already bumped by the transform
-            // creation cleaning up this transform is
-            // simpler this way
-            f.ref_count += 1;
-            tf_state.input_field
-        } else if let Some(val) =
-            jd.scope_mgr.lookup_value(scope_id, key_ref.name_interned)
-        {
-            match val {
-                ScopeValue::Atom(atom) => {
-                    idents.push(ExternVarData::Atom(atom.clone()));
-                    continue;
-                }
-                &ScopeValue::Field(field_id) => {
-                    jd.field_mgr
-                        .setup_field_refs(&mut jd.match_set_mgr, field_id);
-                    let mut f = jd.field_mgr.fields[field_id].borrow_mut();
-                    f.ref_count += 1;
-                    field_id
-                }
-                ScopeValue::Macro(m) => {
-                    idents.push(ExternVarData::Literal(FieldValue::Macro(
-                        m.clone(),
-                    )));
-                    continue;
-                }
+    fn register_output_var_names(
+        &self,
+        ld: &mut LivenessData,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) {
+        for r in &self.unbound_refs {
+            if r.name != "_" {
+                ld.add_var_name(r.name_interned);
             }
-        } else {
-            let dummy_field =
-                jd.match_set_mgr.get_dummy_field(tf_state.match_set_id);
-            jd.scope_mgr.insert_field_name(
-                scope_id,
-                key_ref.name_interned,
-                dummy_field,
+        }
+    }
+
+    fn update_variable_liveness(
+        &self,
+        sess: &SessionData,
+        ld: &mut LivenessData,
+        op_offset_after_last_write: OffsetInChain,
+        op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = false;
+        output.flags.input_accessed = false;
+        for ir in &self.unbound_refs {
+            if ir.name == "_" {
+                output.flags.input_accessed = true;
+                continue;
+            };
+            ld.access_var(
+                sess,
+                op_id,
+                ld.var_names[&ir.name_interned],
+                op_offset_after_last_write,
+                true,
             );
-            dummy_field
-        };
-        let field_idx = unbound_fields.push_get_id(ExternField {
-            iter_ref: FieldIterRef {
-                field_id,
-                iter_id: jd.field_mgr.claim_iter(
+        }
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut crate::job::Job<'a>,
+        tf_state: &mut TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        let jd = &mut job.job_data;
+        let mut idents = IndexVec::new();
+        let mut unbound_fields = IndexVec::new();
+
+        let next_actor_id = jd.match_set_mgr.match_sets[tf_state.match_set_id]
+            .action_buffer
+            .borrow()
+            .peek_next_actor_id();
+
+        let scope_id =
+            jd.match_set_mgr.match_sets[tf_state.match_set_id].active_scope;
+
+        for key_ref in &self.unbound_refs {
+            let field_id = if &key_ref.name == "_" {
+                let mut f =
+                    jd.field_mgr.fields[tf_state.input_field].borrow_mut();
+                // while the ref count was already bumped by the transform
+                // creation cleaning up this transform is
+                // simpler this way
+                f.ref_count += 1;
+                tf_state.input_field
+            } else if let Some(val) =
+                jd.scope_mgr.lookup_value(scope_id, key_ref.name_interned)
+            {
+                match val {
+                    ScopeValue::Atom(atom) => {
+                        idents.push(ExternVarData::Atom(atom.clone()));
+                        continue;
+                    }
+                    &ScopeValue::Field(field_id) => {
+                        jd.field_mgr
+                            .setup_field_refs(&mut jd.match_set_mgr, field_id);
+                        let mut f = jd.field_mgr.fields[field_id].borrow_mut();
+                        f.ref_count += 1;
+                        field_id
+                    }
+                    ScopeValue::Macro(m) => {
+                        idents.push(ExternVarData::Literal(
+                            FieldValue::Macro(m.clone()),
+                        ));
+                        continue;
+                    }
+                }
+            } else {
+                let dummy_field =
+                    jd.match_set_mgr.get_dummy_field(tf_state.match_set_id);
+                jd.scope_mgr.insert_field_name(
+                    scope_id,
+                    key_ref.name_interned,
+                    dummy_field,
+                );
+                dummy_field
+            };
+            let field_idx = unbound_fields.push_get_id(ExternField {
+                iter_ref: FieldIterRef {
                     field_id,
-                    next_actor_id,
-                    IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+                    iter_id: jd.field_mgr.claim_iter(
+                        field_id,
+                        next_actor_id,
+                        IterKind::Transform(
+                            jd.tf_mgr.transforms.peek_claim_id(),
+                        ),
+                    ),
+                },
+                iter_slots: IndexSlice::from_boxed_slice(
+                    vec![None; key_ref.access_count.into_usize()]
+                        .into_boxed_slice(),
                 ),
-            },
-            iter_slots: IndexSlice::from_boxed_slice(
-                vec![None; key_ref.access_count.into_usize()]
-                    .into_boxed_slice(),
-            ),
-        });
-        idents.push(ExternVarData::Field(field_idx));
-    }
-    let mut temporaries = IndexVec::new();
-    for &slot_count in &op.compilation.temporary_slot_count {
-        temporaries.push(TempField {
-            data: FieldData::default(),
-            field_pos: usize::MAX,
-            iter_slots: IndexSlice::from_boxed_slice(
-                vec![IterStateRaw::default(); slot_count.into_usize()]
-                    .into_boxed_slice(),
-            ),
-        });
-    }
+            });
+            idents.push(ExternVarData::Field(field_idx));
+        }
+        let mut temporaries = IndexVec::new();
+        for &slot_count in &self.compilation.temporary_slot_count {
+            temporaries.push(TempField {
+                data: FieldData::default(),
+                field_pos: usize::MAX,
+                iter_slots: IndexSlice::from_boxed_slice(
+                    vec![IterStateRaw::default(); slot_count.into_usize()]
+                        .into_boxed_slice(),
+                ),
+            });
+        }
 
-    let tf = TfCompute {
-        op,
-        extern_vars: idents,
-        temp_fields: temporaries.into_boxed_slice(),
-        extern_field_refs: IndexVec::with_capacity(unbound_fields.len()),
-        extern_field_iters: IndexVec::with_capacity(unbound_fields.len()),
-        extern_field_temp_iters: Universe::default(),
-        extern_fields: unbound_fields,
-    };
-    TransformData::Compute(tf)
+        let tf = TfCompute {
+            op: self,
+            extern_vars: idents,
+            temp_fields: temporaries.into_boxed_slice(),
+            extern_field_refs: IndexVec::with_capacity(unbound_fields.len()),
+            extern_field_iters: IndexVec::with_capacity(unbound_fields.len()),
+            extern_field_temp_iters: Universe::default(),
+            extern_fields: unbound_fields,
+        };
+        TransformInstatiation::Single(TransformData::from_custom(tf))
+    }
 }
+impl<'a> Transform<'a> for TfCompute<'a> {
+    fn display_name(&self) -> super::transform::DefaultTransformName {
+        "compute".into()
+    }
 
-pub fn handle_tf_compute(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    c: &mut TfCompute,
-) {
-    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    let op_id = tf.op_id.unwrap();
-    let of_id = tf.output_field;
-    jd.tf_mgr.prepare_output_field(
-        &mut jd.field_mgr,
-        &mut jd.match_set_mgr,
-        tf_id,
-    );
-    let mut extern_field_refs = c.extern_field_refs.take_transmute();
-    let mut extern_field_iters = c.extern_field_iters.take_transmute();
-    let extern_field_temp_iters = c.extern_field_temp_iters.take_transmute();
-    for uf in &c.extern_fields {
-        extern_field_refs.push(
-            jd.field_mgr
-                .get_cow_field_ref(&jd.match_set_mgr, uf.iter_ref.field_id),
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+        let tf = &jd.tf_mgr.transforms[tf_id];
+        let op_id = tf.op_id.unwrap();
+        let of_id = tf.output_field;
+        jd.tf_mgr.prepare_output_field(
+            &mut jd.field_mgr,
+            &mut jd.match_set_mgr,
+            tf_id,
         );
-    }
-    for (uf_id, fr) in extern_field_refs.iter_enumerated() {
-        extern_field_iters.push(jd.field_mgr.get_auto_deref_iter(
-            c.extern_fields[uf_id].iter_ref.field_id,
-            fr,
-            c.extern_fields[uf_id].iter_ref.iter_id,
-        ))
-    }
+        let mut extern_field_refs = self.extern_field_refs.take_transmute();
+        let mut extern_field_iters = self.extern_field_iters.take_transmute();
+        let extern_field_temp_iters =
+            self.extern_field_temp_iters.take_transmute();
+        for uf in &self.extern_fields {
+            extern_field_refs.push(
+                jd.field_mgr.get_cow_field_ref(
+                    &jd.match_set_mgr,
+                    uf.iter_ref.field_id,
+                ),
+            );
+        }
+        for (uf_id, fr) in extern_field_refs.iter_enumerated() {
+            extern_field_iters.push(jd.field_mgr.get_auto_deref_iter(
+                self.extern_fields[uf_id].iter_ref.field_id,
+                fr,
+                self.extern_fields[uf_id].iter_ref.iter_id,
+            ))
+        }
 
-    let mut output = jd.field_mgr.fields[of_id].borrow_mut();
-    let field_pos = output.iter_hall.get_field_count(&jd.field_mgr);
-    let mut exec = Exectutor {
-        op_id,
-        fm: &jd.field_mgr,
-        msm: &jd.match_set_mgr,
-        compilation: &c.op.compilation,
-        extern_field_iters: &mut extern_field_iters,
-        output: &mut output.iter_hall,
-        extern_field_temp_iters,
-        temp_fields: &mut c.temp_fields,
-        extern_vars: &mut c.extern_vars,
-        extern_fields: &mut c.extern_fields,
-    };
-    exec.run(
-        InstructionId::ZERO..c.op.compilation.instructions.next_idx(),
-        field_pos,
-        batch_size,
-    );
-    c.extern_field_temp_iters
-        .reclaim_temp_take(&mut exec.extern_field_temp_iters);
-    drop(exec);
-    while let Some(iter) = extern_field_iters.pop() {
-        jd.field_mgr.store_iter_from_ref(
-            c.extern_fields[extern_field_iters.next_idx()].iter_ref,
-            iter,
+        let mut output = jd.field_mgr.fields[of_id].borrow_mut();
+        let field_pos = output.iter_hall.get_field_count(&jd.field_mgr);
+        let mut exec = Exectutor {
+            op_id,
+            fm: &jd.field_mgr,
+            msm: &jd.match_set_mgr,
+            compilation: &self.op.compilation,
+            extern_field_iters: &mut extern_field_iters,
+            output: &mut output.iter_hall,
+            extern_field_temp_iters,
+            temp_fields: &mut self.temp_fields,
+            extern_vars: &mut self.extern_vars,
+            extern_fields: &mut self.extern_fields,
+        };
+        exec.run(
+            InstructionId::ZERO..self.op.compilation.instructions.next_idx(),
+            field_pos,
+            batch_size,
         );
+        self.extern_field_temp_iters
+            .reclaim_temp_take(&mut exec.extern_field_temp_iters);
+        drop(exec);
+        while let Some(iter) = extern_field_iters.pop() {
+            jd.field_mgr.store_iter_from_ref(
+                self.extern_fields[extern_field_iters.next_idx()].iter_ref,
+                iter,
+            );
+        }
+        self.extern_field_iters.reclaim_temp(extern_field_iters);
+        self.extern_field_refs.reclaim_temp(extern_field_refs);
+
+        jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
     }
-    c.extern_field_iters.reclaim_temp(extern_field_iters);
-    c.extern_field_refs.reclaim_temp(extern_field_refs);
 
-    jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
-}
-
-pub fn handle_tf_compute_stream_value_update<'a>(
-    _jd: &mut JobData<'a>,
-    _fmt: &mut TfCompute<'a>,
-    _update: StreamValueUpdate,
-) {
-    todo!()
+    fn handle_stream_value_update(
+        &mut self,
+        _jd: &mut JobData<'a>,
+        _svu: StreamValueUpdate,
+    ) {
+        todo!()
+    }
 }
 
 pub fn parse_op_compute(

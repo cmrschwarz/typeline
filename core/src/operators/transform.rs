@@ -33,9 +33,6 @@ use super::{
         handle_tf_chunks_header, handle_tf_chunks_trailer, TfChunksHeader,
         TfChunksTrailer,
     },
-    compute::{
-        handle_tf_compute, handle_tf_compute_stream_value_update, TfCompute,
-    },
     field_value_sink::{
         handle_tf_field_value_sink,
         handle_tf_field_value_sink_stream_value_update, TfFieldValueSink,
@@ -81,7 +78,6 @@ pub enum TransformData<'a> {
     Fork(TfFork<'a>),
     ForkCat(TfForkCat),
     ForkCatSubchainTrailer(TfForkCatSubchainTrailer<'a>),
-    Compute(TfCompute<'a>),
     Literal(TfLiteral<'a>),
     AggregatorHeader(TfAggregatorHeader),
     AggregatorTrailer(TfAggregatorTrailer),
@@ -115,7 +111,6 @@ impl<'a> TransformData<'a> {
             TransformData::FieldValueSink(_) => "field_value_sink",
             TransformData::Fork(_) => "fork",
             TransformData::ForkCat(_) => "forkcat",
-            TransformData::Compute(_) => "compute",
             TransformData::Literal(_) => "literal",
             TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
@@ -140,7 +135,6 @@ impl<'a> TransformData<'a> {
         match self {
             TransformData::NopCopy(_)
             | TransformData::StringSink(_)
-            | TransformData::Compute(_)
             | TransformData::Literal(_)
             | TransformData::AggregatorTrailer(_)
             | TransformData::FieldValueSink(_) => {
@@ -306,7 +300,6 @@ pub fn transform_pre_update(
         | TransformData::ForkCatSubchainTrailer(_)
         | TransformData::StringSink(_)
         | TransformData::FieldValueSink(_)
-        | TransformData::Compute(_)
         | TransformData::Literal(_)
         | TransformData::Terminator(_)
         | TransformData::AggregatorHeader(_)
@@ -349,7 +342,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
             handle_tf_field_value_sink(jd, tf_id, tf);
         }
         TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
-        TransformData::Compute(tf) => handle_tf_compute(jd, tf_id, tf),
         TransformData::CallConcurrent(tf) => {
             handle_tf_call_concurrent(jd, tf_id, tf)
         }
@@ -399,7 +391,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::Fork(_)
             | TransformData::ForkCat(_)
             | TransformData::Literal(_)
-            | TransformData::Compute(_)
             //these go straight to the sub transforms
             | TransformData::AggregatorHeader(_)
             | TransformData::AggregatorTrailer(_)
@@ -433,11 +424,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
                 svu.custom,
             );
         }
-        TransformData::Compute(tf) => handle_tf_compute_stream_value_update(
-            jd,
-            tf,
-            svu
-        ),
         TransformData::CallConcurrent(_) |
         TransformData::Fork(_) |
         TransformData::ForkCat(_) |
