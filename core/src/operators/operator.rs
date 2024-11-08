@@ -66,7 +66,6 @@ use super::{
         build_tf_nop_copy, on_op_nop_copy_liveness_computed, OpNopCopy,
     },
     print::{build_tf_print, OpPrint},
-    regex::{build_tf_regex, regex_output_counts, setup_op_regex, OpRegex},
     select::{setup_op_select, OpSelect},
     string_sink::{build_tf_string_sink, OpStringSink},
     transform::{TransformData, TransformId, TransformState},
@@ -98,7 +97,6 @@ pub enum OperatorData {
     Key(OpKey),
     Atom(OpAtom),
     Select(OpSelect),
-    Regex(OpRegex),
     Format(OpFormat),
     Compute(OpCompute),
     StringSink(OpStringSink),
@@ -207,14 +205,6 @@ impl OperatorData {
         span: Span,
     ) -> Result<OperatorId, ScrError> {
         match self {
-            OperatorData::Regex(op) => setup_op_regex(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::Format(op) => setup_op_format(
                 op,
                 sess,
@@ -385,7 +375,6 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
-            | OperatorData::Regex(_)
             | OperatorData::Format(_)
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
@@ -446,7 +435,6 @@ impl OperatorData {
                     .output_count(sess, op_id)
             }
             OperatorData::Select(_) => 0,
-            OperatorData::Regex(re) => regex_output_counts(re),
             OperatorData::Format(_) => 1,
             OperatorData::Compute(_) => 1,
             OperatorData::StringSink(_) => 1,
@@ -499,7 +487,6 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
-            | OperatorData::Regex(_)
             | OperatorData::Format(_)
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
@@ -535,7 +522,6 @@ impl OperatorData {
             OperatorData::Chunks(_) => "chunks".into(),
             OperatorData::ForkCat(_) => "forkcat".into(),
             OperatorData::Key(_) => "key".into(),
-            OperatorData::Regex(_) => "regex".into(),
             OperatorData::FileReader(op) => op.default_op_name(),
             OperatorData::Format(_) => "f".into(),
             OperatorData::Compute(_) => "c".into(),
@@ -557,7 +543,6 @@ impl OperatorData {
     pub fn debug_op_name(&self) -> OperatorName {
         match self {
             OperatorData::MultiOp(op) => op.debug_op_name(),
-            OperatorData::Regex(op) => op.debug_op_name(),
             OperatorData::Join(op) => op.debug_op_name(),
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
@@ -587,7 +572,6 @@ impl OperatorData {
     ) -> OutputFieldKind {
         match self {
             OperatorData::Print(_)
-            | OperatorData::Regex(_)
             | OperatorData::FileReader(_)
             | OperatorData::Format(_)
             | OperatorData::Compute(_)
@@ -635,11 +619,6 @@ impl OperatorData {
         op_id: OperatorId,
     ) {
         match &self {
-            OperatorData::Regex(re) => {
-                for n in &re.capture_group_names {
-                    ld.add_var_name_opt(*n);
-                }
-            }
             OperatorData::Key(k) => {
                 ld.add_var_name(k.key_interned.unwrap());
                 if let Some(NestedOp::SetUp(op_id)) = k.nested_op {
@@ -695,6 +674,7 @@ impl OperatorData {
             sess.operator_bases[op_id].outputs_start.into_usize()
                 + outputs_offset,
         );
+        output.primary_output = primary_output_idx;
         match &self {
             OperatorData::Atom(_) => {
                 output.flags.may_dup_or_drop = false;
@@ -763,33 +743,6 @@ impl OperatorData {
                 }
                 output.primary_output = var.natural_output_idx();
                 output.call_effect = OperatorCallEffect::NoCall;
-            }
-            OperatorData::Regex(re) => {
-                output.flags.may_dup_or_drop =
-                    !re.opts.non_mandatory || re.opts.multimatch;
-                output.flags.non_stringified_input_access = false;
-                for i in 0..re.capture_group_names.len() {
-                    ld.op_outputs[OpOutputIdx::from_usize(
-                        primary_output_idx.into_usize() + i,
-                    )]
-                    .field_references
-                    .push(input_field);
-                }
-
-                for (cg_idx, cg_name) in
-                    re.capture_group_names.iter().enumerate()
-                {
-                    if let Some(name) = cg_name {
-                        let tgt_var_name = ld.var_names[name];
-                        ld.vars_to_op_outputs_map[tgt_var_name] =
-                            OpOutputIdx::from_usize(
-                                sess.operator_bases[op_id]
-                                    .outputs_start
-                                    .into_usize()
-                                    + cg_idx,
-                            );
-                    }
-                }
             }
             OperatorData::NopCopy(_) => {
                 output.flags.may_dup_or_drop = false;
@@ -915,7 +868,6 @@ impl OperatorData {
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
             | OperatorData::Select(_)
-            | OperatorData::Regex(_)
             | OperatorData::Format(_)
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
@@ -979,9 +931,6 @@ impl OperatorData {
             }
             OperatorData::Print(op) => build_tf_print(jd, op_base, op, tfs),
             OperatorData::Join(op) => build_tf_join(jd, op_base, op, tfs),
-            OperatorData::Regex(op) => {
-                build_tf_regex(jd, op_base, op, tfs, prebound_outputs)
-            }
             OperatorData::Format(op) => build_tf_format(jd, op_base, op, tfs),
             OperatorData::Compute(op) => {
                 build_tf_compute(jd, op_base, op, tfs)
@@ -1094,7 +1043,6 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
-            | OperatorData::Regex(_)
             | OperatorData::Format(_)
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)

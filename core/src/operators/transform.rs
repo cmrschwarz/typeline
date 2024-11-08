@@ -66,7 +66,6 @@ use super::{
     nop_copy::{handle_tf_nop_copy, TfNopCopy},
     operator::OperatorId,
     print::{handle_tf_print, handle_tf_print_stream_value_update, TfPrint},
-    regex::{handle_tf_regex, handle_tf_regex_stream_value_update, TfRegex},
     string_sink::{
         handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
         TfStringSink,
@@ -96,7 +95,6 @@ pub enum TransformData<'a> {
     Fork(TfFork<'a>),
     ForkCat(TfForkCat),
     ForkCatSubchainTrailer(TfForkCatSubchainTrailer<'a>),
-    Regex(TfRegex<'a>),
     Format(TfFormat<'a>),
     Compute(TfCompute<'a>),
     FileReader(TfFileReader),
@@ -108,7 +106,7 @@ pub enum TransformData<'a> {
     ForeachTrailer(TfForeachTrailer),
     ChunksHeader(TfChunksHeader),
     ChunksTrailer(TfChunksTrailer),
-    Custom(SmallBox<dyn Transform<'a>, 192>),
+    Custom(SmallBox<dyn Transform<'a> + 'a, 192>),
 }
 
 impl Default for TransformData<'_> {
@@ -118,7 +116,7 @@ impl Default for TransformData<'_> {
 }
 
 impl<'a> TransformData<'a> {
-    pub fn from_custom(tf: impl Transform<'a> + 'static) -> Self {
+    pub fn from_custom(tf: impl Transform<'a> + 'a) -> Self {
         Self::Custom(smallbox!(tf))
     }
     pub fn display_name(&self) -> DefaultTransformName {
@@ -135,7 +133,6 @@ impl<'a> TransformData<'a> {
             TransformData::FieldValueSink(_) => "field_value_sink",
             TransformData::Fork(_) => "fork",
             TransformData::ForkCat(_) => "forkcat",
-            TransformData::Regex(r) => return r.display_name(),
             TransformData::Format(_) => "format",
             TransformData::Compute(_) => "compute",
             TransformData::FileReader(_) => "file_reader",
@@ -191,8 +188,6 @@ impl<'a> TransformData<'a> {
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_) => (),
 
-            TransformData::Regex(re) => fields
-                .extend(re.capture_group_fields.iter().filter_map(|cgf| *cgf)),
             TransformData::Custom(custom) => {
                 custom.collect_out_fields(tf_state, fields)
             }
@@ -337,7 +332,6 @@ pub fn transform_pre_update(
         | TransformData::Join(_)
         | TransformData::StringSink(_)
         | TransformData::FieldValueSink(_)
-        | TransformData::Regex(_)
         | TransformData::Format(_)
         | TransformData::Compute(_)
         | TransformData::FileReader(_)
@@ -377,7 +371,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
             handle_tf_forcat_subchain_trailer(jd, tf_id, tf);
         }
         TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
-        TransformData::Regex(tf) => handle_tf_regex(jd, tf_id, tf),
         TransformData::StringSink(tf) => {
             handle_tf_string_sink(jd, tf_id, tf);
         }
@@ -440,7 +433,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::FieldValueSink(_)
             | TransformData::Fork(_)
             | TransformData::ForkCat(_)
-            | TransformData::Regex(_)
             | TransformData::Literal(_)
             | TransformData::Format(_)
             | TransformData::Compute(_)
@@ -504,13 +496,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
             jd,
             tf,
             svu
-        ),
-        TransformData::Regex(tf) => handle_tf_regex_stream_value_update(
-            jd,
-            svu.tf_id,
-            tf,
-            svu.sv_id,
-            svu.custom,
         ),
         TransformData::CallConcurrent(_) |
         TransformData::Fork(_) |

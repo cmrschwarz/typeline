@@ -32,7 +32,7 @@ use crate::{
             RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
             RefAwareInlineTextIter, RefAwareTextBufferIter,
         },
-        stream_value::{StorageAgnosticStreamValueDataRef, StreamValueId},
+        stream_value::StorageAgnosticStreamValueDataRef,
         varying_type_inserter::VaryingTypeInserter,
     },
     scr_error::ScrError,
@@ -50,11 +50,12 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{
-        OperatorBase, OperatorData, OperatorDataId, OperatorId, OperatorName,
-        OperatorOffsetInChain, PreboundOutputsMap,
+        Operator, OperatorData, OperatorDataId, OperatorId, OperatorName,
+        OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
     },
     transform::{
-        DefaultTransformName, TransformData, TransformId, TransformState,
+        DefaultTransformName, Transform, TransformData, TransformId,
+        TransformState,
     },
     utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
@@ -166,25 +167,6 @@ impl RegexOptions {
         if self.invert_match {
             res.push('v');
         }
-    }
-}
-
-impl OpRegex {
-    pub fn debug_op_name(&self) -> OperatorName {
-        let mut res = String::from("regex");
-        self.opts.push_opts_arg(&mut res);
-        res.push_str("=\"");
-        let mut w = EscapedFmtWriter::new(res, b'\"');
-        w.write_str(&self.regex_text).unwrap();
-        let mut res = w.into_inner().unwrap();
-        res.push('\"');
-        res.into()
-    }
-}
-
-impl TfRegex<'_> {
-    pub fn display_name(&self) -> DefaultTransformName {
-        self.op.debug_op_name().to_string().into()
     }
 }
 
@@ -311,7 +293,7 @@ pub fn build_op_regex(
             .ok()
     };
 
-    Ok(OperatorData::Regex(OpRegex {
+    Ok(OperatorData::from_custom(OpRegex {
         regex_text: regex_text.to_owned(),
         regex,
         text_only_regex,
@@ -453,124 +435,6 @@ pub fn create_op_regex_trim_trailing_newline() -> OperatorData {
         Span::Generated,
     )
     .unwrap()
-}
-
-pub fn setup_op_regex(
-    op: &mut OpRegex,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    let mut unnamed_capture_groups: usize = 0;
-
-    for (i, name_str) in op.regex.capture_names().enumerate() {
-        let name_interned = if let Some(name) = name_str {
-            if i == op.output_group_id {
-                None
-            } else {
-                Some(sess.string_store.intern_cloned(name))
-            }
-        } else if i == 0 {
-            None
-        } else {
-            unnamed_capture_groups += 1;
-            let id = sess
-                .string_store
-                .intern_moved(unnamed_capture_groups.to_string());
-            Some(id)
-        };
-        op.capture_group_names.push(name_interned);
-    }
-
-    Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
-}
-
-pub fn build_tf_regex<'a>(
-    jd: &mut JobData,
-    op_base: &OperatorBase,
-    op: &'a OpRegex,
-    tf_state: &mut TransformState,
-    prebound_outputs: &PreboundOutputsMap,
-) -> TransformData<'a> {
-    let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
-    let active_scope = ms.active_scope;
-    let actor_id = jd.add_actor_for_tf_state(tf_state);
-    let next_actor_id = actor_id + ActorId::one();
-    let mut input_field_ref_offset = FieldRefOffset::MAX;
-    let mut capture_group_fields = Vec::new();
-    for (i, name) in op.capture_group_names.iter().enumerate() {
-        let field_id = if i == op.output_group_id {
-            Some(tf_state.output_field)
-        } else if let Some(name) = name {
-            let field_id = if let Some(field_id) =
-                prebound_outputs.get(&OpOutputIdx::from_usize(
-                    op_base.outputs_start.into_usize() + i,
-                )) {
-                debug_assert_eq!(
-                    Some(*field_id),
-                    jd.scope_mgr.lookup_field(
-                        jd.match_set_mgr.match_sets[tf_state.match_set_id]
-                            .active_scope,
-                        *name
-                    )
-                );
-                *field_id
-            } else {
-                let field_id = jd.field_mgr.add_field(
-                    &jd.match_set_mgr,
-                    tf_state.match_set_id,
-                    ActorRef::Unconfirmed(next_actor_id),
-                );
-                jd.scope_mgr
-                    .insert_field_name(active_scope, *name, field_id);
-                field_id
-            };
-            Some(field_id)
-        } else {
-            None
-        };
-        if !cfg!(feature = "debug_reduce_field_refs") {
-            if let Some(id) = field_id {
-                let fro = jd
-                    .field_mgr
-                    .register_field_reference(id, tf_state.input_field);
-                // all output fields should have the same
-                // field ref layout
-                debug_assert!(
-                    input_field_ref_offset == fro
-                        || input_field_ref_offset == FieldRefOffset::MAX
-                );
-                input_field_ref_offset = fro;
-            }
-        }
-        capture_group_fields.push(field_id);
-    }
-
-    TransformData::Regex(TfRegex {
-        regex: op.regex.clone(),
-        text_only_regex: op
-            .text_only_regex
-            .as_ref()
-            .map(|r| (r.clone(), r.capture_locations())),
-        capture_group_fields,
-        capture_locs: op.regex.capture_locations(),
-        input_field_iter_id: jd.field_mgr.claim_iter(
-            tf_state.input_field,
-            next_actor_id,
-            IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-        ),
-        // if we reach our target batch size while we are in the middle
-        // of matching the regex agains a value (typically happens in
-        // multimatch mode), we stop and continue next time at this
-        // offset
-        unfinished_value_offset: 0,
-        actor_id,
-        input_field_ref_offset,
-        streams_kept_alive: 0,
-        op,
-    })
 }
 
 struct TextRegex<'a> {
@@ -934,276 +798,514 @@ struct RegexMatchInnerState<'a, 'b, 'c> {
     input_field_ref_offset: FieldRefOffset,
 }
 
-pub fn handle_tf_regex(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    re: &mut TfRegex,
-) {
-    let (batch_size, ps) = jd
-        .tf_mgr
-        .claim_batch_with_limit_bump(tf_id, re.streams_kept_alive);
-    jd.tf_mgr.prepare_for_output(
-        &mut jd.field_mgr,
-        &mut jd.match_set_mgr,
-        tf_id,
-        re.capture_group_fields.iter().filter_map(|x| *x),
-    );
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    let input_field_id = tf.input_field;
-    let op_id = tf.op_id.unwrap();
+impl Operator for OpRegex {
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let mut unnamed_capture_groups: usize = 0;
 
-    let input_field = jd
-        .field_mgr
-        .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
-    let iter_base = jd
-        .field_mgr
-        .lookup_iter(input_field_id, &input_field, re.input_field_iter_id)
-        .bounded(0, batch_size);
-    let field_pos_start = iter_base.get_next_field_pos();
-    let mut output_fields = SmallVec::<[Option<RefMut<'_, Field>>; 4]>::new();
-    let mut output_field_inserters =
-        SmallVec::<[Option<VaryingTypeInserter<&'_ mut FieldData>>; 4]>::new();
-    let f_mgr = &jd.field_mgr;
-    for of in &re.capture_group_fields {
-        output_fields.push(of.map(|f| f_mgr.fields[f].borrow_mut()));
-    }
-    for of in &mut output_fields {
-        output_field_inserters.push(of.as_mut().map(|f| {
-            let mut ins = f.iter_hall.varying_type_inserter();
-            // PERF: this might waste a lot of space if we have many nulls
-            ins.drop_and_reserve(
-                batch_size,
-                FieldValueRepr::SlicedFieldReference.to_format(),
-            );
-            ins
-        }));
-    }
-    jd.match_set_mgr.match_sets[tf.match_set_id]
-        .action_buffer
-        .borrow_mut()
-        .begin_action_group(re.actor_id);
-    let mut rbs = RegexBatchState {
-        main_output_capture_group_idx: re.op.output_group_id,
-        full: re.op.opts.full,
-        batch_end_field_pos_output: field_pos_start + tf.desired_batch_size,
-        field_pos_input: field_pos_start,
-        field_pos_output: field_pos_start,
-        multimatch: re.op.opts.multimatch,
-        invert_match: re.op.opts.invert_match,
-        non_mandatory: re.op.opts.non_mandatory,
-        next_start: re.unfinished_value_offset,
-        inserters: output_field_inserters,
-    };
-
-    let mut iter =
-        AutoDerefIter::new(&jd.field_mgr, input_field_id, iter_base);
-
-    let mut text_regex =
-        re.text_only_regex
-            .as_mut()
-            .map(|(regex, capture_locs)| TextRegex {
-                re: regex,
-                cl: capture_locs,
-                allow_overlapping: re.op.opts.overlapping,
-            });
-    let mut bytes_regex = BytesRegex {
-        re: &mut re.regex,
-        cl: &mut re.capture_locs,
-        allow_overlapping: re.op.opts.overlapping,
-    };
-
-    let mut hit_stream_val = false;
-
-    // we have do this to preserve the output order for cases
-    // like `scr str=foo dup r-m=. p`
-    // PERF: there are better way to do this, e.g. copying the matches
-    // from our own output instead of rematching
-    let max_run_len = if rbs.multimatch { 1 } else { usize::MAX };
-    'batch: loop {
-        if rbs.batch_size_reached() {
-            break;
+        for (i, name_str) in self.regex.capture_names().enumerate() {
+            let name_interned = if let Some(name) = name_str {
+                if i == self.output_group_id {
+                    None
+                } else {
+                    Some(sess.string_store.intern_cloned(name))
+                }
+            } else if i == 0 {
+                None
+            } else {
+                unnamed_capture_groups += 1;
+                let id = sess
+                    .string_store
+                    .intern_moved(unnamed_capture_groups.to_string());
+                Some(id)
+            };
+            self.capture_group_names.push(name_interned);
         }
-        let Some(range) = iter.typed_range_fwd(
-            &jd.match_set_mgr,
-            max_run_len,
-            FieldIterOpts::default(),
-        ) else {
-            break;
+
+        Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
+    }
+
+    fn default_name(&self) -> OperatorName {
+        "regex".into()
+    }
+
+    fn debug_op_name(&self) -> super::operator::OperatorName {
+        let mut res = String::from("regex");
+        self.opts.push_opts_arg(&mut res);
+        res.push_str("=\"");
+        let mut w = EscapedFmtWriter::new(res, b'\"');
+        w.write_str(&self.regex_text).unwrap();
+        let mut res = w.into_inner().unwrap();
+        res.push('\"');
+        res.into()
+    }
+
+    fn register_output_var_names(
+        &self,
+        ld: &mut crate::liveness_analysis::LivenessData,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) {
+        for n in &self.capture_group_names {
+            ld.add_var_name_opt(*n);
+        }
+    }
+
+    fn update_variable_liveness(
+        &self,
+        sess: &crate::context::SessionData,
+        ld: &mut crate::liveness_analysis::LivenessData,
+        _op_offset_after_last_write: super::operator::OffsetInChain,
+        op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        input_field: OpOutputIdx,
+        _outputs_offset: usize,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop =
+            !self.opts.non_mandatory || self.opts.multimatch;
+        output.flags.non_stringified_input_access = false;
+        for i in 0..self.capture_group_names.len() {
+            ld.op_outputs[OpOutputIdx::from_usize(
+                output.primary_output.into_usize() + i,
+            )]
+            .field_references
+            .push(input_field);
+        }
+
+        for (cg_idx, cg_name) in self.capture_group_names.iter().enumerate() {
+            if let Some(name) = cg_name {
+                let tgt_var_name = ld.var_names[name];
+                ld.vars_to_op_outputs_map[tgt_var_name] =
+                    OpOutputIdx::from_usize(
+                        sess.operator_bases[op_id].outputs_start.into_usize()
+                            + cg_idx,
+                    );
+            }
+        }
+    }
+
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> usize {
+        self.capture_group_names
+            .iter()
+            .filter(|f| f.is_some())
+            .count()
+            + 1
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut crate::job::Job<'a>,
+        tf_state: &mut TransformState,
+        op_id: OperatorId,
+        prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
+        let jd = &mut job.job_data;
+        let op_base = &jd.session_data.operator_bases[op_id];
+        let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
+        let active_scope = ms.active_scope;
+        let actor_id = jd.add_actor_for_tf_state(tf_state);
+        let next_actor_id = actor_id + ActorId::one();
+        let mut input_field_ref_offset = FieldRefOffset::MAX;
+        let mut capture_group_fields = Vec::new();
+        for (i, name) in self.capture_group_names.iter().enumerate() {
+            let field_id = if i == self.output_group_id {
+                Some(tf_state.output_field)
+            } else if let Some(name) = name {
+                let field_id = if let Some(field_id) =
+                    prebound_outputs.get(&OpOutputIdx::from_usize(
+                        op_base.outputs_start.into_usize() + i,
+                    )) {
+                    debug_assert_eq!(
+                        Some(*field_id),
+                        jd.scope_mgr.lookup_field(
+                            jd.match_set_mgr.match_sets[tf_state.match_set_id]
+                                .active_scope,
+                            *name
+                        )
+                    );
+                    *field_id
+                } else {
+                    let field_id = jd.field_mgr.add_field(
+                        &jd.match_set_mgr,
+                        tf_state.match_set_id,
+                        ActorRef::Unconfirmed(next_actor_id),
+                    );
+                    jd.scope_mgr.insert_field_name(
+                        active_scope,
+                        *name,
+                        field_id,
+                    );
+                    field_id
+                };
+                Some(field_id)
+            } else {
+                None
+            };
+            if !cfg!(feature = "debug_reduce_field_refs") {
+                if let Some(id) = field_id {
+                    let fro = jd
+                        .field_mgr
+                        .register_field_reference(id, tf_state.input_field);
+                    // all output fields should have the same
+                    // field ref layout
+                    debug_assert!(
+                        input_field_ref_offset == fro
+                            || input_field_ref_offset == FieldRefOffset::MAX
+                    );
+                    input_field_ref_offset = fro;
+                }
+            }
+            capture_group_fields.push(field_id);
+        }
+
+        TransformInstatiation::Single(TransformData::from_custom(TfRegex {
+            regex: self.regex.clone(),
+            text_only_regex: self
+                .text_only_regex
+                .as_ref()
+                .map(|r| (r.clone(), r.capture_locations())),
+            capture_group_fields,
+            capture_locs: self.regex.capture_locations(),
+            input_field_iter_id: jd.field_mgr.claim_iter(
+                tf_state.input_field,
+                next_actor_id,
+                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+            ),
+            // if we reach our target batch size while we are in the middle
+            // of matching the regex agains a value (typically happens in
+            // multimatch mode), we stop and continue next time at this
+            // offset
+            unfinished_value_offset: 0,
+            actor_id,
+            input_field_ref_offset,
+            streams_kept_alive: 0,
+            op: self,
+        }))
+    }
+}
+
+impl<'a> Transform<'a> for TfRegex<'a> {
+    fn display_name(&self) -> DefaultTransformName {
+        self.op.debug_op_name().to_string().into()
+    }
+
+    fn collect_out_fields(
+        &self,
+        _tf_state: &TransformState,
+        fields: &mut Vec<FieldId>,
+    ) {
+        fields.extend(self.capture_group_fields.iter().filter_map(|cgf| *cgf))
+    }
+
+    fn handle_stream_value_update(
+        &mut self,
+        jd: &mut JobData<'a>,
+        svu: crate::record_data::stream_value::StreamValueUpdate,
+    ) {
+        debug_assert!(jd.sv_mgr.stream_values[svu.sv_id].done);
+        jd.sv_mgr
+            .drop_field_value_subscription(svu.sv_id, Some(svu.tf_id));
+        jd.tf_mgr.push_tf_in_ready_stack(svu.tf_id);
+    }
+
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        let (batch_size, ps) = jd
+            .tf_mgr
+            .claim_batch_with_limit_bump(tf_id, self.streams_kept_alive);
+        jd.tf_mgr.prepare_for_output(
+            &mut jd.field_mgr,
+            &mut jd.match_set_mgr,
+            tf_id,
+            self.capture_group_fields.iter().filter_map(|x| *x),
+        );
+        let tf = &jd.tf_mgr.transforms[tf_id];
+        let input_field_id = tf.input_field;
+        let op_id = tf.op_id.unwrap();
+
+        let input_field = jd
+            .field_mgr
+            .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
+        let iter_base = jd
+            .field_mgr
+            .lookup_iter(
+                input_field_id,
+                &input_field,
+                self.input_field_iter_id,
+            )
+            .bounded(0, batch_size);
+        let field_pos_start = iter_base.get_next_field_pos();
+        let mut output_fields =
+            SmallVec::<[Option<RefMut<'_, Field>>; 4]>::new();
+        let mut output_field_inserters = SmallVec::<
+            [Option<VaryingTypeInserter<&'_ mut FieldData>>; 4],
+        >::new();
+        let f_mgr = &jd.field_mgr;
+        for of in &self.capture_group_fields {
+            output_fields.push(of.map(|f| f_mgr.fields[f].borrow_mut()));
+        }
+        for of in &mut output_fields {
+            output_field_inserters.push(of.as_mut().map(|f| {
+                let mut ins = f.iter_hall.varying_type_inserter();
+                // PERF: this might waste a lot of space if we have many nulls
+                ins.drop_and_reserve(
+                    batch_size,
+                    FieldValueRepr::SlicedFieldReference.to_format(),
+                );
+                ins
+            }));
+        }
+        jd.match_set_mgr.match_sets[tf.match_set_id]
+            .action_buffer
+            .borrow_mut()
+            .begin_action_group(self.actor_id);
+        let mut rbs = RegexBatchState {
+            main_output_capture_group_idx: self.op.output_group_id,
+            full: self.op.opts.full,
+            batch_end_field_pos_output: field_pos_start
+                + tf.desired_batch_size,
+            field_pos_input: field_pos_start,
+            field_pos_output: field_pos_start,
+            multimatch: self.op.opts.multimatch,
+            invert_match: self.op.opts.invert_match,
+            non_mandatory: self.op.opts.non_mandatory,
+            next_start: self.unfinished_value_offset,
+            inserters: output_field_inserters,
         };
-        let mut rmis = RegexMatchInnerState {
-            batch_state: &mut rbs,
-            action_buffer: jd.match_set_mgr.match_sets[tf.match_set_id]
-                .action_buffer
-                .borrow_mut(),
-            input_field_ref_offset: range
-                .field_ref_offset
-                .unwrap_or(re.input_field_ref_offset),
+
+        let mut iter =
+            AutoDerefIter::new(&jd.field_mgr, input_field_id, iter_base);
+
+        let mut text_regex =
+            self.text_only_regex.as_mut().map(|(regex, capture_locs)| {
+                TextRegex {
+                    re: regex,
+                    cl: capture_locs,
+                    allow_overlapping: self.op.opts.overlapping,
+                }
+            });
+        let mut bytes_regex = BytesRegex {
+            re: &mut self.regex,
+            cl: &mut self.capture_locs,
+            allow_overlapping: self.op.opts.overlapping,
         };
-        metamatch!(match range.base.data {
-            #[expand((REP, ITER) in [
+
+        let mut hit_stream_val = false;
+
+        // we have do this to preserve the output order for cases
+        // like `scr str=foo dup r-m=. p`
+        // PERF: there are better way to do this, e.g. copying the matches
+        // from our own output instead of rematching
+        let max_run_len = if rbs.multimatch { 1 } else { usize::MAX };
+        'batch: loop {
+            if rbs.batch_size_reached() {
+                break;
+            }
+            let Some(range) = iter.typed_range_fwd(
+                &jd.match_set_mgr,
+                max_run_len,
+                FieldIterOpts::default(),
+            ) else {
+                break;
+            };
+            let mut rmis = RegexMatchInnerState {
+                batch_state: &mut rbs,
+                action_buffer: jd.match_set_mgr.match_sets[tf.match_set_id]
+                    .action_buffer
+                    .borrow_mut(),
+                input_field_ref_offset: range
+                    .field_ref_offset
+                    .unwrap_or(self.input_field_ref_offset),
+            };
+            metamatch!(match range.base.data {
+                #[expand((REP, ITER) in [
                 (TextInline, RefAwareInlineTextIter),
                 (TextBuffer, RefAwareTextBufferIter),
             ])]
-            FieldValueSlice::REP(text) => {
-                if let Some(tr) = &mut text_regex {
-                    for (v, rl, offsets) in ITER::from_range(&range, text) {
-                        match_regex_inner::<true, _>(
-                            &mut rmis, tr, v, rl, offsets,
-                        );
-                        if rmis.batch_state.batch_size_reached() {
-                            break 'batch;
+                FieldValueSlice::REP(text) => {
+                    if let Some(tr) = &mut text_regex {
+                        for (v, rl, offsets) in ITER::from_range(&range, text)
+                        {
+                            match_regex_inner::<true, _>(
+                                &mut rmis, tr, v, rl, offsets,
+                            );
+                            if rmis.batch_state.batch_size_reached() {
+                                break 'batch;
+                            }
                         }
-                    }
-                } else {
-                    for (v, rl, offsets) in ITER::from_range(&range, text) {
-                        match_regex_inner::<true, _>(
-                            &mut rmis,
-                            &mut bytes_regex,
-                            v.as_bytes(),
-                            rl,
-                            offsets,
-                        );
-                        if rmis.batch_state.batch_size_reached() {
-                            break 'batch;
+                    } else {
+                        for (v, rl, offsets) in ITER::from_range(&range, text)
+                        {
+                            match_regex_inner::<true, _>(
+                                &mut rmis,
+                                &mut bytes_regex,
+                                v.as_bytes(),
+                                rl,
+                                offsets,
+                            );
+                            if rmis.batch_state.batch_size_reached() {
+                                break 'batch;
+                            }
                         }
                     }
                 }
-            }
-            #[expand((REP, ITER) in [
+                #[expand((REP, ITER) in [
                 (BytesInline, RefAwareInlineBytesIter),
                 (BytesBuffer, RefAwareBytesBufferIter),
             ])]
-            FieldValueSlice::REP(bytes) => {
-                for (v, rl, offset) in ITER::from_range(&range, bytes) {
-                    match_regex_inner::<true, _>(
-                        &mut rmis,
-                        &mut bytes_regex,
-                        v,
-                        rl,
-                        offset,
-                    );
-                    if rmis.batch_state.batch_size_reached() {
-                        break 'batch;
-                    }
-                }
-            }
-
-            FieldValueSlice::Custom(custom_types) => {
-                for (v, rl) in RefAwareFieldValueRangeIter::from_range(
-                    &range,
-                    custom_types,
-                ) {
-                    let prev_len = jd.temp_vec.len();
-                    let mut w = MaybeTextWriteFlaggedAdapter::new(
-                        TextWriteIoAdapter(&mut jd.temp_vec),
-                    );
-                    v.format_raw(&mut w, &RealizedFormatKey::default())
-                        .expect("custom stringify failed");
-                    let valid_utf8 = w.is_utf8();
-                    let str = &jd.temp_vec[prev_len..jd.temp_vec.len()];
-
-                    if let (Some(tr), true) = (&mut text_regex, valid_utf8) {
-                        match_regex_inner::<true, _>(
-                            &mut rmis,
-                            tr,
-                            unsafe { std::str::from_utf8_unchecked(str) },
-                            rl,
-                            RangeOffsets::default(),
-                        );
-                    } else {
+                FieldValueSlice::REP(bytes) => {
+                    for (v, rl, offset) in ITER::from_range(&range, bytes) {
                         match_regex_inner::<true, _>(
                             &mut rmis,
                             &mut bytes_regex,
-                            str,
+                            v,
                             rl,
-                            RangeOffsets::default(),
-                        );
-                    };
-                    jd.temp_vec.truncate(prev_len);
-                    if rmis.batch_state.batch_size_reached() {
-                        break 'batch;
-                    }
-                }
-            }
-            FieldValueSlice::Int(ints) => {
-                if let Some(tr) = &mut text_regex {
-                    for (v, rl) in
-                        FieldValueRangeIter::from_range(&range, ints)
-                    {
-                        match_regex_inner::<false, _>(
-                            &mut rmis,
-                            tr,
-                            &i64_to_str(false, *v),
-                            rl,
-                            RangeOffsets::default(),
+                            offset,
                         );
                         if rmis.batch_state.batch_size_reached() {
                             break 'batch;
                         }
                     }
-                } else {
-                    for (v, rl) in
-                        FieldValueRangeIter::from_range(&range, ints)
-                    {
-                        match_regex_inner::<false, _>(
-                            &mut rmis,
-                            &mut bytes_regex,
-                            i64_to_str(false, *v).as_bytes(),
-                            rl,
-                            RangeOffsets::default(),
+                }
+
+                FieldValueSlice::Custom(custom_types) => {
+                    for (v, rl) in RefAwareFieldValueRangeIter::from_range(
+                        &range,
+                        custom_types,
+                    ) {
+                        let prev_len = jd.temp_vec.len();
+                        let mut w = MaybeTextWriteFlaggedAdapter::new(
+                            TextWriteIoAdapter(&mut jd.temp_vec),
                         );
-                        if rmis.batch_state.batch_size_reached() {
-                            break 'batch;
-                        }
-                    }
-                };
-            }
-            FieldValueSlice::StreamValueId(svs) => {
-                let mut continue_to_buffer = false;
-                let mut continue_to_sub = false;
-                let mut sv_iter = FieldValueRangeIter::from_range(&range, svs);
-                while let Some((&sv_id, rl)) = sv_iter.next() {
-                    let sv = &mut jd.sv_mgr.stream_values[sv_id];
+                        v.format_raw(&mut w, &RealizedFormatKey::default())
+                            .expect("custom stringify failed");
+                        let valid_utf8 = w.is_utf8();
+                        let str = &jd.temp_vec[prev_len..jd.temp_vec.len()];
 
-                    if !sv.done || continue_to_buffer {
-                        let first_encounter = re.streams_kept_alive == 0;
-
-                        if first_encounter {
-                            sv.make_contiguous();
-                            sv.ref_count += rl as usize;
-                            re.streams_kept_alive += rl as usize;
-                        }
-                        if (first_encounter && !continue_to_buffer)
-                            || continue_to_sub
+                        if let (Some(tr), true) = (&mut text_regex, valid_utf8)
                         {
-                            sv.subscribe(
-                                sv_id,
-                                tf_id,
-                                rl as usize,
-                                true,
-                                false,
+                            match_regex_inner::<true, _>(
+                                &mut rmis,
+                                tr,
+                                unsafe { std::str::from_utf8_unchecked(str) },
+                                rl,
+                                RangeOffsets::default(),
                             );
+                        } else {
+                            match_regex_inner::<true, _>(
+                                &mut rmis,
+                                &mut bytes_regex,
+                                str,
+                                rl,
+                                RangeOffsets::default(),
+                            );
+                        };
+                        jd.temp_vec.truncate(prev_len);
+                        if rmis.batch_state.batch_size_reached() {
+                            break 'batch;
                         }
-                        hit_stream_val = true;
-                        // PERF: if multimatch is false and we are in optional
-                        // mode we can theoretically
-                        // continue here, because there will always be exactly
-                        // one match we would need
-                        // StreamValueData to support null for that though
-
-                        let successors_kept_alive =
-                            re.streams_kept_alive - rl as usize;
-                        let skip = successors_kept_alive
-                            - sv_iter.next_n_fields(successors_kept_alive);
-                        re.streams_kept_alive +=
-                            buffer_remaining_stream_values_in_sv_iter(
-                                &mut jd.sv_mgr,
-                                sv_iter,
-                                true,
+                    }
+                }
+                FieldValueSlice::Int(ints) => {
+                    if let Some(tr) = &mut text_regex {
+                        for (v, rl) in
+                            FieldValueRangeIter::from_range(&range, ints)
+                        {
+                            match_regex_inner::<false, _>(
+                                &mut rmis,
+                                tr,
+                                &i64_to_str(false, *v),
+                                rl,
+                                RangeOffsets::default(),
                             );
-                        drop(rmis);
-                        iter.next_n_fields(skip);
-                        re.streams_kept_alive +=
+                            if rmis.batch_state.batch_size_reached() {
+                                break 'batch;
+                            }
+                        }
+                    } else {
+                        for (v, rl) in
+                            FieldValueRangeIter::from_range(&range, ints)
+                        {
+                            match_regex_inner::<false, _>(
+                                &mut rmis,
+                                &mut bytes_regex,
+                                i64_to_str(false, *v).as_bytes(),
+                                rl,
+                                RangeOffsets::default(),
+                            );
+                            if rmis.batch_state.batch_size_reached() {
+                                break 'batch;
+                            }
+                        }
+                    };
+                }
+                FieldValueSlice::StreamValueId(svs) => {
+                    let mut continue_to_buffer = false;
+                    let mut continue_to_sub = false;
+                    let mut sv_iter =
+                        FieldValueRangeIter::from_range(&range, svs);
+                    while let Some((&sv_id, rl)) = sv_iter.next() {
+                        let sv = &mut jd.sv_mgr.stream_values[sv_id];
+
+                        if !sv.done || continue_to_buffer {
+                            let first_encounter = self.streams_kept_alive == 0;
+
+                            if first_encounter {
+                                sv.make_contiguous();
+                                sv.ref_count += rl as usize;
+                                self.streams_kept_alive += rl as usize;
+                            }
+                            if (first_encounter && !continue_to_buffer)
+                                || continue_to_sub
+                            {
+                                sv.subscribe(
+                                    sv_id,
+                                    tf_id,
+                                    rl as usize,
+                                    true,
+                                    false,
+                                );
+                            }
+                            hit_stream_val = true;
+                            // PERF: if multimatch is false and we are in
+                            // optional mode we can
+                            // theoretically
+                            // continue here, because there will always be
+                            // exactly one match we
+                            // would need
+                            // StreamValueData to support null for that though
+
+                            let successors_kept_alive =
+                                self.streams_kept_alive - rl as usize;
+                            let skip = successors_kept_alive
+                                - sv_iter.next_n_fields(successors_kept_alive);
+                            self.streams_kept_alive +=
+                                buffer_remaining_stream_values_in_sv_iter(
+                                    &mut jd.sv_mgr,
+                                    sv_iter,
+                                    true,
+                                );
+                            drop(rmis);
+                            iter.next_n_fields(skip);
+                            self.streams_kept_alive +=
                             buffer_remaining_stream_values_in_auto_deref_iter(
                                 &jd.match_set_mgr,
                                 &mut jd.sv_mgr,
@@ -1211,111 +1313,95 @@ pub fn handle_tf_regex(
                                 usize::MAX,
                                 true,
                             );
-                        break 'batch;
-                    }
-                    if re.streams_kept_alive > 0 {
-                        let rc_diff = (rl as usize).min(re.streams_kept_alive);
-                        sv.ref_count -= rc_diff;
-                        re.streams_kept_alive -= rc_diff;
-                    }
-                    if let Some(e) = &sv.error {
-                        for cgi in
-                            rmis.batch_state.inserters.iter_mut().flatten()
-                        {
-                            cgi.push_error(
-                                (**e).clone(),
-                                rl as usize,
-                                true,
-                                false,
-                            );
+                            break 'batch;
                         }
-                        rmis.batch_state.field_pos_input += rl as usize;
-                        rmis.batch_state.field_pos_output += rl as usize;
-                        jd.sv_mgr.check_stream_value_ref_count(sv_id);
-                        continue;
-                    }
-                    match &sv.single_data().as_ref().storage_agnostic() {
-                        StorageAgnosticStreamValueDataRef::Bytes(b) => {
-                            // PERF: maybe allow for stream values to be
-                            // created to allow references or make the
-                            // text/bytes type arc + range ...
-                            match_regex_inner::<false, _>(
-                                &mut rmis,
-                                &mut bytes_regex,
-                                b,
-                                rl,
-                                RangeOffsets::default(),
-                            );
+                        if self.streams_kept_alive > 0 {
+                            let rc_diff =
+                                (rl as usize).min(self.streams_kept_alive);
+                            sv.ref_count -= rc_diff;
+                            self.streams_kept_alive -= rc_diff;
                         }
-                        StorageAgnosticStreamValueDataRef::Text(t) => {
-                            if let Some(tr) = &mut text_regex {
-                                match_regex_inner::<false, _>(
-                                    &mut rmis,
-                                    tr,
-                                    t,
-                                    rl,
-                                    RangeOffsets::default(),
-                                )
-                            } else {
+                        if let Some(e) = &sv.error {
+                            for cgi in
+                                rmis.batch_state.inserters.iter_mut().flatten()
+                            {
+                                cgi.push_error(
+                                    (**e).clone(),
+                                    rl as usize,
+                                    true,
+                                    false,
+                                );
+                            }
+                            rmis.batch_state.field_pos_input += rl as usize;
+                            rmis.batch_state.field_pos_output += rl as usize;
+                            jd.sv_mgr.check_stream_value_ref_count(sv_id);
+                            continue;
+                        }
+                        match &sv.single_data().as_ref().storage_agnostic() {
+                            StorageAgnosticStreamValueDataRef::Bytes(b) => {
+                                // PERF: maybe allow for stream values to be
+                                // created to allow references or make the
+                                // text/bytes type arc + range ...
                                 match_regex_inner::<false, _>(
                                     &mut rmis,
                                     &mut bytes_regex,
-                                    t.as_bytes(),
+                                    b,
                                     rl,
                                     RangeOffsets::default(),
-                                )
-                            };
+                                );
+                            }
+                            StorageAgnosticStreamValueDataRef::Text(t) => {
+                                if let Some(tr) = &mut text_regex {
+                                    match_regex_inner::<false, _>(
+                                        &mut rmis,
+                                        tr,
+                                        t,
+                                        rl,
+                                        RangeOffsets::default(),
+                                    )
+                                } else {
+                                    match_regex_inner::<false, _>(
+                                        &mut rmis,
+                                        &mut bytes_regex,
+                                        t.as_bytes(),
+                                        rl,
+                                        RangeOffsets::default(),
+                                    )
+                                };
+                            }
                         }
+                        // we cannot break early because we need to make
+                        // sure to buffer the remainder of the batch
+                        if rmis.batch_state.batch_size_reached() {
+                            continue_to_buffer = true;
+                        } else {
+                            continue_to_sub = true;
+                        }
+                        jd.sv_mgr.check_stream_value_ref_count(sv_id);
                     }
-                    // we cannot break early because we need to make
-                    // sure to buffer the remainder of the batch
-                    if rmis.batch_state.batch_size_reached() {
-                        continue_to_buffer = true;
-                    } else {
-                        continue_to_sub = true;
-                    }
-                    jd.sv_mgr.check_stream_value_ref_count(sv_id);
                 }
-            }
-            FieldValueSlice::BigInt(_)
-            | FieldValueSlice::Float(_)
-            | FieldValueSlice::BigRational(_)
-            | FieldValueSlice::Argument(_)
-            | FieldValueSlice::Macro(_) => {
-                todo!();
-            }
+                FieldValueSlice::BigInt(_)
+                | FieldValueSlice::Float(_)
+                | FieldValueSlice::BigRational(_)
+                | FieldValueSlice::Argument(_)
+                | FieldValueSlice::Macro(_) => {
+                    todo!();
+                }
 
-            FieldValueSlice::Null(_)
-            | FieldValueSlice::Undefined(_)
-            | FieldValueSlice::Object(_)
-            | FieldValueSlice::Array(_) => {
-                let count = rbs.consume_fields(range.base.field_count);
-                for inserter in rbs.inserters.iter_mut().flatten() {
-                    inserter.push_fixed_size_type(
-                        OperatorApplicationError::new_s(
-                            format!(
-                                "regex can't handle values of type `{}`",
-                                range.base.data.repr()
-                            ),
-                            op_id,
-                        ),
-                        count,
-                        true,
-                        true,
-                    );
-                }
-                if rbs.batch_size_reached() {
-                    break 'batch;
-                }
-            }
-            FieldValueSlice::Error(errs) => {
-                for (e, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, errs)
-                {
-                    let count = rbs.consume_fields(rl as usize);
+                FieldValueSlice::Null(_)
+                | FieldValueSlice::Undefined(_)
+                | FieldValueSlice::Object(_)
+                | FieldValueSlice::Array(_) => {
+                    let count = rbs.consume_fields(range.base.field_count);
                     for inserter in rbs.inserters.iter_mut().flatten() {
                         inserter.push_fixed_size_type(
-                            e.clone(),
+                            OperatorApplicationError::new_s(
+                                format!(
+                                    "regex can't handle values of type `{}`",
+                                    range.base.data.repr()
+                                ),
+                                op_id,
+                            ),
                             count,
                             true,
                             true,
@@ -1325,87 +1411,88 @@ pub fn handle_tf_regex(
                         break 'batch;
                     }
                 }
+                FieldValueSlice::Error(errs) => {
+                    for (e, rl) in
+                        RefAwareFieldValueRangeIter::from_range(&range, errs)
+                    {
+                        let count = rbs.consume_fields(rl as usize);
+                        for inserter in rbs.inserters.iter_mut().flatten() {
+                            inserter.push_fixed_size_type(
+                                e.clone(),
+                                count,
+                                true,
+                                true,
+                            );
+                        }
+                        if rbs.batch_size_reached() {
+                            break 'batch;
+                        }
+                    }
+                }
+                FieldValueSlice::SlicedFieldReference(_)
+                | FieldValueSlice::FieldReference(_) => unreachable!(),
+            })
+        }
+        self.unfinished_value_offset = rbs.next_start;
+        let field_pos_input = rbs.field_pos_input; // brrwchck...
+        let consumed_inputs = rbs.field_pos_input - field_pos_start;
+        let produced_records = rbs.field_pos_output - field_pos_start;
+        let bse = consumed_inputs < batch_size;
+        jd.match_set_mgr.match_sets[tf.match_set_id]
+            .action_buffer
+            .borrow_mut()
+            .end_action_group();
+        let base_iter = iter.into_base_iter();
+        if bse || hit_stream_val {
+            let unclaimed_batch_size =
+                batch_size - (rbs.field_pos_input - field_pos_start);
+            jd.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
+            drop(rbs);
+            if !hit_stream_val || consumed_inputs > 0 || produced_records > 0 {
+                jd.tf_mgr.push_tf_in_ready_stack(tf_id);
             }
-            FieldValueSlice::SlicedFieldReference(_)
-            | FieldValueSlice::FieldReference(_) => unreachable!(),
-        })
-    }
-    re.unfinished_value_offset = rbs.next_start;
-    let field_pos_input = rbs.field_pos_input; // brrwchck...
-    let consumed_inputs = rbs.field_pos_input - field_pos_start;
-    let produced_records = rbs.field_pos_output - field_pos_start;
-    let bse = consumed_inputs < batch_size;
-    jd.match_set_mgr.match_sets[tf.match_set_id]
-        .action_buffer
-        .borrow_mut()
-        .end_action_group();
-    let base_iter = iter.into_base_iter();
-    if bse || hit_stream_val {
-        let unclaimed_batch_size =
-            batch_size - (rbs.field_pos_input - field_pos_start);
-        jd.tf_mgr.unclaim_batch_size(tf_id, unclaimed_batch_size);
-        drop(rbs);
-        if !hit_stream_val || consumed_inputs > 0 || produced_records > 0 {
+        } else if ps.next_batch_ready {
             jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
-    } else if ps.next_batch_ready {
-        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-    }
 
-    if bse {
-        // this applies the action list first so we can move the iterator to
-        // the correct continuation field
-        // we explicitly don't store the iterator here so it stays at the
-        // start position while we apply the action list
-        drop(input_field);
-        let input_field = jd
-            .field_mgr
-            .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
-        let mut iter = jd.field_mgr.lookup_iter(
-            input_field_id,
-            &input_field,
-            re.input_field_iter_id,
+        if bse {
+            // this applies the action list first so we can move the iterator
+            // to the correct continuation field
+            // we explicitly don't store the iterator here so it stays at the
+            // start position while we apply the action list
+            drop(input_field);
+            let input_field = jd
+                .field_mgr
+                .get_cow_field_ref(&jd.match_set_mgr, input_field_id);
+            let mut iter = jd.field_mgr.lookup_iter(
+                input_field_id,
+                &input_field,
+                self.input_field_iter_id,
+            );
+            let records = iter.next_n_fields(produced_records, true);
+            debug_assert!(records == produced_records);
+            jd.field_mgr.store_iter(
+                input_field_id,
+                self.input_field_iter_id,
+                iter,
+            );
+        } else {
+            assert_eq!(base_iter.get_next_field_pos(), field_pos_input);
+            jd.field_mgr.store_iter(
+                input_field_id,
+                self.input_field_iter_id,
+                base_iter,
+            );
+        }
+        jd.tf_mgr.submit_batch_ready_for_more(
+            tf_id,
+            produced_records,
+            PipelineState {
+                input_done: ps.input_done && !hit_stream_val && !bse,
+                ..ps
+            },
         );
-        let records = iter.next_n_fields(produced_records, true);
-        debug_assert!(records == produced_records);
-        jd.field_mgr
-            .store_iter(input_field_id, re.input_field_iter_id, iter);
-    } else {
-        assert_eq!(base_iter.get_next_field_pos(), field_pos_input);
-        jd.field_mgr.store_iter(
-            input_field_id,
-            re.input_field_iter_id,
-            base_iter,
-        );
     }
-    jd.tf_mgr.submit_batch_ready_for_more(
-        tf_id,
-        produced_records,
-        PipelineState {
-            input_done: ps.input_done && !hit_stream_val && !bse,
-            ..ps
-        },
-    );
-}
-
-pub fn handle_tf_regex_stream_value_update(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    _re: &mut TfRegex,
-    sv_id: StreamValueId,
-    _custom: usize,
-) {
-    debug_assert!(jd.sv_mgr.stream_values[sv_id].done);
-    jd.sv_mgr.drop_field_value_subscription(sv_id, Some(tf_id));
-    jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-}
-
-pub fn regex_output_counts(op: &OpRegex) -> usize {
-    op.capture_group_names
-        .iter()
-        .filter(|f| f.is_some())
-        .count()
-        + 1
 }
 
 #[cfg(test)]

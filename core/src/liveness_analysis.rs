@@ -642,7 +642,6 @@ impl LivenessData {
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Select(_)
-            | OperatorData::Regex(_)
             | OperatorData::Format(_)
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
