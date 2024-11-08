@@ -189,7 +189,7 @@ impl Operator for OpCsv {
             );
         }
 
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(
             TfCsv {
                 op: self,
                 inserters: Default::default(),
@@ -227,7 +227,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
         "csv".into()
     }
 
-    fn get_out_fields(
+    fn collect_out_fields(
         &self,
         _tf_state: &TransformState,
         fields: &mut Vec<FieldId>,

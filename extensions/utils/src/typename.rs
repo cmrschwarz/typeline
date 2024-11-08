@@ -85,7 +85,7 @@ impl Operator for OpTypename {
         let tfe = TfTypename {
             input_iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
         };
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(tfe)))
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(tfe)))
     }
 }
 

@@ -172,7 +172,7 @@ impl Operator for OpHttpRequest {
                     tf_state,
                 ),
         };
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(tf)))
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(tf)))
     }
 }
 

@@ -269,7 +269,7 @@ fn handle_enum_mode<G: GeneratorSequence>(
     mut gbs: GeneratorBatchState<G>,
     group_iter_ref: GroupTrackIterRef,
 ) {
-    //TODO: properly implement current_group_done
+    // TODO: properly implement current_group_done
     let mut seq_size_rem = gbs.generator.seq_len_rem();
     let mut out_batch_size = 0;
     let mut drop_count = 0;

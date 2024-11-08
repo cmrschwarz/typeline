@@ -226,7 +226,7 @@ impl Operator for OpPy {
             Py::from_owned_ptr(py, locals)
         });
 
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(TfPy {
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(TfPy {
             op: self,
             input_field_refs: Vec::with_capacity(input_fields.len()),
             input_field_iters: Vec::with_capacity(input_fields.len()),

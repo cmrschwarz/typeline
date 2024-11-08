@@ -4,14 +4,10 @@ use arrayvec::ArrayVec;
 
 use crate::{
     cli::call_expr::{CallExpr, Span},
-    context::SessionData,
-    job::JobData,
-    liveness_analysis::{AccessFlags, LivenessData, VarLivenessSlotKind},
+    liveness_analysis::VarLivenessSlotKind,
     options::session_setup::SessionSetupData,
     record_data::{
-        action_buffer::ActorId, field::Field, group_track::GroupTrackIterRef,
-        iter_hall::IterId,
-        variable_sized_type_inserter::VariableSizeTypeInserter,
+        field::Field, variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     utils::{
         indexing_type::IndexingType,
@@ -23,12 +19,10 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::{OperatorBase, OperatorData, OperatorId, OperatorName},
-    transform::{
-        DefaultTransformName, TransformData, TransformId, TransformState,
-    },
-    utils::generator_transform_update::{
-        handle_generator_transform_update, GeneratorMode, GeneratorSequence,
+    operator::{OperatorData, OperatorName},
+    utils::{
+        basic_generator::{BasicGenerator, BasicGeneratorWrapper},
+        generator_transform_update::{GeneratorMode, GeneratorSequence},
     },
 };
 
@@ -46,7 +40,6 @@ pub struct OpSequence {
     ss: SequenceSpec,
     mode: SequenceMode,
     non_string_reads: bool,
-    seq_len_total: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -56,15 +49,11 @@ pub enum SequenceMode {
     EnumUnbounded,
 }
 
-pub struct TfSequence {
+pub struct SequenceGenerator {
     pub non_string_reads: bool,
     pub ss: SequenceSpec,
     pub current_value: i64,
-    pub mode: SequenceMode,
-    pub iter_id: IterId,
-    pub actor_id: ActorId,
     pub seq_len_total: u64,
-    pub group_track_iter_ref: GroupTrackIterRef,
 }
 
 impl SequenceMode {
@@ -101,69 +90,6 @@ impl SequenceSpec {
     }
 }
 
-impl TfSequence {
-    pub fn display_name(&self) -> DefaultTransformName {
-        self.mode.to_str_with_seq_spec(self.ss).into()
-    }
-}
-
-impl OpSequence {
-    pub fn default_op_name(&self) -> OperatorName {
-        match self.mode {
-            SequenceMode::Sequence => "seq",
-            SequenceMode::Enum | SequenceMode::EnumUnbounded => "enum",
-        }
-        .into()
-    }
-    pub fn debug_op_name(&self) -> OperatorName {
-        self.mode.to_str_with_seq_spec(self.ss).into()
-    }
-}
-
-pub fn build_tf_sequence<'a>(
-    jd: &mut JobData,
-    _op_base: &OperatorBase,
-    op: &'a OpSequence,
-    tf_state: &mut TransformState,
-) -> TransformData<'a> {
-    let actor_id = jd.add_actor_for_tf_state(tf_state);
-    let iter_id = jd.claim_iter_for_tf_state(tf_state);
-    let group_track_iter_ref =
-        jd.claim_group_track_iter_for_tf_state(tf_state);
-
-    TransformData::Sequence(TfSequence {
-        ss: op.ss,
-        current_value: op.ss.start,
-        mode: op.mode,
-        non_string_reads: op.non_string_reads,
-        actor_id,
-        iter_id,
-        seq_len_total: op.seq_len_total,
-        group_track_iter_ref,
-    })
-}
-
-pub fn setup_op_sequence_concurrent_liveness_data(
-    sess: &SessionData,
-    op: &mut OpSequence,
-    op_id: OperatorId,
-    ld: &LivenessData,
-) {
-    let output_id = sess.operator_bases[op_id].outputs_start;
-    op.non_string_reads = ld
-        .op_outputs_data
-        .get_slot(VarLivenessSlotKind::NonStringReads)[output_id.into_usize()];
-}
-
-pub fn update_op_sequence_variable_liveness(
-    flags: &mut AccessFlags,
-    _seq: &OpSequence,
-) {
-    flags.input_accessed = true;
-    flags.may_dup_or_drop = true;
-    flags.non_stringified_input_access = false;
-}
-
 pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
     let mut i = data.len() - 1;
     loop {
@@ -180,7 +106,7 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
     data.insert(0, b'1');
 }
 
-impl GeneratorSequence for TfSequence {
+impl GeneratorSequence for SequenceGenerator {
     type Inserter<'a> = &'a mut Field;
     fn seq_len_total(&self) -> u64 {
         self.seq_len_total
@@ -256,24 +182,46 @@ impl GeneratorSequence for TfSequence {
     }
 }
 
-pub fn handle_tf_sequence(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    seq: &mut TfSequence,
-) {
-    handle_generator_transform_update(
-        jd,
-        tf_id,
-        seq.iter_id,
-        seq.actor_id,
-        seq.group_track_iter_ref,
-        seq,
-        match seq.mode {
+impl BasicGenerator for OpSequence {
+    type Gen = SequenceGenerator;
+
+    fn default_name(&self) -> OperatorName {
+        match self.mode {
+            SequenceMode::Sequence => "seq",
+            SequenceMode::Enum | SequenceMode::EnumUnbounded => "enum",
+        }
+        .into()
+    }
+
+    fn generator_mode(&self) -> GeneratorMode {
+        match self.mode {
             SequenceMode::Sequence => GeneratorMode::Foreach,
             SequenceMode::Enum => GeneratorMode::Alongside,
             SequenceMode::EnumUnbounded => GeneratorMode::AlongsideUnbounded,
-        },
-    )
+        }
+    }
+
+    fn create_generator(&self) -> Self::Gen {
+        SequenceGenerator {
+            non_string_reads: self.non_string_reads,
+            ss: self.ss,
+            current_value: self.ss.start,
+            seq_len_total: self.ss.len(),
+        }
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        sess: &mut crate::context::SessionData,
+        ld: &crate::liveness_analysis::LivenessData,
+        op_id: crate::operators::operator::OperatorId,
+    ) {
+        let output_id = sess.operator_bases[op_id].outputs_start;
+        self.non_string_reads = ld
+            .op_outputs_data
+            .get_slot(VarLivenessSlotKind::NonStringReads)
+            [output_id.into_usize()];
+    }
 }
 
 pub fn parse_op_seq(
@@ -380,11 +328,10 @@ fn create_op_sequence_with_opts(
     }
     let mut ss = SequenceSpec { start, end, step };
     ss.normalize_end();
-    Ok(OperatorData::Sequence(OpSequence {
+    Ok(BasicGeneratorWrapper::new_operator(OpSequence {
         ss,
         mode,
         non_string_reads: true,
-        seq_len_total: ss.len(),
     }))
 }
 

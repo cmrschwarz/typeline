@@ -5,6 +5,7 @@ use std::{
 
 use bstr::{ByteSlice, ByteVec, Utf8Error};
 use indexing_type::IndexingType;
+use smallstr::SmallString;
 
 #[macro_use]
 pub mod index_vec;
@@ -290,6 +291,15 @@ pub fn cow_to_str(cow: Cow<[u8]>) -> Result<Cow<str>, Utf8Error> {
         Cow::Owned(v) => Ok(Cow::Owned(
             v.into_string().map_err(|e| e.utf8_error().clone())?,
         )),
+    }
+}
+
+pub fn cow_to_small_str<A: smallvec::Array<Item = u8>>(
+    cow: Cow<str>,
+) -> SmallString<A> {
+    match cow {
+        Cow::Borrowed(s) => SmallString::from_str(s),
+        Cow::Owned(s) => SmallString::from_string(s),
     }
 }
 

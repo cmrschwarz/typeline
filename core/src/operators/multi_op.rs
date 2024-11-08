@@ -111,7 +111,7 @@ impl Operator for OpMultiOp {
         _op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        TransformInstatiation::Multi(job.setup_transforms_for_op_iter(
+        TransformInstatiation::Multiple(job.setup_transforms_for_op_iter(
             self.sub_op_ids.iter().map(|&sub_op_id| {
                 let op_base =
                     &job.job_data.session_data.operator_bases[sub_op_id];

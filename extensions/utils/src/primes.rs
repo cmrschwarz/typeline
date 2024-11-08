@@ -1,103 +1,27 @@
-use primes::PrimeSet;
+use primes::{PrimeSet, Sieve};
 use scr_core::{
     cli::call_expr::CallExpr,
-    context::SessionData,
-    job::{Job, JobData},
-    liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
-    },
     operators::{
         errors::OperatorCreationError,
-        operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId,
-            PreboundOutputsMap, TransformInstatiation,
-        },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
-        },
-        utils::generator_transform_update::{
-            handle_generator_transform_update, GeneratorMode,
-            GeneratorSequence,
+        operator::OperatorData,
+        utils::{
+            basic_generator::{BasicGenerator, BasicGeneratorWrapper},
+            generator_transform_update::{GeneratorMode, GeneratorSequence},
         },
     },
     record_data::{
-        action_buffer::ActorId, field::Field,
-        fixed_sized_type_inserter::FixedSizeTypeInserter,
-        group_track::GroupTrackIterRef, iter_hall::IterId,
+        field::Field, fixed_sized_type_inserter::FixedSizeTypeInserter,
     },
-    smallbox,
 };
 
-#[derive(Default)]
-pub struct OpPrimes {}
+pub struct OpPrimes;
 
-pub struct TfPrimes {
+pub struct PrimesGenerator {
     sieve: primes::Sieve,
     count: usize,
-    actor_id: ActorId,
-    iter_id: IterId,
-    group_iter: GroupTrackIterRef,
 }
 
-impl Operator for OpPrimes {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
-        "primes".into()
-    }
-
-    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
-        1
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
-    fn update_variable_liveness(
-        &self,
-        _sess: &SessionData,
-        _ld: &mut LivenessData,
-        access_flags: &mut AccessFlags,
-        _op_offset_after_last_write: OffsetInChain,
-        _op_id: OperatorId,
-        _bb_id: BasicBlockId,
-        _input_field: OpOutputIdx,
-        _outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        access_flags.input_accessed = false;
-        None
-    }
-
-    fn build_transforms<'a>(
-        &'a self,
-        job: &mut Job,
-        tf_state: &mut TransformState,
-        _op_id: OperatorId,
-        _prebound_outputs: &PreboundOutputsMap,
-    ) -> TransformInstatiation<'a> {
-        let jd = &mut job.job_data;
-        let actor_id = jd.add_actor_for_tf_state(tf_state);
-        let iter_id = jd.claim_iter_for_tf_state(tf_state);
-        let group_iter = jd.claim_group_track_iter_for_tf_state(tf_state);
-
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(
-            TfPrimes {
-                sieve: primes::Sieve::new(),
-                count: 0,
-                actor_id,
-                iter_id,
-                group_iter
-            }
-        )))
-    }
-}
-
-impl GeneratorSequence for TfPrimes {
+impl GeneratorSequence for PrimesGenerator {
     type Inserter<'a> = FixedSizeTypeInserter<'a, i64>;
     fn seq_len_total(&self) -> u64 {
         u64::MAX
@@ -134,26 +58,27 @@ impl GeneratorSequence for TfPrimes {
     }
 }
 
-impl Transform<'_> for TfPrimes {
-    fn display_name(&self) -> DefaultTransformName {
+impl BasicGenerator for OpPrimes {
+    type Gen = PrimesGenerator;
+
+    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
         "primes".into()
     }
 
-    fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
-        handle_generator_transform_update(
-            jd,
-            tf_id,
-            self.iter_id,
-            self.actor_id,
-            self.group_iter,
-            self,
-            GeneratorMode::AlongsideUnbounded,
-        )
+    fn generator_mode(&self) -> GeneratorMode {
+        GeneratorMode::AlongsideUnbounded
+    }
+
+    fn create_generator(&self) -> Self::Gen {
+        PrimesGenerator {
+            sieve: Sieve::new(),
+            count: 0,
+        }
     }
 }
 
 pub fn create_op_primes() -> OperatorData {
-    OperatorData::Custom(smallbox!(OpPrimes {}))
+    BasicGeneratorWrapper::new_operator(OpPrimes)
 }
 
 pub fn parse_op_primes(

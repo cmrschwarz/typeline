@@ -1,4 +1,6 @@
-use std::{borrow::Cow, collections::HashMap, fmt::Write};
+use std::{collections::HashMap, fmt::Write};
+
+use smallstr::SmallString;
 
 use crate::{
     chain::{ChainId, SubchainIndex},
@@ -70,10 +72,6 @@ use super::{
     print::{build_tf_print, OpPrint},
     regex::{build_tf_regex, regex_output_counts, setup_op_regex, OpRegex},
     select::{setup_op_select, OpSelect},
-    sequence::{
-        build_tf_sequence, setup_op_sequence_concurrent_liveness_data,
-        update_op_sequence_variable_liveness, OpSequence,
-    },
     string_sink::{build_tf_string_sink, OpStringSink},
     success_updater::{build_tf_success_updator, OpSuccessUpdator},
     to_str::{build_tf_to_str, OpToStr},
@@ -117,7 +115,6 @@ pub enum OperatorData {
     FieldValueSink(OpFieldValueSink),
     FileReader(OpFileReader),
     Literal(OpLiteral),
-    Sequence(OpSequence),
     Aggregator(OpAggregator),
     Foreach(OpForeach),
     ForeachUnique(OpForeachUnique),
@@ -169,7 +166,7 @@ pub enum OutputFieldKind {
     Unconfigured,
 }
 
-pub type OperatorName = Cow<'static, str>;
+pub type OperatorName = SmallString<[u8; 32]>;
 
 impl Default for OperatorData {
     fn default() -> Self {
@@ -389,7 +386,6 @@ impl OperatorData {
             ),
             OperatorData::ToStr(_)
             | OperatorData::Count(_)
-            | OperatorData::Sequence(_)
             | OperatorData::Literal(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
@@ -427,7 +423,6 @@ impl OperatorData {
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
-            | OperatorData::Sequence(_)
             | OperatorData::Aggregator(_)
             | OperatorData::MacroDef(_)
             | OperatorData::Foreach(_)
@@ -505,7 +500,6 @@ impl OperatorData {
             OperatorData::FieldValueSink(_) => 1,
             OperatorData::FileReader(_) => 1,
             OperatorData::Literal(_) => 1,
-            OperatorData::Sequence(_) => 1,
             OperatorData::Foreach(_) => 0,
             OperatorData::ForeachUnique(_) => 0,
             OperatorData::Chunks(_) => 0, // last sc output is output
@@ -597,7 +591,6 @@ impl OperatorData {
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
-            | OperatorData::Sequence(_)
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
@@ -620,7 +613,6 @@ impl OperatorData {
         match self {
             OperatorData::Atom(_) => "atom".into(),
             OperatorData::Print(_) => "p".into(),
-            OperatorData::Sequence(op) => op.default_op_name(),
             OperatorData::Fork(_) => "fork".into(),
             OperatorData::Foreach(_) => "foreach".into(),
             OperatorData::ForeachUnique(_) => "foreach-u".into(),
@@ -656,7 +648,6 @@ impl OperatorData {
             OperatorData::MultiOp(op) => op.debug_op_name(),
             OperatorData::Regex(op) => op.debug_op_name(),
             OperatorData::Join(op) => op.debug_op_name(),
-            OperatorData::Sequence(op) => op.debug_op_name(),
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return self.default_op_name();
@@ -676,7 +667,7 @@ impl OperatorData {
                 .into()
             }
             OperatorData::Aggregator(op) => {
-                let mut n = self.default_op_name().into_owned();
+                let mut n = self.default_op_name().to_string();
                 n.push('<');
                 for (i, &so) in op.sub_ops.iter().enumerate() {
                     if i > 0 {
@@ -697,7 +688,6 @@ impl OperatorData {
     ) -> OutputFieldKind {
         match self {
             OperatorData::Print(_)
-            | OperatorData::Sequence(_)
             | OperatorData::Regex(_)
             | OperatorData::FileReader(_)
             | OperatorData::Format(_)
@@ -814,7 +804,6 @@ impl OperatorData {
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
-            | OperatorData::Sequence(_)
             | OperatorData::MacroDef(_) => (),
         }
     }
@@ -986,9 +975,6 @@ impl OperatorData {
                 flags.non_stringified_input_access = false;
             }
             OperatorData::Join(_) => {}
-            OperatorData::Sequence(seq) => {
-                update_op_sequence_variable_liveness(flags, seq);
-            }
 
             OperatorData::FieldValueSink(_) | OperatorData::ToStr(_) => {
                 flags.may_dup_or_drop = false;
@@ -1088,9 +1074,6 @@ impl OperatorData {
             }
             OperatorData::ForkCat(op) => {
                 setup_op_forkcat_liveness_data(sess, op, op_id, ld)
-            }
-            OperatorData::Sequence(op) => {
-                setup_op_sequence_concurrent_liveness_data(sess, op, op_id, ld)
             }
             OperatorData::MultiOp(op) => {
                 op.on_liveness_computed(sess, ld, op_id)
@@ -1231,9 +1214,6 @@ impl OperatorData {
             OperatorData::Literal(op) => {
                 build_tf_literal(jd, op_base, op, tfs)
             }
-            OperatorData::Sequence(op) => {
-                build_tf_sequence(jd, op_base, op, tfs)
-            }
             OperatorData::Call(op) => build_tf_call(jd, op_base, op, tfs),
             OperatorData::CallConcurrent(op) => {
                 build_tf_call_concurrent(jd, op_base, op, tfs)
@@ -1247,8 +1227,8 @@ impl OperatorData {
                     op_id,
                     prebound_outputs,
                 ) {
-                    TransformInstatiation::Simple(tf) => tf,
-                    TransformInstatiation::Multi(instantiation) => {
+                    TransformInstatiation::Single(tf) => tf,
+                    TransformInstatiation::Multiple(instantiation) => {
                         return instantiation
                     }
                 }
@@ -1261,8 +1241,8 @@ impl OperatorData {
                     op_id,
                     prebound_outputs,
                 ) {
-                    TransformInstatiation::Simple(tf) => tf,
-                    TransformInstatiation::Multi(instantiation) => {
+                    TransformInstatiation::Single(tf) => tf,
+                    TransformInstatiation::Multiple(instantiation) => {
                         return instantiation
                     }
                 }
@@ -1274,8 +1254,8 @@ impl OperatorData {
                     op_id,
                     prebound_outputs,
                 ) {
-                    TransformInstatiation::Simple(tf) => tf,
-                    TransformInstatiation::Multi(instantiation) => {
+                    TransformInstatiation::Single(tf) => tf,
+                    TransformInstatiation::Multiple(instantiation) => {
                         return instantiation
                     }
                 }
@@ -1354,7 +1334,6 @@ impl OperatorData {
             | OperatorData::FieldValueSink(_)
             | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
-            | OperatorData::Sequence(_)
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
@@ -1366,9 +1345,8 @@ impl OperatorData {
 }
 
 pub enum TransformInstatiation<'a> {
-    Simple(TransformData<'a>),
-    // TODO: rename this
-    Multi(OperatorInstantiation),
+    Single(TransformData<'a>),
+    Multiple(OperatorInstantiation),
 }
 
 pub trait Operator: Send + Sync {
@@ -1418,7 +1396,9 @@ pub trait Operator: Send + Sync {
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
         _outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)>;
+    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
+        None
+    }
     fn setup(
         &mut self,
         sess: &mut SessionSetupData,

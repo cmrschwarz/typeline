@@ -133,7 +133,7 @@ impl Operator for OpHead {
                 group_track_iter,
             })
         };
-        TransformInstatiation::Simple(TransformData::Custom(res))
+        TransformInstatiation::Single(TransformData::Custom(res))
     }
 }
 

@@ -99,7 +99,7 @@ impl Operator for OpSum {
         let actor_id = jd.add_actor_for_tf_state(tf_state);
         let iter_id = jd.claim_iter_for_tf_state(tf_state);
 
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(
             TfSum {
                 group_track_iter: jd
                     .claim_group_track_iter_for_tf_state(tf_state),

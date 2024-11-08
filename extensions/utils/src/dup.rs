@@ -88,7 +88,7 @@ impl Operator for OpDup {
         tf_state.output_field = tf_state.input_field;
         let record_group_track_iter =
             job.job_data.claim_group_track_iter_for_tf_state(tf_state);
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(
             TfDup {
                 count: self.count,
                 actor_id,
@@ -161,7 +161,7 @@ impl Transform<'_> for TfDup {
             ps.input_done,
         );
     }
-    fn get_out_fields(
+    fn collect_out_fields(
         &self,
         _tf_state: &TransformState,
         _fields: &mut Vec<scr_core::record_data::field::FieldId>,

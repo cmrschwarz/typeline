@@ -98,7 +98,7 @@ impl Operator for OpCollect {
         let group_track_iter =
             jd.claim_group_track_iter_for_tf_state(tf_state);
 
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(
             TfCollect {
                 group_track_iter,
                 input_iter_id,

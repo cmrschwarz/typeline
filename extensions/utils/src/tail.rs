@@ -144,7 +144,7 @@ impl Operator for OpTail {
                 group_track_iter,
             })
         };
-        TransformInstatiation::Simple(TransformData::Custom(res))
+        TransformInstatiation::Single(TransformData::Custom(res))
     }
 }
 

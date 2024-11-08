@@ -124,7 +124,7 @@ impl Operator for OpFlatten {
             input_field_ref_offset,
         };
 
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(tfe)))
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(tfe)))
     }
 }
 

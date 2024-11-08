@@ -6,3 +6,4 @@ pub mod maintain_single_value;
 pub mod nested_op;
 pub mod writable;
 pub mod readable;
+pub mod basic_generator;

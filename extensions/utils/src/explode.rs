@@ -144,7 +144,7 @@ impl Operator for OpExplode {
             input_iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
             input_field_field_ref_offset,
         };
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(tfe)))
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(tfe)))
     }
 }
 

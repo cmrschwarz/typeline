@@ -314,7 +314,7 @@ impl Operator for OpExec {
             None
         };
 
-        TransformInstatiation::Simple(TransformData::Custom(smallbox!(
+        TransformInstatiation::Single(TransformData::Custom(smallbox!(
             TfExec {
                 op: self,
                 iters,

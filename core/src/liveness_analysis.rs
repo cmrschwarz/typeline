@@ -635,7 +635,6 @@ impl LivenessData {
             | OperatorData::FileReader(_)
             | OperatorData::Literal(_)
             | OperatorData::SuccessUpdator(_)
-            | OperatorData::Sequence(_)
             | OperatorData::MacroDef(_) => (),
             OperatorData::Custom(_)
             | OperatorData::MultiOp(_)

@@ -20,7 +20,7 @@ use crate::{
     },
     scr_error::ScrError,
     tyson::{parse_tyson, TysonParseError},
-    utils::cow_to_str,
+    utils::{cow_to_small_str, cow_to_str},
 };
 
 use super::{
@@ -81,7 +81,7 @@ impl OpLiteral {
             Literal::Object(_) => "object",
             Literal::Array(_) => "array",
             Literal::Argument(_) => "argument",
-            Literal::Custom(v) => return v.type_name(),
+            Literal::Custom(v) => return cow_to_small_str(v.type_name()),
         }
         .into()
     }

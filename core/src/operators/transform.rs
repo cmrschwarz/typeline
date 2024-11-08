@@ -67,7 +67,6 @@ use super::{
     operator::OperatorId,
     print::{handle_tf_print, handle_tf_print_stream_value_update, TfPrint},
     regex::{handle_tf_regex, handle_tf_regex_stream_value_update, TfRegex},
-    sequence::{handle_tf_sequence, TfSequence},
     string_sink::{
         handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
         TfStringSink,
@@ -108,7 +107,6 @@ pub enum TransformData<'a> {
     Compute(TfCompute<'a>),
     FileReader(TfFileReader),
     Literal(TfLiteral<'a>),
-    Sequence(TfSequence),
     AggregatorHeader(TfAggregatorHeader),
     AggregatorTrailer(TfAggregatorTrailer),
     ForeachHeader(TfForeachHeader),
@@ -148,7 +146,6 @@ impl TransformData<'_> {
             TransformData::Compute(_) => "compute",
             TransformData::FileReader(_) => "file_reader",
             TransformData::Literal(_) => "literal",
-            TransformData::Sequence(s) => return s.display_name(),
             TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
@@ -181,7 +178,6 @@ impl TransformData<'_> {
             | TransformData::Compute(_)
             | TransformData::FileReader(_)
             | TransformData::Literal(_)
-            | TransformData::Sequence(_)
             | TransformData::AggregatorTrailer(_)
             | TransformData::FieldValueSink(_) => {
                 fields.push(tf_state.output_field)
@@ -208,7 +204,7 @@ impl TransformData<'_> {
             TransformData::Regex(re) => fields
                 .extend(re.capture_group_fields.iter().filter_map(|cgf| *cgf)),
             TransformData::Custom(custom) => {
-                custom.get_out_fields(tf_state, fields)
+                custom.collect_out_fields(tf_state, fields)
             }
         }
     }
@@ -306,7 +302,7 @@ pub trait Transform<'a>: Send + 'a {
     }
     fn pre_update(&mut self, _sess: &mut Job<'a>, _tf_id: TransformId) {}
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId);
-    fn get_out_fields(
+    fn collect_out_fields(
         &self,
         tf_state: &TransformState,
         fields: &mut Vec<FieldId>,
@@ -359,7 +355,6 @@ pub fn transform_pre_update(
         | TransformData::Compute(_)
         | TransformData::FileReader(_)
         | TransformData::Literal(_)
-        | TransformData::Sequence(_)
         | TransformData::Terminator(_)
         | TransformData::AggregatorHeader(_)
         | TransformData::AggregatorTrailer(_) => (),
@@ -409,7 +404,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
             handle_tf_file_reader(jd, tf_id, tf);
         }
         TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
-        TransformData::Sequence(tf) => handle_tf_sequence(jd, tf_id, tf),
         TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
         TransformData::Compute(tf) => handle_tf_compute(jd, tf_id, tf),
         TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
@@ -469,7 +463,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::ForkCat(_)
             | TransformData::Regex(_)
             | TransformData::Literal(_)
-            | TransformData::Sequence(_)
             | TransformData::Format(_)
             | TransformData::Compute(_)
             //these go straight to the sub transforms
@@ -557,7 +550,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::ForkCatSubchainTrailer(_) |
         TransformData::Count(_) |
         TransformData::FileReader(_) |
-        TransformData::Sequence(_) |
         TransformData::Disabled |
         TransformData::Literal(_) |
         TransformData::CalleeConcurrent(_) |
