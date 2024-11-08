@@ -6,10 +6,10 @@ use unicode_ident::is_xid_start;
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{
-        OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
-        OperatorOffsetInChain,
+        OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+        OperatorOffsetInChain, TransformInstatiation,
     },
-    transform::{TransformData, TransformId, TransformState},
+    transform::{Transform, TransformData, TransformId, TransformState},
 };
 use crate::{
     chain::ChainId,
@@ -262,97 +262,6 @@ impl FormatKey {
 // when handle_tf_format exits
 unsafe impl<'a> Send for TfFormat<'a> {}
 
-pub fn setup_op_format(
-    op: &mut OpFormat,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    for r in &mut op.refs {
-        if let Some(name) = r.name.take() {
-            r.name_interned = Some(sess.string_store.intern_moved(name));
-        }
-    }
-    Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
-}
-
-pub fn build_tf_format<'a>(
-    jd: &mut JobData,
-    _op_base: &OperatorBase,
-    op: &'a OpFormat,
-    tf_state: &TransformState,
-) -> TransformData<'a> {
-    let mut refs = IndexVec::new();
-    let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
-    let scope_id = ms.active_scope;
-
-    let next_actor_id = ms.action_buffer.borrow().peek_next_actor_id();
-
-    for key_ref in &op.refs {
-        match key_ref.ref_type {
-            FormatKeyRefType::Atom => {
-                let atom = jd
-                    .scope_mgr
-                    .lookup_atom(scope_id, key_ref.name_interned.unwrap());
-                let atom = match atom {
-                    Some(v) => v.clone(),
-                    None => todo!(),
-                };
-                refs.push(FormatKeyRef::Atom(atom));
-                continue;
-            }
-            FormatKeyRefType::Field => (),
-        };
-
-        let field_id = if let Some(name) = key_ref.name_interned {
-            if let Some(id) = jd.scope_mgr.lookup_field(scope_id, name) {
-                jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
-                let mut f = jd.field_mgr.fields[id].borrow_mut();
-                f.ref_count += 1;
-                id
-            } else {
-                let dummy_field =
-                    jd.match_set_mgr.get_dummy_field(tf_state.match_set_id);
-                jd.scope_mgr.insert_field_name(scope_id, name, dummy_field);
-                dummy_field
-            }
-        } else {
-            let mut f = jd.field_mgr.fields[tf_state.input_field].borrow_mut();
-            // while the ref count was already bumped by the transform
-            // creation cleaning up this transform is
-            // simpler this way
-            f.ref_count += 1;
-            tf_state.input_field
-        };
-        refs.push(FormatKeyRef::Field(FieldIterRef {
-            field_id,
-            iter_id: jd.field_mgr.claim_iter(
-                field_id,
-                next_actor_id,
-                IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
-            ),
-        }))
-    }
-
-    let print_rationals_raw =
-        jd.get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state);
-    let stream_buffer_size =
-        jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
-    let tf = TfFormat {
-        op,
-        refs,
-        output_states: Vec::new(),
-        output_targets: Vec::new(),
-        stream_value_handles: CountedUniverse::default(),
-        contains_raw_bytes: op.contains_raw_bytes,
-        rationals_print_mode: print_rationals_raw,
-        stream_buffer_size,
-    };
-    TransformData::Format(tf)
-}
-
 pub fn access_format_key_ref(
     sess: &SessionData,
     ld: &mut LivenessData,
@@ -427,36 +336,6 @@ pub fn access_format_key_refs(
             access_flags,
             true,
         );
-    }
-}
-
-pub fn update_op_format_variable_liveness(
-    sess: &SessionData,
-    fmt: &OpFormat,
-    ld: &mut LivenessData,
-    op_id: OperatorId,
-    op_offset_after_last_write: OffsetInChain,
-    output: &mut OperatorLivenessOutput,
-) {
-    output.flags.may_dup_or_drop = false;
-    // might be set to true again in the loop below
-    output.flags.non_stringified_input_access = false;
-    output.flags.input_accessed = false;
-    for p in &fmt.parts {
-        match p {
-            FormatPart::ByteLiteral(_) | FormatPart::TextLiteral(_) => (),
-            FormatPart::Key(fk) => {
-                access_format_key_refs(
-                    fk,
-                    sess,
-                    ld,
-                    &fmt.refs,
-                    op_id,
-                    op_offset_after_last_write,
-                    &mut output.flags,
-                );
-            }
-        }
     }
 }
 
@@ -848,7 +727,7 @@ pub fn build_op_format(
         .iter()
         .any(|p| matches!(p, FormatPart::ByteLiteral(_)));
 
-    Ok(OperatorData::Format(OpFormat {
+    Ok(OperatorData::from_custom(OpFormat {
         parts,
         refs,
         contains_raw_bytes,
@@ -1923,278 +1802,436 @@ fn drop_field_refs(jd: &mut JobData, fmt: &mut TfFormat) {
     }
 }
 
-pub fn format_add_var_names(
-    fmt: &crate::operators::format::OpFormat,
-    ld: &mut LivenessData,
-) {
-    for r in &fmt.refs {
-        ld.add_var_name_opt(r.name_interned);
+impl Operator for OpFormat {
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        for r in &mut self.refs {
+            if let Some(name) = r.name.take() {
+                r.name_interned = Some(sess.string_store.intern_moved(name));
+            }
+        }
+        Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
     }
-}
 
-pub fn handle_tf_format(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    fmt: &mut TfFormat,
-) {
-    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-    jd.tf_mgr.prepare_output_field(
-        &mut jd.field_mgr,
-        &mut jd.match_set_mgr,
-        tf_id,
-    );
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
-    fmt.output_states.push(OutputState {
-        run_len: batch_size,
-        next: FINAL_OUTPUT_INDEX_NEXT_VAL,
-        len: 0,
-        min_char_count: 0,
-        float_precision: 0,
-        contains_raw_bytes: fmt.contains_raw_bytes,
-        contained_error: None,
-        incomplete_stream_value_handle: None,
-    });
-    for (part_idx, part) in fmt.op.parts.iter_enumerated() {
-        match part {
-            FormatPart::ByteLiteral(v) => {
-                fmt.output_states.iter_mut().for_each(|s| {
-                    if s.incomplete_stream_value_handle.is_none() {
-                        s.len += v.len();
-                        s.contains_raw_bytes = true;
-                    }
-                })
-            }
-            FormatPart::TextLiteral(v) => {
-                fmt.output_states.iter_mut().for_each(|s| {
-                    if s.incomplete_stream_value_handle.is_none() {
-                        s.len += v.len()
-                    }
-                });
-            }
-            FormatPart::Key(k) => setup_key_output_state(
-                jd.session_data,
-                &mut jd.sv_mgr,
-                &jd.field_mgr,
-                &mut jd.match_set_mgr,
-                tf_id,
-                fmt,
-                batch_size,
-                k,
-                part_idx,
-            ),
+    fn default_name(&self) -> super::operator::OperatorName {
+        "format".into()
+    }
+
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
+        1
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn register_output_var_names(
+        &self,
+        ld: &mut LivenessData,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) {
+        for r in &self.refs {
+            ld.add_var_name_opt(r.name_interned);
         }
     }
-    setup_output_targets(
-        &jd.session_data.string_store.read().unwrap(),
-        fmt,
-        &mut jd.sv_mgr,
-        tf.op_id.unwrap(),
-        &mut output_field,
-    );
-    for part in &fmt.op.parts {
-        match part {
-            FormatPart::ByteLiteral(v) => {
-                iter_output_targets(fmt, &mut 0, batch_size, |tgt| {
-                    write_bytes_to_target(tgt, v);
-                });
+
+    fn update_variable_liveness(
+        &self,
+        sess: &SessionData,
+        ld: &mut LivenessData,
+        op_offset_after_last_write: OffsetInChain,
+        op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = false;
+        // might be set to true again in the loop below
+        output.flags.non_stringified_input_access = false;
+        output.flags.input_accessed = false;
+        for p in &self.parts {
+            match p {
+                FormatPart::ByteLiteral(_) | FormatPart::TextLiteral(_) => (),
+                FormatPart::Key(fk) => {
+                    access_format_key_refs(
+                        fk,
+                        sess,
+                        ld,
+                        &self.refs,
+                        op_id,
+                        op_offset_after_last_write,
+                        &mut output.flags,
+                    );
+                }
             }
-            FormatPart::TextLiteral(v) => {
-                iter_output_targets(fmt, &mut 0, batch_size, |tgt| {
-                    write_bytes_to_target(tgt, v.as_bytes());
-                });
-            }
-            FormatPart::Key(k) => write_fmt_key(
-                jd.session_data,
-                &jd.sv_mgr,
-                &jd.field_mgr,
-                &mut jd.match_set_mgr,
-                fmt,
-                batch_size,
-                k,
-            ),
         }
     }
-    fmt.output_states.clear();
-    fmt.output_targets.clear();
-    drop(output_field);
-    let streams_done = fmt.stream_value_handles.is_empty();
-    if streams_done {
-        if ps.input_done {
-            drop_field_refs(jd, fmt);
-        } else if ps.next_batch_ready {
-            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut crate::job::Job<'a>,
+        tf_state: &mut TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        let jd = &mut job.job_data;
+        let mut refs = IndexVec::new();
+        let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
+        let scope_id = ms.active_scope;
+
+        let next_actor_id = ms.action_buffer.borrow().peek_next_actor_id();
+
+        for key_ref in &self.refs {
+            match key_ref.ref_type {
+                FormatKeyRefType::Atom => {
+                    let atom = jd
+                        .scope_mgr
+                        .lookup_atom(scope_id, key_ref.name_interned.unwrap());
+                    let atom = match atom {
+                        Some(v) => v.clone(),
+                        None => todo!(),
+                    };
+                    refs.push(FormatKeyRef::Atom(atom));
+                    continue;
+                }
+                FormatKeyRefType::Field => (),
+            };
+
+            let field_id = if let Some(name) = key_ref.name_interned {
+                if let Some(id) = jd.scope_mgr.lookup_field(scope_id, name) {
+                    jd.field_mgr.setup_field_refs(&mut jd.match_set_mgr, id);
+                    let mut f = jd.field_mgr.fields[id].borrow_mut();
+                    f.ref_count += 1;
+                    id
+                } else {
+                    let dummy_field = jd
+                        .match_set_mgr
+                        .get_dummy_field(tf_state.match_set_id);
+                    jd.scope_mgr.insert_field_name(
+                        scope_id,
+                        name,
+                        dummy_field,
+                    );
+                    dummy_field
+                }
+            } else {
+                let mut f =
+                    jd.field_mgr.fields[tf_state.input_field].borrow_mut();
+                // while the ref count was already bumped by the transform
+                // creation cleaning up this transform is
+                // simpler this way
+                f.ref_count += 1;
+                tf_state.input_field
+            };
+            refs.push(FormatKeyRef::Field(FieldIterRef {
+                field_id,
+                iter_id: jd.field_mgr.claim_iter(
+                    field_id,
+                    next_actor_id,
+                    IterKind::Transform(jd.tf_mgr.transforms.peek_claim_id()),
+                ),
+            }))
         }
-    }
-    jd.tf_mgr.submit_batch(
-        tf_id,
-        batch_size,
-        ps.group_to_truncate,
-        ps.input_done && streams_done,
-    );
-}
 
-pub fn handle_tf_format_stream_value_update<'a>(
-    jd: &mut JobData<'a>,
-    fmt: &mut TfFormat<'a>,
-    update: StreamValueUpdate,
-) {
-    let handle_id = TfFormatStreamValueHandleId::new(update.custom).unwrap();
-    let handle = &mut fmt.stream_value_handles[handle_id];
-    let tf_id = update.tf_id;
-
-    let (in_sv_id, out_sv_id) = (update.sv_id, handle.target_sv_id);
-    let (sv, out_sv) = jd
-        .sv_mgr
-        .stream_values
-        .get_two_distinct_mut(in_sv_id, out_sv_id);
-    let (in_sv, out_sv) = (sv.unwrap(), out_sv.unwrap());
-    let done = in_sv.done;
-
-    if out_sv.propagate_error(&in_sv.error) {
-        jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
-        jd.sv_mgr
-            .drop_field_value_subscription(in_sv_id, Some(update.tf_id));
-        jd.sv_mgr.drop_field_value_subscription(out_sv_id, None);
-        return;
-    }
-
-    let FormatPart::Key(format_key) = &fmt.op.parts[handle.part_idx] else {
-        unreachable!();
-    };
-
-    if out_sv.propagate_error(&in_sv.error) {
-        jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
-        jd.sv_mgr
-            .drop_field_value_subscription(in_sv_id, Some(update.tf_id));
-        jd.sv_mgr.drop_field_value_subscription(out_sv_id, None);
-        fmt.stream_value_handles.release(handle_id);
-        return;
-    }
-
-    let mut inserter =
-        out_sv.data_inserter(out_sv_id, fmt.stream_buffer_size, true);
-
-    if handle.buffering_needed {
-        debug_assert!(in_sv.is_buffered() && in_sv.done);
-        let mut string_store =
-            LazyRwLockGuard::new(&jd.session_data.string_store);
-        let fc = FormattingContext {
-            ss: Some(&mut string_store),
-            fm: Some(&jd.field_mgr),
-            msm: Some(&jd.match_set_mgr),
-            rationals_print_mode: fmt.rationals_print_mode,
-            is_stream_value: true,
-            rfk: format_key
-                .realize(handle.min_char_count, handle.float_precision),
+        let print_rationals_raw = jd
+            .get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state);
+        let stream_buffer_size =
+            jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
+        let tf = TfFormat {
+            op: self,
+            refs,
+            output_states: Vec::new(),
+            output_targets: Vec::new(),
+            stream_value_handles: CountedUniverse::default(),
+            contains_raw_bytes: self.contains_raw_bytes,
+            rationals_print_mode: print_rationals_raw,
+            stream_buffer_size,
         };
-        let len = calc_fmt_len(
-            format_key,
-            &mut fc.value_formatting_opts(),
-            format_key.realize_min_char_count(handle.min_char_count),
-            format_key.realize_max_char_count(handle.float_precision),
-            in_sv,
+        TransformInstatiation::Single(TransformData::from_custom(tf))
+    }
+}
+
+impl<'a> Transform<'a> for TfFormat<'a> {
+    fn display_name(&self) -> super::transform::DefaultTransformName {
+        "format".into()
+    }
+
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+        jd.tf_mgr.prepare_output_field(
+            &mut jd.field_mgr,
+            &mut jd.match_set_mgr,
+            tf_id,
         );
-
-        let mut output_target = OutputTarget {
-            run_len: 1,
-            min_char_count: handle.min_char_count,
-            float_precision: handle.float_precision,
-            target: None,
-            remaining_len: len,
-        };
-        let mut vfo = fc.value_formatting_opts();
-        // PERF: we should support outputting chunks
-        // HACK // TODO: use a proper mechanism for this
-        // that supports text aswell
-        inserter.with_bytes_buffer(|buf| {
-            buf.reserve(len);
-            unsafe {
-                output_target.target = Some(NonNull::new_unchecked(
-                    buf.as_mut_ptr().add(buf.len()),
-                ));
-                write_formatted(
-                    format_key,
-                    &mut vfo,
-                    &mut output_target,
-                    in_sv,
-                );
-                buf.set_len(buf.len() + len);
-            };
+        let tf = &jd.tf_mgr.transforms[tf_id];
+        let mut output_field =
+            jd.field_mgr.fields[tf.output_field].borrow_mut();
+        self.output_states.push(OutputState {
+            run_len: batch_size,
+            next: FINAL_OUTPUT_INDEX_NEXT_VAL,
+            len: 0,
+            min_char_count: 0,
+            float_precision: 0,
+            contains_raw_bytes: self.contains_raw_bytes,
+            contained_error: None,
+            incomplete_stream_value_handle: None,
         });
-    } else {
-        let stream_type = in_sv.data_type.unwrap();
-        let type_repr = format_key.opts.type_repr;
-        let print_plain = type_repr == TypeReprFormat::Regular;
-
-        let mut iter = in_sv.data_cursor_from_update(&update);
-
-        while let Some(chunk) = iter.next_steal(inserter.may_append_buffer()) {
-            match chunk {
-                StreamValueData::StaticBytes(_)
-                | StreamValueData::Bytes { .. } => {
-                    if print_plain {
-                        inserter.append(chunk);
-                    } else {
-                        inserter.append(chunk.as_escaped_text(b'"'));
-                    }
+        for (part_idx, part) in self.op.parts.iter_enumerated() {
+            match part {
+                FormatPart::ByteLiteral(v) => {
+                    self.output_states.iter_mut().for_each(|s| {
+                        if s.incomplete_stream_value_handle.is_none() {
+                            s.len += v.len();
+                            s.contains_raw_bytes = true;
+                        }
+                    })
                 }
-                StreamValueData::StaticText { .. }
-                | StreamValueData::Text { .. } => {
-                    inserter.append(chunk);
+                FormatPart::TextLiteral(v) => {
+                    self.output_states.iter_mut().for_each(|s| {
+                        if s.incomplete_stream_value_handle.is_none() {
+                            s.len += v.len()
+                        }
+                    });
                 }
-                StreamValueData::Single(_) => unreachable!(),
-            };
-        }
-
-        if done && !print_plain {
-            match stream_type {
-                StreamValueDataType::Text | StreamValueDataType::Bytes => {
-                    inserter.append(StreamValueData::StaticText("\""))
-                }
-                StreamValueDataType::VariableTypeArray
-                | StreamValueDataType::SingleValue(_)
-                | StreamValueDataType::FixedTypeArray(_) => todo!(),
-                StreamValueDataType::MaybeText => unreachable!(),
+                FormatPart::Key(k) => setup_key_output_state(
+                    jd.session_data,
+                    &mut jd.sv_mgr,
+                    &jd.field_mgr,
+                    &mut jd.match_set_mgr,
+                    tf_id,
+                    self,
+                    batch_size,
+                    k,
+                    part_idx,
+                ),
             }
         }
+        setup_output_targets(
+            &jd.session_data.string_store.read().unwrap(),
+            self,
+            &mut jd.sv_mgr,
+            tf.op_id.unwrap(),
+            &mut output_field,
+        );
+        for part in &self.op.parts {
+            match part {
+                FormatPart::ByteLiteral(v) => {
+                    iter_output_targets(self, &mut 0, batch_size, |tgt| {
+                        write_bytes_to_target(tgt, v);
+                    });
+                }
+                FormatPart::TextLiteral(v) => {
+                    iter_output_targets(self, &mut 0, batch_size, |tgt| {
+                        write_bytes_to_target(tgt, v.as_bytes());
+                    });
+                }
+                FormatPart::Key(k) => write_fmt_key(
+                    jd.session_data,
+                    &jd.sv_mgr,
+                    &jd.field_mgr,
+                    &mut jd.match_set_mgr,
+                    self,
+                    batch_size,
+                    k,
+                ),
+            }
+        }
+        self.output_states.clear();
+        self.output_targets.clear();
+        drop(output_field);
+        let streams_done = self.stream_value_handles.is_empty();
+        if streams_done {
+            if ps.input_done {
+                drop_field_refs(jd, self);
+            } else if ps.next_batch_ready {
+                jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+            }
+        }
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            batch_size,
+            ps.group_to_truncate,
+            ps.input_done && streams_done,
+        );
     }
 
-    if !done {
+    fn handle_stream_value_update(
+        &mut self,
+        jd: &mut JobData<'a>,
+        update: StreamValueUpdate,
+    ) {
+        let handle_id =
+            TfFormatStreamValueHandleId::new(update.custom).unwrap();
+        let handle = &mut self.stream_value_handles[handle_id];
+        let tf_id = update.tf_id;
+
+        let (in_sv_id, out_sv_id) = (update.sv_id, handle.target_sv_id);
+        let (sv, out_sv) = jd
+            .sv_mgr
+            .stream_values
+            .get_two_distinct_mut(in_sv_id, out_sv_id);
+        let (in_sv, out_sv) = (sv.unwrap(), out_sv.unwrap());
+        let done = in_sv.done;
+
+        if out_sv.propagate_error(&in_sv.error) {
+            jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
+            jd.sv_mgr
+                .drop_field_value_subscription(in_sv_id, Some(update.tf_id));
+            jd.sv_mgr.drop_field_value_subscription(out_sv_id, None);
+            return;
+        }
+
+        let FormatPart::Key(format_key) = &self.op.parts[handle.part_idx]
+        else {
+            unreachable!();
+        };
+
+        if out_sv.propagate_error(&in_sv.error) {
+            jd.sv_mgr.inform_stream_value_subscribers(out_sv_id);
+            jd.sv_mgr
+                .drop_field_value_subscription(in_sv_id, Some(update.tf_id));
+            jd.sv_mgr.drop_field_value_subscription(out_sv_id, None);
+            self.stream_value_handles.release(handle_id);
+            return;
+        }
+
+        let mut inserter =
+            out_sv.data_inserter(out_sv_id, self.stream_buffer_size, true);
+
+        if handle.buffering_needed {
+            debug_assert!(in_sv.is_buffered() && in_sv.done);
+            let mut string_store =
+                LazyRwLockGuard::new(&jd.session_data.string_store);
+            let fc = FormattingContext {
+                ss: Some(&mut string_store),
+                fm: Some(&jd.field_mgr),
+                msm: Some(&jd.match_set_mgr),
+                rationals_print_mode: self.rationals_print_mode,
+                is_stream_value: true,
+                rfk: format_key
+                    .realize(handle.min_char_count, handle.float_precision),
+            };
+            let len = calc_fmt_len(
+                format_key,
+                &mut fc.value_formatting_opts(),
+                format_key.realize_min_char_count(handle.min_char_count),
+                format_key.realize_max_char_count(handle.float_precision),
+                in_sv,
+            );
+
+            let mut output_target = OutputTarget {
+                run_len: 1,
+                min_char_count: handle.min_char_count,
+                float_precision: handle.float_precision,
+                target: None,
+                remaining_len: len,
+            };
+            let mut vfo = fc.value_formatting_opts();
+            // PERF: we should support outputting chunks
+            // HACK // TODO: use a proper mechanism for this
+            // that supports text aswell
+            inserter.with_bytes_buffer(|buf| {
+                buf.reserve(len);
+                unsafe {
+                    output_target.target = Some(NonNull::new_unchecked(
+                        buf.as_mut_ptr().add(buf.len()),
+                    ));
+                    write_formatted(
+                        format_key,
+                        &mut vfo,
+                        &mut output_target,
+                        in_sv,
+                    );
+                    buf.set_len(buf.len() + len);
+                };
+            });
+        } else {
+            let stream_type = in_sv.data_type.unwrap();
+            let type_repr = format_key.opts.type_repr;
+            let print_plain = type_repr == TypeReprFormat::Regular;
+
+            let mut iter = in_sv.data_cursor_from_update(&update);
+
+            while let Some(chunk) =
+                iter.next_steal(inserter.may_append_buffer())
+            {
+                match chunk {
+                    StreamValueData::StaticBytes(_)
+                    | StreamValueData::Bytes { .. } => {
+                        if print_plain {
+                            inserter.append(chunk);
+                        } else {
+                            inserter.append(chunk.as_escaped_text(b'"'));
+                        }
+                    }
+                    StreamValueData::StaticText { .. }
+                    | StreamValueData::Text { .. } => {
+                        inserter.append(chunk);
+                    }
+                    StreamValueData::Single(_) => unreachable!(),
+                };
+            }
+
+            if done && !print_plain {
+                match stream_type {
+                    StreamValueDataType::Text | StreamValueDataType::Bytes => {
+                        inserter.append(StreamValueData::StaticText("\""))
+                    }
+                    StreamValueDataType::VariableTypeArray
+                    | StreamValueDataType::SingleValue(_)
+                    | StreamValueDataType::FixedTypeArray(_) => todo!(),
+                    StreamValueDataType::MaybeText => unreachable!(),
+                }
+            }
+        }
+
+        if !done {
+            drop(inserter);
+            jd.sv_mgr
+                .inform_stream_value_subscribers(handle.target_sv_id);
+            return;
+        }
+
+        let mut i = handle.part_idx + FormatPartIndex::one();
+        while i < self.op.parts.next_idx() {
+            match &self.op.parts[i] {
+                FormatPart::ByteLiteral(l) => {
+                    inserter.append(StreamValueData::StaticBytes(l));
+                }
+                FormatPart::TextLiteral(l) => {
+                    inserter.append(StreamValueData::StaticText(l));
+                }
+                FormatPart::Key(_k) => {
+                    todo!();
+                }
+            }
+            i += FormatPartIndex::one();
+        }
         drop(inserter);
+
+        handle.part_idx = i as FormatPartIndex;
+        out_sv.done = true;
         jd.sv_mgr
             .inform_stream_value_subscribers(handle.target_sv_id);
-        return;
-    }
-
-    let mut i = handle.part_idx + FormatPartIndex::one();
-    while i < fmt.op.parts.next_idx() {
-        match &fmt.op.parts[i] {
-            FormatPart::ByteLiteral(l) => {
-                inserter.append(StreamValueData::StaticBytes(l));
-            }
-            FormatPart::TextLiteral(l) => {
-                inserter.append(StreamValueData::StaticText(l));
-            }
-            FormatPart::Key(_k) => {
-                todo!();
-            }
+        jd.sv_mgr
+            .drop_field_value_subscription(in_sv_id, Some(tf_id));
+        jd.sv_mgr
+            .drop_field_value_subscription(handle.target_sv_id, None);
+        self.stream_value_handles.release(handle_id);
+        if self.stream_value_handles.is_empty() {
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
         }
-        i += FormatPartIndex::one();
-    }
-    drop(inserter);
-
-    handle.part_idx = i as FormatPartIndex;
-    out_sv.done = true;
-    jd.sv_mgr
-        .inform_stream_value_subscribers(handle.target_sv_id);
-    jd.sv_mgr
-        .drop_field_value_subscription(in_sv_id, Some(tf_id));
-    jd.sv_mgr
-        .drop_field_value_subscription(handle.target_sv_id, None);
-    fmt.stream_value_handles.release(handle_id);
-    if fmt.stream_value_handles.is_empty() {
-        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
 }
 

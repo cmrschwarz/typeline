@@ -635,7 +635,6 @@ impl LivenessData {
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Select(_)
-            | OperatorData::Format(_)
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)

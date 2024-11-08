@@ -54,9 +54,6 @@ use super::{
         handle_tf_forcat_subchain_trailer, handle_tf_forkcat, TfForkCat,
         TfForkCatSubchainTrailer,
     },
-    format::{
-        handle_tf_format, handle_tf_format_stream_value_update, TfFormat,
-    },
     literal::{handle_tf_literal, TfLiteral},
     nop::{handle_tf_nop, TfNop},
     nop_copy::{handle_tf_nop_copy, TfNopCopy},
@@ -88,7 +85,6 @@ pub enum TransformData<'a> {
     Fork(TfFork<'a>),
     ForkCat(TfForkCat),
     ForkCatSubchainTrailer(TfForkCatSubchainTrailer<'a>),
-    Format(TfFormat<'a>),
     Compute(TfCompute<'a>),
     FileReader(TfFileReader),
     Literal(TfLiteral<'a>),
@@ -124,7 +120,6 @@ impl<'a> TransformData<'a> {
             TransformData::FieldValueSink(_) => "field_value_sink",
             TransformData::Fork(_) => "fork",
             TransformData::ForkCat(_) => "forkcat",
-            TransformData::Format(_) => "format",
             TransformData::Compute(_) => "compute",
             TransformData::FileReader(_) => "file_reader",
             TransformData::Literal(_) => "literal",
@@ -151,7 +146,6 @@ impl<'a> TransformData<'a> {
         match self {
             TransformData::NopCopy(_)
             | TransformData::StringSink(_)
-            | TransformData::Format(_)
             | TransformData::Compute(_)
             | TransformData::FileReader(_)
             | TransformData::Literal(_)
@@ -319,7 +313,6 @@ pub fn transform_pre_update(
         | TransformData::ForkCatSubchainTrailer(_)
         | TransformData::StringSink(_)
         | TransformData::FieldValueSink(_)
-        | TransformData::Format(_)
         | TransformData::Compute(_)
         | TransformData::FileReader(_)
         | TransformData::Literal(_)
@@ -367,7 +360,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
             handle_tf_file_reader(jd, tf_id, tf);
         }
         TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
-        TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
         TransformData::Compute(tf) => handle_tf_compute(jd, tf_id, tf),
         TransformData::CallConcurrent(tf) => {
             handle_tf_call_concurrent(jd, tf_id, tf)
@@ -418,7 +410,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::Fork(_)
             | TransformData::ForkCat(_)
             | TransformData::Literal(_)
-            | TransformData::Format(_)
             | TransformData::Compute(_)
             //these go straight to the sub transforms
             | TransformData::AggregatorHeader(_)
@@ -456,11 +447,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
                 svu.custom,
             );
         }
-        TransformData::Format(tf) => handle_tf_format_stream_value_update(
-            jd,
-            tf,
-            svu
-        ),
         TransformData::Compute(tf) => handle_tf_compute_stream_value_update(
             jd,
             tf,
