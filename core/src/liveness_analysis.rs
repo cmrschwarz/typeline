@@ -574,7 +574,7 @@ impl LivenessData {
         }
     }
     // returns true if the op ends the block
-    fn update_bb_for_op(
+    pub fn update_bb_for_op(
         &mut self,
         sess: &SessionData,
         op_id: OperatorId,
@@ -659,15 +659,13 @@ impl LivenessData {
             | OperatorData::Literal(_)
             | OperatorData::SuccessUpdator(_)
             | OperatorData::MacroDef(_) => (),
-            OperatorData::Custom(_)
-            | OperatorData::MultiOp(_)
-            | OperatorData::MacroCall(_) => {
-                // TODO: maybe support this
+
+            OperatorData::Custom(op) => {
+                return op
+                    .update_bb_for_op(sess, self, op_id, op_n, cn, bb_id);
             }
-            OperatorData::Aggregator(agg) => {
-                for &sub_op in &agg.sub_ops {
-                    self.update_bb_for_op(sess, sub_op, op_n, cn, bb_id);
-                }
+            OperatorData::MultiOp(_) | OperatorData::MacroCall(_) => {
+                // TODO: maybe support this
             }
         };
         false

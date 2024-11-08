@@ -1,9 +1,11 @@
+use std::fmt::Write;
+
 use crate::{
     chain::ChainId,
     cli::call_expr::Span,
     context::SessionData,
     job::{add_transform_to_job, Job, JobData},
-    liveness_analysis::LivenessData,
+    liveness_analysis::{LivenessData, OpOutputIdx, OperatorLivenessOutput},
     options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
@@ -16,8 +18,9 @@ use crate::{
 use super::{
     nop_copy::create_op_nop_copy,
     operator::{
-        OffsetInAggregation, OperatorData, OperatorDataId, OperatorId,
-        OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
+        OffsetInAggregation, Operator, OperatorData, OperatorDataId,
+        OperatorId, OperatorInstantiation, OperatorOffsetInChain,
+        PreboundOutputsMap, TransformInstatiation,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -61,7 +64,7 @@ pub struct TfAggregatorTrailer {
 pub fn create_op_aggregate(
     sub_ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    OperatorData::Aggregator(OpAggregator {
+    OperatorData::from_custom(OpAggregator {
         sub_ops_from_user: sub_ops
             .into_iter()
             .map(|v| (v, Span::Generated))
@@ -76,147 +79,6 @@ pub fn create_op_aggregate_appending(
     create_op_aggregate(std::iter::once(create_op_nop_copy()).chain(sub_ops))
 }
 
-pub fn setup_op_aggregator(
-    agg: &mut OpAggregator,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    operator_offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    let op_id =
-        sess.add_op(op_data_id, chain_id, operator_offset_in_chain, span);
-
-    for (op_data, span) in std::mem::take(&mut agg.sub_ops_from_user) {
-        let op_id = sess.setup_op_from_data(
-            op_data,
-            chain_id,
-            OperatorOffsetInChain::AggregationMember(
-                op_id,
-                agg.sub_ops.next_idx(),
-            ),
-            span,
-        )?;
-        agg.sub_ops.push(op_id);
-    }
-
-    Ok(op_id)
-}
-
-pub fn on_op_aggregator_liveness_computed(
-    op: &OpAggregator,
-    sess: &mut SessionData,
-    ld: &LivenessData,
-    _op_id: OperatorId,
-) {
-    for &op_id in &op.sub_ops {
-        sess.with_mut_op_data(op_id, |sess, op_data| {
-            op_data.on_liveness_computed(sess, ld, op_id)
-        });
-    }
-}
-
-pub fn insert_tf_aggregator(
-    job: &mut Job,
-    op: &OpAggregator,
-    mut tf_state: TransformState,
-    op_id: OperatorId,
-    prebound_outputs: &PreboundOutputsMap,
-) -> OperatorInstantiation {
-    let op_count = op.sub_ops.len();
-    let in_fid = tf_state.input_field;
-    let out_fid = tf_state.output_field;
-    let ms_id = tf_state.match_set_id;
-    let desired_batch_size = tf_state.desired_batch_size;
-    job.job_data
-        .field_mgr
-        .inc_field_refcount(in_fid, op_count + 1);
-    job.job_data
-        .field_mgr
-        .inc_field_refcount(out_fid, op_count + 1);
-
-    let active_group_track = tf_state.input_group_track_id;
-    let actor_id = job.job_data.add_actor_for_tf_state(&tf_state);
-    let iter_id = job.job_data.claim_iter_for_tf_state(&tf_state);
-
-    tf_state.output_field = in_fid;
-
-    let header_tf_id = add_transform_to_job(
-        &mut job.job_data,
-        &mut job.transform_data,
-        tf_state,
-        TransformData::AggregatorHeader(TfAggregatorHeader {
-            sub_tfs: Vec::new(),
-            curr_sub_tf_idx: 0,
-            elem_buffered: false,
-            last_elem_multiplied: false,
-            actor_id,
-            iter_id,
-            trailer_tf_id: TransformId::MAX_VALUE,
-        }),
-    );
-    let mut sub_tfs = Vec::with_capacity(op_count);
-    for (i, &sub_op_id) in op.sub_ops.iter().enumerate() {
-        let mut sub_tf_state = TransformState::new(
-            in_fid,
-            out_fid,
-            ms_id,
-            desired_batch_size,
-            Some(sub_op_id),
-            active_group_track,
-        );
-        sub_tf_state.is_split = i + 1 != op.sub_ops.len();
-        let instantiation = job.job_data.session_data.operator_data
-            [job.job_data.session_data.op_data_id(sub_op_id)]
-        .operator_build_transforms(
-            job,
-            sub_tf_state,
-            sub_op_id,
-            prebound_outputs,
-        );
-        assert!(
-            instantiation.next_match_set == ms_id,
-            "aggregator does not support changing match sets"
-        );
-        sub_tfs.push(instantiation.tfs_begin);
-    }
-    let trailer_tf_state = TransformState::new(
-        out_fid,
-        out_fid,
-        ms_id,
-        desired_batch_size,
-        Some(op_id),
-        active_group_track,
-    );
-    let trailer_tf_id = add_transform_to_job(
-        &mut job.job_data,
-        &mut job.transform_data,
-        trailer_tf_state,
-        TransformData::AggregatorTrailer(TfAggregatorTrailer { header_tf_id }),
-    );
-    for &sub_tf_id in &sub_tfs {
-        job.job_data.tf_mgr.transforms[sub_tf_id].successor =
-            Some(trailer_tf_id);
-    }
-    let TransformData::AggregatorHeader(header) =
-        &mut job.transform_data[header_tf_id]
-    else {
-        unreachable!()
-    };
-    header.trailer_tf_id = trailer_tf_id;
-
-    header.sub_tfs = sub_tfs;
-    job.job_data.tf_mgr.transforms[header_tf_id].successor =
-        Some(header.sub_tfs.first().copied().unwrap_or(trailer_tf_id));
-
-    OperatorInstantiation {
-        tfs_begin: header_tf_id,
-        tfs_end: trailer_tf_id,
-        next_match_set: ms_id,
-        next_input_field: out_fid,
-        next_group_track: active_group_track,
-    }
-}
 pub fn handle_tf_aggregator_header(
     jd: &mut JobData,
     tf_id: TransformId,
@@ -343,4 +205,287 @@ pub fn handle_tf_aggregator_trailer(job: &mut Job, tf_id: TransformId) {
         ps.group_to_truncate,
         ps.input_done,
     );
+}
+
+impl Operator for OpAggregator {
+    fn default_name(&self) -> super::operator::OperatorName {
+        AGGREGATOR_DEFAULT_NAME.into()
+    }
+
+    fn debug_op_name(&self) -> super::operator::OperatorName {
+        let mut n = self.default_name().to_string();
+        n.push('<');
+        for (i, &so) in self.sub_ops.iter().enumerate() {
+            if i > 0 {
+                n.push_str(", ");
+            }
+            n.write_fmt(format_args!("{so}")).unwrap();
+        }
+        n.push('>');
+        n.into()
+    }
+
+    fn output_count(&self, sess: &SessionData, _op_id: OperatorId) -> usize {
+        let mut op_count = 1;
+        // TODO: do this properly, merging field names etc.
+        for &sub_op in &self.sub_ops {
+            op_count += sess.operator_data[sess.op_data_id(sub_op)]
+                .output_count(sess, sub_op)
+                .saturating_sub(1);
+        }
+        op_count
+    }
+
+    fn register_output_var_names(
+        &self,
+        ld: &mut LivenessData,
+        sess: &SessionData,
+        _op_id: OperatorId,
+    ) {
+        for &sub_op in &self.sub_ops {
+            ld.setup_op_vars(sess, sub_op);
+        }
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        for &sub_op in &self.sub_ops {
+            if sess.operator_data[sess.op_data_id(sub_op)]
+                .has_dynamic_outputs(sess, sub_op)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn update_variable_liveness(
+        &self,
+        sess: &SessionData,
+        ld: &mut LivenessData,
+        op_offset_after_last_write: super::operator::OffsetInChain,
+        _op_id: OperatorId,
+        bb_id: crate::liveness_analysis::BasicBlockId,
+        input_field: OpOutputIdx,
+        _outputs_offset: usize,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = false;
+        output.flags.non_stringified_input_access = false;
+        output.flags.input_accessed = false;
+        for &sub_op_id in &self.sub_ops {
+            let sub_op = &sess.operator_bases[sub_op_id];
+            let outputs_start = sub_op.outputs_start;
+            let outputs_end = sub_op.outputs_end;
+            let mut sub_op_output =
+                OperatorLivenessOutput::with_defaults(outputs_start, 0);
+            sess.operator_data[sess.op_data_id(sub_op_id)]
+                .update_liveness_for_op(
+                    sess,
+                    ld,
+                    op_offset_after_last_write,
+                    sub_op_id,
+                    bb_id,
+                    input_field,
+                    0,
+                    &mut sub_op_output,
+                );
+            output.flags = output.flags.or(&sub_op_output.flags);
+
+            if outputs_start != outputs_end {
+                ld.op_outputs[output.primary_output]
+                    .field_references
+                    .push(outputs_start);
+            }
+        }
+    }
+
+    fn assign_op_outputs(
+        &mut self,
+        sess: &mut SessionData,
+        ld: &mut LivenessData,
+        op_id: OperatorId,
+        output_count: &mut crate::liveness_analysis::OpOutputIdx,
+    ) {
+        let outputs_before = *output_count;
+        // for the aggregation column
+        ld.append_op_outputs(1, op_id);
+        *output_count += OpOutputIdx::one();
+        for &op_id in &self.sub_ops {
+            sess.with_mut_op_data(op_id, |sess, op| {
+                op.assign_op_outputs(sess, ld, op_id, output_count)
+            });
+        }
+        let outputs_after = *output_count;
+        let op_base = &mut sess.operator_bases[op_id];
+        op_base.outputs_start = outputs_before;
+        op_base.outputs_end = outputs_after;
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        sess: &mut SessionData,
+        ld: &LivenessData,
+        _op_id: OperatorId,
+    ) {
+        for &op_id in &self.sub_ops {
+            sess.with_mut_op_data(op_id, |sess, op_data| {
+                op_data.on_liveness_computed(sess, ld, op_id)
+            });
+        }
+    }
+
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+
+        for (op_data, span) in std::mem::take(&mut self.sub_ops_from_user) {
+            let op_id = sess.setup_op_from_data(
+                op_data,
+                chain_id,
+                OperatorOffsetInChain::AggregationMember(
+                    op_id,
+                    self.sub_ops.next_idx(),
+                ),
+                span,
+            )?;
+            self.sub_ops.push(op_id);
+        }
+
+        Ok(op_id)
+    }
+
+    fn aggregation_member(
+        &self,
+        agg_offset: OffsetInAggregation,
+    ) -> Option<OperatorId> {
+        self.sub_ops.get(agg_offset).copied()
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut Job<'a>,
+        tf_state: &mut TransformState,
+        op_id: OperatorId,
+        prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
+        let op_count = self.sub_ops.len();
+        let in_fid = tf_state.input_field;
+        let out_fid = tf_state.output_field;
+        let ms_id = tf_state.match_set_id;
+        let desired_batch_size = tf_state.desired_batch_size;
+        job.job_data
+            .field_mgr
+            .inc_field_refcount(in_fid, op_count + 1);
+        job.job_data
+            .field_mgr
+            .inc_field_refcount(out_fid, op_count + 1);
+
+        let active_group_track = tf_state.input_group_track_id;
+        let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
+        let iter_id = job.job_data.claim_iter_for_tf_state(tf_state);
+
+        tf_state.output_field = in_fid;
+
+        let header_tf_id = add_transform_to_job(
+            &mut job.job_data,
+            &mut job.transform_data,
+            tf_state.clone(),
+            TransformData::AggregatorHeader(TfAggregatorHeader {
+                sub_tfs: Vec::new(),
+                curr_sub_tf_idx: 0,
+                elem_buffered: false,
+                last_elem_multiplied: false,
+                actor_id,
+                iter_id,
+                trailer_tf_id: TransformId::MAX_VALUE,
+            }),
+        );
+        let mut sub_tfs = Vec::with_capacity(op_count);
+        for (i, &sub_op_id) in self.sub_ops.iter().enumerate() {
+            let mut sub_tf_state = TransformState::new(
+                in_fid,
+                out_fid,
+                ms_id,
+                desired_batch_size,
+                Some(sub_op_id),
+                active_group_track,
+            );
+            sub_tf_state.is_split = i + 1 != self.sub_ops.len();
+            let instantiation = job.job_data.session_data.operator_data
+                [job.job_data.session_data.op_data_id(sub_op_id)]
+            .operator_build_transforms(
+                job,
+                sub_tf_state,
+                sub_op_id,
+                prebound_outputs,
+            );
+            assert!(
+                instantiation.next_match_set == ms_id,
+                "aggregator does not support changing match sets"
+            );
+            sub_tfs.push(instantiation.tfs_begin);
+        }
+        let trailer_tf_state = TransformState::new(
+            out_fid,
+            out_fid,
+            ms_id,
+            desired_batch_size,
+            Some(op_id),
+            active_group_track,
+        );
+        let trailer_tf_id = add_transform_to_job(
+            &mut job.job_data,
+            &mut job.transform_data,
+            trailer_tf_state,
+            TransformData::AggregatorTrailer(TfAggregatorTrailer {
+                header_tf_id,
+            }),
+        );
+        for &sub_tf_id in &sub_tfs {
+            job.job_data.tf_mgr.transforms[sub_tf_id].successor =
+                Some(trailer_tf_id);
+        }
+        let TransformData::AggregatorHeader(header) =
+            &mut job.transform_data[header_tf_id]
+        else {
+            unreachable!()
+        };
+        header.trailer_tf_id = trailer_tf_id;
+
+        header.sub_tfs = sub_tfs;
+        job.job_data.tf_mgr.transforms[header_tf_id].successor =
+            Some(header.sub_tfs.first().copied().unwrap_or(trailer_tf_id));
+
+        TransformInstatiation::Multiple(OperatorInstantiation {
+            tfs_begin: header_tf_id,
+            tfs_end: trailer_tf_id,
+            next_match_set: ms_id,
+            next_input_field: out_fid,
+            next_group_track: active_group_track,
+        })
+    }
+    fn update_bb_for_op(
+        &self,
+        sess: &SessionData,
+        ld: &mut LivenessData,
+        _op_id: OperatorId,
+        op_n: super::operator::OffsetInChain,
+        cn: &crate::chain::Chain,
+        bb_id: crate::liveness_analysis::BasicBlockId,
+    ) -> bool {
+        for &sub_op in &self.sub_ops {
+            ld.update_bb_for_op(sess, sub_op, op_n, cn, bb_id);
+        }
+        false
+    }
 }
