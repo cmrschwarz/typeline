@@ -440,10 +440,7 @@ pub struct OperatorLivenessOutput {
     pub primary_output: OpOutputIdx,
 }
 impl OperatorLivenessOutput {
-    pub(crate) fn with_defaults(
-        outputs_start: OpOutputIdx,
-        outputs_offset: usize,
-    ) -> Self {
+    pub(crate) fn with_defaults(primary_output: OpOutputIdx) -> Self {
         Self {
             flags: AccessFlags {
                 input_accessed: true,
@@ -451,9 +448,7 @@ impl OperatorLivenessOutput {
                 may_dup_or_drop: true,
             },
             call_effect: OperatorCallEffect::Basic,
-            primary_output: OpOutputIdx::from_usize(
-                outputs_start.into_usize() + outputs_offset,
-            ),
+            primary_output,
         }
     }
 }
@@ -899,10 +894,8 @@ impl LivenessData {
             let op_id = cn.operators[op_n];
             let op_base = &sess.operator_bases[op_id];
             let op_data_id = op_base.op_data_id;
-            let mut output = OperatorLivenessOutput::with_defaults(
-                op_base.outputs_start,
-                0,
-            );
+            let mut output =
+                OperatorLivenessOutput::with_defaults(op_base.outputs_start);
             sess.operator_data[op_data_id].update_liveness_for_op(
                 sess,
                 self,
@@ -910,7 +903,6 @@ impl LivenessData {
                 op_id,
                 bb_id,
                 input_field,
-                0,
                 &mut output,
             );
             match output.call_effect {

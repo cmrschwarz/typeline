@@ -152,7 +152,6 @@ impl Operator for OpToStr {
         _op_id: super::operator::OperatorId,
         _bb_id: crate::liveness_analysis::BasicBlockId,
         _input_field: crate::liveness_analysis::OpOutputIdx,
-        _outputs_offset: usize,
         output: &mut crate::liveness_analysis::OperatorLivenessOutput,
     ) {
         output.flags.may_dup_or_drop = false;

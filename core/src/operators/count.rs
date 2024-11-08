@@ -62,7 +62,6 @@ impl Operator for OpCount {
         _op_id: super::operator::OperatorId,
         _bb_id: crate::liveness_analysis::BasicBlockId,
         _input_field: crate::liveness_analysis::OpOutputIdx,
-        _outputs_offset: usize,
         output: &mut OperatorLivenessOutput,
     ) {
         output.flags.input_accessed = false;

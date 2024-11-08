@@ -113,25 +113,20 @@ impl Operator for OpCsv {
 
     fn update_variable_liveness(
         &self,
-        sess: &SessionData,
+        _sess: &SessionData,
         ld: &mut LivenessData,
         _op_offset_after_last_write: OffsetInChain,
-        op_id: OperatorId,
+        _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
-        outputs_offset: usize,
         output: &mut OperatorLivenessOutput,
     ) {
         output.flags.input_accessed = false;
         output.flags.non_stringified_input_access = false;
-        let primary_output_idx = OpOutputIdx::from_usize(
-            sess.operator_bases[op_id].outputs_start.into_usize()
-                + outputs_offset,
-        );
 
         for (i, var_name) in self.var_names.iter().enumerate() {
             ld.vars_to_op_outputs_map[ld.var_names[var_name]] =
-                primary_output_idx + OpOutputIdx::from_usize(i);
+                output.primary_output + OpOutputIdx::from_usize(i);
         }
     }
 

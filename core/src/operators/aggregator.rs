@@ -270,7 +270,6 @@ impl Operator for OpAggregator {
         _op_id: OperatorId,
         bb_id: crate::liveness_analysis::BasicBlockId,
         input_field: OpOutputIdx,
-        _outputs_offset: usize,
         output: &mut crate::liveness_analysis::OperatorLivenessOutput,
     ) {
         output.flags.may_dup_or_drop = false;
@@ -281,7 +280,7 @@ impl Operator for OpAggregator {
             let outputs_start = sub_op.outputs_start;
             let outputs_end = sub_op.outputs_end;
             let mut sub_op_output =
-                OperatorLivenessOutput::with_defaults(outputs_start, 0);
+                OperatorLivenessOutput::with_defaults(outputs_start);
             sess.operator_data[sess.op_data_id(sub_op_id)]
                 .update_liveness_for_op(
                     sess,
@@ -290,7 +289,6 @@ impl Operator for OpAggregator {
                     sub_op_id,
                     bb_id,
                     input_field,
-                    0,
                     &mut sub_op_output,
                 );
             output.flags = output.flags.or(&sub_op_output.flags);

@@ -9,7 +9,7 @@ use crate::{
     },
     options::session_setup::SessionSetupData,
     scr_error::ScrError,
-    utils::index_vec::IndexVec,
+    utils::{index_vec::IndexVec, indexing_type::IndexingType},
 };
 
 use super::{
@@ -71,15 +71,17 @@ impl Operator for OpMultiOp {
         op_id: OperatorId,
         bb_id: BasicBlockId,
         input_field: OpOutputIdx,
-        mut outputs_offset: usize,
         output: &mut OperatorLivenessOutput,
     ) {
+        let op_outputs_start = output.primary_output.into_usize();
+        let mut outputs_offset = 0;
         let mut next_input = input_field;
         for (agg_offset, &sub_op_id) in self.sub_op_ids.iter_enumerated() {
             let op = &sess.operator_data[sess.op_data_id(sub_op_id)];
             // TODO: manage access flags for subsequent ops correctly
-            let mut sub_output =
-                OperatorLivenessOutput::with_defaults(next_input, 0);
+            let mut sub_output = OperatorLivenessOutput::with_defaults(
+                OpOutputIdx::from_usize(op_outputs_start + outputs_offset),
+            );
             op.update_liveness_for_op(
                 sess,
                 ld,
@@ -87,7 +89,6 @@ impl Operator for OpMultiOp {
                 op_id,
                 bb_id,
                 next_input,
-                outputs_offset,
                 &mut sub_output,
             );
             outputs_offset += op.output_count(sess, op_id);

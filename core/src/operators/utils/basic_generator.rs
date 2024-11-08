@@ -36,7 +36,6 @@ pub trait BasicGenerator: Send + Sync {
         _op_id: crate::operators::operator::OperatorId,
         _bb_id: crate::liveness_analysis::BasicBlockId,
         _input_field: crate::liveness_analysis::OpOutputIdx,
-        _outputs_offset: usize,
         output: &mut OperatorLivenessOutput,
     ) {
         output.flags.non_stringified_input_access = false;
@@ -148,7 +147,6 @@ impl<T: BasicGenerator> Operator for BasicGeneratorWrapper<T> {
         op_id: crate::operators::operator::OperatorId,
         bb_id: crate::liveness_analysis::BasicBlockId,
         input_field: crate::liveness_analysis::OpOutputIdx,
-        outputs_offset: usize,
         output: &mut OperatorLivenessOutput,
     ) {
         self.base.update_variable_liveness(
@@ -158,7 +156,6 @@ impl<T: BasicGenerator> Operator for BasicGeneratorWrapper<T> {
             op_id,
             bb_id,
             input_field,
-            outputs_offset,
             output,
         )
     }

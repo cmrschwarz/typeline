@@ -143,7 +143,6 @@ impl Operator for OpHttpRequest {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
-        _output_offset: usize,
         output: &mut OperatorLivenessOutput,
     ) {
         output.flags.non_stringified_input_access = false;

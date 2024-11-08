@@ -214,7 +214,6 @@ impl Operator for OpExec {
         op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
-        _outputs_offset: usize,
         output: &mut OperatorLivenessOutput,
     ) {
         output.flags.may_dup_or_drop = false;

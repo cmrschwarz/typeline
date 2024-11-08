@@ -148,7 +148,6 @@ impl Operator for OpTransparent {
         op_id: OperatorId,
         bb_id: crate::liveness_analysis::BasicBlockId,
         input_field: crate::liveness_analysis::OpOutputIdx,
-        outputs_offset: usize,
         output: &mut crate::liveness_analysis::OperatorLivenessOutput,
     ) {
         let NestedOp::SetUp(nested_op_id) = self.nested_op else {
@@ -161,7 +160,6 @@ impl Operator for OpTransparent {
             nested_op_id,
             bb_id,
             input_field,
-            outputs_offset,
             output,
         );
         output.primary_output = input_field;

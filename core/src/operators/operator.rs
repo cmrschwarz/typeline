@@ -667,14 +667,8 @@ impl OperatorData {
         op_id: OperatorId,
         bb_id: BasicBlockId,
         input_field: OpOutputIdx,
-        outputs_offset: usize,
         output: &mut OperatorLivenessOutput,
     ) {
-        let primary_output_idx = OpOutputIdx::from_usize(
-            sess.operator_bases[op_id].outputs_start.into_usize()
-                + outputs_offset,
-        );
-        output.primary_output = primary_output_idx;
         match &self {
             OperatorData::Atom(_) => {
                 output.flags.may_dup_or_drop = false;
@@ -708,14 +702,13 @@ impl OperatorData {
                             nested_op_id,
                             bb_id,
                             input_field,
-                            outputs_offset,
                             output,
                         );
                 }
 
                 let var_id = ld.var_names[&key.key_interned.unwrap()];
-                ld.vars_to_op_outputs_map[var_id] = primary_output_idx;
-                ld.op_outputs[primary_output_idx]
+                ld.vars_to_op_outputs_map[var_id] = output.primary_output;
+                ld.op_outputs[output.primary_output]
                     .field_references
                     .push(input_field);
                 if let Some(prev_tgt) =
@@ -747,7 +740,7 @@ impl OperatorData {
             OperatorData::NopCopy(_) => {
                 output.flags.may_dup_or_drop = false;
                 output.flags.non_stringified_input_access = false;
-                ld.op_outputs[primary_output_idx]
+                ld.op_outputs[output.primary_output]
                     .field_references
                     .push(input_field);
             }
@@ -794,7 +787,6 @@ impl OperatorData {
                 op_id,
                 bb_id,
                 input_field,
-                outputs_offset,
                 output,
             ),
             OperatorData::MultiOp(op) => Operator::update_variable_liveness(
@@ -805,7 +797,6 @@ impl OperatorData {
                 op_id,
                 bb_id,
                 input_field,
-                outputs_offset,
                 output,
             ),
             OperatorData::MacroCall(op) => {
@@ -816,7 +807,6 @@ impl OperatorData {
                     op_id,
                     bb_id,
                     input_field,
-                    outputs_offset,
                     output,
                 )
             }
@@ -1132,7 +1122,6 @@ pub trait Operator: Send + Sync {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
-        _outputs_offset: usize,
         _output: &mut OperatorLivenessOutput,
     ) {
     }

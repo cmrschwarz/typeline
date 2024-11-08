@@ -865,7 +865,6 @@ impl Operator for OpRegex {
         op_id: OperatorId,
         _bb_id: crate::liveness_analysis::BasicBlockId,
         input_field: OpOutputIdx,
-        _outputs_offset: usize,
         output: &mut crate::liveness_analysis::OperatorLivenessOutput,
     ) {
         output.flags.may_dup_or_drop =
