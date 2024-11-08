@@ -4,6 +4,7 @@ use crate::{
     chain::{ChainId, SubchainIndex},
     cli::call_expr::{Argument, CallExpr, Span},
     job::{add_transform_to_job, Job, JobData},
+    liveness_analysis::OperatorCallEffect,
     operators::operator::TransformInstatiation,
     options::session_setup::SessionSetupData,
     record_data::{
@@ -75,6 +76,22 @@ impl Operator for OpForeach {
         _op_id: OperatorId,
     ) -> super::operator::OutputFieldKind {
         super::operator::OutputFieldKind::Unconfigured
+    }
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        _ld: &mut crate::liveness_analysis::LivenessData,
+        _op_offset_after_last_write: super::operator::OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.flags.input_accessed = false;
+        output.flags.may_dup_or_drop = false;
+        output.flags.non_stringified_input_access = false;
+        output.call_effect = OperatorCallEffect::Diverge;
     }
 
     fn update_bb_for_op(

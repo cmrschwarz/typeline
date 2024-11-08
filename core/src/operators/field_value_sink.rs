@@ -137,7 +137,7 @@ impl Operator for OpFieldValueSink {
 
 impl<'a> Transform<'a> for TfFieldValueSink<'a> {
     fn display_name(&self) -> super::transform::DefaultTransformName {
-        todo!()
+        "field_value_sink".into()
     }
 
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
