@@ -434,6 +434,30 @@ impl OpOutputIdx {
     }
 }
 
+pub struct OperatorLivenessOutput {
+    pub flags: AccessFlags,
+    pub call_effect: OperatorCallEffect,
+    pub primary_output: OpOutputIdx,
+}
+impl OperatorLivenessOutput {
+    pub(crate) fn with_defaults(
+        outputs_start: OpOutputIdx,
+        outputs_offset: usize,
+    ) -> Self {
+        Self {
+            flags: AccessFlags {
+                input_accessed: true,
+                non_stringified_input_access: true,
+                may_dup_or_drop: true,
+            },
+            call_effect: OperatorCallEffect::Basic,
+            primary_output: OpOutputIdx::from_usize(
+                outputs_start.into_usize() + outputs_offset,
+            ),
+        }
+    }
+}
+
 impl LivenessData {
     pub fn append_op_outputs(&mut self, count: usize, op_id: OperatorId) {
         self.op_outputs.extend(
@@ -623,7 +647,6 @@ impl LivenessData {
             | OperatorData::Atom(_)
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
-            | OperatorData::Count(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Select(_)
@@ -888,47 +911,45 @@ impl LivenessData {
             let op_id = cn.operators[op_n];
             let op_base = &sess.operator_bases[op_id];
             let op_data_id = op_base.op_data_id;
-            let mut flags = AccessFlags {
-                input_accessed: true,
-                non_stringified_input_access: true,
-                may_dup_or_drop: true,
-            };
-            let (output_field, ce) = sess.operator_data[op_data_id]
-                .update_liveness_for_op(
-                    sess,
-                    self,
-                    &mut flags,
-                    op_offset_after_last_write,
-                    op_id,
-                    bb_id,
-                    input_field,
-                    0,
-                );
-            match ce {
+            let mut output = OperatorLivenessOutput::with_defaults(
+                op_base.outputs_start,
+                0,
+            );
+            sess.operator_data[op_data_id].update_liveness_for_op(
+                sess,
+                self,
+                op_offset_after_last_write,
+                op_id,
+                bb_id,
+                input_field,
+                0,
+                &mut output,
+            );
+            match output.call_effect {
                 OperatorCallEffect::Basic => (),
                 OperatorCallEffect::NoCall => {
-                    input_field = output_field;
+                    input_field = output.primary_output;
                     continue;
                 }
                 OperatorCallEffect::Diverge => break,
             }
-            if flags.input_accessed {
+            if output.flags.input_accessed {
                 self.access_var(
                     sess,
                     op_id,
                     BB_INPUT_VAR_ID,
                     op_offset_after_last_write,
-                    flags.non_stringified_input_access,
+                    output.flags.non_stringified_input_access,
                 );
             }
-            if flags.may_dup_or_drop {
+            if output.flags.may_dup_or_drop {
                 op_offset_after_last_write =
                     op_n + OffsetInChain::from_usize(1);
             }
 
             let op_base = &sess.operator_bases[op_id];
             if op_base.outputs_start != op_base.outputs_end {
-                input_field = output_field;
+                input_field = output.primary_output;
                 self.vars_to_op_outputs_map[BB_INPUT_VAR_ID] =
                     sess.operator_bases[op_id].outputs_start;
             }

@@ -3,8 +3,7 @@ use scr_core::{
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
     },
     operators::{
         operator::{
@@ -58,15 +57,14 @@ impl Operator for OpDup {
         &self,
         _sess: &SessionData,
         _ld: &mut LivenessData,
-        access_flags: &mut AccessFlags,
         _op_offset_after_last_write: OffsetInChain,
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
         _outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        access_flags.input_accessed = false;
-        None
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.input_accessed = false;
     }
 
     fn build_transforms(

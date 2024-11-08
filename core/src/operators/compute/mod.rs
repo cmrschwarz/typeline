@@ -16,7 +16,7 @@ use crate::{
     context::SessionData,
     index_newtype,
     job::JobData,
-    liveness_analysis::{AccessFlags, LivenessData},
+    liveness_analysis::{LivenessData, OperatorLivenessOutput},
     options::session_setup::SessionSetupData,
     record_data::{
         field::{CowFieldDataRef, FieldIterRef},
@@ -130,14 +130,14 @@ pub fn update_op_compute_variable_liveness(
     c: &OpCompute,
     ld: &mut LivenessData,
     op_id: OperatorId,
-    access_flags: &mut AccessFlags,
     op_offset_after_last_write: OffsetInChain,
+    output: &mut OperatorLivenessOutput,
 ) {
-    access_flags.may_dup_or_drop = false;
-    access_flags.input_accessed = false;
+    output.flags.may_dup_or_drop = false;
+    output.flags.input_accessed = false;
     for ir in &c.unbound_refs {
         if ir.name == "_" {
-            access_flags.input_accessed = true;
+            output.flags.input_accessed = true;
             continue;
         };
         ld.access_var(

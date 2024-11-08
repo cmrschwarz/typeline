@@ -1,5 +1,6 @@
 use crate::{
     job::JobData,
+    liveness_analysis::OperatorLivenessOutput,
     operators::{
         operator::{
             Operator, OperatorData, OperatorName, TransformInstatiation,
@@ -31,19 +32,15 @@ pub trait BasicGenerator: Send + Sync {
         &self,
         _sess: &crate::context::SessionData,
         _ld: &mut crate::liveness_analysis::LivenessData,
-        access_flags: &mut crate::liveness_analysis::AccessFlags,
         _op_offset_after_last_write: crate::operators::operator::OffsetInChain,
         _op_id: crate::operators::operator::OperatorId,
         _bb_id: crate::liveness_analysis::BasicBlockId,
         _input_field: crate::liveness_analysis::OpOutputIdx,
         _outputs_offset: usize,
-    ) -> Option<(
-        crate::liveness_analysis::OpOutputIdx,
-        crate::liveness_analysis::OperatorCallEffect,
-    )> {
-        access_flags.non_stringified_input_access = false;
-        access_flags.may_dup_or_drop = true;
-        None
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.non_stringified_input_access = false;
+        output.flags.may_dup_or_drop = true;
     }
 
     fn on_liveness_computed(
@@ -147,25 +144,22 @@ impl<T: BasicGenerator> Operator for BasicGeneratorWrapper<T> {
         &self,
         sess: &crate::context::SessionData,
         ld: &mut crate::liveness_analysis::LivenessData,
-        access_flags: &mut crate::liveness_analysis::AccessFlags,
         op_offset_after_last_write: crate::operators::operator::OffsetInChain,
         op_id: crate::operators::operator::OperatorId,
         bb_id: crate::liveness_analysis::BasicBlockId,
         input_field: crate::liveness_analysis::OpOutputIdx,
         outputs_offset: usize,
-    ) -> Option<(
-        crate::liveness_analysis::OpOutputIdx,
-        crate::liveness_analysis::OperatorCallEffect,
-    )> {
+        output: &mut OperatorLivenessOutput,
+    ) {
         self.base.update_variable_liveness(
             sess,
             ld,
-            access_flags,
             op_offset_after_last_write,
             op_id,
             bb_id,
             input_field,
             outputs_offset,
+            output,
         )
     }
 

@@ -1,13 +1,14 @@
 use crate::{
     cli::call_expr::CallExpr,
     job::JobData,
+    liveness_analysis::OperatorLivenessOutput,
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
 };
 
 use super::{
     errors::OperatorCreationError,
-    operator::{OperatorBase, OperatorData},
-    transform::{TransformData, TransformId, TransformState},
+    operator::{Operator, OperatorData, TransformInstatiation},
+    transform::{Transform, TransformData, TransformId, TransformState},
 };
 
 #[derive(Clone)]
@@ -18,90 +19,152 @@ pub struct TfCount {
     iter: GroupTrackIterRef,
 }
 
-pub fn build_tf_count<'a>(
-    jd: &mut JobData,
-    _op_base: &OperatorBase,
-    _op: &OpCount,
-    tf_state: &mut TransformState,
-) -> TransformData<'a> {
-    TransformData::Count(TfCount {
-        count: 0,
-        actor: jd.add_actor_for_tf_state(tf_state),
-        iter: jd.claim_group_track_iter_for_tf_state(tf_state),
-    })
-}
-
-pub fn handle_tf_count(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    tfc: &mut TfCount,
-) {
-    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-
-    let mut iter =
-        jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
-            tfc.iter,
-            &jd.match_set_mgr,
-            tfc.actor,
-        );
-
-    let mut groups_emitted = 0;
-
-    if iter.is_invalid() {
-        jd.tf_mgr.submit_batch(
-            tf_id,
-            groups_emitted,
-            ps.group_to_truncate,
-            ps.input_done,
-        );
-        return;
+impl Operator for OpCount {
+    fn default_name(&self) -> super::operator::OperatorName {
+        "count".into()
     }
 
-    let output_field_id = jd.tf_mgr.transforms[tf_id].output_field;
-    let mut output_field = jd.field_mgr.fields[output_field_id].borrow_mut();
-    let mut inserter =
-        output_field.iter_hall.fixed_size_type_inserter::<i64>();
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: super::operator::OperatorId,
+    ) -> usize {
+        1
+    }
 
-    let mut batch_size_rem = batch_size;
-    let mut count = tfc.count;
-    loop {
-        let gl_rem = iter.group_len_rem();
-        let consumed = iter.next_n_fields(gl_rem.min(batch_size_rem));
-        iter.drop_backwards(consumed.saturating_sub(usize::from(count == 0)));
-        count += consumed as i64;
-        batch_size_rem -= consumed;
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: super::operator::OperatorId,
+    ) -> bool {
+        false
+    }
 
-        if !iter.is_end_of_group(ps.input_done) {
-            break;
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut crate::job::Job<'a>,
+        tf_state: &mut TransformState,
+        _op_id: super::operator::OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
+        TransformInstatiation::Single(TransformData::from_custom(TfCount {
+            count: 0,
+            actor: job.job_data.add_actor_for_tf_state(tf_state),
+            iter: job.job_data.claim_group_track_iter_for_tf_state(tf_state),
+        }))
+    }
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        _ld: &mut crate::liveness_analysis::LivenessData,
+        _op_offset_after_last_write: super::operator::OffsetInChain,
+        _op_id: super::operator::OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        _outputs_offset: usize,
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.input_accessed = false;
+        output.flags.non_stringified_input_access = false;
+    }
+
+    fn setup(
+        &mut self,
+        sess: &mut crate::options::session_setup::SessionSetupData,
+        op_data_id: super::operator::OperatorDataId,
+        chain_id: crate::chain::ChainId,
+        offset_in_chain: super::operator::OperatorOffsetInChain,
+        span: crate::cli::call_expr::Span,
+    ) -> Result<super::operator::OperatorId, crate::scr_error::ScrError> {
+        Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        _sess: &mut crate::context::SessionData,
+        _ld: &crate::liveness_analysis::LivenessData,
+        _op_id: super::operator::OperatorId,
+    ) {
+    }
+}
+
+impl Transform<'_> for TfCount {
+    fn display_name(&self) -> super::transform::DefaultTransformName {
+        "count".into()
+    }
+
+    fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
+        let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+
+        let mut iter =
+            jd.group_track_manager.lookup_group_track_iter_mut_from_ref(
+                self.iter,
+                &jd.match_set_mgr,
+                self.actor,
+            );
+
+        let mut groups_emitted = 0;
+
+        if iter.is_invalid() {
+            jd.tf_mgr.submit_batch(
+                tf_id,
+                groups_emitted,
+                ps.group_to_truncate,
+                ps.input_done,
+            );
+            return;
         }
-        inserter.push(count);
-        groups_emitted += 1;
-        count = 0;
-        if !iter.try_next_group() {
-            break;
-        }
-        let zero_count = iter.skip_empty_groups();
-        if zero_count > 0 {
-            inserter.push_with_rl(0, zero_count);
-            groups_emitted += zero_count;
+
+        let output_field_id = jd.tf_mgr.transforms[tf_id].output_field;
+        let mut output_field =
+            jd.field_mgr.fields[output_field_id].borrow_mut();
+        let mut inserter =
+            output_field.iter_hall.fixed_size_type_inserter::<i64>();
+
+        let mut batch_size_rem = batch_size;
+        let mut count = self.count;
+        loop {
+            let gl_rem = iter.group_len_rem();
+            let consumed = iter.next_n_fields(gl_rem.min(batch_size_rem));
+            iter.drop_backwards(
+                consumed.saturating_sub(usize::from(count == 0)),
+            );
+            count += consumed as i64;
+            batch_size_rem -= consumed;
+
             if !iter.is_end_of_group(ps.input_done) {
                 break;
             }
+            inserter.push(count);
+            groups_emitted += 1;
+            count = 0;
+            if !iter.try_next_group() {
+                break;
+            }
+            let zero_count = iter.skip_empty_groups();
+            if zero_count > 0 {
+                inserter.push_with_rl(0, zero_count);
+                groups_emitted += zero_count;
+                if !iter.is_end_of_group(ps.input_done) {
+                    break;
+                }
+            }
         }
+        self.count = count;
+        iter.store_iter(self.iter.iter_id);
+        jd.tf_mgr
+            .submit_batch_ready_for_more(tf_id, groups_emitted, ps);
     }
-    tfc.count = count;
-    iter.store_iter(tfc.iter.iter_id);
-    jd.tf_mgr
-        .submit_batch_ready_for_more(tf_id, groups_emitted, ps);
 }
 
 pub fn parse_op_count(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     expr.reject_args()?;
-    Ok(OperatorData::Count(OpCount {}))
+    Ok(OperatorData::from_custom(OpCount {}))
 }
 
 pub fn create_op_count() -> OperatorData {
-    OperatorData::Count(OpCount {})
+    OperatorData::from_custom(OpCount {})
 }

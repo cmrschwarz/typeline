@@ -12,6 +12,7 @@ use crate::{
         match_set::MatchSetId,
         stream_value::StreamValueUpdate,
     },
+    smallbox,
     utils::{
         debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
         small_box::SmallBox,
@@ -35,7 +36,6 @@ use super::{
     compute::{
         handle_tf_compute, handle_tf_compute_stream_value_update, TfCompute,
     },
-    count::{handle_tf_count, TfCount},
     field_value_sink::{
         handle_tf_field_value_sink,
         handle_tf_field_value_sink_stream_value_update, TfFieldValueSink,
@@ -94,7 +94,6 @@ pub enum TransformData<'a> {
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
     ToStr(TfToStr),
-    Count(TfCount),
     Print(TfPrint<'a>),
     Join(TfJoin<'a>),
     StringSink(TfStringSink<'a>),
@@ -124,7 +123,10 @@ impl Default for TransformData<'_> {
     }
 }
 
-impl TransformData<'_> {
+impl<'a> TransformData<'a> {
+    pub fn from_custom(tf: impl Transform<'a> + 'static) -> Self {
+        Self::Custom(smallbox!(tf))
+    }
     pub fn display_name(&self) -> DefaultTransformName {
         match self {
             TransformData::Disabled => "disabled",
@@ -134,7 +136,6 @@ impl TransformData<'_> {
             TransformData::CallConcurrent(_) => "callcc",
             TransformData::CalleeConcurrent(_) => "callcc_callee",
             TransformData::ToStr(_) => "cast",
-            TransformData::Count(_) => "count",
             TransformData::Print(_) => "print",
             TransformData::Join(_) => "join",
             TransformData::StringSink(_) => "string_sink",
@@ -170,7 +171,6 @@ impl TransformData<'_> {
         match self {
             TransformData::NopCopy(_)
             | TransformData::ToStr(_)
-            | TransformData::Count(_)
             | TransformData::Print(_)
             | TransformData::Join(_)
             | TransformData::StringSink(_)
@@ -345,7 +345,6 @@ pub fn transform_pre_update(
         | TransformData::SuccessUpdator(_)
         | TransformData::NopCopy(_)
         | TransformData::ForkCatSubchainTrailer(_)
-        | TransformData::Count(_)
         | TransformData::Print(_)
         | TransformData::Join(_)
         | TransformData::StringSink(_)
@@ -407,7 +406,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::Format(tf) => handle_tf_format(jd, tf_id, tf),
         TransformData::Compute(tf) => handle_tf_compute(jd, tf_id, tf),
         TransformData::Join(tf) => handle_tf_join(jd, tf_id, tf),
-        TransformData::Count(tf) => handle_tf_count(jd, tf_id, tf),
         TransformData::ToStr(tf) => handle_tf_to_str(jd, tf_id, tf),
         TransformData::CallConcurrent(tf) => {
             handle_tf_call_concurrent(jd, tf_id, tf)
@@ -455,7 +453,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_)
             | TransformData::ToStr(_)
-            | TransformData::Count(_)
             | TransformData::Print(_)
             | TransformData::StringSink(_)
             | TransformData::FieldValueSink(_)
@@ -548,7 +545,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::SuccessUpdator(_) |
         TransformData::NopCopy(_) |
         TransformData::ForkCatSubchainTrailer(_) |
-        TransformData::Count(_) |
         TransformData::FileReader(_) |
         TransformData::Disabled |
         TransformData::Literal(_) |

@@ -22,8 +22,7 @@ use scr_core::{
     index_newtype,
     job::{Job, JobData},
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
     },
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
@@ -211,17 +210,17 @@ impl Operator for OpExec {
         &self,
         sess: &SessionData,
         ld: &mut LivenessData,
-        access_flags: &mut AccessFlags,
         op_offset_after_last_write: OffsetInChain,
         op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
         _outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        access_flags.may_dup_or_drop = false;
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = false;
         // might be set to true again in the loop below
-        access_flags.non_stringified_input_access = false;
-        access_flags.input_accessed = false;
+        output.flags.non_stringified_input_access = false;
+        output.flags.input_accessed = false;
         for p in &self.fmt_parts {
             match p {
                 FormatPart::ByteLiteral(_) | FormatPart::TextLiteral(_) => (),
@@ -233,12 +232,11 @@ impl Operator for OpExec {
                         &self.refs,
                         op_id,
                         op_offset_after_last_write,
-                        access_flags,
+                        &mut output.flags,
                     );
                 }
             }
         }
-        None
     }
 
     fn build_transforms<'a>(

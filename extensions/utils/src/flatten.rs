@@ -1,18 +1,13 @@
 use std::{cell::RefMut, ops::ControlFlow};
 
-use metamatch::metamatch;
-
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     context::SessionData,
     job::{Job, JobData},
-    liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
-    },
+    liveness_analysis::LivenessData,
     operators::{
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
+            Operator, OperatorData, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
@@ -40,6 +35,8 @@ use scr_core::{
     smallbox,
     utils::{lazy_lock_guard::LazyRwLockGuard, string_store::StringStore},
 };
+
+use metamatch::metamatch;
 
 #[derive(Default)]
 pub struct OpFlatten {
@@ -85,20 +82,6 @@ impl Operator for OpFlatten {
         op_id: OperatorId,
     ) {
         self.may_consume_input = ld.can_consume_nth_access(op_id, 0);
-    }
-
-    fn update_variable_liveness(
-        &self,
-        _sess: &SessionData,
-        _ld: &mut LivenessData,
-        _access_flags: &mut AccessFlags,
-        _op_offset_after_last_write: OffsetInChain,
-        _op_id: OperatorId,
-        _bb_id: BasicBlockId,
-        _input_field: OpOutputIdx,
-        _outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        None
     }
 
     fn build_transforms<'a>(

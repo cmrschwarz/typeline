@@ -4,8 +4,8 @@ use crate::{
     context::SessionData,
     job::Job,
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorCallEffect,
+        OperatorLivenessOutput,
     },
     options::session_setup::SessionSetupData,
     scr_error::ScrError,
@@ -67,41 +67,45 @@ impl Operator for OpMultiOp {
         &self,
         sess: &SessionData,
         ld: &mut LivenessData,
-        flags: &mut AccessFlags,
         op_offset_after_last_write: OffsetInChain,
         op_id: OperatorId,
         bb_id: BasicBlockId,
         input_field: OpOutputIdx,
         mut outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
+        output: &mut OperatorLivenessOutput,
+    ) {
         let mut next_input = input_field;
         for (agg_offset, &sub_op_id) in self.sub_op_ids.iter_enumerated() {
-            // TODO: manage access flags for subsequent ops correctly
             let op = &sess.operator_data[sess.op_data_id(sub_op_id)];
-            let (output, ce) = op.update_liveness_for_op(
+            // TODO: manage access flags for subsequent ops correctly
+            let mut sub_output =
+                OperatorLivenessOutput::with_defaults(next_input, 0);
+            op.update_liveness_for_op(
                 sess,
                 ld,
-                flags,
                 op_offset_after_last_write,
                 op_id,
                 bb_id,
                 next_input,
                 outputs_offset,
+                &mut sub_output,
             );
             outputs_offset += op.output_count(sess, op_id);
-            next_input = output;
+            next_input = sub_output.primary_output;
             if agg_offset == self.sub_op_ids.last_idx().unwrap() {
-                return Some((output, ce));
+                *output = sub_output;
+                return;
             }
             assert!(
-                ce != OperatorCallEffect::Diverge,
+                sub_output.call_effect != OperatorCallEffect::Diverge,
                 "non final operator `{}`, index {} inside multi-op (len {}) may not diverge",
                 agg_offset , // we already went to the next index
                 op.debug_op_name(),
                 self.sub_op_ids.len()
             );
         }
-        Some((input_field, OperatorCallEffect::NoCall))
+        output.primary_output = input_field;
+        output.call_effect = OperatorCallEffect::NoCall;
     }
 
     fn build_transforms<'a>(

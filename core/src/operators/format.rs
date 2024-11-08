@@ -1,10 +1,7 @@
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
-use metamatch::metamatch;
 use std::{borrow::Cow, cell::RefMut, ptr::NonNull, sync::Arc};
 use unicode_ident::is_xid_start;
-
-use smallstr::SmallString;
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
@@ -20,7 +17,7 @@ use crate::{
     context::SessionData,
     index_newtype,
     job::JobData,
-    liveness_analysis::{AccessFlags, LivenessData},
+    liveness_analysis::{AccessFlags, LivenessData, OperatorLivenessOutput},
     options::{
         chain_settings::{
             RationalsPrintMode, SettingRationalsPrintMode,
@@ -74,6 +71,8 @@ use crate::{
         MAX_UTF8_CHAR_LEN,
     },
 };
+use metamatch::metamatch;
+use smallstr::SmallString;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormatWidthSpec {
@@ -436,13 +435,13 @@ pub fn update_op_format_variable_liveness(
     fmt: &OpFormat,
     ld: &mut LivenessData,
     op_id: OperatorId,
-    access_flags: &mut AccessFlags,
     op_offset_after_last_write: OffsetInChain,
+    output: &mut OperatorLivenessOutput,
 ) {
-    access_flags.may_dup_or_drop = false;
+    output.flags.may_dup_or_drop = false;
     // might be set to true again in the loop below
-    access_flags.non_stringified_input_access = false;
-    access_flags.input_accessed = false;
+    output.flags.non_stringified_input_access = false;
+    output.flags.input_accessed = false;
     for p in &fmt.parts {
         match p {
             FormatPart::ByteLiteral(_) | FormatPart::TextLiteral(_) => (),
@@ -454,7 +453,7 @@ pub fn update_op_format_variable_liveness(
                     &fmt.refs,
                     op_id,
                     op_offset_after_last_write,
-                    access_flags,
+                    &mut output.flags,
                 );
             }
         }

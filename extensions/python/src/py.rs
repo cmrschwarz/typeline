@@ -15,8 +15,7 @@ use scr_core::{
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
     },
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
@@ -140,14 +139,14 @@ impl Operator for OpPy {
         &self,
         sess: &SessionData,
         ld: &mut LivenessData,
-        access_flags: &mut AccessFlags,
         op_offset_after_last_write: OffsetInChain,
         op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
         _outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        access_flags.may_dup_or_drop = false;
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = false;
         for fv in &self.free_vars_sse {
             if let Some(name) = fv {
                 ld.access_var(
@@ -158,11 +157,10 @@ impl Operator for OpPy {
                     true,
                 );
             } else {
-                access_flags.input_accessed = true;
-                access_flags.non_stringified_input_access = true;
+                output.flags.input_accessed = true;
+                output.flags.non_stringified_input_access = true;
             }
         }
-        None
     }
 
     fn build_transforms<'a>(

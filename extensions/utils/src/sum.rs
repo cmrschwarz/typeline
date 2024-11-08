@@ -2,15 +2,11 @@ use scr_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
-    liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
-    },
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId,
-            PreboundOutputsMap, TransformInstatiation,
+            Operator, OperatorData, OperatorId, PreboundOutputsMap,
+            TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformState,
@@ -66,20 +62,6 @@ impl Operator for OpSum {
         _op_id: OperatorId,
     ) -> bool {
         false
-    }
-
-    fn update_variable_liveness(
-        &self,
-        _sess: &SessionData,
-        _ld: &mut LivenessData,
-        _access_flags: &mut AccessFlags,
-        _op_offset_after_last_write: OffsetInChain,
-        _op_id: OperatorId,
-        _bb_id: BasicBlockId,
-        _input_field: OpOutputIdx,
-        _outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        None
     }
 
     fn build_transforms<'a>(

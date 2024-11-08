@@ -7,8 +7,7 @@ use scr_core::{
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
     },
     operators::{
         operator::{
@@ -104,14 +103,14 @@ impl Operator for OpExplode {
         &self,
         _sess: &SessionData,
         _ld: &mut LivenessData,
-        access_flags: &mut AccessFlags,
         _op_offset_after_last_write: OffsetInChain,
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
         _outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        access_flags.may_dup_or_drop = false;
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = false;
         // Counterintuitively, this operator does not impact liveness analysis,
         // except through it's access of it's direct input.
         // The Liveness Analysis models the worst case (maximum amount of
@@ -120,7 +119,6 @@ impl Operator for OpExplode {
         // have to assume the worst case, which is that it shadowed
         // none. This means that all outputs live before the op stay
         // alive afterwards.
-        None
     }
 
     fn build_transforms<'a>(

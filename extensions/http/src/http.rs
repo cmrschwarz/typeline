@@ -14,8 +14,7 @@ use scr_core::{
     context::SessionData,
     job::{Job, JobData, TransformManager},
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
     },
     operators::{
         errors::OperatorApplicationError,
@@ -140,16 +139,15 @@ impl Operator for OpHttpRequest {
         &self,
         _sess: &SessionData,
         _ld: &mut LivenessData,
-        access_flags: &mut AccessFlags,
         _op_offset_after_last_write: OffsetInChain,
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
         _output_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        access_flags.non_stringified_input_access = false;
-        access_flags.may_dup_or_drop = false;
-        None
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.non_stringified_input_access = false;
+        output.flags.may_dup_or_drop = false;
     }
 
     fn build_transforms<'a>(

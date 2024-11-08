@@ -13,8 +13,7 @@ use scr_core::{
     context::SessionData,
     job::{Job, JobData},
     liveness_analysis::{
-        AccessFlags, BasicBlockId, LivenessData, OpOutputIdx,
-        OperatorCallEffect,
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
     },
     operators::{
         errors::OperatorApplicationError,
@@ -116,15 +115,15 @@ impl Operator for OpCsv {
         &self,
         sess: &SessionData,
         ld: &mut LivenessData,
-        access_flags: &mut AccessFlags,
         _op_offset_after_last_write: OffsetInChain,
         op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
         outputs_offset: usize,
-    ) -> Option<(OpOutputIdx, OperatorCallEffect)> {
-        access_flags.input_accessed = false;
-        access_flags.non_stringified_input_access = false;
+        output: &mut OperatorLivenessOutput,
+    ) {
+        output.flags.input_accessed = false;
+        output.flags.non_stringified_input_access = false;
         let primary_output_idx = OpOutputIdx::from_usize(
             sess.operator_bases[op_id].outputs_start.into_usize()
                 + outputs_offset,
@@ -134,8 +133,6 @@ impl Operator for OpCsv {
             ld.vars_to_op_outputs_map[ld.var_names[var_name]] =
                 primary_output_idx + OpOutputIdx::from_usize(i);
         }
-
-        None
     }
 
     fn register_output_var_names(
