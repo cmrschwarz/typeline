@@ -69,7 +69,6 @@ use super::{
     regex::{build_tf_regex, regex_output_counts, setup_op_regex, OpRegex},
     select::{setup_op_select, OpSelect},
     string_sink::{build_tf_string_sink, OpStringSink},
-    success_updater::{build_tf_success_updator, OpSuccessUpdator},
     transform::{TransformData, TransformId, TransformState},
     transparent::{build_tf_transparent, setup_op_transparent, OpTransparent},
     utils::nested_op::{setup_op_outputs_for_nested_op, NestedOp},
@@ -113,7 +112,6 @@ pub enum OperatorData {
     Chunks(OpChunks),
     MacroDef(OpMacroDef),
     MacroCall(OpMacroCall),
-    SuccessUpdator(OpSuccessUpdator),
     MultiOp(OpMultiOp),
     Custom(SmallBox<dyn Operator, 96>),
 }
@@ -376,7 +374,6 @@ impl OperatorData {
             | OperatorData::Join(_)
             | OperatorData::NopCopy(_)
             | OperatorData::StringSink(_)
-            | OperatorData::SuccessUpdator(_)
             | OperatorData::FieldValueSink(_) => {
                 Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
             }
@@ -397,7 +394,6 @@ impl OperatorData {
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
-            | OperatorData::SuccessUpdator(_)
             | OperatorData::Select(_)
             | OperatorData::Regex(_)
             | OperatorData::Format(_)
@@ -449,7 +445,6 @@ impl OperatorData {
             OperatorData::Join(_) => 1,
             OperatorData::Fork(_) => 0,
             OperatorData::Nop(_) => 0,
-            OperatorData::SuccessUpdator(_) => 0,
             OperatorData::NopCopy(_) => 1,
             // technically this has output, but it always introduces a
             // separate BB so we don't want to allocate slots for that
@@ -548,7 +543,6 @@ impl OperatorData {
             | OperatorData::Chunks(_)
             | OperatorData::MacroDef(_)
             | OperatorData::MacroCall(_)
-            | OperatorData::SuccessUpdator(_)
             | OperatorData::MultiOp(_) => (),
             OperatorData::Custom(op) => {
                 op.assign_op_outputs(sess, ld, op_id, output_count)
@@ -584,7 +578,6 @@ impl OperatorData {
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
             OperatorData::NopCopy(_) => "nop_copy".into(),
-            OperatorData::SuccessUpdator(_) => "success_updator".into(),
             OperatorData::Join(_) => "join".into(),
             OperatorData::StringSink(_) => "<string_sink>".into(),
             OperatorData::FieldValueSink(_) => "<field_value_sink>".into(),
@@ -642,7 +635,6 @@ impl OperatorData {
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
             | OperatorData::Nop(_)
-            | OperatorData::SuccessUpdator(_)
             | OperatorData::Fork(_)
             | OperatorData::MacroDef(_) => OutputFieldKind::SameAsInput,
             OperatorData::ForkCat(_)
@@ -724,7 +716,6 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Nop(_)
-            | OperatorData::SuccessUpdator(_)
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
@@ -757,9 +748,8 @@ impl OperatorData {
                 output.flags.non_stringified_input_access = false;
                 output.flags.input_accessed = false;
             }
-            OperatorData::SuccessUpdator(_)
             // TODO: this shouldn't access inputs. fix testcases
-            | OperatorData::Nop(_)
+            OperatorData::Nop(_)
             | OperatorData::StringSink(_)
             | OperatorData::Print(_) => {
                 output.flags.may_dup_or_drop = false;
@@ -786,7 +776,7 @@ impl OperatorData {
                             bb_id,
                             input_field,
                             outputs_offset,
-                            output
+                            output,
                         );
                 }
 
@@ -807,18 +797,17 @@ impl OperatorData {
                 let NestedOp::SetUp(nested_op_id) = op.nested_op else {
                     unreachable!()
                 };
-               sess.operator_data
-                    [sess.op_data_id(op_id)]
-                .update_liveness_for_op(
-                    sess,
-                    ld,
-                    op_offset_after_last_write,
-                    nested_op_id,
-                    bb_id,
-                    input_field,
-                    outputs_offset,
-                    output
-                );
+                sess.operator_data[sess.op_data_id(op_id)]
+                    .update_liveness_for_op(
+                        sess,
+                        ld,
+                        op_offset_after_last_write,
+                        nested_op_id,
+                        bb_id,
+                        input_field,
+                        outputs_offset,
+                        output,
+                    );
                 output.primary_output = input_field;
             }
             OperatorData::Select(select) => {
@@ -880,60 +869,56 @@ impl OperatorData {
                     ld,
                     op_id,
                     op_offset_after_last_write,
-                    output
+                    output,
                 );
             }
-             OperatorData::Compute(c) => {
+            OperatorData::Compute(c) => {
                 update_op_compute_variable_liveness(
                     sess,
                     c,
                     ld,
                     op_id,
                     op_offset_after_last_write,
-                    output
+                    output,
                 );
             }
             OperatorData::FileReader(_) => {
                 // this only inserts if input is done, so no write flag
                 // neccessary
-                   output.flags.input_accessed = false;
-                   output.flags.non_stringified_input_access = false;
+                output.flags.input_accessed = false;
+                output.flags.non_stringified_input_access = false;
             }
             OperatorData::Literal(di) => {
-                   output.flags.may_dup_or_drop = di.insert_count.is_some();
-                   output.flags.input_accessed = false;
-                   output.flags.non_stringified_input_access = false;
+                output.flags.may_dup_or_drop = di.insert_count.is_some();
+                output.flags.input_accessed = false;
+                output.flags.non_stringified_input_access = false;
             }
             OperatorData::Join(_) => {}
-            OperatorData::FieldValueSink(_)  => {
+            OperatorData::FieldValueSink(_) => {
                 output.flags.may_dup_or_drop = false;
             }
-            OperatorData::Custom(op) => {
-               Operator::update_variable_liveness(
-                    &**op,
-                    sess,
-                    ld,
-                    op_offset_after_last_write,
-                    op_id,
-                    bb_id,
-                    input_field,
-                    outputs_offset,
-                    output
-                )
-            }
-            OperatorData::MultiOp(op) => {
-                Operator::update_variable_liveness(
-                    op,
-                    sess,
-                    ld,
-                    op_offset_after_last_write,
-                    op_id,
-                    bb_id,
-                    input_field,
-                    outputs_offset,
-                    output
-                )
-            }
+            OperatorData::Custom(op) => Operator::update_variable_liveness(
+                &**op,
+                sess,
+                ld,
+                op_offset_after_last_write,
+                op_id,
+                bb_id,
+                input_field,
+                outputs_offset,
+                output,
+            ),
+            OperatorData::MultiOp(op) => Operator::update_variable_liveness(
+                op,
+                sess,
+                ld,
+                op_offset_after_last_write,
+                op_id,
+                bb_id,
+                input_field,
+                outputs_offset,
+                output,
+            ),
             OperatorData::MacroCall(op) => {
                 op.op_multi_op.update_variable_liveness(
                     sess,
@@ -943,7 +928,7 @@ impl OperatorData {
                     bb_id,
                     input_field,
                     outputs_offset,
-                    output
+                    output,
                 )
             }
         }
@@ -997,7 +982,6 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::Nop(_)
             | OperatorData::Atom(_)
-            | OperatorData::SuccessUpdator(_)
             | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Foreach(_)
@@ -1031,9 +1015,6 @@ impl OperatorData {
             | OperatorData::Atom(_)
             | OperatorData::Select(_) => unreachable!(),
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
-            OperatorData::SuccessUpdator(op) => {
-                build_tf_success_updator(jd, op, tfs)
-            }
             OperatorData::Transparent(op) => {
                 return build_tf_transparent(
                     op,
@@ -1211,7 +1192,6 @@ impl OperatorData {
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
-            | OperatorData::SuccessUpdator(_)
             | OperatorData::MacroDef(_) => None,
         }
     }

@@ -71,7 +71,6 @@ use super::{
         handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
         TfStringSink,
     },
-    success_updater::{handle_tf_success_updator, TfSuccessUpdator},
     terminator::{handle_tf_terminator, TfTerminator},
 };
 
@@ -109,7 +108,6 @@ pub enum TransformData<'a> {
     ForeachTrailer(TfForeachTrailer),
     ChunksHeader(TfChunksHeader),
     ChunksTrailer(TfChunksTrailer),
-    SuccessUpdator(TfSuccessUpdator),
     Custom(SmallBox<dyn Transform<'a>, 192>),
 }
 
@@ -153,7 +151,6 @@ impl<'a> TransformData<'a> {
             TransformData::ForkCatSubchainTrailer(_) => {
                 "forkcat_subchain_trailer"
             }
-            TransformData::SuccessUpdator(_) => "success_updator",
             TransformData::Custom(tf) => return tf.display_name(),
         }
         .into()
@@ -179,7 +176,6 @@ impl<'a> TransformData<'a> {
 
             // TODO: fix this
             TransformData::ForkCat(_)
-            | TransformData::SuccessUpdator(_)
             | TransformData::ForkCatSubchainTrailer(_)
             | TransformData::Disabled
             | TransformData::Nop(_)
@@ -335,7 +331,6 @@ pub fn transform_pre_update(
         | TransformData::ChunksTrailer(_)
         | TransformData::CalleeConcurrent(_)
         | TransformData::Nop(_)
-        | TransformData::SuccessUpdator(_)
         | TransformData::NopCopy(_)
         | TransformData::ForkCatSubchainTrailer(_)
         | TransformData::Print(_)
@@ -377,9 +372,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
             handle_tf_forkcat(jd, tf_id, fork);
         }
         TransformData::Nop(tf) => handle_tf_nop(jd, tf_id, tf),
-        TransformData::SuccessUpdator(tf) => {
-            handle_tf_success_updator(jd, tf_id, tf)
-        }
         TransformData::NopCopy(tf) => handle_tf_nop_copy(jd, tf_id, tf),
         TransformData::ForkCatSubchainTrailer(tf) => {
             handle_tf_forcat_subchain_trailer(jd, tf_id, tf);
@@ -437,7 +429,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
     match &mut job.transform_data[tf_id] {
             TransformData::Disabled
             | TransformData::Nop(_)
-            | TransformData::SuccessUpdator(_)
             | TransformData::NopCopy(_)
             | TransformData::ForkCatSubchainTrailer(_)
             | TransformData::Terminator(_)
@@ -532,7 +523,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::Terminator(_) |
         TransformData::Call(_) |
         TransformData::Nop(_) |
-        TransformData::SuccessUpdator(_) |
         TransformData::NopCopy(_) |
         TransformData::ForkCatSubchainTrailer(_) |
         TransformData::FileReader(_) |
