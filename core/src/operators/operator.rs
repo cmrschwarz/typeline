@@ -53,7 +53,6 @@ use super::{
         build_tf_format, format_add_var_names, setup_op_format,
         update_op_format_variable_liveness, OpFormat,
     },
-    join::{build_tf_join, OpJoin},
     key::{setup_op_key, OpKey},
     literal::{build_tf_literal, OpLiteral},
     macro_call::{
@@ -89,7 +88,6 @@ pub enum OperatorData {
     NopCopy(OpNopCopy),
     Call(OpCall),
     CallConcurrent(OpCallConcurrent),
-    Join(OpJoin),
     Fork(OpFork),
     ForkCat(OpForkCat),
     Key(OpKey),
@@ -348,7 +346,6 @@ impl OperatorData {
                 span,
             ),
             OperatorData::Literal(_)
-            | OperatorData::Join(_)
             | OperatorData::NopCopy(_)
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_) => {
@@ -367,7 +364,6 @@ impl OperatorData {
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
@@ -411,7 +407,6 @@ impl OperatorData {
         match &self {
             OperatorData::Call(_) => 1,
             OperatorData::CallConcurrent(_) => 1,
-            OperatorData::Join(_) => 1,
             OperatorData::Fork(_) => 0,
             OperatorData::Nop(_) => 0,
             OperatorData::NopCopy(_) => 1,
@@ -477,7 +472,6 @@ impl OperatorData {
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
@@ -524,7 +518,6 @@ impl OperatorData {
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
             OperatorData::NopCopy(_) => "nop_copy".into(),
-            OperatorData::Join(_) => "join".into(),
             OperatorData::StringSink(_) => "<string_sink>".into(),
             OperatorData::FieldValueSink(_) => "<field_value_sink>".into(),
             OperatorData::MultiOp(_) => "<multi_op>".into(),
@@ -536,7 +529,6 @@ impl OperatorData {
     pub fn debug_op_name(&self) -> OperatorName {
         match self {
             OperatorData::MultiOp(op) => op.debug_op_name(),
-            OperatorData::Join(op) => op.debug_op_name(),
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return self.default_op_name();
@@ -570,7 +562,6 @@ impl OperatorData {
             | OperatorData::StringSink(_)
             | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
-            | OperatorData::Join(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::NopCopy(_) => OutputFieldKind::Unique,
@@ -635,7 +626,6 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::Atom(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Nop(_)
@@ -764,7 +754,6 @@ impl OperatorData {
                 output.flags.input_accessed = false;
                 output.flags.non_stringified_input_access = false;
             }
-            OperatorData::Join(_) => {}
             OperatorData::FieldValueSink(_) => {
                 output.flags.may_dup_or_drop = false;
             }
@@ -841,7 +830,6 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::Nop(_)
             | OperatorData::Atom(_)
-            | OperatorData::Join(_)
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
@@ -907,7 +895,6 @@ impl OperatorData {
             OperatorData::ForkCat(op) => {
                 return insert_tf_forkcat(job, op_base, op, tf_state);
             }
-            OperatorData::Join(op) => build_tf_join(jd, op_base, op, tfs),
             OperatorData::Format(op) => build_tf_format(jd, op_base, op, tfs),
             OperatorData::Compute(op) => {
                 build_tf_compute(jd, op_base, op, tfs)
@@ -1015,7 +1002,6 @@ impl OperatorData {
             | OperatorData::Atom(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
