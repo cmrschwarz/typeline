@@ -32,7 +32,6 @@ use super::{
         setup_op_call_concurrent_liveness_data, OpCallConcurrent,
     },
     chunks::{insert_tf_chunks, setup_op_chunks, OpChunks},
-    foreach::{insert_tf_foreach, setup_op_foreach, OpForeach},
     foreach_unique::{
         insert_tf_foreach_unique, setup_op_foreach_unique, OpForeachUnique,
     },
@@ -83,7 +82,6 @@ pub enum OperatorData {
     Atom(OpAtom),
     Select(OpSelect),
     Literal(OpLiteral),
-    Foreach(OpForeach),
     ForeachUnique(OpForeachUnique),
     Chunks(OpChunks),
     MacroDef(OpMacroDef),
@@ -209,14 +207,6 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::Foreach(op) => setup_op_foreach(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::ForeachUnique(op) => setup_op_foreach_unique(
                 op,
                 sess,
@@ -326,7 +316,6 @@ impl OperatorData {
             | OperatorData::Select(_)
             | OperatorData::Literal(_)
             | OperatorData::MacroDef(_)
-            | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_) => false,
             OperatorData::Key(op) => {
@@ -378,7 +367,6 @@ impl OperatorData {
             }
             OperatorData::Select(_) => 0,
             OperatorData::Literal(_) => 1,
-            OperatorData::Foreach(_) => 0,
             OperatorData::ForeachUnique(_) => 0,
             OperatorData::Chunks(_) => 0, // last sc output is output
             OperatorData::Custom(op) => {
@@ -423,7 +411,6 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Literal(_)
-            | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
             | OperatorData::MacroDef(_)
@@ -446,7 +433,6 @@ impl OperatorData {
         match self {
             OperatorData::Atom(_) => "atom".into(),
             OperatorData::Fork(_) => "fork".into(),
-            OperatorData::Foreach(_) => "foreach".into(),
             OperatorData::ForeachUnique(_) => "foreach-u".into(),
             OperatorData::Chunks(_) => "chunks".into(),
             OperatorData::ForkCat(_) => "forkcat".into(),
@@ -497,8 +483,7 @@ impl OperatorData {
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::NopCopy(_) => OutputFieldKind::Unique,
-            OperatorData::Foreach(_)
-            | OperatorData::ForeachUnique(_)
+            OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
             | OperatorData::Nop(_)
             | OperatorData::Fork(_)
@@ -559,7 +544,6 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Nop(_)
-            | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
             | OperatorData::NopCopy(_)
@@ -590,7 +574,6 @@ impl OperatorData {
             }
             OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
-            | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
             | OperatorData::Call(_)
@@ -730,7 +713,6 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::Nop(_)
             | OperatorData::Atom(_)
-            | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
             | OperatorData::Select(_)
@@ -756,16 +738,6 @@ impl OperatorData {
             | OperatorData::Select(_) => unreachable!(),
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
-            OperatorData::Foreach(op) => {
-                return insert_tf_foreach(
-                    job,
-                    op,
-                    tf_state,
-                    op_base.chain_id,
-                    op_id,
-                    prebound_outputs,
-                );
-            }
             OperatorData::ForeachUnique(op) => {
                 return insert_tf_foreach_unique(
                     job,
@@ -888,7 +860,6 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Literal(_)
-            | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
             | OperatorData::Chunks(_)
             | OperatorData::MacroDef(_) => None,

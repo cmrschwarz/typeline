@@ -20,7 +20,6 @@ use crate::{
         call::OpCall,
         call_concurrent::OpCallConcurrent,
         chunks::OpChunks,
-        foreach::OpForeach,
         foreach_unique::OpForeachUnique,
         fork::OpFork,
         forkcat::OpForkCat,
@@ -540,7 +539,7 @@ impl LivenessData {
             }
         }
     }
-    fn split_bb_at_call(
+    pub fn split_bb_at_call(
         &mut self,
         sess: &SessionData,
         bb_id: BasicBlockId,
@@ -612,8 +611,7 @@ impl LivenessData {
                 self.split_bb_at_call(sess, bb_id, op_n);
                 return true;
             }
-            OperatorData::Foreach(OpForeach { subchain_idx, .. })
-            | OperatorData::ForeachUnique(OpForeachUnique {
+            OperatorData::ForeachUnique(OpForeachUnique {
                 subchain_idx,
                 ..
             })

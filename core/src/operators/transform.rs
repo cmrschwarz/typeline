@@ -33,10 +33,6 @@ use super::{
         handle_tf_chunks_header, handle_tf_chunks_trailer, TfChunksHeader,
         TfChunksTrailer,
     },
-    foreach::{
-        handle_tf_foreach_header, handle_tf_foreach_trailer, TfForeachHeader,
-        TfForeachTrailer,
-    },
     foreach_unique::{handle_tf_foreach_unique_header, TfForeachUniqueHeader},
     fork::{handle_fork_expansion, handle_tf_fork, TfFork},
     forkcat::{
@@ -71,12 +67,10 @@ pub enum TransformData<'a> {
     Literal(TfLiteral<'a>),
     AggregatorHeader(TfAggregatorHeader),
     AggregatorTrailer(TfAggregatorTrailer),
-    ForeachHeader(TfForeachHeader),
     ForeachUniqueHeader(TfForeachUniqueHeader),
-    ForeachTrailer(TfForeachTrailer),
     ChunksHeader(TfChunksHeader),
     ChunksTrailer(TfChunksTrailer),
-    Custom(SmallBox<dyn Transform<'a> + 'a, 192>),
+    Custom(SmallBox<dyn Transform<'a> + 'a, 32>),
 }
 
 impl Default for TransformData<'_> {
@@ -103,9 +97,7 @@ impl<'a> TransformData<'a> {
             TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
-            TransformData::ForeachHeader(_) => "foreach_header",
             TransformData::ForeachUniqueHeader(_) => "foreach_unique_header",
-            TransformData::ForeachTrailer(_) => "foreach_trailer",
             TransformData::ChunksHeader(_) => "chunks_header",
             TransformData::ChunksTrailer(_) => "chunks_trailer",
             TransformData::ForkCatSubchainTrailer(_) => {
@@ -135,9 +127,7 @@ impl<'a> TransformData<'a> {
             | TransformData::Terminator(_)
             | TransformData::Fork(_)
             | TransformData::AggregatorHeader(_)
-            | TransformData::ForeachHeader(_)
             | TransformData::ForeachUniqueHeader(_)
-            | TransformData::ForeachTrailer(_)
             | TransformData::ChunksHeader(_)
             | TransformData::ChunksTrailer(_)
             | TransformData::Call(_)
@@ -275,9 +265,7 @@ pub fn transform_pre_update(
         }
         TransformData::Disabled
         | TransformData::ForkCat(_)
-        | TransformData::ForeachHeader(_)
         | TransformData::ForeachUniqueHeader(_)
-        | TransformData::ForeachTrailer(_)
         | TransformData::ChunksHeader(_)
         | TransformData::ChunksTrailer(_)
         | TransformData::CalleeConcurrent(_)
@@ -335,14 +323,8 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::AggregatorTrailer(_) => {
             handle_tf_aggregator_trailer(job, tf_id)
         }
-        TransformData::ForeachHeader(eh) => {
-            handle_tf_foreach_header(jd, tf_id, eh)
-        }
         TransformData::ForeachUniqueHeader(eh) => {
             handle_tf_foreach_unique_header(jd, tf_id, eh)
-        }
-        TransformData::ForeachTrailer(et) => {
-            handle_tf_foreach_trailer(jd, tf_id, et)
         }
         TransformData::ChunksHeader(eh) => {
             handle_tf_chunks_header(jd, tf_id, eh)
@@ -370,9 +352,7 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             //these go straight to the sub transforms
             | TransformData::AggregatorHeader(_)
             | TransformData::AggregatorTrailer(_)
-            | TransformData::ForeachHeader(_)
             | TransformData::ForeachUniqueHeader(_)
-            | TransformData::ForeachTrailer(_)
             | TransformData::ChunksHeader(_)
             | TransformData::ChunksTrailer(_) => unreachable!(),
             TransformData::Custom(c) => {
@@ -387,9 +367,7 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::CallConcurrent(_) |
         TransformData::Fork(_) |
         TransformData::ForkCat(_) |
-        TransformData::ForeachHeader(_) |
         TransformData::ForeachUniqueHeader(_) |
-        TransformData::ForeachTrailer(_) |
         TransformData::ChunksHeader(_) |
         TransformData::ChunksTrailer(_) |
         TransformData::Terminator(_) |

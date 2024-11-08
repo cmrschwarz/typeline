@@ -168,7 +168,7 @@ pub fn insert_tf_foreach_unique(
         &mut job.job_data,
         &mut job.transform_data,
         trailer_tf_state,
-        TransformData::ForeachTrailer(TfForeachTrailer {}),
+        TransformData::from_custom(TfForeachTrailer {}),
     );
     job.job_data.tf_mgr.transforms[out_tf_id].successor = Some(trailer_tf_id);
 
