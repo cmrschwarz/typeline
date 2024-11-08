@@ -32,7 +32,6 @@ use super::{
         setup_op_call_concurrent_liveness_data, OpCallConcurrent,
     },
     chunks::{insert_tf_chunks, setup_op_chunks, OpChunks},
-    field_value_sink::{build_tf_field_value_sink, OpFieldValueSink},
     foreach::{insert_tf_foreach, setup_op_foreach, OpForeach},
     foreach_unique::{
         insert_tf_foreach_unique, setup_op_foreach_unique, OpForeachUnique,
@@ -85,7 +84,6 @@ pub enum OperatorData {
     Atom(OpAtom),
     Select(OpSelect),
     StringSink(OpStringSink),
-    FieldValueSink(OpFieldValueSink),
     Literal(OpLiteral),
     Foreach(OpForeach),
     ForeachUnique(OpForeachUnique),
@@ -311,8 +309,7 @@ impl OperatorData {
             ),
             OperatorData::Literal(_)
             | OperatorData::NopCopy(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_) => {
+            | OperatorData::StringSink(_) => {
                 Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
             }
         }
@@ -332,7 +329,6 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
             | OperatorData::MacroDef(_)
             | OperatorData::Foreach(_)
@@ -387,7 +383,6 @@ impl OperatorData {
             }
             OperatorData::Select(_) => 0,
             OperatorData::StringSink(_) => 1,
-            OperatorData::FieldValueSink(_) => 1,
             OperatorData::Literal(_) => 1,
             OperatorData::Foreach(_) => 0,
             OperatorData::ForeachUnique(_) => 0,
@@ -434,7 +429,6 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
@@ -471,7 +465,6 @@ impl OperatorData {
             OperatorData::Nop(_) => "nop".into(),
             OperatorData::NopCopy(_) => "nop_copy".into(),
             OperatorData::StringSink(_) => "<string_sink>".into(),
-            OperatorData::FieldValueSink(_) => "<field_value_sink>".into(),
             OperatorData::MultiOp(_) => "<multi_op>".into(),
             OperatorData::Custom(op) => op.default_name(),
             OperatorData::MacroDef(_) => "macro".into(),
@@ -509,7 +502,6 @@ impl OperatorData {
     ) -> OutputFieldKind {
         match self {
             OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
@@ -581,7 +573,6 @@ impl OperatorData {
             | OperatorData::Chunks(_)
             | OperatorData::NopCopy(_)
             | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
             | OperatorData::MacroDef(_) => (),
         }
@@ -675,9 +666,7 @@ impl OperatorData {
                 output.flags.input_accessed = false;
                 output.flags.non_stringified_input_access = false;
             }
-            OperatorData::FieldValueSink(_) => {
-                output.flags.may_dup_or_drop = false;
-            }
+
             OperatorData::Custom(op) => Operator::update_variable_liveness(
                 &**op,
                 sess,
@@ -756,7 +745,6 @@ impl OperatorData {
             | OperatorData::Chunks(_)
             | OperatorData::Select(_)
             | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
             | OperatorData::MacroDef(_) => (),
         }
@@ -815,9 +803,6 @@ impl OperatorData {
             }
             OperatorData::StringSink(op) => {
                 build_tf_string_sink(jd, op_base, op, tfs)
-            }
-            OperatorData::FieldValueSink(op) => {
-                build_tf_field_value_sink(jd, op_base, op, tfs)
             }
             OperatorData::Literal(op) => {
                 build_tf_literal(jd, op_base, op, tfs)
@@ -917,7 +902,6 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::StringSink(_)
-            | OperatorData::FieldValueSink(_)
             | OperatorData::Literal(_)
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)

@@ -33,10 +33,6 @@ use super::{
         handle_tf_chunks_header, handle_tf_chunks_trailer, TfChunksHeader,
         TfChunksTrailer,
     },
-    field_value_sink::{
-        handle_tf_field_value_sink,
-        handle_tf_field_value_sink_stream_value_update, TfFieldValueSink,
-    },
     foreach::{
         handle_tf_foreach_header, handle_tf_foreach_trailer, TfForeachHeader,
         TfForeachTrailer,
@@ -74,7 +70,6 @@ pub enum TransformData<'a> {
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
     StringSink(TfStringSink<'a>),
-    FieldValueSink(TfFieldValueSink<'a>),
     Fork(TfFork<'a>),
     ForkCat(TfForkCat),
     ForkCatSubchainTrailer(TfForkCatSubchainTrailer<'a>),
@@ -108,7 +103,6 @@ impl<'a> TransformData<'a> {
             TransformData::CallConcurrent(_) => "callcc",
             TransformData::CalleeConcurrent(_) => "callcc_callee",
             TransformData::StringSink(_) => "string_sink",
-            TransformData::FieldValueSink(_) => "field_value_sink",
             TransformData::Fork(_) => "fork",
             TransformData::ForkCat(_) => "forkcat",
             TransformData::Literal(_) => "literal",
@@ -136,8 +130,7 @@ impl<'a> TransformData<'a> {
             TransformData::NopCopy(_)
             | TransformData::StringSink(_)
             | TransformData::Literal(_)
-            | TransformData::AggregatorTrailer(_)
-            | TransformData::FieldValueSink(_) => {
+            | TransformData::AggregatorTrailer(_) => {
                 fields.push(tf_state.output_field)
             }
 
@@ -299,7 +292,6 @@ pub fn transform_pre_update(
         | TransformData::NopCopy(_)
         | TransformData::ForkCatSubchainTrailer(_)
         | TransformData::StringSink(_)
-        | TransformData::FieldValueSink(_)
         | TransformData::Literal(_)
         | TransformData::Terminator(_)
         | TransformData::AggregatorHeader(_)
@@ -337,9 +329,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         }
         TransformData::StringSink(tf) => {
             handle_tf_string_sink(jd, tf_id, tf);
-        }
-        TransformData::FieldValueSink(tf) => {
-            handle_tf_field_value_sink(jd, tf_id, tf);
         }
         TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
         TransformData::CallConcurrent(tf) => {
@@ -387,7 +376,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_)
             | TransformData::StringSink(_)
-            | TransformData::FieldValueSink(_)
             | TransformData::Fork(_)
             | TransformData::ForkCat(_)
             | TransformData::Literal(_)
@@ -413,15 +401,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
                 jd,
                 tf,
                 svu
-            );
-        }
-        TransformData::FieldValueSink(tf) => {
-            handle_tf_field_value_sink_stream_value_update(
-                jd,
-                svu.tf_id,
-                tf,
-                svu.sv_id,
-                svu.custom,
             );
         }
         TransformData::CallConcurrent(_) |
