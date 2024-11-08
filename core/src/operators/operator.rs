@@ -65,7 +65,6 @@ use super::{
     nop_copy::{
         build_tf_nop_copy, on_op_nop_copy_liveness_computed, OpNopCopy,
     },
-    print::{build_tf_print, OpPrint},
     select::{setup_op_select, OpSelect},
     string_sink::{build_tf_string_sink, OpStringSink},
     transform::{TransformData, TransformId, TransformState},
@@ -90,7 +89,6 @@ pub enum OperatorData {
     NopCopy(OpNopCopy),
     Call(OpCall),
     CallConcurrent(OpCallConcurrent),
-    Print(OpPrint),
     Join(OpJoin),
     Fork(OpFork),
     ForkCat(OpForkCat),
@@ -350,7 +348,6 @@ impl OperatorData {
                 span,
             ),
             OperatorData::Literal(_)
-            | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::NopCopy(_)
             | OperatorData::StringSink(_)
@@ -370,7 +367,6 @@ impl OperatorData {
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
@@ -415,7 +411,6 @@ impl OperatorData {
         match &self {
             OperatorData::Call(_) => 1,
             OperatorData::CallConcurrent(_) => 1,
-            OperatorData::Print(_) => 1,
             OperatorData::Join(_) => 1,
             OperatorData::Fork(_) => 0,
             OperatorData::Nop(_) => 0,
@@ -482,7 +477,6 @@ impl OperatorData {
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
@@ -515,7 +509,6 @@ impl OperatorData {
     pub fn default_op_name(&self) -> OperatorName {
         match self {
             OperatorData::Atom(_) => "atom".into(),
-            OperatorData::Print(_) => "p".into(),
             OperatorData::Fork(_) => "fork".into(),
             OperatorData::Foreach(_) => "foreach".into(),
             OperatorData::ForeachUnique(_) => "foreach-u".into(),
@@ -571,8 +564,7 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> OutputFieldKind {
         match self {
-            OperatorData::Print(_)
-            | OperatorData::FileReader(_)
+            OperatorData::FileReader(_)
             | OperatorData::Format(_)
             | OperatorData::Compute(_)
             | OperatorData::StringSink(_)
@@ -643,7 +635,6 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::Atom(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
@@ -676,9 +667,7 @@ impl OperatorData {
                 output.flags.input_accessed = false;
             }
             // TODO: this shouldn't access inputs. fix testcases
-            OperatorData::Nop(_)
-            | OperatorData::StringSink(_)
-            | OperatorData::Print(_) => {
+            OperatorData::Nop(_) | OperatorData::StringSink(_) => {
                 output.flags.may_dup_or_drop = false;
                 output.flags.non_stringified_input_access = false;
             }
@@ -852,7 +841,6 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::Nop(_)
             | OperatorData::Atom(_)
-            | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Foreach(_)
             | OperatorData::ForeachUnique(_)
@@ -919,7 +907,6 @@ impl OperatorData {
             OperatorData::ForkCat(op) => {
                 return insert_tf_forkcat(job, op_base, op, tf_state);
             }
-            OperatorData::Print(op) => build_tf_print(jd, op_base, op, tfs),
             OperatorData::Join(op) => build_tf_join(jd, op_base, op, tfs),
             OperatorData::Format(op) => build_tf_format(jd, op_base, op, tfs),
             OperatorData::Compute(op) => {
@@ -1028,7 +1015,6 @@ impl OperatorData {
             | OperatorData::Atom(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)

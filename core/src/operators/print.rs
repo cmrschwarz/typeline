@@ -4,8 +4,8 @@ use metamatch::metamatch;
 
 use super::{
     errors::OperatorApplicationError,
-    operator::{OperatorBase, OperatorData},
-    transform::{TransformData, TransformId, TransformState},
+    operator::{Operator, OperatorData, TransformInstatiation},
+    transform::{Transform, TransformData, TransformId, TransformState},
     utils::writable::{AnyWriter, WritableTarget},
 };
 use crate::{
@@ -107,34 +107,14 @@ pub fn parse_op_print(
             }
         }
     }
-    Ok(OperatorData::Print(OpPrint {
+    Ok(OperatorData::from_custom(OpPrint {
         target: WritableTarget::Stdout,
         opts,
     }))
 }
 
-pub fn build_tf_print<'a>(
-    jd: &mut JobData,
-    _op_base: &OperatorBase,
-    op: &'a OpPrint,
-    tf_state: &mut TransformState,
-) -> TransformData<'a> {
-    TransformData::Print(TfPrint {
-        // ENHANCE: should we config options for this stuff?
-        flush_on_every_print: matches!(op.target, WritableTarget::Stdout)
-            && std::io::stdout().is_terminal(),
-        rationals_print_mode: jd
-            .get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state),
-        current_stream_val: None,
-        streams_kept_alive: 0,
-        iter_id: jd.claim_iter_for_tf_state(tf_state),
-        target: op.target.create_writer_hide_error(true),
-        opts: op.opts,
-    })
-}
-
 pub fn create_op_print() -> OperatorData {
-    OperatorData::Print(OpPrint {
+    OperatorData::from_custom(OpPrint {
         target: WritableTarget::Stdout,
         opts: PrintOptions {
             ignore_nulls: false,
@@ -146,7 +126,7 @@ pub fn create_op_print_with_opts(
     target: WritableTarget,
     opts: PrintOptions,
 ) -> OperatorData {
-    OperatorData::Print(OpPrint { target, opts })
+    OperatorData::from_custom(OpPrint { target, opts })
 }
 
 pub fn typed_slice_zst_str(ts: &FieldValueSlice) -> &'static str {
@@ -424,140 +404,208 @@ pub fn handle_tf_print_raw(
     Ok(())
 }
 
-pub fn handle_tf_print(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    tf: &mut TfPrint,
-) {
-    if tf.current_stream_val.is_some() {
-        return;
-    }
-    let (batch_size, ps) = jd
-        .tf_mgr
-        .claim_batch_with_limit_bump(tf_id, tf.streams_kept_alive);
-
-    let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
-    let of_id = jd.tf_mgr.prepare_output_field(
-        &mut jd.field_mgr,
-        &mut jd.match_set_mgr,
-        tf_id,
-    );
-
-    let mut handled_field_count = 0;
-    let mut outputs_produced = 0;
-    let mut last_group_separator = 0;
-    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
-    let string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
-    let res = handle_tf_print_raw(
-        &mut jd.tf_mgr,
-        &jd.field_mgr,
-        &jd.match_set_mgr,
-        &mut jd.sv_mgr,
-        string_store,
-        tf_id,
-        batch_size,
-        tf,
-        &mut outputs_produced,
-        &mut handled_field_count,
-        &mut last_group_separator,
-        &mut output_field,
-    );
-    if tf.flush_on_every_print {
-        tf.target.aquire(false).flush().ok();
+impl Operator for OpPrint {
+    fn default_name(&self) -> super::operator::OperatorName {
+        "print".into()
     }
 
-    match res {
-        Ok(()) => {
-            if handled_field_count > 0 {
-                let diff = handled_field_count - outputs_produced;
-                output_field.iter_hall.push_null(diff, true);
-                outputs_produced += diff;
-            }
-        }
-        Err(err) => {
-            let nsucc = handled_field_count;
-            let nfail = batch_size - nsucc;
-            if nsucc > 0 {
-                output_field
-                    .iter_hall
-                    .push_null(nsucc - outputs_produced, true);
-            }
-            let e = OperatorApplicationError::new_s(err.to_string(), op_id);
-            output_field.iter_hall.push_error(e, nfail, false, true);
-            outputs_produced += nfail;
-        }
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: super::operator::OperatorId,
+    ) -> usize {
+        1
     }
-    drop(output_field);
 
-    let streams_done = tf.current_stream_val.is_none();
-
-    if ps.next_batch_ready && streams_done {
-        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: super::operator::OperatorId,
+    ) -> bool {
+        false
     }
-    jd.tf_mgr.submit_batch_ready_for_more(
-        tf_id,
-        outputs_produced,
-        PipelineState {
-            input_done: ps.input_done && streams_done,
-            ..ps
-        },
-    );
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        _ld: &mut crate::liveness_analysis::LivenessData,
+        _op_offset_after_last_write: super::operator::OffsetInChain,
+        _op_id: super::operator::OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = false;
+        output.flags.non_stringified_input_access = false;
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut crate::job::Job<'a>,
+        tf_state: &mut TransformState,
+        _op_id: super::operator::OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        TransformInstatiation::Single(TransformData::from_custom(TfPrint {
+            // ENHANCE: should we config options for this stuff?
+            flush_on_every_print: matches!(
+                self.target,
+                WritableTarget::Stdout
+            ) && std::io::stdout().is_terminal(),
+            rationals_print_mode: job
+                .job_data
+                .get_setting_from_tf_state::<SettingRationalsPrintMode>(
+                    tf_state,
+                ),
+            current_stream_val: None,
+            streams_kept_alive: 0,
+            iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
+            target: self.target.create_writer_hide_error(true),
+            opts: self.opts,
+        }))
+    }
 }
 
-pub fn handle_tf_print_stream_value_update(
-    jd: &mut JobData,
-    print: &mut TfPrint,
-    update: StreamValueUpdate,
-) {
-    // we don't use a buffered writer here because stream chunks
-    // are large and we want to avoid the copy
-    let sv = &mut jd.sv_mgr.stream_values[update.sv_id];
-    let run_len = update.custom;
-    let mut success_count = run_len;
-    let mut error_count = 0;
-    let mut err_message = None;
+impl<'a> Transform<'a> for TfPrint<'a> {
+    fn display_name(&self) -> super::transform::DefaultTransformName {
+        "print".into()
+    }
 
-    let mut stream = print.target.aquire(false);
-
-    match write_stream_val_check_done(
-        sv,
-        update.data_offset,
-        &mut stream,
-        run_len,
-    ) {
-        Ok(false) => {
+    fn update(&mut self, jd: &mut JobData<'_>, tf_id: TransformId) {
+        if self.current_stream_val.is_some() {
             return;
         }
-        Ok(true) => (),
-        Err((idx, e)) => {
-            error_count = run_len - idx;
-            success_count = run_len - error_count;
-            err_message = Some(e.to_string());
-        }
-    }
+        let (batch_size, ps) = jd
+            .tf_mgr
+            .claim_batch_with_limit_bump(tf_id, self.streams_kept_alive);
 
-    if print.flush_on_every_print {
-        let _ = stream.flush();
-    }
-    let tf = &jd.tf_mgr.transforms[update.tf_id];
-    let mut output_field = jd.field_mgr.fields[tf.output_field].borrow_mut();
-    if success_count > 0 {
-        output_field.iter_hall.push_null(success_count, true);
-    }
-    if let Some(err_message) = err_message {
-        output_field.iter_hall.push_error(
-            OperatorApplicationError::new_s(
-                err_message,
-                jd.tf_mgr.transforms[update.tf_id].op_id.unwrap(),
-            ),
-            error_count,
-            true,
-            false,
+        let op_id = jd.tf_mgr.transforms[tf_id].op_id.unwrap();
+        let of_id = jd.tf_mgr.prepare_output_field(
+            &mut jd.field_mgr,
+            &mut jd.match_set_mgr,
+            tf_id,
         );
-        jd.sv_mgr
-            .drop_field_value_subscription(update.sv_id, Some(update.tf_id));
+
+        let mut handled_field_count = 0;
+        let mut outputs_produced = 0;
+        let mut last_group_separator = 0;
+        let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
+        let string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
+        let res = handle_tf_print_raw(
+            &mut jd.tf_mgr,
+            &jd.field_mgr,
+            &jd.match_set_mgr,
+            &mut jd.sv_mgr,
+            string_store,
+            tf_id,
+            batch_size,
+            self,
+            &mut outputs_produced,
+            &mut handled_field_count,
+            &mut last_group_separator,
+            &mut output_field,
+        );
+        if self.flush_on_every_print {
+            self.target.aquire(false).flush().ok();
+        }
+
+        match res {
+            Ok(()) => {
+                if handled_field_count > 0 {
+                    let diff = handled_field_count - outputs_produced;
+                    output_field.iter_hall.push_null(diff, true);
+                    outputs_produced += diff;
+                }
+            }
+            Err(err) => {
+                let nsucc = handled_field_count;
+                let nfail = batch_size - nsucc;
+                if nsucc > 0 {
+                    output_field
+                        .iter_hall
+                        .push_null(nsucc - outputs_produced, true);
+                }
+                let e =
+                    OperatorApplicationError::new_s(err.to_string(), op_id);
+                output_field.iter_hall.push_error(e, nfail, false, true);
+                outputs_produced += nfail;
+            }
+        }
+        drop(output_field);
+
+        let streams_done = self.current_stream_val.is_none();
+
+        if ps.next_batch_ready && streams_done {
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+        }
+        jd.tf_mgr.submit_batch_ready_for_more(
+            tf_id,
+            outputs_produced,
+            PipelineState {
+                input_done: ps.input_done && streams_done,
+                ..ps
+            },
+        );
     }
 
-    print.current_stream_val = None;
-    jd.tf_mgr.push_tf_in_ready_stack(update.tf_id);
+    fn handle_stream_value_update(
+        &mut self,
+        jd: &mut JobData<'a>,
+        update: StreamValueUpdate,
+    ) {
+        // we don't use a buffered writer here because stream chunks
+        // are large and we want to avoid the copy
+        let sv = &mut jd.sv_mgr.stream_values[update.sv_id];
+        let run_len = update.custom;
+        let mut success_count = run_len;
+        let mut error_count = 0;
+        let mut err_message = None;
+
+        let mut stream = self.target.aquire(false);
+
+        match write_stream_val_check_done(
+            sv,
+            update.data_offset,
+            &mut stream,
+            run_len,
+        ) {
+            Ok(false) => {
+                return;
+            }
+            Ok(true) => (),
+            Err((idx, e)) => {
+                error_count = run_len - idx;
+                success_count = run_len - error_count;
+                err_message = Some(e.to_string());
+            }
+        }
+
+        if self.flush_on_every_print {
+            let _ = stream.flush();
+        }
+        let tf = &jd.tf_mgr.transforms[update.tf_id];
+        let mut output_field =
+            jd.field_mgr.fields[tf.output_field].borrow_mut();
+        if success_count > 0 {
+            output_field.iter_hall.push_null(success_count, true);
+        }
+        if let Some(err_message) = err_message {
+            output_field.iter_hall.push_error(
+                OperatorApplicationError::new_s(
+                    err_message,
+                    jd.tf_mgr.transforms[update.tf_id].op_id.unwrap(),
+                ),
+                error_count,
+                true,
+                false,
+            );
+            jd.sv_mgr.drop_field_value_subscription(
+                update.sv_id,
+                Some(update.tf_id),
+            );
+        }
+
+        self.current_stream_val = None;
+        jd.tf_mgr.push_tf_in_ready_stack(update.tf_id);
+    }
 }

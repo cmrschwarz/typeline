@@ -65,7 +65,6 @@ use super::{
     nop::{handle_tf_nop, TfNop},
     nop_copy::{handle_tf_nop_copy, TfNopCopy},
     operator::OperatorId,
-    print::{handle_tf_print, handle_tf_print_stream_value_update, TfPrint},
     string_sink::{
         handle_tf_string_sink, handle_tf_string_sink_stream_value_update,
         TfStringSink,
@@ -88,7 +87,6 @@ pub enum TransformData<'a> {
     Call(TfCall),
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
-    Print(TfPrint<'a>),
     Join(TfJoin<'a>),
     StringSink(TfStringSink<'a>),
     FieldValueSink(TfFieldValueSink<'a>),
@@ -127,7 +125,6 @@ impl<'a> TransformData<'a> {
             TransformData::Call(_) => "call",
             TransformData::CallConcurrent(_) => "callcc",
             TransformData::CalleeConcurrent(_) => "callcc_callee",
-            TransformData::Print(_) => "print",
             TransformData::Join(_) => "join",
             TransformData::StringSink(_) => "string_sink",
             TransformData::FieldValueSink(_) => "field_value_sink",
@@ -159,7 +156,6 @@ impl<'a> TransformData<'a> {
     ) {
         match self {
             TransformData::NopCopy(_)
-            | TransformData::Print(_)
             | TransformData::Join(_)
             | TransformData::StringSink(_)
             | TransformData::Format(_)
@@ -328,7 +324,6 @@ pub fn transform_pre_update(
         | TransformData::Nop(_)
         | TransformData::NopCopy(_)
         | TransformData::ForkCatSubchainTrailer(_)
-        | TransformData::Print(_)
         | TransformData::Join(_)
         | TransformData::StringSink(_)
         | TransformData::FieldValueSink(_)
@@ -370,7 +365,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::ForkCatSubchainTrailer(tf) => {
             handle_tf_forcat_subchain_trailer(jd, tf_id, tf);
         }
-        TransformData::Print(tf) => handle_tf_print(jd, tf_id, tf),
         TransformData::StringSink(tf) => {
             handle_tf_string_sink(jd, tf_id, tf);
         }
@@ -428,7 +422,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::Call(_)
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_)
-            | TransformData::Print(_)
             | TransformData::StringSink(_)
             | TransformData::FieldValueSink(_)
             | TransformData::Fork(_)
@@ -461,11 +454,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
 pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
     let jd = &mut job.job_data;
     match &mut job.transform_data[svu.tf_id] {
-        TransformData::Print(tf) => handle_tf_print_stream_value_update(
-            jd,
-            tf,
-            svu
-        ),
         TransformData::Join(tf) => handle_tf_join_stream_value_update(
             jd,
             tf,

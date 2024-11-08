@@ -634,7 +634,6 @@ impl LivenessData {
             OperatorData::Atom(_)
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
-            | OperatorData::Print(_)
             | OperatorData::Join(_)
             | OperatorData::Select(_)
             | OperatorData::Format(_)
