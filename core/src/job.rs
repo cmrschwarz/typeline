@@ -714,6 +714,12 @@ impl<'a> Job<'a> {
                     input_field
                 }
                 OutputFieldKind::Unique => {
+                    debug_assert!(
+                        op_data
+                            .output_count(self.job_data.session_data, op_id)
+                            != 0,
+                        "field requesting a unique output field must have at least one output"
+                    );
                     let first_actor = ActorRef::Unconfirmed(
                         self.job_data.match_set_mgr.match_sets[ms_id]
                             .action_buffer

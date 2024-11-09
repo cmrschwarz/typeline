@@ -241,21 +241,30 @@ fn multi_batch_primes_head() -> Result<(), ScrError> {
     Ok(())
 }
 
+const AOC_2023_PART_1_INPUT: &str = r#"
+2qlljdqcbeight
+eight47srvbfive
+slconeightfoureight557m38
+xvqeightwosixnine61eightsn2tdczfhx
+msixonexch1twokjbdlhchqk1
+112ninejlhhjmjzkzgdsix
+6six7jr
+878eightgvsqvzfthree
+2jxzhlkhdktxfjjleightdfpgfxjv
+mxbzgzg5three
+"#;
+
 #[rstest]
 #[case(1024)]
 #[case(3)]
 fn aoc2023_day1_part1(#[case] batch_size: usize) -> Result<(), ScrError> {
-    let input = r#"
-1abc2
-pqr3stu8vwx
-a1b2c3d4e5f
-treb7uchet
-    "#;
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)?
         .add_ops([
             create_op_file_reader_custom(
-                Box::new(SliceReader::new(input.trim().as_bytes())),
+                Box::new(SliceReader::new(
+                    AOC_2023_PART_1_INPUT.trim().as_bytes(),
+                )),
                 1,
             ),
             create_op_lines(),
@@ -274,6 +283,6 @@ treb7uchet
             create_op_sum(),
         ])
         .run_collect_as::<i64>()?;
-    assert_eq!(res, [142]);
+    assert_eq!(res, [444]);
     Ok(())
 }

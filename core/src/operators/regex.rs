@@ -1009,6 +1009,7 @@ impl<'a> Transform<'a> for TfRegex<'a> {
 
     fn collect_out_fields(
         &self,
+        _jd: &JobData,
         _tf_state: &TransformState,
         fields: &mut Vec<FieldId>,
     ) {

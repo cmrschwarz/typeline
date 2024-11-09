@@ -221,7 +221,6 @@ impl Transform<'_> for TfToStr {
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];
-        let _op_id = tf.op_id.unwrap();
         let input_field_id = tf.input_field;
         let input_field = jd
             .field_mgr

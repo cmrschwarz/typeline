@@ -41,7 +41,7 @@ use super::{
     literal::{handle_tf_literal, TfLiteral},
     nop::{handle_tf_nop, TfNop},
     nop_copy::{handle_tf_nop_copy, TfNopCopy},
-    operator::OperatorId,
+    operator::{OperatorId, OutputFieldKind},
     terminator::{handle_tf_terminator, TfTerminator},
 };
 
@@ -106,6 +106,7 @@ impl<'a> TransformData<'a> {
     }
     pub fn get_out_fields(
         &self,
+        jd: &JobData,
         tf_state: &TransformState,
         fields: &mut Vec<FieldId>,
     ) {
@@ -131,7 +132,7 @@ impl<'a> TransformData<'a> {
             | TransformData::CalleeConcurrent(_) => (),
 
             TransformData::Custom(custom) => {
-                custom.collect_out_fields(tf_state, fields)
+                custom.collect_out_fields(jd, tf_state, fields)
             }
         }
     }
@@ -146,6 +147,7 @@ pub struct TransformState {
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
+    // This might be None for special transforms like the subchain terminator
     pub op_id: Option<OperatorId>,
     pub is_stream_producer: bool,
     pub is_ready: bool,
@@ -231,9 +233,21 @@ pub trait Transform<'a>: Send + 'a {
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId);
     fn collect_out_fields(
         &self,
+        jd: &JobData,
         tf_state: &TransformState,
         fields: &mut Vec<FieldId>,
     ) {
+        if let Some(op_id) = tf_state.op_id {
+            let out_kind = jd.session_data.operator_data
+                [jd.session_data.op_data_id(op_id)]
+            .output_field_kind(jd.session_data, op_id);
+            if matches!(
+                out_kind,
+                OutputFieldKind::SameAsInput | OutputFieldKind::Unconfigured
+            ) {
+                return;
+            }
+        }
         fields.push(tf_state.output_field);
     }
 }

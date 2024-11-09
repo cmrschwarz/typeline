@@ -284,7 +284,7 @@ fn setup_transform_tf_envs(
             if tf.output_group_track_id != tf.input_group_track_id {
                 group_tracks.push(tf.output_group_track_id);
             }
-            tf_data[tf_id].get_out_fields(tf, &mut fields);
+            tf_data[tf_id].get_out_fields(jd, tf, &mut fields);
             match_chain.tf_envs.push(TransformEnv {
                 tf_id: Some(tf_id),
                 group_tracks,

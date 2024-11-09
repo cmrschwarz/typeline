@@ -8,7 +8,7 @@ use scr_core::{
     operators::{
         operator::{
             OffsetInChain, Operator, OperatorData, OperatorId,
-            PreboundOutputsMap, TransformInstatiation,
+            OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
             DefaultTransformName, Transform, TransformData, TransformId,
@@ -43,6 +43,14 @@ impl Operator for OpDup {
 
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         0
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> OutputFieldKind {
+        OutputFieldKind::SameAsInput
     }
 
     fn has_dynamic_outputs(
@@ -157,13 +165,6 @@ impl Transform<'_> for TfDup {
             ps.group_to_truncate,
             ps.input_done,
         );
-    }
-    fn collect_out_fields(
-        &self,
-        _tf_state: &TransformState,
-        _fields: &mut Vec<scr_core::record_data::field::FieldId>,
-    ) {
-        // no output fields
     }
 }
 

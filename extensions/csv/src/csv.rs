@@ -221,6 +221,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
 
     fn collect_out_fields(
         &self,
+        _jd: &JobData,
         _tf_state: &TransformState,
         fields: &mut Vec<FieldId>,
     ) {
