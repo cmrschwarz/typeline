@@ -638,6 +638,14 @@ impl FieldManager {
                 .store_iter_unchecked(field_id, iter_id, iter)
         }
     }
+    // NOTE for future cmrs getting frustrated again and trying to improve this
+    // two stage api:
+    // `get_cow_field_ref` followed by `get_auto_deref_iter` *is* inconvenient,
+    // but it is necessary because the cow field ref contains a RefCell.
+    // The iterator (and the elements it returns) must be bound by the lifetime
+    // *of that refcell*, not by the borrow of the FieldMgr.
+    // Trying to change the iterator into a cursor that returns
+    // elements with lifetimes bound to itself would fix that.
     pub fn get_auto_deref_iter<'a>(
         &'a self,
         input_field_id: FieldId,
