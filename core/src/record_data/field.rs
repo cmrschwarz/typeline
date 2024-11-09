@@ -14,7 +14,9 @@ use crate::{
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
     field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
-    iter_hall::{CowDataSource, FieldDataSource, IterHall, FieldIterId, IterKind},
+    iter_hall::{
+        CowDataSource, FieldDataSource, FieldIterId, IterHall, IterKind,
+    },
     iters::{
         BoundedIter, DestructuredFieldDataRef, FieldDataRef, FieldIter,
         FieldIterator,
@@ -109,10 +111,10 @@ impl<'a> CowFieldDataRef<'a> {
         }
     }
     #[allow(clippy::iter_not_returning_iterator)]
-    pub fn iter(&'a self) -> FieldIter<'a, &'a CowFieldDataRef<'a>> {
+    pub fn iter(self) -> FieldIter<CowFieldDataRef<'a>> {
         FieldIter::from_start(self)
     }
-    pub fn iter_from_end(&'a self) -> FieldIter<'a, &'a CowFieldDataRef<'a>> {
+    pub fn iter_from_end(self) -> FieldIter<CowFieldDataRef<'a>> {
         FieldIter::from_end(self)
     }
     pub fn headers(&'a self) -> &'a VecDeque<FieldValueHeader> {
@@ -123,17 +125,20 @@ impl<'a> CowFieldDataRef<'a> {
     }
 }
 
-impl<'a> FieldDataRef<'a> for &'a CowFieldDataRef<'a> {
-    fn headers(&self) -> &'a VecDeque<FieldValueHeader> {
+impl<'a> FieldDataRef for CowFieldDataRef<'a> {
+    fn headers(&self) -> &VecDeque<FieldValueHeader> {
         &self.headers_ref
     }
 
-    fn data(&self) -> &'a FieldDataBuffer {
+    fn data(&self) -> &FieldDataBuffer {
         &self.data_ref
     }
 
     fn field_count(&self) -> usize {
         self.field_count
+    }
+    fn clone_ref(&self) -> Self {
+        self.clone()
     }
 }
 
@@ -484,9 +489,9 @@ impl FieldManager {
         self.setup_cow_between_fields(msm, src_field_id, tgt_field_id);
         tgt_field_id
     }
-    pub fn append_to_buffer<'a>(
+    pub fn append_to_buffer(
         &self,
-        iter: &mut impl FieldIterator<'a>,
+        iter: &mut impl FieldIterator,
         tgt: &RecordBufferField,
     ) {
         let fd = unsafe { &mut (*tgt.data.get()) };
@@ -651,7 +656,7 @@ impl FieldManager {
         input_field_id: FieldId,
         input_field: &'a CowFieldDataRef<'a>,
         input_iter_id: FieldIterId,
-    ) -> AutoDerefIter<'a, FieldIter<'a, DestructuredFieldDataRef<'a>>> {
+    ) -> AutoDerefIter<'a, FieldIter<DestructuredFieldDataRef<'a>>> {
         AutoDerefIter::new(
             self,
             input_field_id,
@@ -664,10 +669,8 @@ impl FieldManager {
         input_field: &'a CowFieldDataRef<'a>,
         input_iter_id: FieldIterId,
         batch_size: usize,
-    ) -> AutoDerefIter<
-        'a,
-        BoundedIter<'a, FieldIter<'a, DestructuredFieldDataRef<'a>>>,
-    > {
+    ) -> AutoDerefIter<'a, BoundedIter<FieldIter<DestructuredFieldDataRef<'a>>>>
+    {
         AutoDerefIter::new(
             self,
             input_field_id,
@@ -680,7 +683,7 @@ impl FieldManager {
         mut field_id: FieldId,
         cfdr: &'a CowFieldDataRef<'a>,
         iter_id: FieldIterId,
-    ) -> FieldIter<'a, DestructuredFieldDataRef<'a>> {
+    ) -> FieldIter<DestructuredFieldDataRef<'a>> {
         // PERF: maybe write a custom compare instead of doing this traversal?
         assert!(cfdr.destructured_field_ref().equals(
             &self
@@ -700,14 +703,14 @@ impl FieldManager {
         &self,
         iter_ref: FieldIterRef,
         cfdr: &'a CowFieldDataRef<'a>,
-    ) -> FieldIter<'a, DestructuredFieldDataRef<'a>> {
+    ) -> FieldIter<DestructuredFieldDataRef<'a>> {
         self.lookup_iter(iter_ref.field_id, cfdr, iter_ref.iter_id)
     }
-    pub fn store_iter<'a, R: FieldDataRef<'a>>(
+    pub fn store_iter<R: FieldDataRef>(
         &self,
         mut field_id: FieldId,
         iter_id: FieldIterId,
-        iter: impl Into<FieldIter<'a, R>>,
+        iter: impl Into<FieldIter<R>>,
     ) {
         let iter_base = iter.into();
         let field = self.borrow_field_dealiased(&mut field_id);
@@ -722,19 +725,19 @@ impl FieldManager {
                 .store_iter_unchecked(field_id, iter_id, iter_base)
         };
     }
-    pub fn store_iter_from_ref<'a, R: FieldDataRef<'a>>(
+    pub fn store_iter_from_ref<R: FieldDataRef>(
         &self,
         iter_ref: FieldIterRef,
-        iter: impl Into<FieldIter<'a, R>>,
+        iter: impl Into<FieldIter<R>>,
     ) {
         self.store_iter(iter_ref.field_id, iter_ref.iter_id, iter)
     }
-    pub fn store_iter_drop_action_lists<'a, R: FieldDataRef<'a>>(
+    pub fn store_iter_drop_action_lists<R: FieldDataRef>(
         &self,
         msm: &MatchSetManager,
         mut field_id: FieldId,
         iter_id: FieldIterId,
-        iter: impl Into<FieldIter<'a, R>>,
+        iter: impl Into<FieldIter<R>>,
     ) {
         let iter_base = iter.into();
         let field = self.borrow_field_dealiased(&mut field_id);

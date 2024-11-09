@@ -88,7 +88,7 @@ pub struct TfCompute<'a> {
         PhantomSlot<
             AutoDerefIter<
                 'static,
-                FieldIter<'static, DestructuredFieldDataRef<'static>>,
+                FieldIter<DestructuredFieldDataRef<'static>>,
             >,
         >,
     >,
@@ -97,7 +97,7 @@ pub struct TfCompute<'a> {
         PhantomSlot<
             AutoDerefIter<
                 'static,
-                FieldIter<'static, DestructuredFieldDataRef<'static>>,
+                FieldIter<DestructuredFieldDataRef<'static>>,
             >,
         >,
     >,

@@ -136,10 +136,7 @@ fn unwrap_render_error(re: RenderError) -> std::io::Error {
     }
 }
 
-fn add_field_data_dead_slots<'a>(
-    fd: impl FieldDataRef<'a>,
-    dead_slots: &mut [usize],
-) {
+fn add_field_data_dead_slots(fd: impl FieldDataRef, dead_slots: &mut [usize]) {
     let mut iter = FieldIter::from_start_allow_dead(fd);
     for ds in dead_slots {
         *ds = (*ds).max(iter.skip_dead_fields());
@@ -195,7 +192,7 @@ fn setup_transform_chain_dead_slots(tc: &mut TransformChain, jd: &JobData) {
                 // if we don't apply, dead fields won't line up anyways
                 // so we don't use dead slots
                 if !jd.session_data.settings.debug_log_no_apply {
-                    add_field_data_dead_slots(&cfr, &mut mc.dead_slots[0..fc]);
+                    add_field_data_dead_slots(cfr, &mut mc.dead_slots[0..fc]);
                 }
             }
             for &gt_id in &env.group_tracks {
@@ -593,9 +590,9 @@ pub fn iters_to_json(iters: &[IterState]) -> Value {
     })
 }
 
-pub fn field_data_to_json<'a>(
+pub fn field_data_to_json(
     jd: &JobData,
-    fd: impl FieldDataRef<'a>,
+    fd: impl FieldDataRef,
     field_count_cap: usize,
     field_info: &FieldInfo,
     field_refs: &[FieldId],
@@ -609,7 +606,7 @@ pub fn field_data_to_json<'a>(
         }
         res @ (std::cmp::Ordering::Less | std::cmp::Ordering::Greater) => res,
     });
-    let mut iter = FieldIter::from_start_allow_dead(&fd);
+    let mut iter = FieldIter::from_start_allow_dead(fd.clone_ref());
 
     let mut del_count = 0;
     let mut string_store = LazyRwLockGuard::new(&jd.session_data.string_store);
@@ -863,7 +860,7 @@ pub fn field_to_json(
     let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);
     field_data_to_json(
         jd,
-        &cfr,
+        cfr,
         field_count_cow,
         &field_info,
         &field.field_refs,

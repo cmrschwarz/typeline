@@ -1,6 +1,4 @@
-use crate::record_data::{
-    action_buffer::ActorId, field::FieldIterRef, iter_hall::FieldIterId,
-};
+use crate::record_data::{action_buffer::ActorId, iter_hall::FieldIterId};
 
 use super::{
     operator::{Operator, TransformInstatiation},

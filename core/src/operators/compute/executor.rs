@@ -59,20 +59,20 @@ pub struct Exectutor<'a, 'b> {
     pub extern_fields: &'a mut IndexSlice<ExternFieldIdx, ExternField>,
     pub extern_field_iters: &'a mut IndexSlice<
         ExternFieldIdx,
-        AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>>,
+        AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
     >,
     pub extern_field_temp_iters: Universe<
         ExternFieldTempIterId,
-        AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>>,
+        AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
     >,
 }
 
 #[allow(clippy::large_enum_variant)]
 pub enum ExecutorInputIter<'a, 'b, 'c> {
     AutoDerefIter(
-        &'a mut AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>>,
+        &'a mut AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
     ),
-    FieldIter(FieldIter<'c, &'c FieldData>),
+    FieldIter(FieldIter<&'c FieldData>),
     Atom(AtomIter<'a>),
     FieldValue(FieldValueIter<'a>),
 }
@@ -131,17 +131,17 @@ fn get_extern_iter<'a, 'b, const ITER_CAP: usize>(
     extern_fields: &mut IndexSlice<ExternFieldIdx, ExternField>,
     extern_field_iters: &mut IndexSlice<
         ExternFieldIdx,
-        AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>>,
+        AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
     >,
     extern_field_temp_iter_handouts: &mut UniverseMultiRefMutHandout<
         'a,
         ExternFieldTempIterId,
-        AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>>,
+        AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
         ITER_CAP,
     >,
     extern_field_idx: ExternFieldIdx,
     access_idx: AccessIdx,
-) -> &'a mut AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>> {
+) -> &'a mut AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>> {
     let ef = &mut extern_fields[extern_field_idx];
     if let Some(iter_slot_idx) = ef.iter_slots[access_idx] {
         return extern_field_temp_iter_handouts.claim(iter_slot_idx);
@@ -163,7 +163,7 @@ fn get_executor_input_iter<
     extern_fields: &mut IndexSlice<ExternFieldIdx, ExternField>,
     extern_field_iters: &mut IndexSlice<
         ExternFieldIdx,
-        AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>>,
+        AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
     >,
     temp_field_handouts: &mut MultiRefMutHandout<
         'a,
@@ -174,7 +174,7 @@ fn get_executor_input_iter<
     extern_field_temp_iter_handouts: &mut UniverseMultiRefMutHandout<
         'a,
         ExternFieldTempIterId,
-        AutoDerefIter<'b, FieldIter<'b, DestructuredFieldDataRef<'b>>>,
+        AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
         ITER_CAP,
     >,
     field_pos: usize,

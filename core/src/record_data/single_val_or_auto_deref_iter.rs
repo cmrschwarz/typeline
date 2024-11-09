@@ -12,7 +12,7 @@ pub enum SingleValOrAutoDerefIter<'a, I> {
     FieldValue(FieldValueIter<'a>),
 }
 
-impl<'a, I: FieldIterator<'a>> SingleValOrAutoDerefIter<'a, I> {
+impl<'a, I: FieldIterator> SingleValOrAutoDerefIter<'a, I> {
     pub fn typed_range_fwd(
         &mut self,
         msm: &MatchSetManager,

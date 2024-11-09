@@ -47,7 +47,7 @@ pub struct GeneratorBatchState<'a, 'b, G: GeneratorSequence> {
     rgt: &'a mut GroupTrackManager,
     fm: &'a FieldManager,
     tf_mgr: &'a mut TransformManager,
-    iter: FieldIter<'b, DestructuredFieldDataRef<'b>>,
+    iter: FieldIter<DestructuredFieldDataRef<'b>>,
     batch_size: usize,
     desired_batch_size: usize,
     group_to_truncate: Option<GroupIdxStable>,

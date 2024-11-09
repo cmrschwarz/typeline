@@ -109,7 +109,7 @@ pub struct SubchainEntry {
 
     field_iters_temp_slot: IndexVec<
         ContinuationVarIdx,
-        PhantomSlot<FieldIter<'static, DestructuredFieldDataRef<'static>>>,
+        PhantomSlot<FieldIter<DestructuredFieldDataRef<'static>>>,
     >,
 }
 
@@ -146,7 +146,7 @@ pub struct FcContinuationState {
         FcSubchainRoundRobinIdx,
         IndexVec<
             ContinuationVarIdx,
-            PhantomSlot<FieldIter<'static, DestructuredFieldDataRef<'static>>>,
+            PhantomSlot<FieldIter<DestructuredFieldDataRef<'static>>>,
         >,
     >,
 

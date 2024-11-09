@@ -760,8 +760,8 @@ impl FieldData {
         }
     }
 
-    pub unsafe fn copy_data<'a>(
-        mut iter: impl FieldIterator<'a>,
+    pub unsafe fn copy_data(
+        mut iter: impl FieldIterator,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut fields_copied = 0;
@@ -783,14 +783,14 @@ impl FieldData {
         let mut iter = other.iter();
         Self::copy(&mut iter, &mut |f| f(self))
     }
-    pub fn append_from_iter<'a>(
+    pub fn append_from_iter(
         &mut self,
-        iter: &mut impl FieldIterator<'a>,
+        iter: &mut impl FieldIterator,
     ) -> usize {
         Self::copy(iter, &mut |f| f(self))
     }
-    pub fn copy<'a>(
-        iter: &mut impl FieldIterator<'a>,
+    pub fn copy(
+        iter: &mut impl FieldIterator,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;
@@ -818,9 +818,9 @@ impl FieldData {
         copied_fields
     }
 
-    pub fn copy_resolve_refs<'a, I: FieldIterator<'a>>(
+    pub fn copy_resolve_refs<I: FieldIterator>(
         match_set_mgr: &mut MatchSetManager,
-        iter: &mut AutoDerefIter<'a, I>,
+        iter: &mut AutoDerefIter<I>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut FieldData)),
     ) -> usize {
         let mut copied_fields = 0;
@@ -939,7 +939,7 @@ impl FieldData {
         copied_fields
     }
     #[allow(clippy::iter_not_returning_iterator)]
-    pub fn iter(&self) -> FieldIter<'_, &'_ FieldData> {
+    pub fn iter(&self) -> FieldIter<&'_ FieldData> {
         FieldIter::from_start(self)
     }
     pub unsafe fn internals_mut(&mut self) -> FieldDataInternalsMut {

@@ -33,7 +33,7 @@ pub struct BasicUpdateData<'a, 'b, 'c> {
     pub tf_id: TransformId,
     pub iter: &'a mut AutoDerefIter<
         'c,
-        BoundedIter<'c, FieldIter<'c, DestructuredFieldDataRef<'c>>>,
+        BoundedIter<FieldIter<DestructuredFieldDataRef<'c>>>,
     >,
 }
 

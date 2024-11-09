@@ -3,7 +3,9 @@ use bitbybit::bitfield;
 use crate::record_data::field_data::{
     FieldData, FieldValueFormat, FieldValueHeader, FieldValueRepr, RunLength,
 };
-use std::{cmp::Ordering, collections::VecDeque, marker::PhantomData};
+use std::{
+    cell::Ref, cmp::Ordering, collections::VecDeque, marker::PhantomData,
+};
 
 use super::{
     field::{FieldId, FieldManager},
@@ -13,15 +15,18 @@ use super::{
     ref_iter::AutoDerefIter,
 };
 
-pub trait FieldDataRef<'a>: Sized + Clone {
-    fn headers(&self) -> &'a VecDeque<FieldValueHeader>;
-    fn data(&self) -> &'a FieldDataBuffer;
+pub trait FieldDataRef: Sized {
+    fn headers(&self) -> &VecDeque<FieldValueHeader>;
+    fn data(&self) -> &FieldDataBuffer;
     fn field_count(&self) -> usize;
-    fn equals<'b, R: FieldDataRef<'b>>(&self, other: &R) -> bool {
+    fn equals<R: FieldDataRef>(&self, other: &R) -> bool {
         self.field_count() == other.field_count()
             && std::ptr::eq(self.headers(), other.headers())
             && std::ptr::eq(self.data(), other.data())
     }
+    // We cannot derive the `Clone` trait as std::cell::Ref doesn't implement
+    // it.
+    fn clone_ref(&self) -> Self;
 }
 
 #[bitfield(u8, default = 0b0111)]
@@ -36,33 +41,41 @@ pub struct FieldIterOpts {
     invert_kinds_check: bool,
 }
 
-impl<'a> FieldDataRef<'a> for &'a FieldData {
+impl FieldDataRef for &FieldData {
     #[inline(always)]
-    fn headers(&self) -> &'a VecDeque<FieldValueHeader> {
+    fn headers(&self) -> &VecDeque<FieldValueHeader> {
         &self.headers
     }
     #[inline(always)]
-    fn data(&self) -> &'a FieldDataBuffer {
+    fn data(&self) -> &FieldDataBuffer {
         &self.data
     }
     #[inline(always)]
     fn field_count(&self) -> usize {
         self.field_count
     }
+    #[inline(always)]
+    fn clone_ref(&self) -> Self {
+        self
+    }
 }
 
-impl<'a, R: FieldDataRef<'a>> FieldDataRef<'a> for &R {
+impl<'a> FieldDataRef for Ref<'a, FieldData> {
     #[inline(always)]
-    fn headers(&self) -> &'a VecDeque<FieldValueHeader> {
-        (**self).headers()
+    fn headers(&self) -> &VecDeque<FieldValueHeader> {
+        &self.headers
     }
     #[inline(always)]
-    fn data(&self) -> &'a FieldDataBuffer {
-        (**self).data()
+    fn data(&self) -> &FieldDataBuffer {
+        &self.data
     }
     #[inline(always)]
     fn field_count(&self) -> usize {
-        (**self).field_count()
+        self.field_count
+    }
+    #[inline(always)]
+    fn clone_ref(&self) -> Self {
+        Ref::clone(self)
     }
 }
 
@@ -73,17 +86,21 @@ pub struct DestructuredFieldDataRef<'a> {
     pub(super) field_count: usize,
 }
 
-impl<'a> FieldDataRef<'a> for DestructuredFieldDataRef<'a> {
-    fn headers(&self) -> &'a VecDeque<FieldValueHeader> {
+impl<'a> FieldDataRef for DestructuredFieldDataRef<'a> {
+    fn headers(&self) -> &VecDeque<FieldValueHeader> {
         self.headers
     }
 
-    fn data(&self) -> &'a FieldDataBuffer {
+    fn data(&self) -> &FieldDataBuffer {
         self.data
     }
 
     fn field_count(&self) -> usize {
         self.field_count
+    }
+
+    fn clone_ref(&self) -> Self {
+        self.clone()
     }
 }
 
@@ -103,10 +120,10 @@ impl<'a> DestructuredFieldDataRef<'a> {
 // This is necessary because `AutoDerefIterator` will temporarily construct
 // iterators to referenced fields but need the lifetimes to elements returned
 // by these temporary
-pub trait FieldIterator<'a>: Sized + Clone {
-    type FieldDataRefType: FieldDataRef<'a>;
+pub trait FieldIterator: Sized + Clone {
+    type FieldDataRefType: FieldDataRef;
     fn field_data_ref(&self) -> &Self::FieldDataRefType;
-    fn into_base_iter(self) -> FieldIter<'a, Self::FieldDataRefType>;
+    fn into_base_iter(self) -> FieldIter<Self::FieldDataRefType>;
     fn get_next_field_pos(&self) -> usize;
     fn is_next_valid(&self) -> bool;
     fn is_prev_valid(&self) -> bool;
@@ -117,12 +134,12 @@ pub trait FieldIterator<'a>: Sized + Clone {
     // returned, not the one after it
     fn get_next_header(&self) -> FieldValueHeader;
     fn get_next_header_data(&self) -> usize;
-    fn get_next_header_ref(&self) -> &'a FieldValueHeader {
+    fn get_next_header_ref(&self) -> &FieldValueHeader {
         &self.field_data_ref().headers()[self.get_next_header_index()]
     }
     fn get_next_header_index(&self) -> usize;
     fn get_prev_header_index(&self) -> usize;
-    fn get_next_typed_field(&mut self) -> TypedField<'a>;
+    fn get_next_typed_field(&mut self) -> TypedField;
     fn field_run_length_fwd(&self) -> RunLength;
     fn field_run_length_bwd(&self) -> RunLength;
     fn field_run_length_fwd_oversize(&self) -> RunLength {
@@ -198,37 +215,32 @@ pub trait FieldIterator<'a>: Sized + Clone {
             self.next_n_fields(delta as usize, allow_ring_wrap) as isize
         }
     }
-    fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField<'a>>;
-    fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField<'a>>;
+    fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField>;
+    fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField>;
     fn typed_range_fwd(
         &mut self,
         limit: usize,
         opts: FieldIterOpts,
-    ) -> Option<ValidTypedRange<'a>>;
+    ) -> Option<ValidTypedRange>;
     fn typed_range_bwd(
         &mut self,
         limit: usize,
         opts: FieldIterOpts,
-    ) -> Option<ValidTypedRange<'a>>;
-    fn bounded(
-        self,
-        backwards: usize,
-        forwards: usize,
-    ) -> BoundedIter<'a, Self> {
+    ) -> Option<ValidTypedRange>;
+    fn bounded(self, backwards: usize, forwards: usize) -> BoundedIter<Self> {
         BoundedIter::new_relative(self, backwards, forwards)
     }
     fn auto_deref(
         self,
-        fm: &'a FieldManager,
+        fm: &FieldManager,
         field_id: FieldId,
-    ) -> AutoDerefIter<'a, Self> {
+    ) -> AutoDerefIter<Self> {
         AutoDerefIter::new(fm, field_id, self)
     }
 }
 
 #[repr(C)]
-#[derive(Clone)]
-pub struct FieldIter<'a, R: FieldDataRef<'a>> {
+pub struct FieldIter<R: FieldDataRef> {
     pub(super) fdr: R,
     pub(super) field_pos: usize,
     pub(super) data: usize,
@@ -236,10 +248,26 @@ pub struct FieldIter<'a, R: FieldDataRef<'a>> {
     pub(super) header_rl_offset: RunLength,
     pub(super) header_rl_total: RunLength,
     pub(super) header_fmt: FieldValueFormat,
-    pub(super) _phantom_data: PhantomData<&'a ()>,
+    pub(super) _phantom_data: PhantomData<&'static ()>,
 }
 
-impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
+impl<R: FieldDataRef> Clone for FieldIter<R> {
+    fn clone(&self) -> Self {
+        Self {
+            // This is the reason we cannot derive this.
+            fdr: self.fdr.clone_ref(),
+            field_pos: self.field_pos.clone(),
+            data: self.data.clone(),
+            header_idx: self.header_idx.clone(),
+            header_rl_offset: self.header_rl_offset.clone(),
+            header_rl_total: self.header_rl_total.clone(),
+            header_fmt: self.header_fmt.clone(),
+            _phantom_data: self._phantom_data.clone(),
+        }
+    }
+}
+
+impl<'a, R: FieldDataRef> FieldIter<R> {
     pub fn from_start_allow_dead(fdr: R) -> Self {
         let first_header = fdr.headers().front();
         Self {
@@ -334,7 +362,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIter<'a, R> {
         self.header_rl_total = h.run_length;
     }
 }
-impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
+impl<'a, R: FieldDataRef> FieldIterator for FieldIter<R> {
     type FieldDataRefType = R;
     fn field_data_ref(&self) -> &Self::FieldDataRefType {
         &self.fdr
@@ -398,7 +426,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             self.header_idx
         }
     }
-    fn get_next_typed_field(&mut self) -> TypedField<'a> {
+    fn get_next_typed_field(&mut self) -> TypedField {
         // SAFETY: debug assert is not enough here because we use unsafe below
         assert!(self.is_next_valid());
         let data = self.get_next_field_data();
@@ -653,7 +681,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             }
         }
     }
-    fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
+    fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField> {
         if limit == 0 || !self.is_next_valid() {
             None
         } else {
@@ -676,7 +704,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
             Some(unsafe { TypedField::new(&self.fdr, fmt, data, run_len) })
         }
     }
-    fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
+    fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField> {
         if limit == 0 || self.prev_field() == 0 {
             None
         } else {
@@ -702,7 +730,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         &mut self,
         limit: usize,
         opts: FieldIterOpts,
-    ) -> Option<ValidTypedRange<'a>> {
+    ) -> Option<ValidTypedRange> {
         if limit == 0 || !self.is_next_valid() {
             return None;
         }
@@ -753,7 +781,7 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         &mut self,
         limit: usize,
         opts: FieldIterOpts,
-    ) -> Option<ValidTypedRange<'a>> {
+    ) -> Option<ValidTypedRange> {
         if limit == 0 || !self.is_prev_valid() {
             return None;
         }
@@ -789,24 +817,24 @@ impl<'a, R: FieldDataRef<'a>> FieldIterator<'a> for FieldIter<'a, R> {
         unsafe { ValidTypedRange::new_unchecked(range) }.into()
     }
 
-    fn into_base_iter(self) -> FieldIter<'a, R> {
+    fn into_base_iter(self) -> FieldIter<R> {
         self
     }
 }
 
 #[derive(Clone)]
-pub struct BoundedIter<'a, I>
+pub struct BoundedIter<I>
 where
-    I: FieldIterator<'a>,
+    I: FieldIterator,
 {
     pub(super) iter: I,
     pub(super) min: usize,
     pub(super) max: usize,
-    _phantom_data: PhantomData<&'a FieldData>,
+    _phantom_data: PhantomData<&'static FieldData>,
 }
-impl<'a, I> BoundedIter<'a, I>
+impl<'a, I> BoundedIter<I>
 where
-    I: FieldIterator<'a>,
+    I: FieldIterator,
 {
     pub fn new(
         iter: I,
@@ -842,9 +870,9 @@ where
         self.get_next_field_pos() - self.min
     }
 }
-impl<'a, I> FieldIterator<'a> for BoundedIter<'a, I>
+impl<'a, I> FieldIterator for BoundedIter<I>
 where
-    I: FieldIterator<'a>,
+    I: FieldIterator,
 {
     type FieldDataRefType = I::FieldDataRefType;
     fn field_data_ref(&self) -> &Self::FieldDataRefType {
@@ -890,7 +918,7 @@ where
         debug_assert!(self.is_prev_valid());
         self.iter.get_prev_header_index()
     }
-    fn get_next_typed_field(&mut self) -> TypedField<'a> {
+    fn get_next_typed_field(&mut self) -> TypedField {
         debug_assert!(self.is_next_valid());
         self.iter.get_next_typed_field()
     }
@@ -954,35 +982,35 @@ where
         let n = n.min(self.range_bwd());
         self.iter.prev_n_fields_with_fmt(n, kinds, opts)
     }
-    fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
+    fn typed_field_fwd(&mut self, limit: usize) -> Option<TypedField> {
         self.iter.typed_field_fwd(limit.min(self.range_fwd()))
     }
-    fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField<'a>> {
+    fn typed_field_bwd(&mut self, limit: usize) -> Option<TypedField> {
         self.iter.typed_field_bwd(limit.min(self.range_bwd()))
     }
     fn typed_range_fwd(
         &mut self,
         limit: usize,
         opts: FieldIterOpts,
-    ) -> Option<ValidTypedRange<'a>> {
+    ) -> Option<ValidTypedRange> {
         self.iter.typed_range_fwd(limit.min(self.range_fwd()), opts)
     }
     fn typed_range_bwd(
         &mut self,
         limit: usize,
         opts: FieldIterOpts,
-    ) -> Option<ValidTypedRange<'a>> {
+    ) -> Option<ValidTypedRange> {
         self.iter.typed_range_bwd(limit.min(self.range_bwd()), opts)
     }
 
-    fn into_base_iter(self) -> FieldIter<'a, Self::FieldDataRefType> {
+    fn into_base_iter(self) -> FieldIter<Self::FieldDataRefType> {
         self.iter.into_base_iter()
     }
 }
-impl<'a, R: FieldDataRef<'a>, I: FieldIterator<'a, FieldDataRefType = R>>
-    From<BoundedIter<'a, I>> for FieldIter<'a, R>
+impl<'a, R: FieldDataRef, I: FieldIterator<FieldDataRefType = R>>
+    From<BoundedIter<I>> for FieldIter<R>
 {
-    fn from(value: BoundedIter<'a, I>) -> Self {
+    fn from(value: BoundedIter<I>) -> Self {
         value.into_base_iter()
     }
 }

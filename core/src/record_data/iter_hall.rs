@@ -384,7 +384,7 @@ impl IterHall {
     pub fn iter_states(&self) -> impl Iterator<Item = IterState> + '_ {
         self.iters.iter().map(Cell::get)
     }
-    fn calculate_start_header<'a, R: FieldDataRef<'a>>(
+    fn calculate_start_header<'a, R: FieldDataRef>(
         fr: &R,
         state: &mut IterState,
     ) -> FieldValueHeader {
@@ -408,10 +408,10 @@ impl IterHall {
         h
     }
     // SAFETY: caller must ensure that the state comes from this data source
-    pub unsafe fn get_iter_from_state_unchecked<'a, R: FieldDataRef<'a>>(
+    pub unsafe fn get_iter_from_state_unchecked<R: FieldDataRef>(
         fr: R,
         mut state: IterState,
-    ) -> FieldIter<'a, R> {
+    ) -> FieldIter<R> {
         let h = Self::calculate_start_header(&fr, &mut state);
         let mut res = FieldIter {
             fdr: fr,
@@ -426,9 +426,9 @@ impl IterHall {
         res.skip_dead_fields();
         res
     }
-    pub fn iter_to_iter_state<'a, R: FieldDataRef<'a>>(
+    pub fn iter_to_iter_state<R: FieldDataRef>(
         &self,
-        mut iter: FieldIter<'a, R>,
+        mut iter: FieldIter<R>,
         first_left_leaning_actor_id: ActorId,
         #[cfg_attr(not(feature = "debug_state"), allow(unused_variables))]
         kind: IterKind,
@@ -467,11 +467,11 @@ impl IterHall {
     }
 
     // SAFETY: caller must ensure that the iter uses the correct data source
-    pub unsafe fn store_iter_unchecked<'a, R: FieldDataRef<'a>>(
+    pub unsafe fn store_iter_unchecked<R: FieldDataRef>(
         &self,
         #[allow(unused)] field_id: FieldId,
         iter_id: FieldIterId,
-        iter: FieldIter<'a, R>,
+        iter: FieldIter<R>,
     ) {
         let mut state = self.iters[iter_id].get();
         state = self.iter_to_iter_state(
@@ -503,8 +503,8 @@ impl IterHall {
         self.get_owned_data_mut()
     }
 
-    pub fn copy<'a>(
-        iter: &mut impl FieldIterator<'a>,
+    pub fn copy(
+        iter: &mut impl FieldIterator,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
         let adapted_target_applicator =
@@ -515,7 +515,7 @@ impl IterHall {
             };
         FieldData::copy(iter, adapted_target_applicator)
     }
-    pub fn copy_resolve_refs<'a, I: FieldIterator<'a>>(
+    pub fn copy_resolve_refs<'a, I: FieldIterator>(
         match_set_mgr: &mut MatchSetManager,
         iter: &mut AutoDerefIter<'a, I>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
@@ -580,7 +580,10 @@ impl IterHall {
     pub fn cow_variant(&self) -> Option<CowVariant> {
         self.data_source.cow_variant()
     }
-    pub fn get_iter_kind(&self, #[allow(unused)] iter_id: FieldIterId) -> IterKind {
+    pub fn get_iter_kind(
+        &self,
+        #[allow(unused)] iter_id: FieldIterId,
+    ) -> IterKind {
         #[cfg(not(feature = "debug_state"))]
         return IterKind::Undefined;
         #[cfg(feature = "debug_state")]

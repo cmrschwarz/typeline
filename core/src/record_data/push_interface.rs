@@ -1105,7 +1105,7 @@ pub unsafe trait PushInterface {
 
     fn extend_from_iter<'a>(
         &mut self,
-        mut iter: impl FieldIterator<'a>,
+        mut iter: impl FieldIterator,
         mut count: usize,
         try_header_rle: bool,
         try_data_rle: bool,
@@ -1119,7 +1119,7 @@ pub unsafe trait PushInterface {
         debug_assert_eq!(count, 0);
     }
 
-    fn extend_from_auto_deref_iter<'a, I: FieldIterator<'a>>(
+    fn extend_from_auto_deref_iter<'a, I: FieldIterator>(
         &mut self,
         msm: &MatchSetManager,
         iter: &mut AutoDerefIter<'a, I>,

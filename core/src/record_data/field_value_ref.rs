@@ -112,8 +112,8 @@ pub struct TypedRange<'a> {
 pub struct ValidTypedRange<'a>(TypedRange<'a>);
 
 impl<'a> FieldValueRef<'a> {
-    pub unsafe fn new<R: FieldDataRef<'a>>(
-        fdr: R,
+    pub unsafe fn new<R: FieldDataRef>(
+        fdr: &'a R,
         fmt: FieldValueFormat,
         data_begin: usize,
     ) -> Self {
@@ -262,8 +262,8 @@ impl<'a> From<MaybeTextRef<'a>> for FieldValueRef<'a> {
 }
 
 impl<'a> TypedField<'a> {
-    pub unsafe fn new<R: FieldDataRef<'a>>(
-        fdr: R,
+    pub unsafe fn new<R: FieldDataRef>(
+        fdr: &'a R,
         fmt: FieldValueFormat,
         data_begin: usize,
         run_len: RunLength,
@@ -312,8 +312,8 @@ unsafe fn drop_slice<T>(slice_start_ptr: *mut u8, len: usize) {
 }
 
 impl<'a> FieldValueSlice<'a> {
-    pub unsafe fn new<R: FieldDataRef<'a>>(
-        fdr: R,
+    pub unsafe fn new<R: FieldDataRef>(
+        fdr: &'a R,
         fmt: FieldValueFormat,
         data_begin: usize,
         data_end: usize,
@@ -461,8 +461,8 @@ impl<'a> IntoIterator for FieldValueSlice<'a> {
 }
 
 impl<'a> TypedRange<'a> {
-    pub fn new<R: FieldDataRef<'a>>(
-        fdr: R,
+    pub fn new<R: FieldDataRef>(
+        fdr: &'a R,
         fmt: FieldValueFormat,
         data_begin: usize,
         data_end: usize,
@@ -497,8 +497,8 @@ impl<'a> ValidTypedRange<'a> {
     }
 }
 
-unsafe fn to_slice<'a, T: Sized, R: FieldDataRef<'a>>(
-    fdr: R,
+unsafe fn to_slice<'a, T: Sized, R: FieldDataRef>(
+    fdr: &'a R,
     data_begin: usize,
     data_end: usize,
 ) -> &'a [T] {
@@ -520,8 +520,8 @@ unsafe fn to_slice<'a, T: Sized, R: FieldDataRef<'a>>(
     }
 }
 
-unsafe fn to_ref<'a, T: Sized, R: FieldDataRef<'a>>(
-    fdr: R,
+unsafe fn to_ref<'a, T: Sized, R: FieldDataRef>(
+    fdr: &'a R,
     data_begin: usize,
 ) -> &'a T {
     unsafe { &*fdr.data().ptr_from_index(data_begin).cast() }
