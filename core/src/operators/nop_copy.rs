@@ -3,7 +3,7 @@ use crate::{
     job::JobData,
     liveness_analysis::LivenessData,
     record_data::{
-        field::FieldRefOffset, iter_hall::IterId,
+        field::FieldRefOffset, iter_hall::FieldIterId,
         push_interface::PushInterface,
     },
 };
@@ -26,7 +26,7 @@ pub struct OpNopCopy {
 pub struct TfNopCopy {
     #[allow(unused)] // TODO
     may_consume_input: bool,
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
     input_field_ref_offset: FieldRefOffset,
 }
 

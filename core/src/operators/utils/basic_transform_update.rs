@@ -5,7 +5,7 @@ use crate::{
     record_data::{
         field::{FieldId, FieldManager},
         group_track::GroupTrackManager,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         iters::{BoundedIter, DestructuredFieldDataRef, FieldIter},
         match_set::{MatchSetId, MatchSetManager},
         ref_iter::AutoDerefIter,
@@ -41,7 +41,7 @@ fn basic_transform_update_with_batch(
     jd: &mut JobData,
     tf_id: TransformId,
     extra_output_fields: impl IntoIterator<Item = FieldId>,
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
     mut f: impl FnMut(BasicUpdateData) -> (usize, bool),
     batch_size: usize,
     ps: PipelineState,
@@ -96,7 +96,7 @@ pub fn basic_transform_update_claim_all(
     // if this is None, assume the output field of the transform
     // is the only output
     extra_output_fields: impl IntoIterator<Item = FieldId>,
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
     f: impl for<'c> FnMut(BasicUpdateData<'_, '_, 'c>) -> (usize, bool),
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
@@ -117,7 +117,7 @@ pub fn basic_transform_update(
     // if this is None, assume the output field of the transform
     // is the only output
     extra_output_fields: impl IntoIterator<Item = FieldId>,
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
     f: impl for<'c> FnMut(BasicUpdateData<'_, '_, 'c>) -> (usize, bool),
 ) {
     let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);

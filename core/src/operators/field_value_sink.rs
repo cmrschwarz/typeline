@@ -5,7 +5,7 @@ use crate::{
         field_value::FieldValue,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         iters::{FieldIterOpts, FieldIterator},
         push_interface::PushInterface,
         ref_iter::{
@@ -58,7 +58,7 @@ struct StreamValueHandle {
 
 pub struct TfFieldValueSink<'a> {
     handle: &'a Mutex<FieldValueSink>,
-    batch_iter: IterId,
+    batch_iter: FieldIterId,
     stream_value_handles: CountedUniverse<usize, StreamValueHandle>,
 }
 

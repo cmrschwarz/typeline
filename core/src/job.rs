@@ -30,7 +30,7 @@ use crate::{
         group_track::{
             GroupIdxStable, GroupTrackId, GroupTrackIterRef, GroupTrackManager,
         },
-        iter_hall::{IterId, IterKind},
+        iter_hall::{FieldIterId, IterKind},
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         record_buffer::RecordBuffer,
@@ -1273,7 +1273,7 @@ impl<'a> JobData<'a> {
         &self,
         tf_state: &TransformState,
         field_id: FieldId,
-    ) -> IterId {
+    ) -> FieldIterId {
         #[cfg(debug_assertions)]
         tf_state.iters_added.set(true);
         self.field_mgr.claim_iter(
@@ -1299,7 +1299,7 @@ impl<'a> JobData<'a> {
     pub fn claim_iter_for_tf_state(
         &self,
         tf_state: &TransformState,
-    ) -> IterId {
+    ) -> FieldIterId {
         self.claim_iter_for_tf_state_and_field(tf_state, tf_state.input_field)
     }
     pub fn claim_iter_ref_for_tf_state(

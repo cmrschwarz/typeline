@@ -9,7 +9,7 @@ use crate::{
     },
     record_data::{
         action_buffer::ActorId, group_track::GroupTrackIterRef,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
     },
     smallbox,
 };
@@ -55,7 +55,7 @@ pub struct BasicGeneratorWrapper<T> {
 
 pub struct BasicGeneratorTransform<'a, Op: BasicGenerator> {
     op: &'a BasicGeneratorWrapper<Op>,
-    input_iter: IterId,
+    input_iter: FieldIterId,
     group_track_iter: GroupTrackIterRef,
     actor_id: ActorId,
     generator: Op::Gen,

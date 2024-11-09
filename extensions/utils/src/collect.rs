@@ -22,7 +22,7 @@ use scr_core::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
         group_track::GroupTrackIterRef,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         iters::FieldIterOpts,
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
@@ -34,7 +34,7 @@ use scr_core::{
 pub struct OpCollect {}
 
 pub struct TfCollect {
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
     group_track_iter: GroupTrackIterRef,
     aggregate: Array,
     actor_id: ActorId,

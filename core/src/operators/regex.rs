@@ -24,7 +24,7 @@ use crate::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
         formattable::RealizedFormatKey,
-        iter_hall::{IterId, IterKind},
+        iter_hall::{FieldIterId, IterKind},
         iters::{FieldIterOpts, FieldIterator},
         push_interface::PushInterface,
         ref_iter::{
@@ -77,7 +77,7 @@ pub struct TfRegex<'a> {
     pub(crate) text_only_regex:
         Option<(regex::Regex, regex::CaptureLocations)>,
     pub(crate) capture_group_fields: Vec<Option<FieldId>>,
-    pub(crate) input_field_iter_id: IterId,
+    pub(crate) input_field_iter_id: FieldIterId,
     pub(crate) unfinished_value_offset: usize,
     pub(crate) actor_id: ActorId,
     pub(crate) input_field_ref_offset: FieldRefOffset,

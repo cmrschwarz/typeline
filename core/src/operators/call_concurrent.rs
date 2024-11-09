@@ -20,7 +20,7 @@ use crate::{
         field::{FieldId, FieldManager},
         field_action::FieldActionKind,
         group_track::VOID_GROUP_TRACK_ID,
-        iter_hall::{IterId, IterKind},
+        iter_hall::{FieldIterId, IterKind},
         iters::FieldIterator,
         match_set::MatchSetId,
         record_buffer::{
@@ -53,7 +53,7 @@ pub struct OpCallConcurrent {
 }
 pub struct RecordBufferFieldMapping {
     source_field_id: FieldId,
-    source_field_iter: IterId,
+    source_field_iter: FieldIterId,
     buf_field: RecordBufferFieldId,
 }
 pub struct TfCallConcurrent<'a> {

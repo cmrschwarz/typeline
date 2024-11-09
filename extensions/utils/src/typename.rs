@@ -17,7 +17,7 @@ use scr_core::{
         },
     },
     record_data::{
-        field_value_ref::FieldValueSlice, iter_hall::IterId,
+        field_value_ref::FieldValueSlice, iter_hall::FieldIterId,
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
     smallbox,
@@ -27,7 +27,7 @@ use scr_core::{
 pub struct OpTypename {}
 
 pub struct TfTypename {
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
 }
 
 pub fn parse_op_typename(

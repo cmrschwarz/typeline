@@ -23,7 +23,7 @@ use scr_core::{
         field_data::FieldData,
         field_value::{FieldValue, Object},
         field_value_ref::FieldValueSlice,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueRangeIter,
         varying_type_inserter::VaryingTypeInserter,
@@ -43,7 +43,7 @@ pub struct OpFlatten {
 pub struct TfFlatten {
     #[allow(unused)] // TODO
     may_consume_input: bool,
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
     actor_id: ActorId,
     input_field_ref_offset: FieldRefOffset,
 }

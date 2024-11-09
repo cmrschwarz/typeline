@@ -14,7 +14,7 @@ use crate::{
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
     field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
-    iter_hall::{CowDataSource, FieldDataSource, IterHall, IterId, IterKind},
+    iter_hall::{CowDataSource, FieldDataSource, IterHall, FieldIterId, IterKind},
     iters::{
         BoundedIter, DestructuredFieldDataRef, FieldDataRef, FieldIter,
         FieldIterator,
@@ -25,12 +25,12 @@ use super::{
     varying_type_inserter::VaryingTypeInserter,
 };
 
-pub const FIELD_REF_LOOKUP_ITER_ID: IterId = IterId::MIN;
+pub const FIELD_REF_LOOKUP_ITER_ID: FieldIterId = FieldIterId::MIN;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FieldIterRef {
     pub field_id: FieldId,
-    pub iter_id: IterId,
+    pub iter_id: FieldIterId,
 }
 
 #[derive(Default)]
@@ -165,7 +165,7 @@ impl FieldManager {
         field_id: FieldId,
         first_right_leaning_actor: ActorId,
         kind: IterKind,
-    ) -> IterId {
+    ) -> FieldIterId {
         self.borrow_field_dealiased_mut(field_id)
             .iter_hall
             .claim_iter(first_right_leaning_actor, kind)
@@ -624,7 +624,7 @@ impl FieldManager {
         &self,
         msm: &mut MatchSetManager,
         field_id: FieldId,
-        iter_id: IterId,
+        iter_id: FieldIterId,
         delta: isize,
     ) {
         let field_id = self.dealias_field_id(field_id);
@@ -650,7 +650,7 @@ impl FieldManager {
         &'a self,
         input_field_id: FieldId,
         input_field: &'a CowFieldDataRef<'a>,
-        input_iter_id: IterId,
+        input_iter_id: FieldIterId,
     ) -> AutoDerefIter<'a, FieldIter<'a, DestructuredFieldDataRef<'a>>> {
         AutoDerefIter::new(
             self,
@@ -662,7 +662,7 @@ impl FieldManager {
         &'a self,
         input_field_id: FieldId,
         input_field: &'a CowFieldDataRef<'a>,
-        input_iter_id: IterId,
+        input_iter_id: FieldIterId,
         batch_size: usize,
     ) -> AutoDerefIter<
         'a,
@@ -679,7 +679,7 @@ impl FieldManager {
         &self,
         mut field_id: FieldId,
         cfdr: &'a CowFieldDataRef<'a>,
-        iter_id: IterId,
+        iter_id: FieldIterId,
     ) -> FieldIter<'a, DestructuredFieldDataRef<'a>> {
         // PERF: maybe write a custom compare instead of doing this traversal?
         assert!(cfdr.destructured_field_ref().equals(
@@ -706,7 +706,7 @@ impl FieldManager {
     pub fn store_iter<'a, R: FieldDataRef<'a>>(
         &self,
         mut field_id: FieldId,
-        iter_id: IterId,
+        iter_id: FieldIterId,
         iter: impl Into<FieldIter<'a, R>>,
     ) {
         let iter_base = iter.into();
@@ -733,7 +733,7 @@ impl FieldManager {
         &self,
         msm: &MatchSetManager,
         mut field_id: FieldId,
-        iter_id: IterId,
+        iter_id: FieldIterId,
         iter: impl Into<FieldIter<'a, R>>,
     ) {
         let iter_base = iter.into();

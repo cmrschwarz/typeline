@@ -14,7 +14,7 @@ use crate::{
         custom_data::CustomDataBox,
         field_data::FieldValueRepr,
         field_value::{FieldValue, FieldValueKind, Object},
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueData},
     },
@@ -60,7 +60,7 @@ pub struct TfLiteral<'a> {
     data: &'a Literal,
     explicit_count: Option<ExplicitCount>,
     value_inserted: bool,
-    iter_id: IterId,
+    iter_id: FieldIterId,
 }
 
 impl OpLiteral {

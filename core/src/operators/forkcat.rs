@@ -30,7 +30,7 @@ use crate::{
         group_track::{
             GroupTrack, GroupTrackId, GroupTrackIterMut, GroupTrackIterRef,
         },
-        iter_hall::{IterId, IterKind},
+        iter_hall::{FieldIterId, IterKind},
         iters::{
             DestructuredFieldDataRef, FieldIter, FieldIterOpts, FieldIterator,
         },
@@ -121,7 +121,7 @@ pub struct TfForkCat {
 pub struct ContinuationFieldMapping {
     pub cont_field_id: FieldId,
     pub sc_field_id: FieldId,
-    pub sc_field_iter_id: IterId,
+    pub sc_field_iter_id: FieldIterId,
     pub sc_field_ref_offset_in_cont: FieldRefOffset,
     // start of the field_refs list from the field in the subchain in the
     // continuation field's field_refs list

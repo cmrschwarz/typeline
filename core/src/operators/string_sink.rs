@@ -18,7 +18,7 @@ use crate::{
         formattable::{
             Formattable, FormattingContext, RealizedFormatKey, TypeReprFormat,
         },
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         iters::{FieldIterOpts, FieldIterator},
         push_interface::PushInterface,
         ref_iter::{
@@ -144,7 +144,7 @@ struct StreamValueHandle {
 
 pub struct TfStringSink<'a> {
     handle: &'a Mutex<StringSink>,
-    iter_id: IterId,
+    iter_id: FieldIterId,
     stream_value_handles: CountedUniverse<usize, StreamValueHandle>,
     rationals_print_mode: RationalsPrintMode,
 }

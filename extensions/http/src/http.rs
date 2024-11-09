@@ -31,7 +31,7 @@ use scr_core::{
     record_data::{
         field_data::{FieldData, RunLength},
         field_value_ref::FieldValueRef,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         push_interface::PushInterface,
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
@@ -108,7 +108,7 @@ impl Connection {
 }
 
 pub struct TfHttpRequest {
-    iter_id: IterId,
+    iter_id: FieldIterId,
     // TODO: lru
     dns_cache: HashMap<(String, u16), Vec<SocketAddr>>,
     running_connections: CountedUniverse<usize, Connection>,

@@ -22,7 +22,7 @@ use scr_core::{
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
         group_track::GroupTrackIterRef,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         iters::FieldIterOpts,
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueRangeIter,
@@ -38,7 +38,7 @@ use scr_core::operators::utils::any_number::AnyNumber;
 pub struct OpSum {}
 
 pub struct TfSum {
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
     group_track_iter: GroupTrackIterRef,
     aggregate: AnyNumber,
     current_group_error_type: Option<FieldValueRepr>,

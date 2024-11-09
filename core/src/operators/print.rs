@@ -29,7 +29,7 @@ use crate::{
             format_error_raw, format_rational, Formattable, FormattingContext,
             RealizedFormatKey,
         },
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         iters::{FieldIterOpts, FieldIterator, UnfoldIterRunLength},
         match_set::MatchSetManager,
         push_interface::PushInterface,
@@ -78,7 +78,7 @@ pub struct OpPrint {
 
 pub struct TfPrint<'a> {
     current_stream_val: Option<StreamValueId>,
-    iter_id: IterId,
+    iter_id: FieldIterId,
     streams_kept_alive: usize,
     target: AnyWriter<'a>,
     flush_on_every_print: bool,

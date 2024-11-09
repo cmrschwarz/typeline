@@ -1,4 +1,6 @@
-use crate::record_data::{action_buffer::ActorId, field::FieldIterRef};
+use crate::record_data::{
+    action_buffer::ActorId, field::FieldIterRef, iter_hall::FieldIterId,
+};
 
 use super::{
     operator::{Operator, TransformInstatiation},
@@ -7,7 +9,7 @@ use super::{
 
 pub struct OpLines {}
 pub struct TfLines {
-    iter: FieldIterRef,
+    iter: FieldIterId,
     actor: ActorId,
     line_offset: usize,
 }
@@ -41,7 +43,7 @@ impl Operator for OpLines {
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         TransformInstatiation::Single(TransformData::from_custom(TfLines {
-            iter: job.job_data.claim_iter_ref_for_tf_state(tf_state),
+            iter: job.job_data.claim_iter_for_tf_state(tf_state),
             actor: job.job_data.add_actor_for_tf_state(tf_state),
             line_offset: 0,
         }))
@@ -52,16 +54,24 @@ impl Transform<'_> for TfLines {
     fn update(
         &mut self,
         jd: &mut crate::job::JobData<'_>,
-        _tf_id: super::transform::TransformId,
+        tf_id: super::transform::TransformId,
     ) {
-        let input_field = jd
-            .field_mgr
-            .get_cow_field_ref(&jd.match_set_mgr, self.iter.field_id);
+        let tf = &jd.tf_mgr.transforms[tf_id];
+        let field_id = tf.input_field;
+        let ms_id = tf.match_set_id;
+
+        let input_field =
+            jd.field_mgr.get_cow_field_ref(&jd.match_set_mgr, field_id);
 
         let mut _iter = jd.field_mgr.get_auto_deref_iter(
-            self.iter.field_id,
+            field_id,
             &input_field,
-            self.iter.iter_id,
+            self.iter,
         );
+
+        let mut ab = jd.match_set_mgr.match_sets[ms_id]
+            .action_buffer
+            .borrow_mut();
+        ab.begin_action_group(self.actor);
     }
 }

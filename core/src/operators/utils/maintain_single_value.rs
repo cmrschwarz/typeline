@@ -3,7 +3,7 @@ use crate::{
     operators::transform::TransformId,
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
-        iter_hall::IterId, iters::FieldIterator,
+        iter_hall::FieldIterId, iters::FieldIterator,
     },
 };
 
@@ -16,7 +16,7 @@ pub fn maintain_single_value(
     jd: &mut JobData,
     tf_id: TransformId,
     explicit_count: Option<&ExplicitCount>,
-    iter_id: IterId,
+    iter_id: FieldIterId,
 ) -> (usize, PipelineState) {
     let (batch_size, mut ps) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];

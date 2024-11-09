@@ -22,7 +22,7 @@ use crate::{
     record_data::{
         field_data::INLINE_STR_MAX_LEN,
         field_value::ObjectKeysStored,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         push_interface::PushInterface,
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
@@ -82,7 +82,7 @@ pub struct TfFileReader {
     stream_buffer_size: usize,
     stream_size_threshold: usize,
     explicit_count: Option<ExplicitCount>,
-    iter_id: IterId,
+    iter_id: FieldIterId,
 }
 
 fn read_size_limited<F: Read>(

@@ -9,7 +9,7 @@ use crate::{
     options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
-        iter_hall::IterId, iters::FieldIterator,
+        iter_hall::FieldIterId, iters::FieldIterator,
     },
     scr_error::ScrError,
     utils::{index_vec::IndexVec, indexing_type::IndexingType},
@@ -53,7 +53,7 @@ pub struct TfAggregatorHeader {
     pub elem_buffered: bool,
     pub last_elem_multiplied: bool,
     pub actor_id: ActorId,
-    pub iter_id: IterId,
+    pub iter_id: FieldIterId,
     pub trailer_tf_id: TransformId,
 }
 

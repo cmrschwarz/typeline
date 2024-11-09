@@ -19,7 +19,7 @@ use crate::{
         action_buffer::{ActorId, ActorRef},
         field::FieldId,
         group_track::GroupTrackId,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         match_set::MatchSetId,
     },
     scr_error::ScrError,
@@ -51,7 +51,7 @@ pub struct OpFork {
 }
 
 pub struct TfForkFieldMapping {
-    pub source_iter_id: IterId,
+    pub source_iter_id: FieldIterId,
     pub targets_cow: SmallVec<[FieldId; 4]>,
     pub targets_data_cow: SmallVec<[FieldId; 4]>,
     pub targets_copy: SmallVec<[FieldId; 4]>,

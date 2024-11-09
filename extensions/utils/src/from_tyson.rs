@@ -21,7 +21,7 @@ use scr_core::{
         field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
         field_value_slice_iter::FieldValueRangeIter,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         push_interface::PushInterface,
         ref_iter::{
             RefAwareBytesBufferIter, RefAwareInlineBytesIter,
@@ -43,7 +43,7 @@ use std::io::BufRead;
 pub struct OpFromTyson {}
 
 pub struct TfFromTyson {
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
     use_floating_point_math: bool,
 }
 

@@ -22,7 +22,7 @@ use crate::{
             Formattable, FormattingContext, RealizedFormatKey, TypeReprFormat,
         },
         group_track::GroupTrackIterRef,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         iters::{FieldIterOpts, FieldIterator},
         push_interface::PushInterface,
         ref_iter::{
@@ -96,7 +96,7 @@ pub struct TfJoin<'a> {
     input_field_ref_offset: FieldRefOffset,
 
     group_track_iter_ref: GroupTrackIterRef,
-    iter_id: IterId,
+    iter_id: FieldIterId,
     actor_id: ActorId,
 
     first_record_added: bool,

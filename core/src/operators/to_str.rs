@@ -12,7 +12,7 @@ use crate::{
     record_data::{
         field_value::FieldValue,
         field_value_ref::FieldValueSlice,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         iters::FieldIterator,
         push_interface::PushInterface,
         ref_iter::{AutoDerefIter, RefAwareFieldValueRangeIter},
@@ -116,7 +116,7 @@ pub enum InvalidUnicodeHandler {
 }
 
 pub struct TfToStr {
-    batch_iter: IterId,
+    batch_iter: FieldIterId,
     pending_streams: usize,
     invalid_unicode_handler: Box<dyn InvalidUnicodeHandlerFn>,
     convert_errors: bool,

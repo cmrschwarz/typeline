@@ -35,7 +35,7 @@ use super::{
         FieldData, FieldDataBuffer, FieldValueHeader, RunLength,
         MAX_FIELD_ALIGN,
     },
-    iter_hall::{FieldDataSource, FieldLocation, IterId, IterState},
+    iter_hall::{FieldDataSource, FieldIterId, FieldLocation, IterState},
     iters::FieldIterator,
     match_set::{MatchSetId, MatchSetManager},
 };
@@ -698,7 +698,7 @@ impl IterHallActionApplicator {
 
     fn collect_full_cow_iters<'a>(
         iterators: &mut Vec<&'a mut IterState>,
-        field_iters: &'a mut Universe<IterId, Cell<IterState>>,
+        field_iters: &'a mut Universe<FieldIterId, Cell<IterState>>,
         full_cow_field_refs: &'a mut IndexSlice<
             FullCowIndex,
             FullCowFieldRef<'_>,

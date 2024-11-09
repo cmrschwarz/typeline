@@ -35,7 +35,7 @@ use super::{
     varying_type_inserter::VaryingTypeInserter,
 };
 
-pub type IterId = DebuggableNonMaxU32;
+pub type FieldIterId = DebuggableNonMaxU32;
 
 /// A COW Field reflects the state of another field **at a certain point
 /// in time**. This means that when source or target change, the other side
@@ -51,7 +51,7 @@ pub(super) struct CowDataSource {
     // we already copied when appending.
     // We also need this in case the headers are cow'ed because the source
     // could be amended
-    pub header_iter_id: IterId,
+    pub header_iter_id: FieldIterId,
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -77,7 +77,7 @@ unsafe impl Send for FieldDataSource {}
 pub struct IterHall {
     pub(super) data_source: FieldDataSource,
     pub(super) field_data: FieldData,
-    pub(super) iters: Universe<IterId, Cell<IterState>>,
+    pub(super) iters: Universe<FieldIterId, Cell<IterState>>,
     pub(super) cow_targets: ThinVec<FieldId>,
 }
 
@@ -323,7 +323,7 @@ impl IterHall {
         &mut self,
         first_left_leaning_actor_id: ActorId,
         kind: IterKind,
-    ) -> IterId {
+    ) -> FieldIterId {
         let iter_state =
             self.get_iter_state_at_begin(first_left_leaning_actor_id, kind);
         self.iters.claim_with_value(Cell::new(iter_state))
@@ -355,7 +355,7 @@ impl IterHall {
         fm: &FieldManager,
         first_left_leaning_actor_id: ActorId,
         kind: IterKind,
-    ) -> IterId {
+    ) -> FieldIterId {
         self.iters
             .claim_with_value(Cell::new(self.get_iter_state_at_end(
                 fm,
@@ -365,7 +365,7 @@ impl IterHall {
     }
     pub fn reserve_iter_id(
         &mut self,
-        iter_id: IterId,
+        iter_id: FieldIterId,
         first_right_leaning_actor_id: ActorId,
         kind: IterKind,
     ) {
@@ -374,11 +374,11 @@ impl IterHall {
         );
         self.iters.reserve_id_with(iter_id, || v);
     }
-    pub fn release_iter(&mut self, iter_id: IterId) {
+    pub fn release_iter(&mut self, iter_id: FieldIterId) {
         self.iters[iter_id].get_mut().invalidate();
         self.iters.release(iter_id)
     }
-    pub fn get_iter_state(&self, iter_id: IterId) -> IterState {
+    pub fn get_iter_state(&self, iter_id: FieldIterId) -> IterState {
         self.iters[iter_id].get()
     }
     pub fn iter_states(&self) -> impl Iterator<Item = IterState> + '_ {
@@ -470,7 +470,7 @@ impl IterHall {
     pub unsafe fn store_iter_unchecked<'a, R: FieldDataRef<'a>>(
         &self,
         #[allow(unused)] field_id: FieldId,
-        iter_id: IterId,
+        iter_id: FieldIterId,
         iter: FieldIter<'a, R>,
     ) {
         let mut state = self.iters[iter_id].get();
@@ -485,7 +485,7 @@ impl IterHall {
     }
     pub unsafe fn store_iter_state_unchecked(
         &self,
-        iter_id: IterId,
+        iter_id: FieldIterId,
         iter_state: IterState,
     ) {
         self.iters[iter_id].set(iter_state);
@@ -580,13 +580,13 @@ impl IterHall {
     pub fn cow_variant(&self) -> Option<CowVariant> {
         self.data_source.cow_variant()
     }
-    pub fn get_iter_kind(&self, #[allow(unused)] iter_id: IterId) -> IterKind {
+    pub fn get_iter_kind(&self, #[allow(unused)] iter_id: FieldIterId) -> IterKind {
         #[cfg(not(feature = "debug_state"))]
         return IterKind::Undefined;
         #[cfg(feature = "debug_state")]
         return self.iters[iter_id].get().kind;
     }
-    pub fn reset_iter(&self, iter_id: IterId) {
+    pub fn reset_iter(&self, iter_id: FieldIterId) {
         self.iters[iter_id].set(self.get_iter_state_at_begin(
             self.iters[iter_id].get().first_right_leaning_actor_id,
             self.get_iter_kind(iter_id),

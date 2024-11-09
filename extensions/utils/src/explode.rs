@@ -21,7 +21,7 @@ use scr_core::{
         field_data::FieldData,
         field_value::{FieldValue, Object},
         field_value_ref::FieldValueSlice,
-        iter_hall::IterId,
+        iter_hall::FieldIterId,
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueRangeIter,
@@ -54,7 +54,7 @@ pub struct TfExplode {
     pending_fields:
         StableVec<(RefCell<FieldData>, usize), PENDING_FIELDS_CHUNK_SIZE>,
     inserters: Vec<VaryingTypeInserter<RefMut<'static, FieldData>>>,
-    input_iter_id: IterId,
+    input_iter_id: FieldIterId,
     input_field_field_ref_offset: FieldRefOffset,
 }
 

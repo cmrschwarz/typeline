@@ -10,7 +10,7 @@ use crate::{
     record_data::{
         dyn_ref_iter::RefAwareDynFieldValueRangeIter,
         group_track::{GroupTrackIterId, GroupTrackIterRef},
-        iter_hall::{IterId, IterKind},
+        iter_hall::{FieldIterId, IterKind},
     },
     scr_error::ScrError,
     utils::indexing_type::IndexingType,
@@ -30,7 +30,7 @@ pub struct OpForeachUnique {
     pub subchain_idx: SubchainIndex,
 }
 pub struct TfForeachUniqueHeader {
-    iter: IterId,
+    iter: FieldIterId,
     parent_group_track_iter: GroupTrackIterId,
     unrealized_group_skips: usize,
 }

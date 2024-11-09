@@ -1,7 +1,7 @@
 #[derive(Clone, Default)]
 pub struct OpSuccessUpdator {}
 pub struct TfSuccessUpdator {
-    iter_id: IterId,
+    iter_id: FieldIterId,
     success: bool,
 }
 
@@ -9,7 +9,7 @@ use crate::{
     cli::call_expr::CallExpr,
     job::JobData,
     record_data::{
-        field_value_ref::FieldValueSlice, iter_hall::IterId,
+        field_value_ref::FieldValueSlice, iter_hall::FieldIterId,
         iters::FieldIterOpts,
     },
 };
