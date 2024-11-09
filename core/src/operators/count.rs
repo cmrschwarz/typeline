@@ -89,10 +89,6 @@ impl Operator for OpCount {
 }
 
 impl Transform<'_> for TfCount {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
-        "count".into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
 

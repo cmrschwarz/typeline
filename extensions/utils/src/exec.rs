@@ -34,10 +34,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
-        },
+        transform::{Transform, TransformData, TransformId, TransformState},
     },
     options::{
         chain_settings::{
@@ -1048,10 +1045,6 @@ impl<'a> TfExec<'a> {
 }
 
 impl<'a> Transform<'a> for TfExec<'a> {
-    fn display_name(&self) -> DefaultTransformName {
-        "exec".into()
-    }
-
     fn update(
         &mut self,
         jd: &mut JobData,

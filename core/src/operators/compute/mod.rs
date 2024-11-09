@@ -301,10 +301,6 @@ impl Operator for OpCompute {
     }
 }
 impl<'a> Transform<'a> for TfCompute<'a> {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
-        "compute".into()
-    }
-
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];

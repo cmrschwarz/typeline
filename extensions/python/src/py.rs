@@ -23,10 +23,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
-        },
+        transform::{Transform, TransformData, TransformId, TransformState},
     },
     options::session_setup::SessionSetupData,
     record_data::{
@@ -359,10 +356,6 @@ fn get_python_value<'a>(
 }
 
 impl<'a> Transform<'a> for TfPy<'a> {
-    fn display_name(&self) -> DefaultTransformName {
-        "py".into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];

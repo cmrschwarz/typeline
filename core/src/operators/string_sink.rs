@@ -313,10 +313,6 @@ impl Operator for OpStringSink {
 }
 
 impl<'a> Transform<'a> for TfStringSink<'a> {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
-        todo!()
-    }
-
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &mut jd.tf_mgr.transforms[tf_id];

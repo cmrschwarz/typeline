@@ -11,10 +11,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
-        },
+        transform::{Transform, TransformData, TransformId, TransformState},
         utils::basic_transform_update::{
             basic_transform_update, BasicUpdateData,
         },
@@ -87,10 +84,6 @@ impl Operator for OpTypename {
 }
 
 impl Transform<'_> for TfTypename {
-    fn display_name(&self) -> DefaultTransformName {
-        "explode".into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         basic_transform_update(jd, tf_id, [], self.input_iter_id, |bud| {
             self.basic_update(bud)

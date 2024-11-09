@@ -5,9 +5,7 @@ use crate::{
         operator::{
             Operator, OperatorData, OperatorName, TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-        },
+        transform::{Transform, TransformData, TransformId},
     },
     record_data::{
         action_buffer::ActorId, group_track::GroupTrackIterRef,
@@ -66,10 +64,6 @@ pub struct BasicGeneratorTransform<'a, Op: BasicGenerator> {
 impl<'a, Op: BasicGenerator> Transform<'a>
     for BasicGeneratorTransform<'a, Op>
 {
-    fn display_name(&self) -> DefaultTransformName {
-        self.op.debug_op_name()
-    }
-
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
         handle_generator_transform_update(
             jd,

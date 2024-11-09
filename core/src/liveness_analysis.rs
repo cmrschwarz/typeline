@@ -1381,7 +1381,7 @@ impl LivenessData {
                 let op_data_id = sess.operator_bases[op_id].op_data_id;
                 eprint!(
                     "(op {op_id} `{}`) ",
-                    sess.operator_data[op_data_id].default_op_name()
+                    sess.operator_data[op_data_id].debug_op_name()
                 );
             }
             eprintln!();

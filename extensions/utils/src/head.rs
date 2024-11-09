@@ -11,10 +11,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorData, OperatorId,
             OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
-        },
+        transform::{Transform, TransformData, TransformId, TransformState},
     },
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
     scr_error::ScrError,
@@ -136,10 +133,6 @@ impl Operator for OpHead {
 }
 
 impl Transform<'_> for TfHead {
-    fn display_name(&self) -> DefaultTransformName {
-        format!("head={}", self.retain_total).into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, mut ps) = jd.tf_mgr.claim_all(tf_id);
 
@@ -192,10 +185,6 @@ impl Transform<'_> for TfHead {
 }
 
 impl Transform<'_> for TfHeadSubtractive {
-    fn display_name(&self) -> DefaultTransformName {
-        format!("head=-{}", self.drop_count).into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 

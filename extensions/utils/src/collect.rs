@@ -8,9 +8,7 @@ use scr_core::{
             Operator, OperatorData, OperatorId, PreboundOutputsMap,
             TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformState,
-        },
+        transform::{Transform, TransformData, TransformState},
         utils::basic_transform_update::{
             basic_transform_update_claim_all, BasicUpdateData,
         },
@@ -217,10 +215,6 @@ impl TfCollect {
 }
 
 impl Transform<'_> for TfCollect {
-    fn display_name(&self) -> DefaultTransformName {
-        "collect".into()
-    }
-
     fn update(
         &mut self,
         jd: &mut JobData,

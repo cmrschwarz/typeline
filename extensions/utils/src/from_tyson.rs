@@ -10,9 +10,7 @@ use scr_core::{
             Operator, OperatorData, OperatorId, PreboundOutputsMap,
             TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformState,
-        },
+        transform::{Transform, TransformData, TransformState},
         utils::basic_transform_update::{
             basic_transform_update, BasicUpdateData,
         },
@@ -242,10 +240,6 @@ impl TfFromTyson {
 }
 
 impl Transform<'_> for TfFromTyson {
-    fn display_name(&self) -> DefaultTransformName {
-        "from_tyson".into()
-    }
-
     fn update(
         &mut self,
         jd: &mut JobData,

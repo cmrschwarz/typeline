@@ -565,10 +565,6 @@ impl Operator for OpFileReader {
 }
 
 impl Transform<'_> for TfFileReader {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
-        "file".into()
-    }
-
     fn update(&mut self, jd: &mut JobData<'_>, tf_id: TransformId) {
         if !self.value_committed {
             self.value_committed = true;

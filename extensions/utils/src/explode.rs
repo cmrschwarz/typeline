@@ -14,10 +14,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
-        },
+        transform::{Transform, TransformData, TransformId, TransformState},
     },
     record_data::{
         field::{FieldId, FieldManager, FieldRefOffset},
@@ -192,10 +189,6 @@ fn insert_into_key<'a>(
 }
 
 impl Transform<'_> for TfExplode {
-    fn display_name(&self) -> DefaultTransformName {
-        "explode".into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let mut inserters = BorrowedContainer::new(&mut self.inserters);

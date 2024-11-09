@@ -455,7 +455,20 @@ impl OperatorData {
                 }
                 .into()
             }
-            _ => self.default_op_name(),
+
+            OperatorData::Nop(_)
+            | OperatorData::NopCopy(_)
+            | OperatorData::Call(_)
+            | OperatorData::CallConcurrent(_)
+            | OperatorData::Fork(_)
+            | OperatorData::ForkCat(_)
+            | OperatorData::Atom(_)
+            | OperatorData::Select(_)
+            | OperatorData::Literal(_)
+            | OperatorData::Chunks(_)
+            | OperatorData::MacroDef(_)
+            | OperatorData::MacroCall(_) => self.default_op_name(),
+             OperatorData::Custom(op) => op.debug_op_name(),
         }
     }
     pub fn output_field_kind(

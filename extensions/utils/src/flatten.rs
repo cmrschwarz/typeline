@@ -10,10 +10,7 @@ use scr_core::{
             Operator, OperatorData, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
-        },
+        transform::{Transform, TransformData, TransformId, TransformState},
         utils::basic_transform_update::{
             basic_transform_update, BasicUpdateData,
         },
@@ -326,10 +323,6 @@ impl TfFlatten {
 }
 
 impl Transform<'_> for TfFlatten {
-    fn display_name(&self) -> DefaultTransformName {
-        "flatten".into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         basic_transform_update(jd, tf_id, [], self.input_iter_id, |bud| {
             self.basic_update(bud)

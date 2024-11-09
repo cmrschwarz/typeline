@@ -53,10 +53,7 @@ use super::{
         Operator, OperatorData, OperatorDataId, OperatorId, OperatorName,
         OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
     },
-    transform::{
-        DefaultTransformName, Transform, TransformData, TransformId,
-        TransformState,
-    },
+    transform::{Transform, TransformData, TransformId, TransformState},
     utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
@@ -1003,10 +1000,6 @@ impl Operator for OpRegex {
 }
 
 impl<'a> Transform<'a> for TfRegex<'a> {
-    fn display_name(&self) -> DefaultTransformName {
-        self.op.debug_op_name().to_string().into()
-    }
-
     fn collect_out_fields(
         &self,
         _jd: &JobData,

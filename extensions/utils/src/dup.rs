@@ -10,10 +10,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorData, OperatorId,
             OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
-        },
+        transform::{Transform, TransformData, TransformId, TransformState},
     },
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
@@ -38,7 +35,7 @@ pub struct TfDup {
 
 impl Operator for OpDup {
     fn default_name(&self) -> scr_core::operators::operator::OperatorName {
-        "dup".into()
+        if self.count == 0 { "drop" } else { "dup" }.into()
     }
 
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
@@ -104,10 +101,6 @@ impl Operator for OpDup {
 }
 
 impl Transform<'_> for TfDup {
-    fn display_name(&self) -> DefaultTransformName {
-        if self.count == 0 { "drop" } else { "dup" }.into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let mut iter = jd.group_track_manager.lookup_group_track_iter(

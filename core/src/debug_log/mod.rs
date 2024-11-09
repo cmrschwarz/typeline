@@ -479,7 +479,7 @@ fn match_chain_to_json(
         envs.push(json!({
             "transform_id": tf_env.tf_id.map(IndexingType::into_usize),
             "transform_id_unique": unique_id,
-            "transform_display_name": tf_env.tf_id.map(|id|tf_data[id].display_name().to_string()),
+            "transform_display_name": tf_env.tf_id.map(|id|tf_data[id].display_name(jd, id).to_string()),
             "subchains": subchains,
             "fields": fields,
             "group_tracks": group_tracks
@@ -1182,7 +1182,7 @@ pub fn stream_value_updates_to_json(
     for svu in &jd.sv_mgr.updates {
         svus_json.push(json!({
            "tf_id": svu.tf_id.into_usize(),
-           "tf_display_name": &*tf_data[svu.tf_id].display_name(),
+           "tf_display_name": &*tf_data[svu.tf_id].display_name(jd, svu.tf_id),
            "sv_id": svu.sv_id.into_usize(),
            "offset": stream_value_data_offset_to_json(&svu.data_offset),
         }));
@@ -1227,8 +1227,12 @@ pub fn write_transform_update_to_html(
     write_update_to_html(
         jd,
         tf_data,
-        &jd.tf_mgr
-            .format_transform_state(tf_id, tf_data, Some(batch_size)),
+        &jd.tf_mgr.format_transform_state(
+            jd,
+            tf_id,
+            tf_data,
+            Some(batch_size),
+        ),
         "transform-update",
         Some(tf_id),
         root_tf,
@@ -1268,7 +1272,7 @@ pub fn write_stream_value_update_to_html(
             "sv {} update for tf {:02} `{}`, stack:{:?}",
             svu.sv_id,
             svu.tf_id,
-            tf_data[svu.tf_id].display_name(),
+            tf_data[svu.tf_id].display_name(jd, svu.tf_id),
             &jd.tf_mgr.ready_stack
         ),
         "stream-value-update",
@@ -1291,7 +1295,7 @@ pub fn write_stream_producer_update_to_html(
         &format!(
             "stream producer update for tf {:02} `{}`, stack:{:?}",
             tf_id,
-            tf_data[tf_id].display_name(),
+            tf_data[tf_id].display_name(jd, tf_id),
             &jd.tf_mgr.ready_stack
         ),
         "stream-producer-update",

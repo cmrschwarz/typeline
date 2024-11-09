@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Write, sync::Arc};
 
 use smallstr::SmallString;
 
@@ -81,7 +81,11 @@ impl<'a> TransformData<'a> {
     pub fn from_custom(tf: impl Transform<'a> + 'a) -> Self {
         Self::Custom(smallbox!(tf))
     }
-    pub fn display_name(&self) -> DefaultTransformName {
+    pub fn display_name(
+        &self,
+        jd: &JobData,
+        tf_id: TransformId,
+    ) -> DefaultTransformName {
         match self {
             TransformData::Disabled => "disabled",
             TransformData::Nop(_) => "nop",
@@ -100,7 +104,7 @@ impl<'a> TransformData<'a> {
             TransformData::ForkCatSubchainTrailer(_) => {
                 "forkcat_subchain_trailer"
             }
-            TransformData::Custom(tf) => return tf.display_name(),
+            TransformData::Custom(tf) => return tf.display_name(jd, tf_id),
         }
         .into()
     }
@@ -205,25 +209,39 @@ impl TransformState {
 }
 
 pub trait Transform<'a>: Send + 'a {
-    fn display_name(&self) -> DefaultTransformName;
+    fn display_name(
+        &self,
+        jd: &JobData,
+        tf_id: TransformId,
+    ) -> DefaultTransformName {
+        if let Some(op_id) = jd.tf_mgr.transforms[tf_id].op_id {
+            return jd.session_data.operator_data
+                [jd.session_data.op_data_id(op_id)]
+            .debug_op_name();
+        }
+        let mut res = DefaultTransformName::default();
+        res.write_fmt(format_args!("<tf id {tf_id} (no operator id)>"))
+            .unwrap();
+        res
+    }
     fn stream_producer_update(
         &mut self,
-        _jd: &mut JobData<'a>,
-        _tf_id: TransformId,
+        jd: &mut JobData<'a>,
+        tf_id: TransformId,
     ) {
         unimplemented!(
             "transform `{}` does not implement stream production",
-            self.display_name()
+            self.display_name(jd, tf_id)
         )
     }
     fn handle_stream_value_update(
         &mut self,
-        _jd: &mut JobData<'a>,
-        _svu: StreamValueUpdate,
+        jd: &mut JobData<'a>,
+        svu: StreamValueUpdate,
     ) {
         unimplemented!(
             "transform `{}` does not implement stream value updates",
-            self.display_name()
+            self.display_name(jd, svu.tf_id)
         )
     }
     fn pre_update_required(&self) -> bool {

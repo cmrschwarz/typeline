@@ -82,10 +82,6 @@ impl Operator for OpSuccessUpdator {
 }
 
 impl Transform<'_> for TfSuccessUpdator {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
-        "success_updator".into()
-    }
-
     fn update(&mut self, jd: &mut JobData<'_>, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
         let tf = &mut jd.tf_mgr.transforms[tf_id];

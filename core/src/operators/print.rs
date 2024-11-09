@@ -467,10 +467,6 @@ impl Operator for OpPrint {
 }
 
 impl<'a> Transform<'a> for TfPrint<'a> {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
-        "print".into()
-    }
-
     fn update(&mut self, jd: &mut JobData<'_>, tf_id: TransformId) {
         if self.current_stream_val.is_some() {
             return;

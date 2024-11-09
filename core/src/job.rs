@@ -25,7 +25,7 @@ use crate::{
     options::chain_settings::ChainSetting,
     record_data::{
         action_buffer::{ActorId, ActorRef, SnapshotRef},
-        field::{FieldId, FieldManager},
+        field::{FieldId, FieldIterRef, FieldManager},
         field_action::FieldActionKind,
         group_track::{
             GroupIdxStable, GroupTrackId, GroupTrackIterRef, GroupTrackManager,
@@ -90,6 +90,7 @@ pub struct PipelineState {
 impl TransformManager {
     pub fn format_transform_state(
         &self,
+        jd: &JobData,
         tf_id: TransformId,
         tf_data: &IndexSlice<TransformId, TransformData<'_>>,
         override_batch_size_available: Option<usize>,
@@ -99,7 +100,7 @@ impl TransformManager {
             override_batch_size_available.unwrap_or(tf.available_batch_size);
         format!(
                 "tf {tf_id:02} {:>20}, in_fid: {}, bsa: {bsa}{}, pred_done: {:>5}, done: {:>5}, stack:{:?}",
-            format!("`{}`", tf_data[tf_id].display_name()),
+            format!("`{}`", tf_data[tf_id].display_name(jd, tf_id)),
             tf.input_field,
             if bsa > tf.desired_batch_size {
                 format!(" (tgt bs: {})", tf.desired_batch_size)
@@ -387,7 +388,8 @@ impl<'a> Job<'a> {
         {
             eprintln!("{message}");
             for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
-                let name = self.transform_data[i].display_name();
+                let name =
+                    self.transform_data[i].display_name(&self.job_data, i);
                 eprintln!(
                     "tf {:02} -> {} [fields {} -> {}] (ms {}): {}",
                     i,
@@ -531,7 +533,9 @@ impl<'a> Job<'a> {
                 .debug_op_name()
                 .to_string()
             } else {
-                self.transform_data[tf_id].display_name().to_string()
+                self.transform_data[tf_id]
+                    .display_name(&self.job_data, tf_id)
+                    .to_string()
             };
             eprintln!("removing tf id {tf_id}: `{name}`");
         }
@@ -844,7 +848,7 @@ impl<'a> Job<'a> {
             eprintln!(
                 ">    stream value update tf {:02} {:>20}, sv: {:02}, producers: {:?}, stack: {:?}, cutoff: {:?}",
                 svu.tf_id,
-                format!("`{}`", self.transform_data[svu.tf_id].display_name()),
+                format!("`{}`", self.transform_data[svu.tf_id].display_name(jd, svu.tf_id)),
                 svu.sv_id,
                 jd.tf_mgr.stream_producers,
                 jd.tf_mgr.ready_stack,
@@ -891,6 +895,7 @@ impl<'a> Job<'a> {
             "> {}: transform update {}",
             self.job_data.transform_step_count,
             self.job_data.tf_mgr.format_transform_state(
+                &self.job_data,
                 tf_id,
                 &self.transform_data,
                 None
@@ -913,6 +918,7 @@ impl<'a> Job<'a> {
                 "/> {}: transform update {}",
                 self.job_data.transform_step_count,
                 self.job_data.tf_mgr.format_transform_state(
+                    &self.job_data,
                     tf_id,
                     &self.transform_data,
                     None
@@ -963,7 +969,7 @@ impl<'a> Job<'a> {
         eprintln!(
             "> stream producer update tf {:02} {:>20}, producers: {:?}, stack: {:?}",
             tf_id,
-            format!("`{}`", self.transform_data[tf_id].display_name()),
+            format!("`{}`", self.transform_data[tf_id].display_name(&self.job_data, tf_id)),
             self.job_data.tf_mgr.stream_producers,
             self.job_data.tf_mgr.ready_stack,
         );
@@ -994,7 +1000,7 @@ impl<'a> Job<'a> {
         eprintln!(
             "/> stream producer update tf {:02} {:>20}, producers: {:?}, stack: {:?}",
             tf_id,
-            format!("`{}`", self.transform_data[tf_id].display_name()),
+            format!("`{}`", self.transform_data[tf_id].display_name(&self.job_data, tf_id)),
             self.job_data.tf_mgr.stream_producers,
             self.job_data.tf_mgr.ready_stack,
          );
@@ -1279,11 +1285,31 @@ impl<'a> JobData<'a> {
             IterKind::Transform(self.tf_mgr.transforms.peek_claim_id()),
         )
     }
+    pub fn claim_iter_ref_for_tf_state_and_field(
+        &self,
+        tf_state: &TransformState,
+        field_id: FieldId,
+    ) -> FieldIterRef {
+        FieldIterRef {
+            iter_id: self
+                .claim_iter_for_tf_state_and_field(tf_state, field_id),
+            field_id,
+        }
+    }
     pub fn claim_iter_for_tf_state(
         &self,
         tf_state: &TransformState,
     ) -> IterId {
         self.claim_iter_for_tf_state_and_field(tf_state, tf_state.input_field)
+    }
+    pub fn claim_iter_ref_for_tf_state(
+        &self,
+        tf_state: &TransformState,
+    ) -> FieldIterRef {
+        self.claim_iter_ref_for_tf_state_and_field(
+            tf_state,
+            tf_state.input_field,
+        )
     }
     pub fn claim_group_track_iter_for_tf_state(
         &mut self,

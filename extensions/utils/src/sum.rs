@@ -9,7 +9,7 @@ use scr_core::{
             TransformInstatiation,
         },
         transform::{
-            DefaultTransformName, Transform, TransformData, TransformState,
+             Transform, TransformData, TransformState,
         },
         utils::basic_transform_update::{
             basic_transform_update_claim_all, BasicUpdateData,
@@ -245,10 +245,6 @@ impl TfSum {
 }
 
 impl Transform<'_> for TfSum {
-    fn display_name(&self) -> DefaultTransformName {
-        "sum".into()
-    }
-
     fn update(
         &mut self,
         jd: &mut JobData,

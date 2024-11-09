@@ -13,7 +13,7 @@ use scr_core::{
             OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
+            Transform, TransformData, TransformId,
             TransformState,
         },
     },
@@ -147,10 +147,6 @@ impl Operator for OpTail {
 }
 
 impl Transform<'_> for TfTail {
-    fn display_name(&self) -> DefaultTransformName {
-        format!("tail={}", self.count).into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 
@@ -193,10 +189,6 @@ impl Transform<'_> for TfTail {
 }
 
 impl Transform<'_> for TfTailAdditive {
-    fn display_name(&self) -> DefaultTransformName {
-        format!("tail=+{}", self.skip_count).into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
 

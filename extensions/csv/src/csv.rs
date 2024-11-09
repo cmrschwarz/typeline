@@ -21,10 +21,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            DefaultTransformName, Transform, TransformData, TransformId,
-            TransformState,
-        },
+        transform::{Transform, TransformData, TransformId, TransformState},
         utils::readable::{AnyBufReader, ReadableTarget},
     },
     options::session_setup::SessionSetupData,
@@ -215,10 +212,6 @@ fn distribute_errors(
 }
 
 impl<'a> Transform<'a> for TfCsv<'a> {
-    fn display_name(&self) -> DefaultTransformName {
-        "csv".into()
-    }
-
     fn collect_out_fields(
         &self,
         _jd: &JobData,

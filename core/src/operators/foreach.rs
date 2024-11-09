@@ -242,7 +242,11 @@ impl Operator for OpForeach {
 }
 
 impl Transform<'_> for TfForeachHeader {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
+    fn display_name(
+        &self,
+        _jd: &JobData,
+        _tf_id: TransformId,
+    ) -> super::transform::DefaultTransformName {
         "foreach_header".into()
     }
 
@@ -326,7 +330,11 @@ impl Transform<'_> for TfForeachHeader {
 }
 
 impl Transform<'_> for TfForeachTrailer {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
+    fn display_name(
+        &self,
+        _jd: &JobData,
+        _tf_id: TransformId,
+    ) -> super::transform::DefaultTransformName {
         "foreach_trailer".into()
     }
 

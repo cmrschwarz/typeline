@@ -245,7 +245,11 @@ impl Operator for OpForeachUnique {
 }
 
 impl Transform<'_> for TfForeachUniqueHeader {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
+    fn display_name(
+        &self,
+        _jd: &JobData,
+        _tf_id: TransformId,
+    ) -> super::transform::DefaultTransformName {
         "foreach_unique_header".into()
     }
 

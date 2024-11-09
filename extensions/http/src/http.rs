@@ -618,12 +618,6 @@ fn header_completed(req: &mut Connection, buf: &[u8]) -> bool {
 }
 
 impl Transform<'_> for TfHttpRequest {
-    fn display_name(
-        &self,
-    ) -> scr_core::operators::transform::DefaultTransformName {
-        "http-get".into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         basic_transform_update(jd, tf_id, [], self.iter_id, |bud| {
             self.basic_update(bud)

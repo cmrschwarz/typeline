@@ -214,10 +214,6 @@ impl Operator for OpToStr {
 }
 
 impl Transform<'_> for TfToStr {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
-        "to_str".into()
-    }
-
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];

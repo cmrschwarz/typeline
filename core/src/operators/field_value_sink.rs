@@ -136,10 +136,6 @@ impl Operator for OpFieldValueSink {
 }
 
 impl<'a> Transform<'a> for TfFieldValueSink<'a> {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
-        "field_value_sink".into()
-    }
-
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &mut jd.tf_mgr.transforms[tf_id];

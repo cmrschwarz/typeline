@@ -1963,10 +1963,6 @@ impl Operator for OpFormat {
 }
 
 impl<'a> Transform<'a> for TfFormat<'a> {
-    fn display_name(&self) -> super::transform::DefaultTransformName {
-        "format".into()
-    }
-
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         jd.tf_mgr.prepare_output_field(
