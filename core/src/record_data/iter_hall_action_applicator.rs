@@ -473,6 +473,7 @@ impl IterHallActionApplicator {
             }
             header_idx_new += 1;
         }
+        let mut iters_on_partially_drained_header = 0;
         while iter_idx_fwd < iters.len() {
             let it = &mut iters[iter_idx_fwd];
             if it.header_idx > leading_headers_to_drain {
@@ -482,6 +483,7 @@ impl IterHallActionApplicator {
                 it.header_rl_offset = it
                     .header_rl_offset
                     .saturating_sub(partial_header_dropped_elem_count);
+                iters_on_partially_drained_header += 1;
             } else {
                 it.header_rl_offset = 0;
             }
@@ -489,6 +491,7 @@ impl IterHallActionApplicator {
             it.data = 0;
             iter_idx_fwd += 1;
         }
+        iter_idx_fwd -= iters_on_partially_drained_header;
         let preserved_headers_leading = self.preserved_headers.len();
         headers.drain(0..leading_headers_to_drain);
         while let Some(h) = self.preserved_headers.pop() {
@@ -510,7 +513,13 @@ impl IterHallActionApplicator {
         let mut dropped_headers_back = 0;
         let leading_header_drops =
             leading_headers_to_drain - preserved_headers_leading;
-        while last_header_alive > preserved_headers_leading {
+        loop {
+            if last_header_alive <= preserved_headers_leading {
+                for it in &mut iters[iter_idx_bwd..] {
+                    it.header_idx -= dropped_headers_back;
+                }
+                break;
+            }
             let header_idx = last_header_alive - 1;
             let h = &mut headers[header_idx];
             let h_ds = h.total_size_unique();
@@ -529,20 +538,24 @@ impl IterHallActionApplicator {
                     data_size_after - h.total_size_unique();
                 while iter_idx_bwd > iter_idx_fwd {
                     let it = &mut iters[iter_idx_bwd - 1];
-                    let old_header_idx = it.header_idx - leading_header_drops;
-                    if old_header_idx < header_idx {
-                        break;
-                    }
-                    if old_header_idx == header_idx {
-                        it.header_rl_offset = it
-                            .header_rl_offset
-                            .saturating_sub(elems_to_drop as RunLength);
-                    } else {
-                        it.header_rl_offset = h.run_length;
+                    if iter_idx_bwd
+                        > iter_idx_fwd + iters_on_partially_drained_header
+                    {
+                        let old_header_idx =
+                            it.header_idx - leading_header_drops;
+                        if old_header_idx < header_idx {
+                            break;
+                        }
+                        if old_header_idx == header_idx {
+                            it.header_rl_offset = it
+                                .header_rl_offset
+                                .saturating_sub(elems_to_drop as RunLength);
+                        } else {
+                            it.header_rl_offset = h.run_length;
+                        }
+                        it.header_idx = header_idx;
                     }
                     it.data = data_size_header_start;
-                    it.header_idx = header_idx;
-
                     iter_idx_bwd -= 1;
                 }
                 break;
@@ -557,7 +570,12 @@ impl IterHallActionApplicator {
             self.preserved_headers.push(*h);
             while iter_idx_bwd > iter_idx_fwd {
                 let it = &mut iters[iter_idx_bwd - 1];
-                let old_header_idx = it.header_idx - leading_header_drops;
+                let mut old_header_idx = it.header_idx;
+                if iter_idx_bwd
+                    > iter_idx_fwd + iters_on_partially_drained_header
+                {
+                    old_header_idx -= leading_header_drops;
+                }
                 if old_header_idx < header_idx {
                     break;
                 }
@@ -581,8 +599,18 @@ impl IterHallActionApplicator {
         while iter_idx_bwd > iter_idx_fwd {
             iter_idx_bwd -= 1;
             let it = &mut iters[iter_idx_bwd];
-            it.data -= real_leading_drop;
-            it.header_idx -= leading_header_drops;
+            if iter_idx_bwd >= iter_idx_fwd + iters_on_partially_drained_header
+            {
+                it.data -= real_leading_drop;
+                it.header_idx -= leading_header_drops;
+            }
+            if it.header_idx >= last_header_alive {
+                it.header_idx = last_header_alive.saturating_sub(1);
+                it.header_rl_offset = headers
+                    .get(it.header_idx)
+                    .map(|h| h.run_length)
+                    .unwrap_or(0);
+            }
         }
 
         if let Some(data) = data {

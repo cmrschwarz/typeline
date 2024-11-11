@@ -206,7 +206,6 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         }
     }
     fn get_next_field_header_data_start(&self) -> usize {
-        debug_assert!(self.is_next_valid());
         self.data
     }
     fn get_next_header_index(&self) -> usize {
