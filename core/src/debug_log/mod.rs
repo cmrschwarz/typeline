@@ -591,6 +591,7 @@ pub fn iters_to_json(iters: &[IterState]) -> Value {
     })
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn field_data_to_json(
     jd: &JobData,
     fd: impl FieldDataRef,

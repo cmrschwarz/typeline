@@ -8,9 +8,7 @@ use scr_core::{
             Operator, OperatorData, OperatorId, PreboundOutputsMap,
             TransformInstatiation,
         },
-        transform::{
-             Transform, TransformData, TransformState,
-        },
+        transform::{Transform, TransformData, TransformState},
         utils::basic_transform_update::{
             basic_transform_update_claim_all, BasicUpdateData,
         },
@@ -19,13 +17,15 @@ use scr_core::{
     record_data::{
         action_buffer::ActorId,
         field_data::{FieldData, FieldValueRepr},
-        field_value_ref::FieldValueSlice,
-        field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
+        field_value_ref::{FieldValueBlock, FieldValueSlice},
         group_track::GroupTrackIterRef,
+        iter::{
+            field_iterator::FieldIterOpts,
+            field_value_slice_iter::FieldValueRangeIter,
+            ref_iter::RefAwareFieldValueRangeIter,
+        },
         iter_hall::FieldIterId,
-        field_iter::FieldIterOpts,
         push_interface::PushInterface,
-        ref_iter::RefAwareFieldValueRangeIter,
         varying_type_inserter::VaryingTypeInserter,
     },
     smallbox,

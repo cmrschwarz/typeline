@@ -24,7 +24,7 @@ where
     pub(super) max: usize,
     _phantom_data: PhantomData<&'static FieldData>,
 }
-impl<'a, I> BoundedIter<I>
+impl<I> BoundedIter<I>
 where
     I: FieldIterator,
 {
@@ -62,7 +62,7 @@ where
         self.get_next_field_pos() - self.min
     }
 }
-impl<'a, I> FieldIterator for BoundedIter<I>
+impl<I> FieldIterator for BoundedIter<I>
 where
     I: FieldIterator,
 {
@@ -199,7 +199,7 @@ where
         self.iter.into_base_iter()
     }
 }
-impl<'a, R: FieldDataRef, I: FieldIterator<FieldDataRefType = R>>
+impl<R: FieldDataRef, I: FieldIterator<FieldDataRefType = R>>
     From<BoundedIter<I>> for FieldIter<R>
 {
     fn from(value: BoundedIter<I>) -> Self {

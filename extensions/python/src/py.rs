@@ -29,12 +29,12 @@ use scr_core::{
     record_data::{
         array::Array,
         field::{CowFieldDataRef, FieldIterRef},
+        field_data_ref::DestructuredFieldDataRef,
         field_value::{FieldValue, Object, ObjectKeysStored},
         field_value_ref::FieldValueRef,
+        iter::{field_iter::FieldIter, ref_iter::AutoDerefIter},
         iter_hall::IterKind,
-        field_iter::{DestructuredFieldDataRef, FieldIter},
         push_interface::PushInterface,
-        ref_iter::AutoDerefIter,
     },
     scr_error::ScrError,
     smallbox,
@@ -78,7 +78,7 @@ pub struct TfPy<'a> {
         PhantomSlot<
             AutoDerefIter<
                 'static,
-                FieldIter<'static, DestructuredFieldDataRef<'static>>,
+                FieldIter<DestructuredFieldDataRef<'static>>,
             >,
         >,
     >,

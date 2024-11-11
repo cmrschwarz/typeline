@@ -8,7 +8,8 @@ use crate::record_data::{
     field_data::{FieldValueHeader, FieldValueType, RunLength},
     field_value::{FieldReference, SlicedFieldReference},
     field_value_ref::{
-        FieldValueRef, FieldValueSlice, TypedRange, ValidTypedRange,
+        FieldValueRef, FieldValueSlice, TypedField, TypedRange,
+        ValidTypedRange,
     },
     match_set::MatchSetManager,
 };
@@ -51,9 +52,9 @@ pub struct FieldRefUnpacked<'a, R> {
 
 pub struct DerefIter<'a, R> {
     refs_iter: FieldValueRangeIter<'a, R>,
+    data_iter: FieldIter<DestructuredFieldDataRef<'a>>,
     field_refs: Ref<'a, [FieldId]>,
     last_field_id_offset: FieldRefOffset,
-    data_iter: FieldIter<DestructuredFieldDataRef<'a>>,
     data_cow_ref: CowFieldDataRef<'a>,
     field_mgr: &'a FieldManager,
 }
@@ -76,10 +77,18 @@ pub struct RefAwareTypedRange<'a> {
     pub field_ref_offset: Option<FieldRefOffset>,
 }
 
+// TODO: probably burn this f***er to the ground and rebuild from the ground up
+// based on pointers, not this overcomposed nonsense containing the same data
+// redundantly three times and still being wildly unsafe at the same time.
 pub struct AutoDerefIter<'a, I> {
     iter: I,
     field_refs: Ref<'a, [FieldId]>,
-    deref_iter: Option<AnyDerefIter<'a>>,
+    // SAFETY: the 'static for is obviously a lie, but we make
+    // sure to never leak any slice of that lifetime from this type.
+    // The actual lifetime is bound by range we receive from `iter`,
+    // which conceptually lives until iter dies or gets called again,
+    // but we cannot express that to the type system.
+    deref_iter: Option<AnyDerefIter<'static>>,
     field_mgr: &'a FieldManager,
 }
 
@@ -128,9 +137,9 @@ impl<'a, R: ReferenceFieldValueType> DerefIter<'a, R> {
         data_iter.move_to_field_pos(field_pos);
         Self {
             refs_iter,
+            data_iter,
             field_refs,
             last_field_id_offset,
-            data_iter,
             data_cow_ref,
             field_mgr,
         }
@@ -423,7 +432,7 @@ impl<'a, I: FieldIterator> AutoDerefIter<'a, I> {
         &mut self,
         match_set_mgr: &MatchSetManager,
         field_pos_before: usize,
-        range: &ValidTypedRange<'_>,
+        range: &ValidTypedRange<'static>,
     ) -> bool {
         if let FieldValueSlice::FieldReference(refs) = range.data {
             let refs_iter = FieldValueRangeIter::from_valid_range(range, refs);
@@ -436,15 +445,19 @@ impl<'a, I: FieldIterator> AutoDerefIter<'a, I> {
                     field_pos_before,
                 );
             } else {
-                self.deref_iter =
-                    Some(AnyDerefIter::FieldRef(DerefIter::new(
+                self.deref_iter = Some(AnyDerefIter::FieldRef(unsafe {
+                    std::mem::transmute::<
+                        DerefIter<'a, FieldReference>,
+                        DerefIter<'static, FieldReference>,
+                    >(DerefIter::new(
                         Ref::clone(&self.field_refs),
                         refs_iter,
                         self.field_mgr,
                         match_set_mgr,
                         field_id_offset,
                         field_pos_before,
-                    )));
+                    ))
+                }));
             }
             return true;
         }
@@ -461,15 +474,19 @@ impl<'a, I: FieldIterator> AutoDerefIter<'a, I> {
                     field_pos_before,
                 );
             } else {
-                self.deref_iter =
-                    Some(AnyDerefIter::SlicedFieldRef(DerefIter::new(
+                self.deref_iter = Some(AnyDerefIter::SlicedFieldRef(unsafe {
+                    std::mem::transmute::<
+                        DerefIter<'a, SlicedFieldReference>,
+                        DerefIter<'static, SlicedFieldReference>,
+                    >(DerefIter::new(
                         Ref::clone(&self.field_refs),
                         refs_iter,
                         self.field_mgr,
                         match_set_mgr,
                         field_id_offset,
                         field_pos_before,
-                    )));
+                    ))
+                }));
             }
             return true;
         }
@@ -547,6 +564,17 @@ impl<'a, I: FieldIterator> AutoDerefIter<'a, I> {
 
             let field_pos = self.iter.get_next_field_pos();
             if let Some(range) = self.iter.typed_range_fwd(limit, opts) {
+                // May god forgive me for I have sinned.
+                // SAFETY: we use this range to init our
+                // deref iter, who has to lie about his lifetime
+                // as explained in the comment on this struct.
+                // So we have to lie again here.
+                let range = unsafe {
+                    std::mem::transmute::<
+                        ValidTypedRange<'_>,
+                        ValidTypedRange<'static>,
+                    >(range)
+                };
                 if self.setup_for_field_refs_range(
                     match_set_mgr,
                     field_pos,
@@ -569,8 +597,15 @@ impl<'a, I: FieldIterator> AutoDerefIter<'a, I> {
         limit: usize,
     ) -> Option<(FieldValueRef, RunLength, Option<FieldRefOffset>)> {
         loop {
-            if let Some(ri) = &mut self.deref_iter {
-                match ri {
+            if let Some(ref_iter) = &mut self.deref_iter {
+                // SAFETY: see `typed_range_fwd` for why we need this nonsense
+                let ref_iter = unsafe {
+                    std::mem::transmute::<
+                        &'_ mut AnyDerefIter,
+                        &'static mut AnyDerefIter,
+                    >(ref_iter)
+                };
+                match ref_iter {
                     AnyDerefIter::FieldRef(iter) => {
                         if let Some(fru) =
                             iter.typed_field_fwd(match_set_mgr, limit)
@@ -600,26 +635,41 @@ impl<'a, I: FieldIterator> AutoDerefIter<'a, I> {
             }
             let field_pos = self.iter.get_next_field_pos();
             if let Some(field) = self.iter.typed_field_fwd(limit) {
-                if matches!(
+                if !matches!(
                     field.value,
                     FieldValueRef::FieldReference(_)
                         | FieldValueRef::SlicedFieldReference(_)
                 ) {
-                    self.iter.typed_field_bwd(limit);
-                    let range = self
-                        .iter
-                        .typed_range_fwd(limit, FieldIterOpts::default())
-                        .unwrap();
-                    self.setup_for_field_refs_range(
-                        match_set_mgr,
-                        field_pos,
-                        &range,
-                    )
-                    .then_some(())
-                    .unwrap();
-                    continue;
+                    // HACK //SAFETY: polonius issue. see `typed_range_fwd`
+                    let field = unsafe {
+                        std::mem::transmute::<TypedField<'_>, TypedField<'_>>(
+                            field,
+                        )
+                    };
+                    return Some((field.value, field.header.run_length, None));
                 }
-                return Some((field.value, field.header.run_length, None));
+                self.iter.typed_field_bwd(limit);
+                let range = self
+                    .iter
+                    .typed_range_fwd(limit, FieldIterOpts::default())
+                    .unwrap();
+
+                // SAFETY: see `typed_range_fwd` for why we need this
+                // nonsense
+                let range = unsafe {
+                    std::mem::transmute::<
+                        ValidTypedRange<'_>,
+                        ValidTypedRange<'static>,
+                    >(range)
+                };
+                self.setup_for_field_refs_range(
+                    match_set_mgr,
+                    field_pos,
+                    &range,
+                )
+                .then_some(())
+                .unwrap();
+                continue;
             }
             return None;
         }

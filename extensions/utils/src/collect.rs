@@ -17,13 +17,17 @@ use scr_core::{
     record_data::{
         action_buffer::ActorId,
         array::Array,
-        dyn_ref_iter::{DynFieldValueBlock, RefAwareDynFieldValueRangeIter},
         field_data::{FieldData, FieldValueRepr},
-        field_value_ref::FieldValueSlice,
-        field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
+        field_value_ref::{
+            DynFieldValueBlock, FieldValueBlock, FieldValueSlice,
+        },
         group_track::GroupTrackIterRef,
+        iter::{
+            dyn_ref_iter::RefAwareDynFieldValueRangeIter,
+            field_iterator::FieldIterOpts,
+            field_value_slice_iter::FieldValueRangeIter,
+        },
         iter_hall::FieldIterId,
-        field_iter::FieldIterOpts,
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },

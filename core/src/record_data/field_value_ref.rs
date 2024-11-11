@@ -122,11 +122,11 @@ pub struct TypedRange<'a> {
 #[derive(Default, derive_more::Deref)]
 pub struct ValidTypedRange<'a>(TypedRange<'a>);
 
-unsafe fn to_slice<'a, T: Sized, R: FieldDataRef>(
-    fdr: &'a R,
+unsafe fn to_slice<T: Sized, R: FieldDataRef>(
+    fdr: &R,
     data_begin: usize,
     data_end: usize,
-) -> &'a [T] {
+) -> &[T] {
     if data_begin == data_end {
         return &[];
     }
@@ -144,10 +144,7 @@ unsafe fn to_slice<'a, T: Sized, R: FieldDataRef>(
         )
     }
 }
-unsafe fn to_ref<'a, T: Sized, R: FieldDataRef>(
-    fdr: &'a R,
-    data_begin: usize,
-) -> &'a T {
+unsafe fn to_ref<T: Sized, R: FieldDataRef>(fdr: &R, data_begin: usize) -> &T {
     unsafe { &*fdr.data().ptr_from_index(data_begin).cast() }
 }
 

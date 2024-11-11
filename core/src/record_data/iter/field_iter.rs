@@ -31,18 +31,18 @@ impl<R: FieldDataRef> Clone for FieldIter<R> {
         Self {
             // This is the reason we cannot derive this.
             fdr: self.fdr.clone_ref(),
-            field_pos: self.field_pos.clone(),
-            data: self.data.clone(),
-            header_idx: self.header_idx.clone(),
-            header_rl_offset: self.header_rl_offset.clone(),
-            header_rl_total: self.header_rl_total.clone(),
-            header_fmt: self.header_fmt.clone(),
-            _phantom_data: self._phantom_data.clone(),
+            field_pos: self.field_pos,
+            data: self.data,
+            header_idx: self.header_idx,
+            header_rl_offset: self.header_rl_offset,
+            header_rl_total: self.header_rl_total,
+            header_fmt: self.header_fmt,
+            _phantom_data: self._phantom_data,
         }
     }
 }
 
-impl<'a, R: FieldDataRef> FieldIter<R> {
+impl<R: FieldDataRef> FieldIter<R> {
     pub unsafe fn from_iter_location(fdr: R, loc: IterLocation) -> Self {
         let headers = fdr.headers();
         if headers.is_empty() {
@@ -156,7 +156,7 @@ impl<'a, R: FieldDataRef> FieldIter<R> {
         self.header_rl_total = h.run_length;
     }
 }
-impl<'a, R: FieldDataRef> FieldIterator for FieldIter<R> {
+impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
     type FieldDataRefType = R;
     fn field_data_ref(&self) -> &Self::FieldDataRefType {
         &self.fdr

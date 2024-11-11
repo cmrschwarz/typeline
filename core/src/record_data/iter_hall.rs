@@ -404,7 +404,7 @@ impl IterHall {
     pub fn iter_states(&self) -> impl Iterator<Item = IterState> + '_ {
         self.iters.iter().map(Cell::get)
     }
-    fn calculate_start_header<'a, R: FieldDataRef>(
+    fn calculate_start_header<R: FieldDataRef>(
         fr: &R,
         state: &mut IterState,
     ) -> FieldValueHeader {
@@ -543,9 +543,9 @@ impl IterHall {
             };
         FieldData::copy(iter, adapted_target_applicator)
     }
-    pub fn copy_resolve_refs<'a, I: FieldIterator>(
+    pub fn copy_resolve_refs<I: FieldIterator>(
         match_set_mgr: &mut MatchSetManager,
-        iter: &mut AutoDerefIter<'a, I>,
+        iter: &mut AutoDerefIter<I>,
         targets_applicator: &mut impl FnMut(&mut dyn FnMut(&mut IterHall)),
     ) -> usize {
         let adapted_target_applicator =

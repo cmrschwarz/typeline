@@ -47,20 +47,25 @@ use scr_core::{
         bytes_insertion_stream::BytesInsertionStream,
         field::{FieldId, FieldIterRef},
         field_data::{FieldData, FieldValueRepr},
+        field_data_ref::FieldDataRef,
         field_value::FieldValueKind,
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueRangeIter,
         formattable::RealizedFormatKey,
+        iter::{
+            field_iter::FieldIter,
+            field_iterator::FieldIterOpts,
+            field_value_slice_iter::FieldValueRangeIter,
+            iter_adapters::UnfoldIterRunLength,
+            ref_iter::{
+                AutoDerefIter, RefAwareBytesBufferIter,
+                RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
+                RefAwareInlineTextIter, RefAwareTextBufferIter,
+                RefAwareUnfoldIterRunLength,
+            },
+        },
         iter_hall::IterKind,
-        field_iter::{FieldDataRef, FieldIter, FieldIterOpts, UnfoldIterRunLength},
         match_set::MatchSetManager,
         push_interface::PushInterface,
-        ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter,
-            RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareTextBufferIter,
-            RefAwareUnfoldIterRunLength,
-        },
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
             StreamValueDataOffset, StreamValueDataType, StreamValueId,
@@ -431,7 +436,7 @@ impl<'a> TfExec<'a> {
     fn push_error(&mut self, cmd_idx: usize, err: OperatorApplicationError) {
         self.command_args[cmd_idx].error = Some(err)
     }
-    fn add_iter_to_command_arg<'b, R: FieldDataRef<'b>>(
+    fn add_iter_to_command_arg<R: FieldDataRef>(
         &mut self,
         sv_mgr: &mut StreamValueManager,
         msm: &MatchSetManager,
@@ -439,7 +444,7 @@ impl<'a> TfExec<'a> {
         cmd_offset: usize,
         arg_idx: usize,
         _fmt_key: &FormatKey,
-        iter: &mut AutoDerefIter<'b, FieldIter<'b, R>>,
+        iter: &mut AutoDerefIter<FieldIter<R>>,
     ) {
         let mut cmd_idx = cmd_offset;
         while let Some(range) =
