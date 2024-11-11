@@ -3,30 +3,26 @@ use num::{BigInt, BigRational};
 use crate::{
     cli::call_expr::Argument,
     operators::{errors::OperatorApplicationError, macro_def::MacroRef},
-    record_data::{
-        field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueBlock,
+    record_data::field_value_ref::{
+        DynFieldValueBlock, FieldValueBlock, FieldValueSlice,
     },
 };
 use metamatch::metamatch;
 
-use super::{
+use super::super::{
     array::Array,
     custom_data::CustomDataBox,
     field_data::RunLength,
     field_value::{FieldReference, Object, SlicedFieldReference},
     field_value_ref::{FieldValueRef, ValidTypedRange},
-    field_value_slice_iter::{
-        FieldValueRangeIter, InlineBytesIter, InlineTextIter,
+    iter::{
+        field_value_slice_iter::{
+            FieldValueRangeIter, InlineBytesIter, InlineTextIter,
+        },
+        ref_iter::{AnyRefSliceIter, RangeOffsets, RefAwareTypedRange},
     },
-    ref_iter::{AnyRefSliceIter, RangeOffsets, RefAwareTypedRange},
     stream_value::StreamValueId,
 };
-
-pub enum DynFieldValueBlock<'a> {
-    Plain(FieldValueSlice<'a>),
-    WithRunLength(FieldValueRef<'a>, RunLength),
-}
 
 pub enum DynFieldValueRangeIter<'a> {
     Null(usize),
@@ -48,15 +44,6 @@ pub enum DynFieldValueRangeIter<'a> {
     StreamValueId(FieldValueRangeIter<'a, StreamValueId>),
     FieldReference(FieldValueRangeIter<'a, FieldReference>),
     SlicedFieldReference(FieldValueRangeIter<'a, SlicedFieldReference>),
-}
-
-impl DynFieldValueBlock<'_> {
-    pub fn run_len(&self) -> usize {
-        match self {
-            DynFieldValueBlock::Plain(p) => p.run_len(),
-            DynFieldValueBlock::WithRunLength(_, rl) => *rl as usize,
-        }
-    }
 }
 
 impl<'a> DynFieldValueRangeIter<'a> {
@@ -319,67 +306,5 @@ impl<'a> Iterator for RefAwareDynFieldValueRangeIter<'a> {
                 Some((data, rl, RangeOffsets::default()))
             }
         }
-    }
-}
-
-pub struct FieldValueSliceIter<'a> {
-    slice: FieldValueSlice<'a>,
-}
-
-impl<'a> FieldValueSliceIter<'a> {
-    pub fn new(slice: FieldValueSlice<'a>) -> Self {
-        Self { slice }
-    }
-}
-
-impl<'a> Iterator for FieldValueSliceIter<'a> {
-    type Item = FieldValueRef<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        metamatch!(match &mut self.slice {
-            FieldValueSlice::Undefined(n) | FieldValueSlice::Null(n) => {
-                if *n == 0 {
-                    None
-                } else {
-                    *n -= 1;
-                    Some(FieldValueRef::Null)
-                }
-            }
-            #[expand((REP, KIND) in [
-                (TextInline, Text), (BytesInline, Bytes)]
-            )]
-            FieldValueSlice::REP(val) => {
-                let res = FieldValueRef::KIND(val);
-                self.slice = FieldValueSlice::Null(0);
-                Some(res)
-            }
-            #[expand((REP, KIND) in [
-                (TextBuffer, Text),
-                (BytesBuffer, Bytes),
-            ])]
-            FieldValueSlice::REP(v) => {
-                if v.is_empty() {
-                    None
-                } else {
-                    let res = &v[0];
-                    *v = &v[1..];
-                    Some(FieldValueRef::KIND(res))
-                }
-            }
-            #[expand(REP in [
-                Int, BigInt, Float, BigRational,
-                Object, Array, Argument, Macro, Custom, Error,
-                StreamValueId, FieldReference, SlicedFieldReference
-            ])]
-            FieldValueSlice::REP(v) => {
-                if v.is_empty() {
-                    None
-                } else {
-                    let res = &v[0];
-                    *v = &v[1..];
-                    Some(FieldValueRef::REP(res))
-                }
-            }
-        })
     }
 }

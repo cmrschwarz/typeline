@@ -23,7 +23,7 @@ use scr_core::{
         field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
         group_track::GroupTrackIterRef,
         iter_hall::FieldIterId,
-        iters::FieldIterOpts,
+        field_iter::FieldIterOpts,
         push_interface::PushInterface,
         ref_iter::RefAwareFieldValueRangeIter,
         varying_type_inserter::VaryingTypeInserter,

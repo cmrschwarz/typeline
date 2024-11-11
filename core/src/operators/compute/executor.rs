@@ -18,21 +18,23 @@ use crate::{
     record_data::{
         field::FieldManager,
         field_data::FieldData,
+        field_data_ref::DestructuredFieldDataRef,
         field_value::FieldValueKind,
-        field_value_ref::FieldValueSlice,
-        field_value_slice_iter::{FieldValueBlock, FieldValueRangeIter},
-        iter_hall::{IterHall, IterStateRaw},
-        iters::{
-            DestructuredFieldDataRef, FieldIter, FieldIterOpts, FieldIterator,
+        field_value_ref::{FieldValueBlock, FieldValueSlice},
+        iter::{
+            field_iter::FieldIter,
+            field_iterator::{FieldIterOpts, FieldIterator},
+            field_value_slice_iter::FieldValueRangeIter,
+            ref_iter::{
+                AutoDerefIter, RefAwareBytesBufferIter,
+                RefAwareInlineBytesIter, RefAwareInlineTextIter,
+                RefAwareTextBufferIter, RefAwareTypedRange,
+            },
+            single_value_iter::{AtomIter, FieldValueIter, SingleValueIter},
         },
+        iter_hall::{IterHall, IterStateRaw},
         match_set::MatchSetManager,
         push_interface::PushInterface,
-        ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareTextBufferIter,
-            RefAwareTypedRange,
-        },
-        single_value_iter::{AtomIter, FieldValueIter, SingleValueIter},
         varying_type_inserter::VaryingTypeInserter,
     },
     utils::{

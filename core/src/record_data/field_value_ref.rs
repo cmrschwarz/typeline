@@ -6,16 +6,16 @@ use num::{BigInt, BigRational};
 use super::{
     array::Array,
     custom_data::CustomDataBox,
-    dyn_ref_iter::FieldValueSliceIter,
     field_data::{
         FieldValueFormat, FieldValueHeader, FieldValueRepr, FieldValueType,
         RunLength,
     },
+    field_data_ref::FieldDataRef,
     field_value::{
         FieldReference, FieldValue, FieldValueKind, Object,
         SlicedFieldReference,
     },
-    iters::FieldDataRef,
+    iter::field_value_slice_iter::FieldValueSliceIter,
     stream_value::StreamValueId,
 };
 use crate::{
@@ -90,6 +90,17 @@ pub enum FieldValueSlice<'a> {
     SlicedFieldReference(&'a [SlicedFieldReference]),
 }
 
+#[derive(Clone, Copy)]
+pub enum FieldValueBlock<'a, T> {
+    Plain(&'a [T]),
+    WithRunLength(&'a T, RunLength),
+}
+
+pub enum DynFieldValueBlock<'a> {
+    Plain(FieldValueSlice<'a>),
+    WithRunLength(FieldValueRef<'a>, RunLength),
+}
+
 pub struct TypedField<'a> {
     pub header: FieldValueHeader,
     pub value: FieldValueRef<'a>,
@@ -110,6 +121,61 @@ pub struct TypedRange<'a> {
 // matches data)
 #[derive(Default, derive_more::Deref)]
 pub struct ValidTypedRange<'a>(TypedRange<'a>);
+
+unsafe fn to_slice<'a, T: Sized, R: FieldDataRef>(
+    fdr: &'a R,
+    data_begin: usize,
+    data_end: usize,
+) -> &'a [T] {
+    if data_begin == data_end {
+        return &[];
+    }
+    let data = fdr.data();
+    #[cfg(debug_assertions)]
+    {
+        let slice_0_len = data.slice_lengths().0;
+        debug_assert!(data_begin >= slice_0_len || data_end <= slice_0_len);
+    }
+
+    unsafe {
+        std::slice::from_raw_parts::<T>(
+            data.ptr_from_index(data_begin).cast(),
+            (data_end - data_begin) / std::mem::size_of::<T>(),
+        )
+    }
+}
+unsafe fn to_ref<'a, T: Sized, R: FieldDataRef>(
+    fdr: &'a R,
+    data_begin: usize,
+) -> &'a T {
+    unsafe { &*fdr.data().ptr_from_index(data_begin).cast() }
+}
+
+pub unsafe fn value_as_bytes<T>(v: &T) -> &[u8] {
+    unsafe {
+        std::slice::from_raw_parts(
+            (v as *const T).cast::<u8>(),
+            std::mem::size_of_val(v),
+        )
+    }
+}
+pub unsafe fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
+    unsafe {
+        std::slice::from_raw_parts(v.as_ptr().cast(), std::mem::size_of_val(v))
+    }
+}
+
+unsafe fn drop_slice<T>(slice_start_ptr: *mut u8, len: usize) {
+    unsafe {
+        let droppable = std::slice::from_raw_parts_mut(
+            slice_start_ptr.cast::<ManuallyDrop<T>>(),
+            len,
+        );
+        for e in droppable.iter_mut() {
+            ManuallyDrop::drop(e);
+        }
+    }
+}
 
 impl<'a> FieldValueRef<'a> {
     pub unsafe fn new<R: FieldDataRef>(
@@ -282,32 +348,6 @@ impl<'a> TypedField<'a> {
 impl<'a> Default for FieldValueSlice<'a> {
     fn default() -> Self {
         FieldValueSlice::Null(0)
-    }
-}
-
-pub unsafe fn value_as_bytes<T>(v: &T) -> &[u8] {
-    unsafe {
-        std::slice::from_raw_parts(
-            (v as *const T).cast::<u8>(),
-            std::mem::size_of_val(v),
-        )
-    }
-}
-pub unsafe fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
-    unsafe {
-        std::slice::from_raw_parts(v.as_ptr().cast(), std::mem::size_of_val(v))
-    }
-}
-
-unsafe fn drop_slice<T>(slice_start_ptr: *mut u8, len: usize) {
-    unsafe {
-        let droppable = std::slice::from_raw_parts_mut(
-            slice_start_ptr.cast::<ManuallyDrop<T>>(),
-            len,
-        );
-        for e in droppable.iter_mut() {
-            ManuallyDrop::drop(e);
-        }
     }
 }
 
@@ -497,32 +537,23 @@ impl<'a> ValidTypedRange<'a> {
     }
 }
 
-unsafe fn to_slice<'a, T: Sized, R: FieldDataRef>(
-    fdr: &'a R,
-    data_begin: usize,
-    data_end: usize,
-) -> &'a [T] {
-    if data_begin == data_end {
-        return &[];
+impl<'a, T> FieldValueBlock<'a, T> {
+    pub fn len(&self) -> usize {
+        match self {
+            FieldValueBlock::Plain(v) => v.len(),
+            FieldValueBlock::WithRunLength(_, rl) => *rl as usize,
+        }
     }
-    let data = fdr.data();
-    #[cfg(debug_assertions)]
-    {
-        let slice_0_len = data.slice_lengths().0;
-        debug_assert!(data_begin >= slice_0_len || data_end <= slice_0_len);
-    }
-
-    unsafe {
-        std::slice::from_raw_parts::<T>(
-            data.ptr_from_index(data_begin).cast(),
-            (data_end - data_begin) / std::mem::size_of::<T>(),
-        )
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
-unsafe fn to_ref<'a, T: Sized, R: FieldDataRef>(
-    fdr: &'a R,
-    data_begin: usize,
-) -> &'a T {
-    unsafe { &*fdr.data().ptr_from_index(data_begin).cast() }
+impl DynFieldValueBlock<'_> {
+    pub fn run_len(&self) -> usize {
+        match self {
+            DynFieldValueBlock::Plain(p) => p.run_len(),
+            DynFieldValueBlock::WithRunLength(_, rl) => *rl as usize,
+        }
+    }
 }

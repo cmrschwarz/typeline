@@ -12,10 +12,12 @@ use crate::{
     record_data::{
         field_value::FieldValue,
         field_value_ref::FieldValueSlice,
+        iter::{
+            field_iterator::FieldIterator,
+            ref_iter::{AutoDerefIter, RefAwareFieldValueRangeIter},
+        },
         iter_hall::FieldIterId,
-        iters::FieldIterator,
         push_interface::PushInterface,
-        ref_iter::{AutoDerefIter, RefAwareFieldValueRangeIter},
         stream_value::{StreamValueData, StreamValueId, StreamValueUpdate},
     },
     utils::{

@@ -17,20 +17,22 @@ use crate::{
             FieldData, FieldValueRepr, RunLength, INLINE_STR_MAX_LEN,
         },
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueRangeIter,
         formattable::{
             Formattable, FormattingContext, RealizedFormatKey, TypeReprFormat,
         },
         group_track::GroupTrackIterRef,
-        iter_hall::FieldIterId,
-        iters::{FieldIterOpts, FieldIterator},
-        push_interface::PushInterface,
-        ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter,
-            RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareTextBufferIter,
-            RefAwareTypedRange,
+        iter::{
+            field_iterator::{FieldIterOpts, FieldIterator},
+            field_value_slice_iter::FieldValueRangeIter,
+            ref_iter::{
+                AutoDerefIter, RefAwareBytesBufferIter,
+                RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
+                RefAwareInlineTextIter, RefAwareTextBufferIter,
+                RefAwareTypedRange,
+            },
         },
+        iter_hall::FieldIterId,
+        push_interface::PushInterface,
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
             StreamValueDataOffset, StreamValueDataType, StreamValueId,

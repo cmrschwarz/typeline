@@ -4,11 +4,14 @@ use crate::{
     operators::transform::TransformId,
     record_data::{
         field::{FieldId, FieldManager},
+        field_data_ref::DestructuredFieldDataRef,
         group_track::GroupTrackManager,
+        iter::{
+            field_iter::FieldIter, iter_adapters::BoundedIter,
+            ref_iter::AutoDerefIter,
+        },
         iter_hall::FieldIterId,
-        iters::{BoundedIter, DestructuredFieldDataRef, FieldIter},
         match_set::{MatchSetId, MatchSetManager},
-        ref_iter::AutoDerefIter,
         stream_value::StreamValueManager,
     },
 };

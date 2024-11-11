@@ -9,7 +9,7 @@ use crate::{
     options::session_setup::SessionSetupData,
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
-        iter_hall::FieldIterId, iters::FieldIterator,
+        iter::field_iterator::FieldIterator, iter_hall::FieldIterId,
     },
     scr_error::ScrError,
     utils::{index_vec::IndexVec, indexing_type::IndexingType},

@@ -27,13 +27,15 @@ use crate::{
         field::{CowFieldDataRef, FieldId, FieldIterRef, FieldRefOffset},
         field_action::FieldActionKind,
         field_data::{FieldData, FieldValueRepr},
+        field_data_ref::DestructuredFieldDataRef,
         group_track::{
             GroupTrack, GroupTrackId, GroupTrackIterMut, GroupTrackIterRef,
         },
-        iter_hall::{FieldIterId, IterKind},
-        iters::{
-            DestructuredFieldDataRef, FieldIter, FieldIterOpts, FieldIterator,
+        iter::{
+            field_iter::FieldIter,
+            field_iterator::{FieldIterOpts, FieldIterator},
         },
+        iter_hall::{FieldIterId, IterKind},
         match_set::MatchSetId,
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,

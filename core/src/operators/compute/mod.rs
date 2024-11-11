@@ -21,10 +21,10 @@ use crate::{
     record_data::{
         field::{CowFieldDataRef, FieldIterRef},
         field_data::FieldData,
+        field_data_ref::DestructuredFieldDataRef,
         field_value::FieldValue,
+        iter::{field_iter::FieldIter, ref_iter::AutoDerefIter},
         iter_hall::{IterKind, IterStateRaw},
-        iters::{DestructuredFieldDataRef, FieldIter},
-        ref_iter::AutoDerefIter,
         scope_manager::{Atom, ScopeValue},
         stream_value::StreamValueUpdate,
     },

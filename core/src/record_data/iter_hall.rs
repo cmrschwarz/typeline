@@ -24,11 +24,14 @@ use super::{
         FieldValueFlags, FieldValueHeader, FieldValueRepr, FieldValueType,
         RunLength,
     },
+    field_data_ref::FieldDataRef,
     fixed_sized_type_inserter::FixedSizeTypeInserter,
-    iters::{FieldDataRef, FieldIter, FieldIterator},
+    iter::{
+        field_iter::FieldIter, field_iterator::FieldIterator,
+        ref_iter::AutoDerefIter,
+    },
     match_set::MatchSetManager,
     push_interface::PushInterface,
-    ref_iter::AutoDerefIter,
     variable_sized_type_inserter::{
         InlineBytesInserter, InlineStringInserter, VariableSizeTypeInserter,
     },

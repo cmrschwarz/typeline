@@ -14,16 +14,16 @@ use crate::{
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
     field_data::{FieldData, FieldDataBuffer, FieldValueHeader},
+    field_data_ref::{DestructuredFieldDataRef, FieldDataRef},
+    iter::{
+        field_iter::FieldIter, field_iterator::FieldIterator,
+        iter_adapters::BoundedIter, ref_iter::AutoDerefIter,
+    },
     iter_hall::{
         CowDataSource, FieldDataSource, FieldIterId, IterHall, IterKind,
     },
-    iters::{
-        BoundedIter, DestructuredFieldDataRef, FieldDataRef, FieldIter,
-        FieldIterator,
-    },
     match_set::{MatchSetId, MatchSetManager},
     record_buffer::RecordBufferField,
-    ref_iter::AutoDerefIter,
     varying_type_inserter::VaryingTypeInserter,
 };
 

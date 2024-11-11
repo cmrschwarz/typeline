@@ -1,23 +1,23 @@
 use std::{cell::Ref, ops::Range};
 
-use super::{
+use crate::record_data::{
     field::{
         CowFieldDataRef, FieldId, FieldManager, FieldRefOffset,
         FIELD_REF_LOOKUP_ITER_ID,
     },
-    field_data::FieldValueType,
+    field_data::{FieldValueHeader, FieldValueType, RunLength},
     field_value::{FieldReference, SlicedFieldReference},
-    iters::{DestructuredFieldDataRef, FieldDataRef, FieldIterOpts},
-    match_set::MatchSetManager,
-};
-
-use crate::record_data::{
-    field_data::{FieldValueHeader, RunLength},
     field_value_ref::{
         FieldValueRef, FieldValueSlice, TypedRange, ValidTypedRange,
     },
+    match_set::MatchSetManager,
+};
+
+use super::{
+    super::field_data_ref::{DestructuredFieldDataRef, FieldDataRef},
+    field_iter::FieldIter,
+    field_iterator::{FieldIterOpts, FieldIterator},
     field_value_slice_iter::{FieldValueRangeIter, InlineBytesIter},
-    iters::{FieldIter, FieldIterator},
 };
 
 pub trait ReferenceFieldValueType: FieldValueType + Clone + 'static {
@@ -68,6 +68,19 @@ pub enum AnyDerefIter<'a> {
 pub enum AnyRefSliceIter<'a> {
     FieldRef(FieldValueRangeIter<'a, FieldReference>),
     SlicedFieldRef(FieldValueRangeIter<'a, SlicedFieldReference>),
+}
+
+pub struct RefAwareTypedRange<'a> {
+    pub base: ValidTypedRange<'a>,
+    pub refs: Option<AnyRefSliceIter<'a>>,
+    pub field_ref_offset: Option<FieldRefOffset>,
+}
+
+pub struct AutoDerefIter<'a, I> {
+    iter: I,
+    field_refs: Ref<'a, [FieldId]>,
+    deref_iter: Option<AnyDerefIter<'a>>,
+    field_mgr: &'a FieldManager,
 }
 
 impl<'a, R: ReferenceFieldValueType> FieldRefUnpacked<'a, R> {
@@ -125,7 +138,7 @@ impl<'a, R: ReferenceFieldValueType> DerefIter<'a, R> {
     pub fn reset(
         &mut self,
         match_set_mgr: &'_ MatchSetManager,
-        refs_iter: FieldValueRangeIter<R>,
+        refs_iter: FieldValueRangeIter<'a, R>,
         field_id_offset: FieldRefOffset,
         field_pos: usize,
     ) {
@@ -344,12 +357,6 @@ impl<'a, R: ReferenceFieldValueType> DerefIter<'a, R> {
     }
 }
 
-pub struct AutoDerefIter<'a, I> {
-    iter: I,
-    field_refs: Ref<'a, [FieldId]>,
-    deref_iter: Option<AnyDerefIter<'a>>,
-    field_mgr: &'a FieldManager,
-}
 // manual because  `Ref<'a, [FieldId]>` isn't `Clone`
 impl<'a, I: Clone> Clone for AutoDerefIter<'a, I> {
     fn clone(&self) -> Self {
@@ -360,12 +367,6 @@ impl<'a, I: Clone> Clone for AutoDerefIter<'a, I> {
             field_mgr: self.field_mgr,
         }
     }
-}
-
-pub struct RefAwareTypedRange<'a> {
-    pub base: ValidTypedRange<'a>,
-    pub refs: Option<AnyRefSliceIter<'a>>,
-    pub field_ref_offset: Option<FieldRefOffset>,
 }
 
 impl<'a> RefAwareTypedRange<'a> {
@@ -1059,23 +1060,20 @@ impl<I: Iterator<Item = (T, RunLength, RangeOffsets)>, T: Clone> Iterator
 #[cfg(test)]
 mod ref_iter_tests {
     use super::{
-        super::{
-            field::FieldManager,
-            match_set::MatchSetManager,
-            ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
-        },
+        super::ref_iter::{AutoDerefIter, RefAwareInlineTextIter},
         RangeOffsets,
     };
     use crate::record_data::{
         action_buffer::ActorRef,
-        field::FieldRefOffset,
+        field::{FieldManager, FieldRefOffset},
         field_data::{
             field_value_flags, FieldData, FieldValueFormat, FieldValueHeader,
             FieldValueRepr, RunLength,
         },
         field_value::SlicedFieldReference,
         field_value_ref::FieldValueSlice,
-        iters::{FieldIter, FieldIterOpts},
+        iter::{field_iter::FieldIter, field_iterator::FieldIterOpts},
+        match_set::MatchSetManager,
         push_interface::PushInterface,
         scope_manager::ScopeManager,
     };

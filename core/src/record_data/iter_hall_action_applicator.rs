@@ -35,8 +35,8 @@ use super::{
         FieldData, FieldDataBuffer, FieldValueHeader, RunLength,
         MAX_FIELD_ALIGN,
     },
+    iter::field_iterator::FieldIterator,
     iter_hall::{FieldDataSource, FieldIterId, FieldLocation, IterState},
-    iters::FieldIterator,
     match_set::{MatchSetId, MatchSetManager},
 };
 

@@ -3,7 +3,7 @@ use crate::{
     operators::transform::TransformId,
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
-        iter_hall::FieldIterId, iters::FieldIterator,
+        iter::field_iterator::FieldIterator, iter_hall::FieldIterId,
     },
 };
 

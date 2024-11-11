@@ -6,13 +6,15 @@ use super::{
         Undefined,
     },
     field_value_ref::value_as_bytes,
-    iters::FieldIterOpts,
-    match_set::MatchSetManager,
-    ref_iter::{
-        AutoDerefIter, RefAwareBytesBufferIter, RefAwareFieldValueRangeIter,
-        RefAwareInlineBytesIter, RefAwareInlineTextIter,
-        RefAwareTextBufferIter,
+    iter::{
+        field_iterator::FieldIterOpts,
+        ref_iter::{
+            AutoDerefIter, RefAwareBytesBufferIter,
+            RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
+            RefAwareInlineTextIter, RefAwareTextBufferIter,
+        },
     },
+    match_set::MatchSetManager,
     varying_type_inserter::VaryingTypeInserter,
 };
 use crate::{
@@ -34,7 +36,7 @@ use num::{BigInt, BigRational};
 
 use super::{
     field_value_ref::FieldValueSlice,
-    iters::{FieldIter, FieldIterator},
+    iter::{field_iter::FieldIter, field_iterator::FieldIterator},
     push_interface::PushInterface,
     stream_value::StreamValueId,
 };

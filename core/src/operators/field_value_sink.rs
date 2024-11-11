@@ -4,15 +4,17 @@ use crate::{
         field::Field,
         field_value::FieldValue,
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueRangeIter,
-        iter_hall::FieldIterId,
-        iters::{FieldIterOpts, FieldIterator},
-        push_interface::PushInterface,
-        ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter,
-            RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareTextBufferIter,
+        iter::{
+            field_iterator::{FieldIterOpts, FieldIterator},
+            field_value_slice_iter::FieldValueRangeIter,
+            ref_iter::{
+                AutoDerefIter, RefAwareBytesBufferIter,
+                RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
+                RefAwareInlineTextIter, RefAwareTextBufferIter,
+            },
         },
+        iter_hall::FieldIterId,
+        push_interface::PushInterface,
     },
     utils::universe::CountedUniverse,
 };

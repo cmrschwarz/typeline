@@ -20,8 +20,8 @@ use crate::{
         field::{FieldId, FieldManager},
         field_action::FieldActionKind,
         group_track::VOID_GROUP_TRACK_ID,
+        iter::field_iterator::FieldIterator,
         iter_hall::{FieldIterId, IterKind},
-        iters::FieldIterator,
         match_set::MatchSetId,
         record_buffer::{
             RecordBuffer, RecordBufferData, RecordBufferField,

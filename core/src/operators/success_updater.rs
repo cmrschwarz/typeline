@@ -9,8 +9,8 @@ use crate::{
     cli::call_expr::CallExpr,
     job::JobData,
     record_data::{
-        field_value_ref::FieldValueSlice, iter_hall::FieldIterId,
-        iters::FieldIterOpts,
+        field_value_ref::FieldValueSlice, iter::field_iterator::FieldIterOpts,
+        iter_hall::FieldIterId,
     },
 };
 

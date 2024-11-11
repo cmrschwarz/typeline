@@ -6,9 +6,10 @@ use crate::{
         field::{Field, FieldId, FieldManager},
         field_action::FieldActionKind,
         field_data::FieldValueRepr,
+        field_data_ref::DestructuredFieldDataRef,
         group_track::{GroupIdxStable, GroupTrackIterRef, GroupTrackManager},
+        iter::{field_iter::FieldIter, field_iterator::FieldIterator},
         iter_hall::FieldIterId,
-        iters::{DestructuredFieldDataRef, FieldIter, FieldIterator},
         match_set::{MatchSetId, MatchSetManager},
     },
 };

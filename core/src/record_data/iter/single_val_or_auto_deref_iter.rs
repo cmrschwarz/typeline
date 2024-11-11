@@ -1,6 +1,7 @@
+use crate::record_data::match_set::MatchSetManager;
+
 use super::{
-    iters::{FieldIterOpts, FieldIterator},
-    match_set::MatchSetManager,
+    field_iterator::{FieldIterOpts, FieldIterator},
     ref_iter::{AutoDerefIter, RefAwareTypedRange},
     single_value_iter::{AtomIter, FieldValueIter},
 };

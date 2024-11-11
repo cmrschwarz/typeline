@@ -1,16 +1,16 @@
 use std::{marker::PhantomData, ptr::NonNull};
 
 use super::{
-    field_data::{FieldValueHeader, FieldValueType, RunLength},
-    field_value_ref::{TypedRange, ValidTypedRange},
+    super::{
+        field_data::{FieldValueHeader, FieldValueType, RunLength},
+        field_value_ref::{TypedRange, ValidTypedRange},
+    },
     ref_iter::RefAwareTypedRange,
 };
-
-#[derive(Clone, Copy)]
-pub enum FieldValueBlock<'a, T> {
-    Plain(&'a [T]),
-    WithRunLength(&'a T, RunLength),
-}
+use crate::record_data::field_value_ref::{
+    FieldValueBlock, FieldValueRef, FieldValueSlice,
+};
+use metamatch::metamatch;
 
 #[derive(Clone)]
 pub struct FieldValueRangeIter<'a, T> {
@@ -35,18 +35,6 @@ pub struct InlineBytesIter<'a> {
 #[derive(Default)]
 pub struct InlineTextIter<'a> {
     iter: InlineBytesIter<'a>,
-}
-
-impl<'a, T> FieldValueBlock<'a, T> {
-    pub fn len(&self) -> usize {
-        match self {
-            FieldValueBlock::Plain(v) => v.len(),
-            FieldValueBlock::WithRunLength(_, rl) => *rl as usize,
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 }
 
 impl<'a, T> Default for FieldValueRangeIter<'a, T> {
@@ -571,6 +559,68 @@ impl<'a> Iterator for InlineTextIter<'a> {
     }
 }
 
+pub struct FieldValueSliceIter<'a> {
+    slice: FieldValueSlice<'a>,
+}
+
+impl<'a> FieldValueSliceIter<'a> {
+    pub fn new(slice: FieldValueSlice<'a>) -> Self {
+        Self { slice }
+    }
+}
+
+impl<'a> Iterator for FieldValueSliceIter<'a> {
+    type Item = FieldValueRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        metamatch!(match &mut self.slice {
+            FieldValueSlice::Undefined(n) | FieldValueSlice::Null(n) => {
+                if *n == 0 {
+                    None
+                } else {
+                    *n -= 1;
+                    Some(FieldValueRef::Null)
+                }
+            }
+            #[expand((REP, KIND) in [
+                (TextInline, Text), (BytesInline, Bytes)]
+            )]
+            FieldValueSlice::REP(val) => {
+                let res = FieldValueRef::KIND(val);
+                self.slice = FieldValueSlice::Null(0);
+                Some(res)
+            }
+            #[expand((REP, KIND) in [
+                (TextBuffer, Text),
+                (BytesBuffer, Bytes),
+            ])]
+            FieldValueSlice::REP(v) => {
+                if v.is_empty() {
+                    None
+                } else {
+                    let res = &v[0];
+                    *v = &v[1..];
+                    Some(FieldValueRef::KIND(res))
+                }
+            }
+            #[expand(REP in [
+                Int, BigInt, Float, BigRational,
+                Object, Array, Argument, Macro, Custom, Error,
+                StreamValueId, FieldReference, SlicedFieldReference
+            ])]
+            FieldValueSlice::REP(v) => {
+                if v.is_empty() {
+                    None
+                } else {
+                    let res = &v[0];
+                    *v = &v[1..];
+                    Some(FieldValueRef::REP(res))
+                }
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 mod test_slice_iter {
     use crate::record_data::{
@@ -661,7 +711,7 @@ mod test_text_iter {
 
     use crate::record_data::{
         field_data::{FieldData, RunLength},
-        field_value_slice_iter::InlineTextIter,
+        iter::field_value_slice_iter::InlineTextIter,
         push_interface::PushInterface,
     };
 

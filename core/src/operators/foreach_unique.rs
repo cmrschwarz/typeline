@@ -8,8 +8,8 @@ use crate::{
     operators::{foreach::TfForeachTrailer, operator::TransformInstatiation},
     options::session_setup::SessionSetupData,
     record_data::{
-        dyn_ref_iter::RefAwareDynFieldValueRangeIter,
         group_track::{GroupTrackIterId, GroupTrackIterRef},
+        iter::dyn_ref_iter::RefAwareDynFieldValueRangeIter,
         iter_hall::{FieldIterId, IterKind},
     },
     scr_error::ScrError,

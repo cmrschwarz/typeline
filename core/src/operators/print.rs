@@ -24,21 +24,24 @@ use crate::{
         field_data::FieldValueType,
         field_value::{Null, Undefined},
         field_value_ref::FieldValueSlice,
-        field_value_slice_iter::FieldValueRangeIter,
         formattable::{
             format_error_raw, format_rational, Formattable, FormattingContext,
             RealizedFormatKey,
         },
+        iter::{
+            field_iterator::{FieldIterOpts, FieldIterator},
+            field_value_slice_iter::FieldValueRangeIter,
+            iter_adapters::UnfoldIterRunLength,
+            ref_iter::{
+                AutoDerefIter, RefAwareBytesBufferIter,
+                RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
+                RefAwareInlineTextIter, RefAwareTextBufferIter,
+                RefAwareUnfoldIterRunLength,
+            },
+        },
         iter_hall::FieldIterId,
-        iters::{FieldIterOpts, FieldIterator, UnfoldIterRunLength},
         match_set::MatchSetManager,
         push_interface::PushInterface,
-        ref_iter::{
-            AutoDerefIter, RefAwareBytesBufferIter,
-            RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
-            RefAwareInlineTextIter, RefAwareTextBufferIter,
-            RefAwareUnfoldIterRunLength,
-        },
         stream_value::{
             StreamValue, StreamValueDataOffset, StreamValueId,
             StreamValueManager, StreamValueUpdate,

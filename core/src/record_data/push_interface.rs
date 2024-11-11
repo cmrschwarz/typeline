@@ -18,14 +18,17 @@ use super::{
     },
     field_value::{FieldReference, FieldValue, Object, SlicedFieldReference},
     field_value_ref::{FieldValueSlice, ValidTypedRange},
-    field_value_slice_iter::FieldValueRangeIter,
     formattable::{Formattable, FormattingContext, RealizedFormatKey},
-    iters::{FieldIterOpts, FieldIterator},
-    match_set::MatchSetManager,
-    ref_iter::{
-        AnyRefSliceIter, AutoDerefIter, RefAwareFieldValueRangeIter,
-        RefAwareInlineBytesIter, RefAwareInlineTextIter, RefAwareTypedRange,
+    iter::{
+        field_iterator::FieldIterator,
+        field_value_slice_iter::FieldValueRangeIter,
+        ref_iter::{
+            AnyRefSliceIter, AutoDerefIter, RefAwareFieldValueRangeIter,
+            RefAwareInlineBytesIter, RefAwareInlineTextIter,
+            RefAwareTypedRange,
+        },
     },
+    match_set::MatchSetManager,
     stream_value::{StreamValueId, StreamValueManager},
 };
 use crate::{
@@ -37,7 +40,10 @@ use crate::{
             INLINE_STR_MAX_LEN,
         },
         field_value::{Null, Undefined},
-        ref_iter::{RefAwareBytesBufferIter, RefAwareTextBufferIter},
+        iter::{
+            field_iterator::FieldIterOpts,
+            ref_iter::{RefAwareBytesBufferIter, RefAwareTextBufferIter},
+        },
     },
     utils::{
         as_u8_slice,

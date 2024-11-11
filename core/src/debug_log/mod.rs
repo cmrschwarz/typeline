@@ -17,6 +17,7 @@ use crate::{
     record_data::{
         field::{Field, FieldId},
         field_action::FieldAction,
+        field_data_ref::FieldDataRef,
         field_value::FieldValue,
         field_value_ref::FieldValueRef,
         formattable::{
@@ -24,8 +25,8 @@ use crate::{
             TypeReprFormat,
         },
         group_track::{GroupTrack, GroupTrackId, GroupTrackIterState},
+        iter::{field_iter::FieldIter, field_iterator::FieldIterator},
         iter_hall::{CowVariant, IterKind, IterState},
-        iters::{FieldDataRef, FieldIter, FieldIterator},
         match_set::MatchSetId,
         scope_manager::ScopeValue,
         stream_value::{

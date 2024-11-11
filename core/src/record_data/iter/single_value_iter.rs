@@ -1,14 +1,15 @@
 use std::{borrow::Borrow, ops::Deref, sync::RwLockReadGuard};
 
-use super::{
+use crate::record_data::{
     field_data::{
         field_value_flags, FieldValueFormat, FieldValueHeader, RunLength,
     },
     field_value::FieldValue,
     field_value_ref::{TypedRange, ValidTypedRange},
-    ref_iter::RefAwareTypedRange,
     scope_manager::Atom,
 };
+
+use super::ref_iter::RefAwareTypedRange;
 
 pub struct SingleValueIter<V: Deref<Target = FieldValue>> {
     value_ref: V,

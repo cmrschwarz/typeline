@@ -1,9 +1,11 @@
 use crate::record_data::{
     field_value_ref::FieldValueSlice,
-    field_value_slice_iter::FieldValueRangeIter,
-    iters::{FieldIterOpts, FieldIterator},
+    iter::{
+        field_iterator::{FieldIterOpts, FieldIterator},
+        field_value_slice_iter::FieldValueRangeIter,
+        ref_iter::AutoDerefIter,
+    },
     match_set::MatchSetManager,
-    ref_iter::AutoDerefIter,
     stream_value::{StreamValueId, StreamValueManager},
 };
 
