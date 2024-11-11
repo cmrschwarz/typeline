@@ -8,7 +8,7 @@ use crate::record_data::{
         FieldValueFormat, FieldValueHeader, FieldValueRepr, RunLength,
     },
     field_value_ref::{TypedField, ValidTypedRange},
-    iter_hall::FieldLocation,
+    iter_hall::{FieldLocation, IterLocation},
 };
 
 use super::{
@@ -47,9 +47,9 @@ pub trait FieldIterator: Sized + Clone {
     fn get_prev_field_data_end(&self) -> usize;
     // if the cursor is in the middle of a header, *that* header will be
     // returned, not the one after it
-    fn get_next_header(&self) -> FieldValueHeader;
-    fn get_next_header_data(&self) -> usize;
-    fn get_next_header_ref(&self) -> &FieldValueHeader {
+    fn get_next_field_header(&self) -> FieldValueHeader;
+    fn get_next_field_header_data_start(&self) -> usize;
+    fn get_next_field_header_ref(&self) -> &FieldValueHeader {
         &self.field_data_ref().headers()[self.get_next_header_index()]
     }
     fn get_next_header_index(&self) -> usize;
@@ -77,6 +77,14 @@ pub trait FieldIterator: Sized + Clone {
             header_idx: self.get_next_header_index(),
             header_rl_offset: self.field_run_length_bwd(),
             data_pos: self.get_next_field_data(),
+        }
+    }
+    fn get_iter_location(&self) -> IterLocation {
+        IterLocation {
+            field_pos: self.get_next_field_pos(),
+            header_idx: self.get_next_header_index(),
+            header_rl_offset: self.field_run_length_bwd(),
+            header_start_data_pos: self.get_next_field_header_data_start(),
         }
     }
     fn next_header(&mut self) -> RunLength;

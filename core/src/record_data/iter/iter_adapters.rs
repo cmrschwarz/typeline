@@ -95,13 +95,13 @@ where
     fn get_prev_field_data_end(&self) -> usize {
         self.iter.get_prev_field_data_end()
     }
-    fn get_next_header(&self) -> FieldValueHeader {
+    fn get_next_field_header(&self) -> FieldValueHeader {
         debug_assert!(self.is_next_valid());
-        self.iter.get_next_header()
+        self.iter.get_next_field_header()
     }
-    fn get_next_header_data(&self) -> usize {
+    fn get_next_field_header_data_start(&self) -> usize {
         debug_assert!(self.is_next_valid());
-        self.iter.get_next_header_data()
+        self.iter.get_next_field_header_data_start()
     }
     fn get_next_header_index(&self) -> usize {
         self.iter.get_next_header_index()

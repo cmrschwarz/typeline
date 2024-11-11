@@ -1,5 +1,8 @@
-use crate::record_data::field_data::{
-    FieldValueFormat, FieldValueHeader, FieldValueRepr, RunLength,
+use crate::record_data::{
+    field_data::{
+        FieldValueFormat, FieldValueHeader, FieldValueRepr, RunLength,
+    },
+    iter_hall::IterLocation,
 };
 use std::marker::PhantomData;
 
@@ -40,6 +43,25 @@ impl<R: FieldDataRef> Clone for FieldIter<R> {
 }
 
 impl<'a, R: FieldDataRef> FieldIter<R> {
+    pub unsafe fn from_iter_location(fdr: R, loc: IterLocation) -> Self {
+        let headers = fdr.headers();
+        if headers.is_empty() {
+            return FieldIter::from_start(fdr);
+        }
+        let h = headers[loc.header_idx];
+        let mut res = FieldIter {
+            fdr,
+            field_pos: loc.field_pos,
+            data: loc.header_start_data_pos,
+            header_idx: loc.header_idx,
+            header_rl_offset: loc.header_rl_offset,
+            header_rl_total: h.run_length,
+            header_fmt: h.fmt,
+            _phantom_data: PhantomData,
+        };
+        res.skip_dead_fields();
+        res
+    }
     pub fn from_start_allow_dead(fdr: R) -> Self {
         let first_header = fdr.headers().front();
         Self {
@@ -176,14 +198,14 @@ impl<'a, R: FieldDataRef> FieldIterator for FieldIter<R> {
         }
         self.data - self.header_fmt.leading_padding()
     }
-    fn get_next_header(&self) -> FieldValueHeader {
+    fn get_next_field_header(&self) -> FieldValueHeader {
         debug_assert!(self.is_next_valid());
         FieldValueHeader {
             fmt: self.header_fmt,
             run_length: self.header_rl_total,
         }
     }
-    fn get_next_header_data(&self) -> usize {
+    fn get_next_field_header_data_start(&self) -> usize {
         debug_assert!(self.is_next_valid());
         self.data
     }

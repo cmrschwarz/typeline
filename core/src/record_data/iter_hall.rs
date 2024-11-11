@@ -3,7 +3,6 @@ use std::{
     cell::{Cell, UnsafeCell},
     cmp::Ordering,
     collections::VecDeque,
-    marker::PhantomData,
 };
 
 use thin_vec::ThinVec;
@@ -130,13 +129,31 @@ pub struct IterState {
     pub kind: IterKind,
 }
 
-/// mainly for testing purposes and temporary passing.
+// The main difference from `IterLocation` is that this struct
+// stores the data position **of the current field position**
+// instead of the data position at the start of the current header
 #[derive(Clone, Copy, Default, Debug)]
 pub struct FieldLocation {
     pub field_pos: usize,
     pub header_idx: usize,
     pub header_rl_offset: RunLength,
     pub data_pos: usize,
+}
+
+// Unlike `FieldLocation`, stores the data position that a FieldIter
+// would hold at this point instead of where the data of this field positon
+// starts. This is the data position at the start of the current header,
+// but after any leading padding.
+// TODO: maybe refactor this and make the iter store its actual data position
+// to simplify this mess.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct IterLocation {
+    pub field_pos: usize,
+    pub header_idx: usize,
+    pub header_rl_offset: RunLength,
+    // data pos at the start of the current header after but leading padding
+    // just in the way that `FieldIter` would store it
+    pub header_start_data_pos: usize,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -412,22 +429,23 @@ impl IterHall {
     }
     // SAFETY: caller must ensure that the state comes from this data source
     pub unsafe fn get_iter_from_state_unchecked<R: FieldDataRef>(
-        fr: R,
+        fdr: R,
         mut state: IterState,
     ) -> FieldIter<R> {
-        let h = Self::calculate_start_header(&fr, &mut state);
-        let mut res = FieldIter {
-            fdr: fr,
-            field_pos: state.field_pos,
-            data: state.data + h.leading_padding(),
-            header_idx: state.header_idx,
-            header_rl_offset: state.header_rl_offset,
-            header_rl_total: h.run_length,
-            header_fmt: h.fmt,
-            _phantom_data: PhantomData,
-        };
-        res.skip_dead_fields();
-        res
+        let h = Self::calculate_start_header(&fdr, &mut state);
+        unsafe {
+            FieldIter::from_iter_location(
+                fdr,
+                IterLocation {
+                    field_pos: state.field_pos,
+                    header_idx: state.header_idx,
+                    header_rl_offset: state.header_rl_offset,
+                    // TODO: investigate. seems sus that we have to add the
+                    // padding here
+                    header_start_data_pos: state.data + h.leading_padding(),
+                },
+            )
+        }
     }
     pub fn iter_to_iter_state<R: FieldDataRef>(
         &self,
@@ -436,22 +454,23 @@ impl IterHall {
         #[cfg_attr(not(feature = "debug_state"), allow(unused_variables))]
         kind: IterKind,
     ) -> IterState {
+        let mut loc = iter.get_iter_location();
         let mut state = IterState {
-            field_pos: iter.field_pos,
-            data: iter.data,
-            header_idx: iter.header_idx,
-            header_rl_offset: iter.header_rl_offset,
+            field_pos: loc.field_pos,
+            data: loc.header_start_data_pos,
+            header_idx: loc.header_idx,
+            header_rl_offset: loc.header_rl_offset,
             first_right_leaning_actor_id: first_left_leaning_actor_id,
             #[cfg(feature = "debug_state")]
             kind,
         };
         // we use the field count from the iter becase the field might be cow
-        if iter.header_rl_offset == 0
-            && iter.field_pos == iter.fdr.field_count()
+        if loc.header_rl_offset == 0
+            && loc.field_pos == iter.field_data_ref().field_count()
         {
             // Uphold the 'no `IterState` on the last header except 0'
             // invariant.
-            if iter.field_pos == 0 {
+            if loc.field_pos == 0 {
                 // When our header index is already 0, resetting is a noop.
                 // The other case (header_idx > 0) happens if all fields before
                 // are deleted. Calling `prev_field`, like in
@@ -463,9 +482,15 @@ impl IterHall {
             }
             iter.prev_field();
             state.header_rl_offset = iter.field_run_length_bwd() + 1;
+            loc = iter.get_iter_location();
         }
-        state.header_idx = iter.header_idx;
-        state.data = iter.data - iter.header_fmt.leading_padding();
+        state.header_idx = loc.header_idx;
+        // TODO: //HACK this is the reason we reverse this in
+        // `get_iter_from_state_unchecked`
+        // this sucks. why do we do this?
+        state.data = loc.header_start_data_pos
+            - iter.field_data_ref().headers()[loc.header_idx]
+                .leading_padding();
         state
     }
 
