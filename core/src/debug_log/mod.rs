@@ -582,7 +582,7 @@ pub fn iters_to_json(iters: &[IterState]) -> Value {
                         i.header_idx,
                         i.header_rl_offset,
                         i.field_pos,
-                        i.data,
+                        i.header_start_data_pos_pre_padding,
                         i.first_right_leaning_actor_id.into_usize()
                     ),
                 )

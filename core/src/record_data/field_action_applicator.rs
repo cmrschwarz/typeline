@@ -118,7 +118,7 @@ impl FieldActionApplicator {
             [faas.curr_header_iters_start..faas.curr_header_iters_end]
         {
             it.header_idx += 1;
-            it.data += data_offset;
+            it.header_start_data_pos_pre_padding += data_offset;
             it.header_rl_offset -= current_header.run_length;
         }
     }
@@ -133,7 +133,7 @@ impl FieldActionApplicator {
         {
             it.field_pos -= it.header_rl_offset as usize;
             it.header_idx += 1;
-            it.data += data_offset;
+            it.header_start_data_pos_pre_padding += data_offset;
             it.header_rl_offset = 0;
         }
     }
@@ -147,7 +147,7 @@ impl FieldActionApplicator {
             [faas.curr_header_iters_start..faas.curr_header_iters_end]
         {
             it.header_idx += 1;
-            it.data += data_offset;
+            it.header_start_data_pos_pre_padding += data_offset;
             if it.header_rl_offset < current_header.run_length {
                 it.field_pos -= it.header_rl_offset as usize;
                 it.header_rl_offset = 0;
@@ -357,7 +357,7 @@ impl FieldActionApplicator {
             }
             it.field_pos += dup_count;
             it.header_idx += header_pos_bump;
-            it.data += data_offset_iters;
+            it.header_start_data_pos_pre_padding += data_offset_iters;
             it.header_rl_offset -= pre + 1;
         }
 
@@ -729,7 +729,7 @@ impl FieldActionApplicator {
                 {
                     break;
                 }
-                it.data = faas.data_end;
+                it.header_start_data_pos_pre_padding = faas.data_end;
                 it.field_pos += a.run_len as usize;
                 if appendable == a.run_len {
                     it.header_rl_offset += appendable;
@@ -854,7 +854,8 @@ impl FieldActionApplicator {
             if it.header_idx == headers.len()
                 || !headers[it.header_idx].same_value_as_previous()
             {
-                it.data -= headers[it.header_idx - 1].total_size_unique();
+                it.header_start_data_pos_pre_padding -=
+                    headers[it.header_idx - 1].total_size_unique();
             }
             it.header_idx -= 1;
             it.header_rl_offset = headers[it.header_idx].run_length;
@@ -1232,14 +1233,14 @@ mod test {
             ],
             [IterStateRaw {
                 field_pos: 1,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 1,
                 first_right_leaning_actor_id: LEAN_LEFT,
             }],
             [IterStateRaw {
                 field_pos: 0,
-                data: 2,
+                header_start_data_pos_pre_padding: 2,
                 header_idx: 1,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_LEFT,
@@ -1256,14 +1257,14 @@ mod test {
             [(FieldValue::Int(42), 2)],
             [IterStateRaw {
                 field_pos: 2,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 2,
                 first_right_leaning_actor_id: LEAN_LEFT,
             }],
             [IterStateRaw {
                 field_pos: 2,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 2,
                 first_right_leaning_actor_id: LEAN_LEFT,
@@ -1288,14 +1289,14 @@ mod test {
             [
                 IterStateRaw {
                     field_pos: 17,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 17,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 17,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 17,
                     first_right_leaning_actor_id: LEAN_LEFT,
@@ -1304,14 +1305,14 @@ mod test {
             [
                 IterStateRaw {
                     field_pos: 19,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 19,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 17,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 17,
                     first_right_leaning_actor_id: LEAN_LEFT,
@@ -1336,14 +1337,14 @@ mod test {
             [(FieldValue::Undefined, 2), (FieldValue::Int(42), 2)],
             [IterStateRaw {
                 field_pos: 0,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 2,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 1,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
@@ -1368,14 +1369,14 @@ mod test {
             [
                 IterStateRaw {
                     field_pos: 1,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 1,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
                     first_right_leaning_actor_id: LEAN_LEFT,
@@ -1384,14 +1385,14 @@ mod test {
             [
                 IterStateRaw {
                     field_pos: 3,
-                    data: 8,
+                    header_start_data_pos_pre_padding: 8,
                     header_idx: 1,
                     header_rl_offset: 2,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 1,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
                     first_right_leaning_actor_id: LEAN_LEFT,
@@ -1416,14 +1417,14 @@ mod test {
             [
                 IterStateRaw {
                     field_pos: 0,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 0,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
                     first_right_leaning_actor_id: LEAN_LEFT,
@@ -1432,14 +1433,14 @@ mod test {
             [
                 IterStateRaw {
                     field_pos: 2,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 2,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 0,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
                     first_right_leaning_actor_id: LEAN_LEFT,
@@ -1470,14 +1471,14 @@ mod test {
             [(FieldValue::Int(0), 1), (FieldValue::Undefined, 10)],
             [IterStateRaw {
                 field_pos: 1,
-                data: 8,
+                header_start_data_pos_pre_padding: 8,
                 header_idx: 1,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 11,
-                data: 24,
+                header_start_data_pos_pre_padding: 24,
                 header_idx: 3,
                 header_rl_offset: 10,
                 first_right_leaning_actor_id: LEAN_RIGHT,
@@ -1645,14 +1646,14 @@ mod test {
             [
                 IterStateRaw {
                     field_pos: 0,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 0,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 1,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
                     first_right_leaning_actor_id: LEAN_LEFT,
@@ -1661,14 +1662,14 @@ mod test {
             [
                 IterStateRaw {
                     field_pos: 0,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {
                     field_pos: 0,
-                    data: 0,
+                    header_start_data_pos_pre_padding: 0,
                     header_idx: 0,
                     header_rl_offset: 1,
                     first_right_leaning_actor_id: LEAN_LEFT,
@@ -1706,14 +1707,14 @@ mod test {
             }],
             [IterStateRaw {
                 field_pos: 1,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 1,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 2,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 2,
                 first_right_leaning_actor_id: LEAN_RIGHT,

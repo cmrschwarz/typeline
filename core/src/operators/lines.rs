@@ -9,7 +9,7 @@ pub struct OpLines {}
 pub struct TfLines {
     iter: FieldIterId,
     actor: ActorId,
-    line_offset: usize,
+    _line_offset: usize,
 }
 
 impl Operator for OpLines {
@@ -43,7 +43,7 @@ impl Operator for OpLines {
         TransformInstatiation::Single(TransformData::from_custom(TfLines {
             iter: job.job_data.claim_iter_for_tf_state(tf_state),
             actor: job.job_data.add_actor_for_tf_state(tf_state),
-            line_offset: 0,
+            _line_offset: 0,
         }))
     }
 }

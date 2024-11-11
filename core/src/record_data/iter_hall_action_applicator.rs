@@ -468,7 +468,7 @@ impl IterHallActionApplicator {
                     it.header_rl_offset = 0;
                 }
                 it.header_idx = header_idx_new;
-                it.data = 0;
+                it.header_start_data_pos_pre_padding = 0;
                 iter_idx_fwd += 1;
             }
             header_idx_new += 1;
@@ -488,7 +488,7 @@ impl IterHallActionApplicator {
                 it.header_rl_offset = 0;
             }
             it.header_idx = header_idx_new;
-            it.data = 0;
+            it.header_start_data_pos_pre_padding = 0;
             iter_idx_fwd += 1;
         }
         iter_idx_fwd -= iters_on_partially_drained_header;
@@ -538,24 +538,25 @@ impl IterHallActionApplicator {
                     data_size_after - h.total_size_unique();
                 while iter_idx_bwd > iter_idx_fwd {
                     let it = &mut iters[iter_idx_bwd - 1];
+                    let mut old_header_idx = it.header_idx;
                     if iter_idx_bwd
                         > iter_idx_fwd + iters_on_partially_drained_header
                     {
-                        let old_header_idx =
-                            it.header_idx - leading_header_drops;
-                        if old_header_idx < header_idx {
-                            break;
-                        }
-                        if old_header_idx == header_idx {
-                            it.header_rl_offset = it
-                                .header_rl_offset
-                                .saturating_sub(elems_to_drop as RunLength);
-                        } else {
-                            it.header_rl_offset = h.run_length;
-                        }
-                        it.header_idx = header_idx;
+                        old_header_idx -= leading_header_drops;
                     }
-                    it.data = data_size_header_start;
+                    if old_header_idx < header_idx {
+                        break;
+                    }
+                    if old_header_idx == header_idx {
+                        it.header_rl_offset = it
+                            .header_rl_offset
+                            .saturating_sub(elems_to_drop as RunLength);
+                    } else {
+                        it.header_rl_offset = h.run_length;
+                    }
+                    it.header_idx = header_idx;
+                    it.header_start_data_pos_pre_padding =
+                        data_size_header_start;
                     iter_idx_bwd -= 1;
                 }
                 break;
@@ -587,10 +588,9 @@ impl IterHallActionApplicator {
                 // to counteract those headers already dropped before
                 // us (going backwards), we add them here
                 it.header_idx = header_idx + dropped_headers_back;
-                it.data = data_size_after;
+                it.header_start_data_pos_pre_padding = data_size_after;
                 iter_idx_bwd -= 1;
             }
-            continue;
         }
 
         headers.drain(last_header_alive..);
@@ -601,7 +601,7 @@ impl IterHallActionApplicator {
             let it = &mut iters[iter_idx_bwd];
             if iter_idx_bwd >= iter_idx_fwd + iters_on_partially_drained_header
             {
-                it.data -= real_leading_drop;
+                it.header_start_data_pos_pre_padding -= real_leading_drop;
                 it.header_idx -= leading_header_drops;
             }
             if it.header_idx >= last_header_alive {
@@ -667,7 +667,7 @@ impl IterHallActionApplicator {
         field_headers: &VecDeque<FieldValueHeader>,
         iter_state: &IterState,
     ) -> usize {
-        let mut data_end = iter_state.data;
+        let mut data_end = iter_state.header_start_data_pos_pre_padding;
         let h = field_headers[iter_state.header_idx];
         if !h.same_value_as_previous() {
             data_end += h.leading_padding();
@@ -1497,14 +1497,14 @@ mod test_dead_data_drop {
             ],
             [IterStateRaw {
                 field_pos: 1,
-                data: 40,
+                header_start_data_pos_pre_padding: 40,
                 header_idx: 4,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 1,
-                data: 16,
+                header_start_data_pos_pre_padding: 16,
                 header_idx: 2,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
@@ -1572,15 +1572,81 @@ mod test_dead_data_drop {
             ],
             [IterStateRaw {
                 field_pos: 1,
-                data: 3,
+                header_start_data_pos_pre_padding: 3,
                 header_idx: 2,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_LEFT,
             }],
             [IterStateRaw {
                 field_pos: 1,
-                data: 3,
+                header_start_data_pos_pre_padding: 3,
                 header_idx: 2,
+                header_rl_offset: 0,
+                first_right_leaning_actor_id: LEAN_LEFT,
+            }],
+        );
+    }
+
+    #[test]
+    fn adjust_iters_straight_after_leading_drop() {
+        // make sure that the padding is not taken away from the iterators,
+        // despite it technically counting as leading dead data
+        test_drop_dead_data(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        size: 8,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        size: 8,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        size: 8,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        size: 8,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        size: 8,
+                        flags: field_value_flags::DEFAULT,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [IterStateRaw {
+                field_pos: 0,
+                header_start_data_pos_pre_padding: 8,
+                header_idx: 1,
+                header_rl_offset: 0,
+                first_right_leaning_actor_id: LEAN_LEFT,
+            }],
+            [IterStateRaw {
+                field_pos: 0,
+                header_start_data_pos_pre_padding: 0,
+                header_idx: 0,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_LEFT,
             }],
@@ -1630,14 +1696,14 @@ mod test_dead_data_drop {
             }],
             [IterStateRaw {
                 field_pos: 0,
-                data: 1,
+                header_start_data_pos_pre_padding: 1,
                 header_idx: 1,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_LEFT,
             }],
             [IterStateRaw {
                 field_pos: 0,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_LEFT,
@@ -1748,6 +1814,48 @@ mod test_dead_data_drop {
     }
 
     #[test]
+    fn test_header_sandwiched_by_deletions() {
+        test_drop_dead_data_explicit(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Int,
+                    size: 8,
+                    flags: field_value_flags::DELETED,
+                },
+                run_length: 10,
+            }],
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Int,
+                    size: 8,
+                    flags: field_value_flags::DELETED,
+                },
+                run_length: 5,
+            }],
+            80,
+            80,
+            DeadDataReport {
+                dead_data_leading: 24,
+                dead_data_trailing: 16,
+            },
+            [IterStateRaw {
+                field_pos: 0,
+                header_start_data_pos_pre_padding: 1,
+                header_idx: 0,
+                header_rl_offset: 10,
+                first_right_leaning_actor_id: LEAN_LEFT,
+            }],
+            [IterStateRaw {
+                field_pos: 0,
+                header_start_data_pos_pre_padding: 0,
+                header_idx: 0,
+                header_rl_offset: 5,
+                first_right_leaning_actor_id: LEAN_LEFT,
+            }],
+        );
+    }
+
+    #[test]
     fn test_dead_data_after_cow_end() {
         test_drop_dead_data_explicit(
             [FieldValueHeader {
@@ -1808,14 +1916,14 @@ mod test_dead_data_drop {
             }],
             [IterStateRaw {
                 field_pos: 2,
-                data: 16,
+                header_start_data_pos_pre_padding: 16,
                 header_idx: 1,
                 header_rl_offset: 1,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 2,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 2,
                 first_right_leaning_actor_id: LEAN_RIGHT,
@@ -1882,14 +1990,14 @@ mod test_dead_data_drop {
             // This makes it difficult to adjust these iterators correctly.
             [IterStateRaw {
                 field_pos: 1,
-                data: 2,
+                header_start_data_pos_pre_padding: 2,
                 header_idx: 2,
                 header_rl_offset: 1,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 1,
-                data: 1,
+                header_start_data_pos_pre_padding: 1,
                 header_idx: 1,
                 header_rl_offset: 1,
                 first_right_leaning_actor_id: LEAN_RIGHT,
@@ -1911,14 +2019,14 @@ mod test_dead_data_drop {
             [],
             [IterStateRaw {
                 field_pos: 0,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
             [IterStateRaw {
                 field_pos: 0,
-                data: 0,
+                header_start_data_pos_pre_padding: 0,
                 header_idx: 0,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,

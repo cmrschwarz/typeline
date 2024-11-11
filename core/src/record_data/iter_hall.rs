@@ -97,7 +97,11 @@ pub enum IterKind {
 pub struct IterState {
     pub field_pos: usize,
     // Will **not** include leading padding introduced by the current header.
-    pub data: usize,
+    // We have to take out the leading padding because that could
+    // potentially be lowered by some forkcat data drop shenanegans
+    // so in order for our iter state to be stable we have to store
+    // it this way
+    pub header_start_data_pos_pre_padding: usize,
     // The `header_idx` will never be greater than or equal to the field's
     // header count, unless that count is 0. This means that we have to
     // push an iterator that reached the end of the field slightly
@@ -137,6 +141,7 @@ pub struct FieldLocation {
     pub field_pos: usize,
     pub header_idx: usize,
     pub header_rl_offset: RunLength,
+    // actual position of the data, unlike in `IterLocation` or `IterState`
     pub data_pos: usize,
 }
 
@@ -153,13 +158,13 @@ pub struct IterLocation {
     pub header_rl_offset: RunLength,
     // data pos at the start of the current header after but leading padding
     // just in the way that `FieldIter` would store it
-    pub header_start_data_pos: usize,
+    pub header_start_data_pos_post_padding: usize,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
 pub struct IterStateRaw {
     pub field_pos: usize,
-    pub data: usize,
+    pub header_start_data_pos_pre_padding: usize,
     pub header_idx: usize,
     pub header_rl_offset: RunLength,
     pub first_right_leaning_actor_id: ActorId,
@@ -169,7 +174,8 @@ impl From<IterState> for IterStateRaw {
     fn from(is: IterState) -> Self {
         IterStateRaw {
             field_pos: is.field_pos,
-            data: is.data,
+            header_start_data_pos_pre_padding: is
+                .header_start_data_pos_pre_padding,
             header_idx: is.header_idx,
             header_rl_offset: is.header_rl_offset,
             first_right_leaning_actor_id: is.first_right_leaning_actor_id,
@@ -208,7 +214,8 @@ impl IterState {
     pub fn from_raw_with_dummy_kind(is: IterStateRaw) -> Self {
         IterState {
             field_pos: is.field_pos,
-            data: is.data,
+            header_start_data_pos_pre_padding: is
+                .header_start_data_pos_pre_padding,
             header_idx: is.header_idx,
             header_rl_offset: is.header_rl_offset,
             first_right_leaning_actor_id: is.first_right_leaning_actor_id,
@@ -221,7 +228,7 @@ impl IterState {
             field_pos: self.field_pos,
             header_idx: self.header_idx,
             header_rl_offset: self.header_rl_offset,
-            data_pos: self.data,
+            data_pos: self.header_start_data_pos_pre_padding,
         }
     }
     #[cfg_attr(not(feature = "debug_state"), allow(clippy::unused_self))]
@@ -269,7 +276,7 @@ impl IterHall {
     ) -> IterState {
         IterState {
             field_pos: 0,
-            data: 0,
+            header_start_data_pos_pre_padding: 0,
             header_idx: 0,
             header_rl_offset: 0,
             first_right_leaning_actor_id,
@@ -318,7 +325,7 @@ impl IterHall {
         }
         IterState {
             field_pos: self.field_data.field_count,
-            data: self.get_field_data_len(fm)
+            header_start_data_pos_pre_padding: self.get_field_data_len(fm)
                 - self
                     .field_data
                     .headers
@@ -415,12 +422,17 @@ impl IterHall {
             return FieldValueHeader::default();
         }
         let mut h = fr.headers()[state.header_idx];
+
+        // we store the state after the end of the last header so it sits
+        // correctly in case data is appended or copied in by forkcats.
+        // the iterator expects it at the beginning of the next header
+        // though so we adjust it here
         if h.run_length != state.header_rl_offset {
             return h;
         }
         state.header_idx += 1;
         state.header_rl_offset = 0;
-        state.data += h.total_size_unique();
+        state.header_start_data_pos_pre_padding += h.total_size_unique();
         if state.header_idx == fr.headers().len() {
             return FieldValueHeader::default();
         }
@@ -442,7 +454,9 @@ impl IterHall {
                     header_rl_offset: state.header_rl_offset,
                     // TODO: investigate. seems sus that we have to add the
                     // padding here
-                    header_start_data_pos: state.data + h.leading_padding(),
+                    header_start_data_pos_post_padding: state
+                        .header_start_data_pos_pre_padding
+                        + h.leading_padding(),
                 },
             )
         }
@@ -457,7 +471,8 @@ impl IterHall {
         let mut loc = iter.get_iter_location();
         let mut state = IterState {
             field_pos: loc.field_pos,
-            data: loc.header_start_data_pos,
+            header_start_data_pos_pre_padding: loc
+                .header_start_data_pos_post_padding,
             header_idx: loc.header_idx,
             header_rl_offset: loc.header_rl_offset,
             first_right_leaning_actor_id: first_left_leaning_actor_id,
@@ -476,7 +491,7 @@ impl IterHall {
                 // are deleted. Calling `prev_field`, like in
                 // the other branch, would fail here, but
                 // having the iterator sit at 0/0 works out.
-                state.data = 0;
+                state.header_start_data_pos_pre_padding = 0;
                 state.header_idx = 0;
                 return state;
             }
@@ -485,10 +500,9 @@ impl IterHall {
             loc = iter.get_iter_location();
         }
         state.header_idx = loc.header_idx;
-        // TODO: //HACK this is the reason we reverse this in
-        // `get_iter_from_state_unchecked`
-        // this sucks. why do we do this?
-        state.data = loc.header_start_data_pos
+
+        state.header_start_data_pos_pre_padding = loc
+            .header_start_data_pos_post_padding
             - iter.field_data_ref().headers()[loc.header_idx]
                 .leading_padding();
         state
@@ -882,14 +896,14 @@ impl IterHall {
             .extend(src_headers.range(..cow_end.header_idx));
         self.field_data.field_count += cow_end.field_pos;
         if cow_end.header_rl_offset == 0 {
-            return cow_end.data;
+            return cow_end.header_start_data_pos_pre_padding;
         }
         // must exist, otherwise offset would have been zero
         let mut last_header = src_headers[cow_end.header_idx];
         last_header.run_length =
             cow_end.header_rl_offset.min(last_header.run_length);
         self.field_data.headers.push_back(last_header);
-        let mut data_end = cow_end.data;
+        let mut data_end = cow_end.header_start_data_pos_pre_padding;
         if !last_header.same_value_as_previous() {
             data_end += last_header.leading_padding();
             data_end += if last_header.shared_value() {

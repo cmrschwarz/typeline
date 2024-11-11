@@ -84,7 +84,8 @@ pub trait FieldIterator: Sized + Clone {
             field_pos: self.get_next_field_pos(),
             header_idx: self.get_next_header_index(),
             header_rl_offset: self.field_run_length_bwd(),
-            header_start_data_pos: self.get_next_field_header_data_start(),
+            header_start_data_pos_post_padding: self
+                .get_next_field_header_data_start(),
         }
     }
     fn next_header(&mut self) -> RunLength;

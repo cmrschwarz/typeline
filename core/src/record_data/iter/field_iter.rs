@@ -45,14 +45,15 @@ impl<R: FieldDataRef> Clone for FieldIter<R> {
 impl<R: FieldDataRef> FieldIter<R> {
     pub unsafe fn from_iter_location(fdr: R, loc: IterLocation) -> Self {
         let headers = fdr.headers();
-        if headers.is_empty() {
+        debug_assert!(loc.header_idx <= headers.len());
+        if headers.len() == loc.header_idx {
             return FieldIter::from_start(fdr);
         }
         let h = headers[loc.header_idx];
         let mut res = FieldIter {
             fdr,
             field_pos: loc.field_pos,
-            data: loc.header_start_data_pos,
+            data: loc.header_start_data_pos_post_padding,
             header_idx: loc.header_idx,
             header_rl_offset: loc.header_rl_offset,
             header_rl_total: h.run_length,
