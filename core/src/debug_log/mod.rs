@@ -566,6 +566,14 @@ pub fn iter_kind_to_json(
             "display_text": format!("cow {cow_field_id}"),
             "tooltip_text": tooltip_text
         }),
+        #[cfg(feature = "debug_log_show_ref_lookup_iter")]
+        IterKind::RefLookup => json!({
+            "transform_id": Value::Null,
+            "cow_field_id": Value::Null,
+            "display_text": "ref",
+            "tooltip_text": tooltip_text
+        }),
+        #[cfg(not(feature = "debug_log_show_ref_lookup_iter"))]
         IterKind::RefLookup => return None,
     })
 }
