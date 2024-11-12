@@ -201,7 +201,7 @@ impl FieldActionApplicator {
             // might be right leaning
 
             for it in
-                &mut iterators[..faas.curr_header_iters_end].iter_mut().rev()
+                &mut iterators[..faas.curr_header_iters_start].iter_mut().rev()
             {
                 if it.field_pos < faas.field_pos_old {
                     break;

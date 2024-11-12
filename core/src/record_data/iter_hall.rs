@@ -191,16 +191,23 @@ impl PartialOrd for IterState {
 
 impl Ord for IterState {
     fn cmp(&self, rhs: &Self) -> Ordering {
-        match self.field_pos.cmp(&rhs.field_pos) {
-            ord @ (Ordering::Less | Ordering::Greater) => ord,
-            // the smaller the min right leaning id is, the more right
-            // leaning the iterator is, leading to a
-            // potentially larger final position
-            Ordering::Equal => self
-                .first_right_leaning_actor_id
-                .cmp(&rhs.first_right_leaning_actor_id)
-                .reverse(),
+        let mut ord = self.field_pos.cmp(&rhs.field_pos);
+        if ord != Ordering::Equal {
+            return ord;
         }
+        // this can differ if one iter sits at the end of a header
+        // and another at the start of the next
+        ord = self.header_idx.cmp(&rhs.header_idx);
+        if ord != Ordering::Equal {
+            return ord;
+        }
+        debug_assert_eq!(self.header_rl_offset, rhs.header_rl_offset);
+        // the smaller the min right leaning id is, the more right
+        // leaning the iterator is, leading to a
+        // potentially larger final position
+        self.first_right_leaning_actor_id
+            .cmp(&rhs.first_right_leaning_actor_id)
+            .reverse()
     }
 }
 
