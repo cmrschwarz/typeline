@@ -41,7 +41,7 @@ struct FieldActionApplicationState {
     copy_range_start: usize,
     copy_range_start_new: usize,
     field_pos_old: usize,
-    data_end: usize,
+    curr_header_data_start_pre_padding: usize,
     curr_header_iters_start: usize,
     curr_header_iters_end: usize,
     curr_header_original_rl: RunLength,
@@ -195,6 +195,28 @@ impl FieldActionApplicator {
             } else {
                 (header.size as usize) * (pre as usize)
             };
+
+        if pre == 0 {
+            // handle iterators at the end of the previous header that
+            // might be right leaning
+
+            for it in
+                &mut iterators[..faas.curr_header_iters_end].iter_mut().rev()
+            {
+                if it.field_pos < faas.field_pos_old {
+                    break;
+                }
+                if actor_id < it.first_right_leaning_actor_id {
+                    break;
+                }
+                it.field_pos += insert_count;
+                it.header_idx = faas.header_idx + header_pos_bump;
+                it.header_rl_offset = 0;
+                it.header_start_data_pos_pre_padding =
+                    faas.curr_header_data_start_pre_padding + data_bump;
+            }
+        }
+
         for it in &mut iterators
             [faas.curr_header_iters_start..faas.curr_header_iters_end]
             .iter_mut()
@@ -555,7 +577,7 @@ impl FieldActionApplicator {
             copy_range_start: 0,
             copy_range_start_new: 0,
             field_pos_old: 0,
-            data_end: 0,
+            curr_header_data_start_pre_padding: 0,
             curr_header_iters_start: 0,
             curr_header_iters_end: 0,
             curr_header_original_rl: headers
@@ -736,7 +758,8 @@ impl FieldActionApplicator {
                 {
                     break;
                 }
-                it.header_start_data_pos_pre_padding = faas.data_end;
+                it.header_start_data_pos_pre_padding =
+                    faas.curr_header_data_start_pre_padding;
                 it.field_pos += a.run_len as usize;
                 if appendable == a.run_len {
                     it.header_rl_offset += appendable;
@@ -769,7 +792,7 @@ impl FieldActionApplicator {
             }
             faas.field_pos_old += faas.curr_header_original_rl as usize;
             if !header.same_value_as_previous() {
-                faas.data_end += header.total_size();
+                faas.curr_header_data_start_pre_padding += header.total_size();
             }
             let field_pos_delta =
                 faas.field_pos as isize - faas.field_pos_old as isize;
@@ -1257,7 +1280,7 @@ mod test {
 
     #[test]
     fn insert_splits_header_with_right_leaning_iterator() {
-        // reduced from `integration::basic::aoc2023_day1_part1::case_2` (s45)
+        // reduced from `integration::basic::aoc2023_day1_part1::case_2` (s11)
         test_actions_on_headers(
             [FieldValueHeader {
                 fmt: FieldValueFormat {
@@ -1312,6 +1335,95 @@ mod test {
                 field_pos: 2,
                 header_start_data_pos_pre_padding: 1,
                 header_idx: 2,
+                header_rl_offset: 0,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+        );
+    }
+
+    #[test]
+    fn insert_at_position_with_dead_header_adjusts_iters_correctly() {
+        // reduced from `integration::basic::aoc2023_day1_part1::case_2` (s21)
+        test_actions_on_headers(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DELETED,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [FieldAction::new(
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
+                1,
+                1,
+            )],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DELETED,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 0,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [IterStateRaw {
+                field_pos: 1,
+                header_start_data_pos_pre_padding: 0,
+                header_idx: 0,
+                header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+            [IterStateRaw {
+                field_pos: 2,
+                header_start_data_pos_pre_padding: 2,
+                header_idx: 3,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
