@@ -415,10 +415,7 @@ impl IterHall {
         fr: &R,
         state: &mut IterState,
     ) -> FieldValueHeader {
-        if state.header_idx == fr.headers().len() {
-            // HACK: failing on integration::forkcat::forkcat_build_sql_insert
-            // TODO: investigate
-            // debug_assert!(state.header_idx == 0);
+        if fr.headers().is_empty() {
             return FieldValueHeader::default();
         }
         let mut h = fr.headers()[state.header_idx];
@@ -427,15 +424,14 @@ impl IterHall {
         // correctly in case data is appended or copied in by forkcats.
         // the iterator expects it at the beginning of the next header
         // though so we adjust it here
-        if h.run_length != state.header_rl_offset {
+        if h.run_length != state.header_rl_offset
+            || state.header_idx + 1 == fr.headers().len()
+        {
             return h;
         }
         state.header_idx += 1;
         state.header_rl_offset = 0;
         state.header_start_data_pos_pre_padding += h.total_size_unique();
-        if state.header_idx == fr.headers().len() {
-            return FieldValueHeader::default();
-        }
         h = fr.headers()[state.header_idx];
         h
     }
