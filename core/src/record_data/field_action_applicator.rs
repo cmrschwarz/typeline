@@ -189,6 +189,12 @@ impl FieldActionApplicator {
 
         let header_pos_bump =
             usize::from(pre > 0) + mid_full_count + usize::from(mid_rem > 0);
+        let data_bump = header.fmt.leading_padding()
+            + if header.fmt.shared_value() {
+                0
+            } else {
+                (header.size as usize) * (pre as usize)
+            };
         for it in &mut iterators
             [faas.curr_header_iters_start..faas.curr_header_iters_end]
             .iter_mut()
@@ -205,6 +211,7 @@ impl FieldActionApplicator {
             it.field_pos += insert_count;
             it.header_idx += header_pos_bump;
             it.header_rl_offset -= pre;
+            it.header_start_data_pos_pre_padding += data_bump;
         }
 
         // one of them will be set, so the padding will be represented
@@ -1244,6 +1251,69 @@ mod test {
                 header_idx: 1,
                 header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_LEFT,
+            }],
+        );
+    }
+
+    #[test]
+    fn insert_splits_header_with_right_leaning_iterator() {
+        // reduced from `integration::basic::aoc2023_day1_part1::case_2` (s45)
+        test_actions_on_headers(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    flags: field_value_flags::DEFAULT,
+                    size: 1,
+                },
+                run_length: 2,
+            }],
+            [FieldAction::new(
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
+                1,
+                1,
+            )],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 0,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [IterStateRaw {
+                field_pos: 1,
+                header_start_data_pos_pre_padding: 0,
+                header_idx: 0,
+                header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+            [IterStateRaw {
+                field_pos: 2,
+                header_start_data_pos_pre_padding: 1,
+                header_idx: 2,
+                header_rl_offset: 0,
+                first_right_leaning_actor_id: LEAN_RIGHT,
             }],
         );
     }
