@@ -543,9 +543,7 @@ impl ActionBuffer {
             &self.action_temp_buffers,
             &agi,
         );
-        let Some(first_action_index) =
-            s1.first().or_else(|| s2.first()).map(|a| a.field_idx)
-        else {
+        let Some(first_action) = s1.first().or_else(|| s2.first()) else {
             self.release_temp_action_group(&agi);
             self.drop_snapshot_refcount(field_snapshot);
             return;
@@ -561,7 +559,7 @@ impl ActionBuffer {
             update_cow_ms,
             actions,
             agi.field_count_delta,
-            first_action_index,
+            *first_action,
         );
         self.release_temp_action_group(&agi);
         self.drop_snapshot_refcount(field_snapshot);

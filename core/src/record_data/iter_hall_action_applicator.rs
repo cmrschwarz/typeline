@@ -9,6 +9,7 @@ use crate::{
     index_newtype,
     record_data::{
         action_buffer::eprint_action_list,
+        field_action::FieldActionKind,
         field_data::{
             field_value_flags::{self, LEADING_PADDING_BIT_COUNT},
             FieldValueFormat, FieldValueRepr,
@@ -130,7 +131,7 @@ impl IterHallActionApplicator {
         tgt_field_id: FieldId,
         data_cow_idx: Option<DataCowIndex>,
         starting_field_full_cow_list_head: &mut Option<FullCowIndex>,
-    ) -> FullCowIndex {
+    ) -> CowFieldIndex {
         let full_cow_idx = full_cow_field_refs.next_idx();
         let mut next = None;
         if let Some(dci) = data_cow_idx {
@@ -148,7 +149,7 @@ impl IterHallActionApplicator {
             field: None,
             prev: next,
         });
-        full_cow_idx
+        CowFieldIndex::Full(full_cow_idx)
     }
     fn push_data_cow(
         data_cow_field_refs: &mut IndexVec<DataCowIndex, DataCowFieldRef>,
@@ -156,7 +157,7 @@ impl IterHallActionApplicator {
         tgt_field_id: FieldId,
         field_headers: &VecDeque<FieldValueHeader>,
         tgt_cow_end: IterState,
-    ) -> DataCowIndex {
+    ) -> CowFieldIndex {
         let idx = data_cow_field_refs.next_idx();
         data_cow_field_refs.push(DataCowFieldRef {
             #[cfg(feature = "debug_state")]
@@ -165,7 +166,7 @@ impl IterHallActionApplicator {
             data_end: Self::get_data_cow_data_end(field_headers, &tgt_cow_end),
             full_cow_list: None,
         });
-        idx
+        CowFieldIndex::Data(idx)
     }
 
     // returns the target index of the field and whether or not it is data cow
@@ -179,7 +180,7 @@ impl IterHallActionApplicator {
         update_cow_ms: Option<MatchSetId>,
         full_cow_field_refs: &mut IndexVec<FullCowIndex, FullCowFieldRef<'a>>,
         data_cow_idx: Option<DataCowIndex>,
-        first_action_index: usize,
+        first_action: FieldAction,
         starting_field_full_cow_list_head: &mut Option<FullCowIndex>,
     ) -> CowFieldIndex {
         let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
@@ -189,36 +190,51 @@ impl IterHallActionApplicator {
         let ms_id = tgt_field.match_set;
 
         if !is_data_cow && data_cow_idx.is_some() {
-            return CowFieldIndex::Full(Self::push_full_cow(
+            return Self::push_full_cow(
                 full_cow_field_refs,
                 data_cow_field_refs,
                 tgt_field_id,
                 data_cow_idx,
                 starting_field_full_cow_list_head,
-            ));
+            );
         }
         let cds = *tgt_field.iter_hall.get_cow_data_source_mut().unwrap();
         let tgt_cow_end = field.iter_hall.iters[cds.header_iter_id].get();
 
         if is_data_cow {
-            return CowFieldIndex::Data(Self::push_data_cow(
+            return Self::push_data_cow(
                 data_cow_field_refs,
                 tgt_field_id,
                 field_headers,
                 tgt_cow_end,
-            ));
+            );
         }
         debug_assert!(cow_variant == Some(CowVariant::FullCow));
         if Some(ms_id) == update_cow_ms {
-            return CowFieldIndex::Full(Self::push_full_cow(
+            return Self::push_full_cow(
                 full_cow_field_refs,
                 data_cow_field_refs,
                 tgt_field_id,
                 data_cow_idx,
                 starting_field_full_cow_list_head,
-            ));
+            );
         }
-        if tgt_cow_end.field_pos > first_action_index {
+        let affected_by_actions = match first_action.kind {
+            FieldActionKind::Dup => {
+                first_action.field_idx + 1 < tgt_cow_end.field_pos
+            }
+            FieldActionKind::Drop => {
+                first_action.field_idx < tgt_cow_end.field_pos
+            }
+            FieldActionKind::InsertZst { .. } => {
+                // the iterator inside the full cow might sit at the
+                // end and be right leaning, so instead of
+                // some fancy scheme to make them left leaning for
+                // this apply we just give up on this edge case for now
+                first_action.field_idx <= tgt_cow_end.field_pos
+            }
+        };
+        if affected_by_actions {
             debug_assert!(tgt_field.iter_hall.field_data.is_empty());
             let observed_data_size = tgt_field
                 .iter_hall
@@ -230,20 +246,20 @@ impl IterHallActionApplicator {
             // TODO: we could optimize this case because we might
             // end up calculating the dead data multiple times because of
             // this, but we don't care for now
-            return CowFieldIndex::Data(Self::push_data_cow(
+            return Self::push_data_cow(
                 data_cow_field_refs,
                 tgt_field_id,
                 field_headers,
                 tgt_cow_end,
-            ));
+            );
         }
-        CowFieldIndex::Full(Self::push_full_cow(
+        Self::push_full_cow(
             full_cow_field_refs,
             data_cow_field_refs,
             tgt_field_id,
             data_cow_idx,
             starting_field_full_cow_list_head,
-        ))
+        )
         // TODO: support RecordBuffers
     }
     #[allow(clippy::only_used_in_recursion)] // msm used for assertion
@@ -252,7 +268,7 @@ impl IterHallActionApplicator {
         msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: Option<MatchSetId>,
-        first_action_index: usize,
+        first_action: FieldAction,
         full_cow_field_refs: &mut IndexVec<FullCowIndex, FullCowFieldRef<'a>>,
         data_cow_field_refs: &mut IndexVec<DataCowIndex, DataCowFieldRef<'a>>,
         data_cow_idx: Option<DataCowIndex>,
@@ -273,7 +289,7 @@ impl IterHallActionApplicator {
                 update_cow_ms,
                 full_cow_field_refs,
                 data_cow_idx,
-                first_action_index,
+                first_action,
                 starting_field_full_cow_list_head,
             );
             Self::gather_cow_field_info_pre_exec(
@@ -281,7 +297,7 @@ impl IterHallActionApplicator {
                 msm,
                 tgt_field_id,
                 None,
-                first_action_index,
+                first_action,
                 full_cow_field_refs,
                 data_cow_field_refs,
                 match field_idx {
@@ -808,7 +824,7 @@ impl IterHallActionApplicator {
         update_cow_ms: Option<MatchSetId>,
         actions: impl Iterator<Item = FieldAction> + Clone,
         actions_field_count_delta: isize,
-        first_action_index: usize,
+        first_action: FieldAction,
         full_cow_fields: &mut IndexVec<FullCowIndex, FullCowFieldRef<'a>>,
         data_cow_fields: &mut IndexVec<DataCowIndex, DataCowFieldRef<'a>>,
     ) {
@@ -827,7 +843,7 @@ impl IterHallActionApplicator {
             msm,
             field_id,
             update_cow_ms,
-            first_action_index,
+            first_action,
             full_cow_fields,
             data_cow_fields,
             None,
@@ -1044,7 +1060,7 @@ impl IterHallActionApplicator {
         update_cow_ms: Option<MatchSetId>,
         actions: impl Iterator<Item = FieldAction> + Clone,
         actions_field_count_delta: isize,
-        first_action_index: usize,
+        first_action: FieldAction,
     ) {
         let mut full_cow_fields =
             self.full_cow_field_refs_temp.take_transmute();
@@ -1059,7 +1075,7 @@ impl IterHallActionApplicator {
             update_cow_ms,
             actions,
             actions_field_count_delta,
-            first_action_index,
+            first_action,
             &mut full_cow_fields,
             &mut data_cow_fields,
         );
