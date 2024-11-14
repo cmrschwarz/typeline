@@ -201,7 +201,14 @@ impl Ord for IterState {
         if ord != Ordering::Equal {
             return ord;
         }
-        debug_assert_eq!(self.header_rl_offset, rhs.header_rl_offset);
+
+        // TODO: // HACK we shouldn't really need this
+        // unless iterators sit on random positionw within dead
+        // headers which they shouldn't. Fix those issues and get rid of this.
+        ord = self.header_rl_offset.cmp(&rhs.header_rl_offset);
+        if ord != Ordering::Equal {
+            return ord;
+        }
         // the smaller the min right leaning id is, the more right
         // leaning the iterator is, leading to a
         // potentially larger final position

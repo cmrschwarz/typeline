@@ -684,7 +684,9 @@ impl IterHallActionApplicator {
         iter_state: &IterState,
     ) -> usize {
         let mut data_end = iter_state.header_start_data_pos_pre_padding;
-        let h = field_headers[iter_state.header_idx];
+        let Some(h) = field_headers.get(iter_state.header_idx) else {
+            return 0;
+        };
         if !h.same_value_as_previous() {
             data_end += h.leading_padding();
             if h.shared_value() {
@@ -1187,7 +1189,7 @@ fn append_data_cow_headers(
     }
     if h.run_length == 0 {
         header_idx += 1;
-        if headers.len() == header_idx {
+        if header_idx == headers.len() {
             return;
         }
     }
@@ -1200,7 +1202,7 @@ fn append_data_cow_headers(
             h.set_same_value_as_previous(true);
             append_header_try_merge(tgt, h, true);
             header_idx += 1;
-            if headers.len() == header_idx {
+            if header_idx == headers.len() {
                 return;
             }
             h = headers[header_idx];
@@ -1211,14 +1213,15 @@ fn append_data_cow_headers(
     }
     append_header_try_merge(tgt, h, false);
     header_idx += 1;
-    if header_idx < after.header_idx {
-        tgt.headers
-            .extend(headers.range(header_idx..after.header_idx));
-        if after.header_idx < headers.len() {
-            h = headers[after.header_idx];
-            h.run_length = after.header_rl_offset;
-            append_header_try_merge(tgt, h, false);
-        }
+    if header_idx > after.header_idx {
+        return;
+    }
+    tgt.headers
+        .extend(headers.range(header_idx..after.header_idx));
+    if after.header_idx < headers.len() {
+        h = headers[after.header_idx];
+        h.run_length = after.header_rl_offset;
+        append_header_try_merge(tgt, h, false);
     }
 }
 
