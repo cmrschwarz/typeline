@@ -195,6 +195,7 @@ impl FieldActionApplicator {
             } else {
                 (header.size as usize) * (pre as usize)
             };
+        faas.curr_header_data_start_pre_padding += data_bump;
 
         if pre == 0 {
             // handle iterators at the end of the previous header that
@@ -213,7 +214,7 @@ impl FieldActionApplicator {
                 it.header_idx = faas.header_idx + header_pos_bump;
                 it.header_rl_offset = 0;
                 it.header_start_data_pos_pre_padding =
-                    faas.curr_header_data_start_pre_padding + data_bump;
+                    faas.curr_header_data_start_pre_padding;
             }
         }
 
@@ -233,7 +234,8 @@ impl FieldActionApplicator {
             it.field_pos += insert_count;
             it.header_idx += header_pos_bump;
             it.header_rl_offset -= pre;
-            it.header_start_data_pos_pre_padding += data_bump;
+            it.header_start_data_pos_pre_padding =
+                faas.curr_header_data_start_pre_padding;
         }
 
         // one of them will be set, so the padding will be represented
@@ -300,7 +302,7 @@ impl FieldActionApplicator {
             .iter_mut()
             .rev();
 
-        if header.shared_value() {
+        if header.shared_value_or_rl_one() {
             let mut rl_res = header.run_length as usize + dup_count;
 
             if rl_res > RunLength::MAX as usize {
@@ -359,11 +361,15 @@ impl FieldActionApplicator {
         let post = (header.run_length - pre).saturating_sub(1);
         self.push_copy_command(faas);
 
-        let data_offset_iters = FieldValueHeader {
+        let data_offset_pre = FieldValueHeader {
             fmt: header.fmt,
-            run_length: pre + 1,
+            run_length: pre,
         }
         .total_size_unique();
+        let data_offset_mid = header.size as usize;
+        faas.curr_header_data_start_pre_padding += data_offset_pre;
+        let iter_offset =
+            faas.curr_header_data_start_pre_padding + data_offset_mid;
 
         if pre > 0 {
             self.push_insert_command(faas, header.fmt, pre);
@@ -386,7 +392,7 @@ impl FieldActionApplicator {
             }
             it.field_pos += dup_count;
             it.header_idx += header_pos_bump;
-            it.header_start_data_pos_pre_padding += data_offset_iters;
+            it.header_start_data_pos_pre_padding = iter_offset;
             it.header_rl_offset -= pre + 1;
         }
 
@@ -395,6 +401,8 @@ impl FieldActionApplicator {
             header.set_shared_value(true);
             return;
         }
+        faas.curr_header_data_start_pre_padding += data_offset_mid;
+
         let mut fmt_mid = header.fmt;
         fmt_mid.set_shared_value(true);
         if mid_full_count != 0 {
@@ -1341,7 +1349,7 @@ mod test {
         );
     }
     #[test]
-    fn dup_in_non_shared_value_adjusts_data_offset_correctly() {
+    fn insert_in_non_shared_value_adjusts_data_offset_correctly() {
         // we need to do this twice to observe the issue
         // that the first insert did not correctly adjust
         // the `curr_header_data_start_pre_padding` value
@@ -1443,7 +1451,7 @@ mod test {
                 },
                 IterStateRaw {
                     field_pos: 15,
-                    header_start_data_pos_pre_padding: 0,
+                    header_start_data_pos_pre_padding: 10,
                     header_idx: 1,
                     header_rl_offset: 5,
                     first_right_leaning_actor_id: LEAN_RIGHT,
@@ -1469,11 +1477,139 @@ mod test {
     }
 
     #[test]
+    fn dup_in_non_shared_value_adjusts_data_offset_correctly() {
+        // we need to do this twice to observe the issue
+        // that the first insert did not correctly adjust
+        // the `curr_header_data_start_pre_padding` value
+
+        test_actions_on_headers(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 10,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 10,
+                },
+            ],
+            [
+                FieldAction::new(FieldActionKind::Dup, 5, 3),
+                FieldAction::new(FieldActionKind::Dup, 18, 3),
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 5,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 4,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 4,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 5,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 4,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 4,
+                },
+            ],
+            [
+                IterStateRaw {
+                    field_pos: 6,
+                    header_start_data_pos_pre_padding: 0,
+                    header_idx: 0,
+                    header_rl_offset: 6,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+                IterStateRaw {
+                    field_pos: 15,
+                    header_start_data_pos_pre_padding: 10,
+                    header_idx: 1,
+                    header_rl_offset: 5,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+                IterStateRaw {
+                    field_pos: 16,
+                    header_start_data_pos_pre_padding: 10,
+                    header_idx: 1,
+                    header_rl_offset: 5,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+            ],
+            [
+                IterStateRaw {
+                    field_pos: 9,
+                    header_start_data_pos_pre_padding: 6,
+                    header_idx: 2,
+                    header_rl_offset: 1,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+                IterStateRaw {
+                    field_pos: 18,
+                    header_start_data_pos_pre_padding: 15,
+                    header_idx: 4,
+                    header_rl_offset: 0,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+                IterStateRaw {
+                    field_pos: 22,
+                    header_start_data_pos_pre_padding: 16,
+                    header_idx: 5,
+                    header_rl_offset: 0,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+            ],
+        );
+    }
+
+    #[test]
     fn prevent_iter_slide() {
         // this is reduced from aoc.
         // for  a similar testcase that understands the actual problem that
         // caused this look at
-        // dup_in_non_shared_value_adjusts_data_offset_correctly
+        // insert_in_non_shared_value_adjusts_data_offset_correctly
         test_actions_on_headers(
             [
                 FieldValueHeader {
