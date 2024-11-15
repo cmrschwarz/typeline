@@ -786,7 +786,7 @@ impl FieldActionApplicator {
                 let field_pos_new =
                     faas.field_pos + header.run_length as usize;
                 if field_pos_new > faas.curr_action_pos {
-                    break;
+                    break; // PERF: for inserts use >= (if the repr's right)?
                 }
                 faas.field_pos = field_pos_new;
             }
@@ -1340,9 +1340,140 @@ mod test {
             }],
         );
     }
+    #[test]
+    fn dup_in_non_shared_value_adjusts_data_offset_correctly() {
+        // we need to do this twice to observe the issue
+        // that the first insert did not correctly adjust
+        // the `curr_header_data_start_pre_padding` value
+
+        test_actions_on_headers(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 10,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 10,
+                },
+            ],
+            [
+                FieldAction::new(
+                    FieldActionKind::InsertZst {
+                        repr: FieldValueRepr::Undefined,
+                        actor_id: ActorId::ZERO,
+                    },
+                    5,
+                    3,
+                ),
+                FieldAction::new(
+                    FieldActionKind::InsertZst {
+                        repr: FieldValueRepr::Undefined,
+                        actor_id: ActorId::ZERO,
+                    },
+                    18,
+                    3,
+                ),
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 5,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 0,
+                    },
+                    run_length: 3,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 5,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 5,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 0,
+                    },
+                    run_length: 3,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 5,
+                },
+            ],
+            [
+                IterStateRaw {
+                    field_pos: 6,
+                    header_start_data_pos_pre_padding: 0,
+                    header_idx: 0,
+                    header_rl_offset: 6,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+                IterStateRaw {
+                    field_pos: 15,
+                    header_start_data_pos_pre_padding: 0,
+                    header_idx: 1,
+                    header_rl_offset: 5,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+            ],
+            [
+                IterStateRaw {
+                    field_pos: 9,
+                    header_start_data_pos_pre_padding: 5,
+                    header_idx: 2,
+                    header_rl_offset: 1,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+                IterStateRaw {
+                    field_pos: 21,
+                    header_start_data_pos_pre_padding: 15,
+                    header_idx: 5,
+                    header_rl_offset: 0,
+                    first_right_leaning_actor_id: LEAN_RIGHT,
+                },
+            ],
+        );
+    }
 
     #[test]
     fn prevent_iter_slide() {
+        // this is reduced from aoc.
+        // for  a similar testcase that understands the actual problem that
+        // caused this look at
+        // dup_in_non_shared_value_adjusts_data_offset_correctly
         test_actions_on_headers(
             [
                 FieldValueHeader {
@@ -1365,7 +1496,7 @@ mod test {
                 FieldValueHeader {
                     fmt: FieldValueFormat {
                         repr: FieldValueRepr::TextInline,
-                        flags: field_value_flags::DEFAULT,
+                        flags: field_value_flags::SHARED_VALUE,
                         size: 1,
                     },
                     run_length: 1,
@@ -1381,7 +1512,7 @@ mod test {
                 FieldValueHeader {
                     fmt: FieldValueFormat {
                         repr: FieldValueRepr::TextInline,
-                        flags: field_value_flags::DEFAULT,
+                        flags: field_value_flags::SHARED_VALUE,
                         size: 1,
                     },
                     run_length: 1,
