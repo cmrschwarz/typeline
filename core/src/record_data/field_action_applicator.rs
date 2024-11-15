@@ -1342,6 +1342,170 @@ mod test {
     }
 
     #[test]
+    fn prevent_iter_slide() {
+        test_actions_on_headers(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DELETED
+                            | field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DELETED,
+                        size: 1,
+                    },
+                    run_length: 4,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [
+                FieldAction::new(
+                    FieldActionKind::InsertZst {
+                        repr: FieldValueRepr::Undefined,
+                        actor_id: ActorId::ZERO,
+                    },
+                    1,
+                    1,
+                ),
+                FieldAction::new(
+                    FieldActionKind::InsertZst {
+                        repr: FieldValueRepr::Undefined,
+                        actor_id: ActorId::ZERO,
+                    },
+                    3,
+                    1,
+                ),
+                FieldAction::new(
+                    FieldActionKind::InsertZst {
+                        repr: FieldValueRepr::Undefined,
+                        actor_id: ActorId::ZERO,
+                    },
+                    5,
+                    1,
+                ),
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 0,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DELETED
+                            | field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 0,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DELETED,
+                        size: 1,
+                    },
+                    run_length: 4,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 0,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [IterStateRaw {
+                field_pos: 1,
+                header_start_data_pos_pre_padding: 0,
+                header_idx: 0,
+                header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+            [IterStateRaw {
+                field_pos: 2,
+                header_start_data_pos_pre_padding: 1,
+                header_idx: 1,
+                header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_RIGHT,
+            }],
+        );
+    }
+
+    #[test]
     fn insert_at_position_with_dead_header_adjusts_iters_correctly() {
         // reduced from `integration::basic::aoc2023_day1_part1::case_2` (s21)
         test_actions_on_headers(
