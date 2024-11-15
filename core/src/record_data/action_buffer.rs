@@ -5,7 +5,7 @@ use super::{
     field_action::{
         merge_action_lists, FieldAction, FieldActionKind, PendingAction,
     },
-    field_data::RunLength,
+    field_data::{RunLength, RUN_LEN_MAX_USIZE},
     group_track::GroupTrackId,
     iter_hall_action_applicator::IterHallActionApplicator,
     match_set::{MatchSetId, MatchSetManager},
@@ -283,8 +283,7 @@ impl ActionBuffer {
             }
         }
         while run_length > 0 {
-            let rl_to_push =
-                run_length.min(RunLength::MAX as usize) as RunLength;
+            let rl_to_push = run_length.min(RUN_LEN_MAX_USIZE) as RunLength;
             self.action_group_data.push_back(FieldAction {
                 kind,
                 field_idx,

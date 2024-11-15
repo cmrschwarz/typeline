@@ -43,6 +43,7 @@ use super::{
 
 // if the u32 overflows we just split into two values
 pub type RunLength = u32;
+pub const RUN_LEN_MAX_USIZE: usize = RunLength::MAX as usize;
 
 // the kinds of data representations that are stored in a `FieldData` Object
 // this includes StreamValueId, FieldReferences, ...
@@ -674,6 +675,10 @@ impl FieldValueHeader {
 
     pub fn shared_value_and_rl_not_one(&self) -> bool {
         self.shared_value() && self.run_length != 1
+    }
+
+    pub fn normalize_shared_value(&mut self) {
+        self.fmt.normalize_shared_value(self.run_length);
     }
 }
 

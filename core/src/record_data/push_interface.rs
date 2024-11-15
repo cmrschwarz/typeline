@@ -37,7 +37,7 @@ use crate::{
     record_data::{
         field_data::{
             field_value_flags::{DELETED, SHARED_VALUE},
-            INLINE_STR_MAX_LEN,
+            INLINE_STR_MAX_LEN, RUN_LEN_MAX_USIZE,
         },
         field_value::{Null, Undefined},
         iter::{
@@ -1154,12 +1154,12 @@ impl FieldData {
         mut run_length: usize,
     ) {
         debug_assert!(run_length > 0);
-        while run_length > RunLength::MAX as usize {
+        while run_length > RUN_LEN_MAX_USIZE {
             self.headers.push_back(FieldValueHeader {
                 fmt,
                 run_length: RunLength::MAX,
             });
-            run_length -= RunLength::MAX as usize;
+            run_length -= RUN_LEN_MAX_USIZE;
         }
         self.headers.push_back(FieldValueHeader {
             fmt,
@@ -1172,7 +1172,7 @@ impl FieldData {
         run_length: usize,
     ) {
         debug_assert!(run_length > 0);
-        let rl_to_push = run_length.min(RunLength::MAX as usize);
+        let rl_to_push = run_length.min(RUN_LEN_MAX_USIZE);
         self.headers.push_back(FieldValueHeader {
             fmt,
             run_length: rl_to_push as RunLength,
@@ -1237,8 +1237,7 @@ impl FieldData {
             return;
         }
         if header_rle
-            && last_header.run_length as usize + run_length
-                < RunLength::MAX as usize
+            && last_header.run_length as usize + run_length < RUN_LEN_MAX_USIZE
         {
             last_header.run_length += run_length as RunLength;
             return;
@@ -1255,7 +1254,7 @@ impl FieldData {
     ) {
         debug_assert!(fmt.shared_value());
         fmt.set_leading_padding(padding);
-        let rl_to_push = run_length.min(RunLength::MAX as usize);
+        let rl_to_push = run_length.min(RUN_LEN_MAX_USIZE);
         self.headers.push_back(FieldValueHeader {
             fmt,
             run_length: rl_to_push as RunLength,
@@ -1278,7 +1277,7 @@ impl FieldData {
     ) {
         debug_assert!(!fmt.shared_value());
         fmt.set_leading_padding(padding);
-        let rl_to_push = run_length.min(RunLength::MAX as usize);
+        let rl_to_push = run_length.min(RUN_LEN_MAX_USIZE);
         self.headers.push_back(FieldValueHeader {
             fmt,
             run_length: rl_to_push as RunLength,

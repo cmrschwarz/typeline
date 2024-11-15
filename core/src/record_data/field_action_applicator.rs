@@ -6,7 +6,8 @@
 use std::collections::VecDeque;
 
 use crate::record_data::{
-    field_action::FieldActionKind, field_data::field_value_flags,
+    field_action::FieldActionKind,
+    field_data::{field_value_flags, RUN_LEN_MAX_USIZE},
 };
 
 use super::{
@@ -172,9 +173,8 @@ impl FieldActionApplicator {
         }
         let insert_count = faas.curr_action_run_length;
         let pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
-        let mut mid_full_count = insert_count / RunLength::MAX as usize;
-        let mut mid_rem =
-            (insert_count % RunLength::MAX as usize) as RunLength;
+        let mut mid_full_count = insert_count / RUN_LEN_MAX_USIZE;
+        let mut mid_rem = (insert_count % RUN_LEN_MAX_USIZE) as RunLength;
         let post = header.run_length - pre;
         if mid_rem == 0 && post == 0 {
             mid_full_count -= 1; // must be > 0 because `insert_count` != 0
@@ -262,7 +262,7 @@ impl FieldActionApplicator {
                 self.push_insert_command(faas, insert_fmt, RunLength::MAX);
                 insert_fmt.set_same_value_as_previous(true);
             }
-            faas.field_pos += mid_full_count * RunLength::MAX as usize;
+            faas.field_pos += mid_full_count * RUN_LEN_MAX_USIZE;
 
             if mid_rem == 0 {
                 header.run_length = post;
@@ -282,18 +282,13 @@ impl FieldActionApplicator {
         header.run_length = post;
         header.set_shared_value_if_rl_1();
     }
-
-    fn handle_dup(
+    fn handle_dup_on_shared_value(
         &mut self,
         header: &mut FieldValueHeader,
         iterators: &mut [&mut IterState],
         faas: &mut FieldActionApplicationState,
-        // when an insert is in the middle of a zst of the same repr
-        // we use this method for handling it, so we have to respect
-        // insert lean in that case
         insert_actor_id: Option<ActorId>,
     ) {
-        // TODO: handle padding correctly and create tests for that
         let dup_count = faas.curr_action_run_length;
         let pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
 
@@ -302,83 +297,47 @@ impl FieldActionApplicator {
             .iter_mut()
             .rev();
 
-        if header.shared_value_or_rl_one() {
-            let mut rl_res = header.run_length as usize + dup_count;
+        let mut rl_res = header.run_length as usize + dup_count;
 
-            if rl_res > RunLength::MAX as usize {
-                self.push_copy_command(faas);
-                let mut full_header_count = 0;
-                while rl_res > RunLength::MAX as usize {
-                    self.push_insert_command(faas, header.fmt, RunLength::MAX);
-                    header.set_same_value_as_previous(true);
-                    faas.field_pos += RunLength::MAX as usize;
-                    rl_res -= RunLength::MAX as usize;
-                    full_header_count += 1;
+        if rl_res <= RUN_LEN_MAX_USIZE {
+            for it in iterators {
+                if it.header_rl_offset < pre {
+                    break;
                 }
-                let new_rl_offset = (pre as usize + dup_count
-                    - full_header_count * RunLength::MAX as usize)
-                    as RunLength;
-                for it in iterators {
-                    if it.header_rl_offset < pre {
-                        break;
-                    }
-                    if it.header_rl_offset == pre
-                        && insert_actor_id
-                            .map(|id| id < it.first_right_leaning_actor_id)
-                            .unwrap_or(true)
-                    {
-                        break;
-                    }
-                    it.field_pos += dup_count;
-                    it.header_idx += full_header_count;
-                    it.header_rl_offset =
-                        new_rl_offset + (it.header_rl_offset - pre);
+                if it.header_rl_offset == pre
+                    && insert_actor_id
+                        .map(|id| id < it.first_right_leaning_actor_id)
+                        .unwrap_or(true)
+                {
+                    break;
                 }
-            } else {
-                for it in iterators {
-                    if it.header_rl_offset < pre {
-                        break;
-                    }
-                    if it.header_rl_offset == pre
-                        && insert_actor_id
-                            .map(|id| id < it.first_right_leaning_actor_id)
-                            .unwrap_or(true)
-                    {
-                        break;
-                    }
-                    it.field_pos += dup_count;
-                    it.header_rl_offset += dup_count as RunLength;
-                }
+                it.field_pos += dup_count;
+                it.header_rl_offset += dup_count as RunLength;
             }
             header.run_length = rl_res as RunLength;
             return;
         }
 
-        let mid_full_count = (dup_count + 1) / RunLength::MAX as usize;
-        let mid_rem = ((dup_count + 1)
-            - (mid_full_count * RunLength::MAX as usize))
-            as RunLength;
-        let post = (header.run_length - pre).saturating_sub(1);
         self.push_copy_command(faas);
 
-        let data_offset_pre = FieldValueHeader {
-            fmt: header.fmt,
-            run_length: pre,
-        }
-        .total_size_unique();
-        let data_offset_mid = header.size as usize;
-        faas.curr_header_data_start_pre_padding += data_offset_pre;
-        let iter_offset =
-            faas.curr_header_data_start_pre_padding + data_offset_mid;
+        self.push_insert_command(faas, header.fmt, RunLength::MAX);
+        rl_res -= RUN_LEN_MAX_USIZE;
+        faas.field_pos += RUN_LEN_MAX_USIZE;
 
-        if pre > 0 {
-            self.push_insert_command(faas, header.fmt, pre);
-            header.fmt.set_leading_padding(0);
-        }
-        faas.field_pos += pre as usize;
-        let header_pos_bump =
-            usize::from(pre > 0) + mid_full_count + usize::from(mid_rem > 0);
+        faas.curr_header_data_start_pre_padding += header.leading_padding();
+        header.set_leading_padding(0);
+        header.set_same_value_as_previous(true);
 
+        let mut full_header_count = 1;
+        while rl_res <= RUN_LEN_MAX_USIZE {
+            self.push_insert_command(faas, header.fmt, RunLength::MAX);
+            faas.field_pos += RUN_LEN_MAX_USIZE;
+            rl_res -= RUN_LEN_MAX_USIZE;
+            full_header_count += 1;
+        }
+
+        let new_rl_offset = pre
+            + (dup_count - full_header_count * RUN_LEN_MAX_USIZE) as RunLength;
         for it in iterators {
             if it.header_rl_offset < pre {
                 break;
@@ -391,17 +350,116 @@ impl FieldActionApplicator {
                 break;
             }
             it.field_pos += dup_count;
-            it.header_idx += header_pos_bump;
-            it.header_start_data_pos_pre_padding = iter_offset;
+            it.header_idx += full_header_count;
+            it.header_rl_offset = new_rl_offset + (it.header_rl_offset - pre);
+            // leading padding might cause this to differ
+            it.header_start_data_pos_pre_padding =
+                faas.curr_header_data_start_pre_padding;
+        }
+        header.run_length = rl_res as RunLength;
+    }
+    fn handle_dup(
+        &mut self,
+        header: &mut FieldValueHeader,
+        iterators: &mut [&mut IterState],
+        faas: &mut FieldActionApplicationState,
+        // when an insert is in the middle of a zst of the same repr
+        // we use this method for handling it, so we have to respect
+        // insert lean in that case
+        insert_actor_id: Option<ActorId>,
+    ) {
+        header.normalize_shared_value();
+        if header.shared_value() {
+            self.handle_dup_on_shared_value(
+                header,
+                iterators,
+                faas,
+                insert_actor_id,
+            );
+            return;
+        }
+
+        let dup_count = faas.curr_action_run_length;
+        let pre = (faas.curr_action_pos - faas.field_pos) as RunLength;
+
+        let mid_full_count = (dup_count + 1) / RUN_LEN_MAX_USIZE;
+        let mid_rem = ((dup_count + 1) - (mid_full_count * RUN_LEN_MAX_USIZE))
+            as RunLength;
+        let post = (header.run_length - pre).saturating_sub(1);
+        self.push_copy_command(faas);
+
+        let data_size_pre = if pre == 0 {
+            0
+        } else {
+            header.leading_padding() + (header.size as usize) * (pre as usize)
+        };
+
+        let data_start_mid =
+            faas.curr_header_data_start_pre_padding + data_size_pre;
+        let data_start_post = data_start_mid + header.size as usize;
+        faas.field_pos += pre as usize;
+        let header_pos_mid = faas.header_idx_new + usize::from(pre > 0);
+        let header_pos_post =
+            header_pos_mid + mid_full_count + usize::from(mid_rem > 0);
+
+        let iters = &mut iterators[..faas.curr_header_iters_end];
+
+        if pre > 0 {
+            self.push_insert_command(faas, header.fmt, pre);
+            header.fmt.set_leading_padding(0);
+        }
+
+        // skip iters sitting inside pre
+        while let Some(it) = iters.get(faas.curr_header_iters_start) {
+            if it.header_rl_offset >= pre {
+                break;
+            }
+            faas.curr_header_iters_start += 1;
+        }
+
+        // adjust iters sitting on the item to dup
+        let mut iter_pos = faas.curr_header_iters_start;
+        while let Some(it) = iters.get_mut(iter_pos) {
+            if it.header_rl_offset > pre {
+                break;
+            }
+            it.header_start_data_pos_pre_padding = data_start_mid;
+            if insert_actor_id
+                .map(|id| id < it.first_right_leaning_actor_id)
+                .unwrap_or(true)
+            {
+                it.header_idx = header_pos_mid;
+                it.header_rl_offset -= pre;
+            } else {
+                it.header_idx = header_pos_post - 1;
+                it.header_rl_offset = if mid_rem == 0 {
+                    RunLength::MAX
+                } else {
+                    mid_rem
+                };
+                it.field_pos += dup_count;
+            }
+            iter_pos += 1;
+        }
+        let iters_mid_end = iter_pos;
+
+        // adjust iters after mid
+        while let Some(it) = iters.get_mut(iter_pos) {
+            iter_pos += 1;
+            it.field_pos += dup_count;
+            it.header_idx = header_pos_post;
+            it.header_start_data_pos_pre_padding = data_start_post;
             it.header_rl_offset -= pre + 1;
         }
+
+        faas.curr_header_data_start_pre_padding = data_start_mid;
 
         if post == 0 && mid_full_count == 0 {
             header.run_length = mid_rem;
             header.set_shared_value(true);
             return;
         }
-        faas.curr_header_data_start_pre_padding += data_offset_mid;
+        faas.curr_header_iters_start = iters_mid_end;
 
         let mut fmt_mid = header.fmt;
         fmt_mid.set_shared_value(true);
@@ -413,7 +471,7 @@ impl FieldActionApplicator {
             }
         }
 
-        faas.field_pos += mid_full_count * RunLength::MAX as usize;
+        faas.field_pos += mid_full_count * RUN_LEN_MAX_USIZE;
         if mid_rem == 0 {
             header.run_length = post;
             header.set_shared_value_if_rl_1();
@@ -421,16 +479,20 @@ impl FieldActionApplicator {
         }
 
         if post == 0 {
+            faas.curr_header_data_start_pre_padding = data_start_mid;
             header.run_length = mid_rem;
             header.fmt = fmt_mid;
             return;
         }
+        faas.curr_header_data_start_pre_padding = data_start_post;
+
         self.push_insert_command_if_rl_gt_0(faas, fmt_mid, mid_rem);
         faas.field_pos += mid_rem as usize;
         header.run_length = post;
         header.set_leading_padding(0);
         header.set_shared_value_if_rl_1();
     }
+
     fn handle_drop(
         &mut self,
         header: &mut FieldValueHeader,
@@ -694,6 +756,9 @@ impl FieldActionApplicator {
                 faas.header_idx_new as isize - faas.header_idx as isize;
             let field_pos_delta =
                 faas.field_pos as isize - faas.field_pos_old as isize;
+            // final iter adjustment. this is only necessary if
+            // we haven't started processing the final header,
+            // hence we do it inside of this branch
             for it in &mut iterators[faas.curr_header_iters_end..] {
                 it.field_pos =
                     (it.field_pos as isize + field_pos_delta) as usize;
@@ -1287,6 +1352,79 @@ mod test {
     }
 
     #[test]
+    fn iter_after_last_affected_header_is_adjusted() {
+        test_actions_on_headers(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 5,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 3,
+                },
+            ],
+            [FieldAction::new(FieldActionKind::Dup, 2, 3)],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 1,
+                    },
+                    run_length: 4,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::DEFAULT,
+                        size: 1,
+                    },
+                    run_length: 3,
+                },
+            ],
+            [IterStateRaw {
+                field_pos: 7,
+                header_start_data_pos_pre_padding: 5,
+                header_idx: 1,
+                header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_LEFT,
+            }],
+            [IterStateRaw {
+                field_pos: 10,
+                header_start_data_pos_pre_padding: 5,
+                header_idx: 3,
+                header_rl_offset: 1,
+                first_right_leaning_actor_id: LEAN_LEFT,
+            }],
+        );
+    }
+
+    #[test]
     fn insert_splits_header_with_right_leaning_iterator() {
         // reduced from `integration::basic::aoc2023_day1_part1::case_2` (s11)
         test_actions_on_headers(
@@ -1574,7 +1712,7 @@ mod test {
                     field_pos: 16,
                     header_start_data_pos_pre_padding: 10,
                     header_idx: 1,
-                    header_rl_offset: 5,
+                    header_rl_offset: 6,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
             ],
@@ -1583,7 +1721,7 @@ mod test {
                     field_pos: 9,
                     header_start_data_pos_pre_padding: 6,
                     header_idx: 2,
-                    header_rl_offset: 1,
+                    header_rl_offset: 0,
                     first_right_leaning_actor_id: LEAN_RIGHT,
                 },
                 IterStateRaw {

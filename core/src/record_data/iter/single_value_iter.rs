@@ -3,6 +3,7 @@ use std::{borrow::Borrow, ops::Deref, sync::RwLockReadGuard};
 use crate::record_data::{
     field_data::{
         field_value_flags, FieldValueFormat, FieldValueHeader, RunLength,
+        RUN_LEN_MAX_USIZE,
     },
     field_value::FieldValue,
     field_value_ref::{TypedRange, ValidTypedRange},
@@ -46,8 +47,7 @@ impl<V: Deref<Target = FieldValue>> SingleValueIter<V> {
             return None;
         }
 
-        let field_count =
-            limit.min(RunLength::MAX as usize).min(self.run_len_rem);
+        let field_count = limit.min(RUN_LEN_MAX_USIZE).min(self.run_len_rem);
 
         self.run_len_rem -= field_count;
 

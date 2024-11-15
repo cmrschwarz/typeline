@@ -4,7 +4,7 @@ use crate::utils::random_access_container::RandomAccessContainer;
 
 use super::{
     action_buffer::ActorId,
-    field_data::{FieldValueRepr, RunLength},
+    field_data::{FieldValueRepr, RunLength, RUN_LEN_MAX_USIZE},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -153,10 +153,10 @@ where
             field_idx: faf.field_idx,
             run_len: 0,
         };
-        while faf.run_len > RunLength::MAX as usize {
+        while faf.run_len > RUN_LEN_MAX_USIZE {
             action.run_len = RunLength::MAX;
             self.target.push(action);
-            faf.run_len -= RunLength::MAX as usize;
+            faf.run_len -= RUN_LEN_MAX_USIZE;
         }
         if faf.run_len > 0 {
             action.run_len = faf.run_len as RunLength;
@@ -219,7 +219,7 @@ where
 
         if add {
             let space_rem =
-                (RunLength::MAX as usize - prev.run_len).min(action.run_len);
+                (RUN_LEN_MAX_USIZE - prev.run_len).min(action.run_len);
             prev.run_len += space_rem;
             action.run_len -= space_rem;
         }

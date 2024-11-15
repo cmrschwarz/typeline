@@ -3,8 +3,11 @@ use num::{BigInt, BigRational};
 use crate::{
     cli::call_expr::Argument,
     operators::{errors::OperatorApplicationError, macro_def::MacroRef},
-    record_data::field_value_ref::{
-        DynFieldValueBlock, FieldValueBlock, FieldValueSlice,
+    record_data::{
+        field_data::RUN_LEN_MAX_USIZE,
+        field_value_ref::{
+            DynFieldValueBlock, FieldValueBlock, FieldValueSlice,
+        },
     },
 };
 use metamatch::metamatch;
@@ -81,7 +84,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 } else {
                     Some((
                         FieldValueRef::REP,
-                        (*it).min(RunLength::MAX as usize) as RunLength,
+                        (*it).min(RUN_LEN_MAX_USIZE) as RunLength,
                     ))
                 }
             }
@@ -138,7 +141,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 if *it == 0 {
                     None
                 } else {
-                    let rl = (*it).min(RunLength::MAX as usize);
+                    let rl = (*it).min(RUN_LEN_MAX_USIZE);
                     *it -= rl;
                     Some(DynFieldValueBlock::Plain(FieldValueSlice::REP(rl)))
                 }
@@ -208,7 +211,7 @@ impl<'a> Iterator for DynFieldValueRangeIter<'a> {
                 if *it == 0 {
                     None
                 } else {
-                    let rl = (*it).min(RunLength::MAX as usize);
+                    let rl = (*it).min(RUN_LEN_MAX_USIZE);
                     *it -= rl;
                     Some((FieldValueRef::REP, rl as RunLength))
                 }
