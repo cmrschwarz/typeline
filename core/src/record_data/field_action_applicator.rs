@@ -204,7 +204,9 @@ impl FieldActionApplicator {
             for it in
                 &mut iterators[..faas.curr_header_iters_start].iter_mut().rev()
             {
-                if it.field_pos < faas.field_pos_old {
+                // these iterators were already touchched, so **not**
+                // `field_pos_old` here
+                if it.field_pos < faas.field_pos {
                     break;
                 }
                 if actor_id < it.first_right_leaning_actor_id {
@@ -864,9 +866,8 @@ impl FieldActionApplicator {
                 faas.field_pos = field_pos_new;
             }
             faas.field_pos_old += faas.curr_header_original_rl as usize;
-            if !header.same_value_as_previous() {
-                faas.curr_header_data_start_pre_padding += header.total_size();
-            }
+            faas.curr_header_data_start_pre_padding +=
+                header.total_size_unique();
             let field_pos_delta =
                 faas.field_pos as isize - faas.field_pos_old as isize;
             faas.curr_header_iters_start = faas.curr_header_iters_end;
@@ -1903,8 +1904,8 @@ mod test {
             [IterStateRaw {
                 field_pos: 2,
                 header_start_data_pos_pre_padding: 1,
-                header_idx: 1,
-                header_rl_offset: 1,
+                header_idx: 2,
+                header_rl_offset: 0,
                 first_right_leaning_actor_id: LEAN_RIGHT,
             }],
         );
