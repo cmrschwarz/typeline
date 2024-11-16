@@ -363,6 +363,8 @@ impl IterHallActionApplicator {
             let mut iter =
                 fm.lookup_iter(field_id, &field_ref, cds.header_iter_id);
             // if we use after_last here we put in stuff twice.
+            // TODO: flipping this reveals some bugs in the adjustment
+            // code. get rid of thise and then flip back
             let cow_end_before = iter.get_field_location_before_next();
             iter.next_n_fields(batch_size, true);
             let cow_end_after = iter.get_field_location_after_last();
@@ -2448,6 +2450,90 @@ mod test_append_data_cow_headers {
                 header_idx: 1,
                 header_rl_offset: 1,
                 data_pos: 32,
+            },
+        );
+    }
+
+    #[test]
+    fn disrespected_dup() {
+        // based on aoc test case_2 step 27
+        test_append_data_cow_headers(
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 42,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SAME_VALUE_AS_PREVIOUS
+                            | field_value_flags::SHARED_VALUE,
+                        size: 42,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::SAME_VALUE_AS_PREVIOUS
+                            | field_value_flags::SHARED_VALUE,
+                        size: 42,
+                    },
+                    run_length: 1,
+                },
+            ],
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::BytesInline,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 42,
+                },
+                run_length: 2,
+            }],
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 42,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SHARED_VALUE
+                            | field_value_flags::SAME_VALUE_AS_PREVIOUS,
+                        size: 42,
+                    },
+                    run_length: 2,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::SHARED_VALUE
+                            | field_value_flags::SAME_VALUE_AS_PREVIOUS,
+                        size: 42,
+                    },
+                    run_length: 2,
+                },
+            ],
+            42,
+            FieldLocation {
+                field_pos: 1,
+                header_idx: 0,
+                header_rl_offset: 1,
+                data_pos: 42,
+            },
+            FieldLocation {
+                field_pos: 3,
+                header_idx: 2,
+                header_rl_offset: 1,
+                data_pos: 42,
             },
         );
     }
