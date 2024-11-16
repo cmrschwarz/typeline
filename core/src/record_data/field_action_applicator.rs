@@ -247,10 +247,11 @@ impl FieldActionApplicator {
             header.set_leading_padding(0);
         }
 
-        let mut insert_fmt = header.fmt;
-        insert_fmt.set_shared_value(true);
-        insert_fmt.repr = zst_repr;
-        insert_fmt.set_leading_padding(0);
+        let mut insert_fmt = FieldValueFormat {
+            repr: zst_repr,
+            flags: field_value_flags::SHARED_VALUE,
+            size: 0,
+        };
 
         if header.fmt.shared_value() && pre > 0 {
             header.set_same_value_as_previous(true);
@@ -1487,6 +1488,59 @@ mod test {
             }],
         );
     }
+
+    #[test]
+    fn insert_splits_same_value_setting_same_as_previous_flag() {
+        test_actions_on_headers(
+            [FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::TextInline,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 42,
+                },
+                run_length: 2,
+            }],
+            [FieldAction::new(
+                FieldActionKind::InsertZst {
+                    repr: FieldValueRepr::Undefined,
+                    actor_id: ActorId::ZERO,
+                },
+                1,
+                1,
+            )],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 42,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Undefined,
+                        flags: field_value_flags::SHARED_VALUE
+                            | field_value_flags::SAME_VALUE_AS_PREVIOUS,
+                        size: 0,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::TextInline,
+                        flags: field_value_flags::SHARED_VALUE
+                            | field_value_flags::SAME_VALUE_AS_PREVIOUS,
+                        size: 42,
+                    },
+                    run_length: 1,
+                },
+            ],
+            [],
+            [],
+        );
+    }
+
     #[test]
     fn insert_in_non_shared_value_adjusts_data_offset_correctly() {
         // we need to do this twice to observe the issue
