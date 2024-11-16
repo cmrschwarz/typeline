@@ -362,6 +362,7 @@ impl IterHallActionApplicator {
             let field_ref = fm.get_cow_field_ref_raw(field_id);
             let mut iter =
                 fm.lookup_iter(field_id, &field_ref, cds.header_iter_id);
+            // if we use after_last here we put in stuff twice.
             let cow_end_before = iter.get_field_location_before_next();
             iter.next_n_fields(batch_size, true);
             let cow_end_after = iter.get_field_location_after_last();
@@ -1133,27 +1134,28 @@ fn append_data_cow_headers(
     headers: &VecDeque<FieldValueHeader>,
     tgt: &mut FieldData,
     last_observed_data_size: usize,
-    before: FieldLocation,
-    after: FieldLocation,
+    append_begin: FieldLocation,
+    append_end: FieldLocation,
 ) {
-    debug_assert!(before.data_pos <= after.data_pos);
-    if before.header_idx == headers.len() {
-        debug_assert_eq!(before.field_pos, after.field_pos);
+    debug_assert!(append_begin.data_pos <= append_end.data_pos);
+    if append_begin.header_idx == headers.len() {
+        debug_assert_eq!(append_begin.field_pos, append_end.field_pos);
         return;
     }
-    tgt.field_count += after.field_pos - before.field_pos;
-    let mut header_idx = before.header_idx;
+    tgt.field_count += append_end.field_pos - append_begin.field_pos;
+    let mut header_idx = append_begin.header_idx;
     let mut h = headers[header_idx];
-    if after.header_idx == header_idx {
-        h.run_length = after.header_rl_offset;
+    if append_end.header_idx == header_idx {
+        h.run_length = append_end.header_rl_offset;
     }
-    if before.header_rl_offset > 0 {
-        h.run_length -= before.header_rl_offset;
+    if append_begin.header_rl_offset > 0 {
+        h.run_length -= append_begin.header_rl_offset;
         h.set_leading_padding(0);
     }
 
-    if before.data_pos > last_observed_data_size {
-        let mut padding_to_insert = before.data_pos - last_observed_data_size;
+    if append_begin.data_pos > last_observed_data_size {
+        let mut padding_to_insert =
+            append_begin.data_pos - last_observed_data_size;
 
         if padding_to_insert >= (1 << LEADING_PADDING_BIT_COUNT) {
             // padding this large essentially never happens so there's no point
@@ -1194,33 +1196,34 @@ fn append_data_cow_headers(
         }
     }
 
-    if last_observed_data_size > before.data_pos {
-        let mut data_deficit = last_observed_data_size - before.data_pos;
+    if last_observed_data_size > append_begin.data_pos {
+        let mut data_deficit = last_observed_data_size - append_begin.data_pos;
 
         while data_deficit > 0 {
             data_deficit -= h.total_size_unique();
             h.set_same_value_as_previous(true);
+            h.set_leading_padding(0);
             append_header_try_merge(tgt, h, true);
             header_idx += 1;
             if header_idx == headers.len() {
                 return;
             }
             h = headers[header_idx];
-            if after.header_idx == header_idx {
-                h.run_length = after.header_rl_offset;
+            if append_end.header_idx == header_idx {
+                h.run_length = append_end.header_rl_offset;
             }
         }
     }
     append_header_try_merge(tgt, h, false);
     header_idx += 1;
-    if header_idx > after.header_idx {
+    if header_idx > append_end.header_idx {
         return;
     }
     tgt.headers
-        .extend(headers.range(header_idx..after.header_idx));
-    if after.header_idx < headers.len() {
-        h = headers[after.header_idx];
-        h.run_length = after.header_rl_offset;
+        .extend(headers.range(header_idx..append_end.header_idx));
+    if append_end.header_idx < headers.len() {
+        h = headers[append_end.header_idx];
+        h.run_length = append_end.header_rl_offset;
         append_header_try_merge(tgt, h, false);
     }
 }
@@ -2368,6 +2371,83 @@ mod test_append_data_cow_headers {
                 header_idx: 0,
                 header_rl_offset: 3,
                 data_pos: 0,
+            },
+        );
+    }
+
+    #[test]
+    fn padded_field_got_deleted_but_is_back_from_dup() {
+        // based on aoc test case_2 step 27
+        test_append_data_cow_headers(
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 5,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::SlicedFieldReference,
+                        flags: field_value_flags::SHARED_VALUE
+                            | field_value_flags::padding(3),
+                        size: 24,
+                    },
+                    run_length: 1,
+                },
+            ],
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 5,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::SlicedFieldReference,
+                        flags: field_value_flags::SHARED_VALUE
+                            | field_value_flags::padding(3),
+                        size: 24,
+                    },
+                    run_length: 1,
+                },
+            ],
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 5,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::SlicedFieldReference,
+                        flags: field_value_flags::SHARED_VALUE
+                            | field_value_flags::padding(3),
+                        size: 24,
+                    },
+                    run_length: 2,
+                },
+            ],
+            32,
+            FieldLocation {
+                field_pos: 1,
+                header_idx: 1,
+                header_rl_offset: 0,
+                data_pos: 8,
+            },
+            FieldLocation {
+                field_pos: 2,
+                header_idx: 1,
+                header_rl_offset: 1,
+                data_pos: 32,
             },
         );
     }
