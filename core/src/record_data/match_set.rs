@@ -129,15 +129,16 @@ impl MatchSetManager {
     pub fn advance_cross_ms_cow_targets(
         &self,
         fm: &FieldManager,
-        ms_id: MatchSetId,
+        src_ms_id: Option<MatchSetId>,
+        tgt_ms_id: MatchSetId,
         cow_advancement: usize,
     ) {
-        let cm = &self.match_sets[ms_id].fields_cow_map;
+        let cm = &self.match_sets[tgt_ms_id].fields_cow_map;
         #[cfg(feature = "debug_logging_cow_fields")]
         {
             eprintln!("{:-^80}", " <updating cow bindings> ");
             eprint!("updating: ");
-            self.print_updating_cow_bindings(ms_id);
+            self.print_updating_cow_bindings(tgt_ms_id);
             eprintln!();
             fm.print_fields_with_header_data();
             eprintln!("{:=^80}", "");
@@ -146,15 +147,16 @@ impl MatchSetManager {
         }
 
         for &src in cm.keys() {
-            // PERF: in theory, we could be lazy here and just add
-            // the current snapshot of the source field to the target
-
-            fm.apply_field_actions(self, src, true);
-
-            IterHallActionApplicator::update_cow_fields_post_exec(
+            if let Some(src_ms) = src_ms_id {
+                if fm.fields[src].borrow().match_set != src_ms {
+                    continue;
+                }
+            }
+            IterHallActionApplicator::advance_cow_targets(
                 fm,
+                self,
                 src,
-                ms_id,
+                tgt_ms_id,
                 cow_advancement,
             );
         }
@@ -163,7 +165,7 @@ impl MatchSetManager {
         {
             eprintln!("{:-^80}", " <updated cow bindings> ");
             eprint!("updated: ");
-            self.print_updating_cow_bindings(ms_id);
+            self.print_updating_cow_bindings(tgt_ms_id);
             eprintln!();
             fm.print_fields_with_header_data();
             eprintln!("{:=^80}", "");

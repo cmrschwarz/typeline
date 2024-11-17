@@ -167,6 +167,7 @@ pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
     for tgt in sp.targets.iter().rev() {
         jd.match_set_mgr.advance_cross_ms_cow_targets(
             &jd.field_mgr,
+            None,
             jd.tf_mgr.transforms[tgt.tf_id].match_set_id,
             batch_size,
         );

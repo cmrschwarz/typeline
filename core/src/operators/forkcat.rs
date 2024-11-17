@@ -677,6 +677,7 @@ pub fn handle_tf_forkcat(
         // PERF: maybe provide a bulk version of this?
         jd.match_set_mgr.advance_cross_ms_cow_targets(
             &jd.field_mgr,
+            None,
             jd.tf_mgr.transforms[sc.start_tf_id].match_set_id,
             batch_size,
         );
@@ -1086,6 +1087,7 @@ pub fn propagate_forkcat(
     let cont_tf_id = cont_state.continuation_tf_id.unwrap();
     jd.match_set_mgr.advance_cross_ms_cow_targets(
         &jd.field_mgr,
+        None,
         jd.tf_mgr.transforms[cont_tf_id].match_set_id,
         fields_produced,
     );

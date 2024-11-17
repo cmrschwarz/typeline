@@ -337,12 +337,14 @@ impl IterHallActionApplicator {
             }
         }
     }
-    pub fn update_cow_fields_post_exec(
+    pub fn advance_cow_targets(
         fm: &FieldManager,
+        msm: &MatchSetManager,
         field_id: FieldId,
         update_cow_ms: MatchSetId,
         batch_size: usize,
     ) {
+        fm.apply_field_actions(msm, field_id, true);
         let field = fm.fields[field_id].borrow();
         for &tgt_field_id in &field.iter_hall.cow_targets {
             let mut tgt_field = fm.fields[tgt_field_id].borrow_mut();
