@@ -19,11 +19,11 @@ name = "scr_core"
 parking_lot = "0.12.3"
 
 # utils
-bstr = { version = "1.9.1", features = ["alloc"], default-features = false }
-once_cell = "1.19.0"
+bstr = { version = "1.11.0", features = ["alloc"], default-features = false }
+once_cell = "1.20.2"
 memchr = "2.7.4"
 static_assertions = "1.1.0"
-thiserror = "1.0.61"
+thiserror = "1.0.69"
 derive_more = "0.99.18"
 ref-cast = "1.0.23"
 subenum = "1.1.2"
@@ -31,28 +31,28 @@ metamatch = "0.2.4"
 
 
 # small size / layout optimizations
-arrayvec = "0.7.4"
+arrayvec = "0.7.6"
 bitvec = { version = "1.0", features = ["std"], default-features = false }
 #nonmax = "0.5.5"
 smallstr = { version = "0.3.0", features = ["union"] }
 smallvec = { version = "1.13.2", features = ["union", "write"] }
 thin-vec = "0.2.13"
-indexmap = "2.2.6"
+indexmap = "2.6.0"
 bitbybit = "1.3.2"
 
 # features for core operators / types
 num = "0.4.3"
 lexical-core = "1.0.2"
 
-encoding_rs = { version = "0.8.34", features = ["fast-legacy-encode"] }
-regex = "1.10.5"
-regex-syntax = "0.8.4"
-unicode-ident = "1.0.12"
+encoding_rs = { version = "0.8.35", features = ["fast-legacy-encode"] }
+regex = "1.11.1"
+regex-syntax = "0.8.5"
+unicode-ident = "1.0.13"
 
 # for debug_log
-serde_derive = { version = "1.0.203", optional = true }
-serde_json = { version = "1.0.120", optional = true }
-handlebars = { version = "6.0.0", features = [
+serde_derive = { version = "1.0.215", optional = true }
+serde_json = { version = "1.0.133", optional = true }
+handlebars = { version = "6.2.0", features = [
     "string_helpers",
 ], optional = true }
 
