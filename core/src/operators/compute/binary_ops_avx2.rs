@@ -7,9 +7,7 @@ use std::{
     mem::MaybeUninit,
 };
 
-use super::binary_ops::{
-    BinOpAdd, BinOpSub, BinOp, AVX2_I64_ELEM_COUNT,
-};
+use super::binary_ops::{BinOp, BinOpAdd, BinOpSub, AVX2_I64_ELEM_COUNT};
 
 fn get_i64_add_overflow_mask(
     res_v: __m256i,

@@ -57,7 +57,10 @@ impl<'a, I, T> RefHandoutStackBase<'a, I, T> {
 unsafe impl<'a, I: IndexingType, T> RefHandoutStack<I, T>
     for RefHandoutStackBase<'a, I, T>
 {
-    type Child<'b> = RefHandoutStackNode<'b, I, T, Self> where Self: 'b;
+    type Child<'b>
+        = RefHandoutStackNode<'b, I, T, Self>
+    where
+        Self: 'b;
 
     fn claim<'b>(&'b mut self, idx: I) -> (Self::Child<'b>, &'b mut T) {
         let elem = unsafe {
@@ -79,7 +82,10 @@ unsafe impl<'a, I: IndexingType, T> RefHandoutStack<I, T>
 unsafe impl<'a, I: IndexingType, T, P: RefHandoutStack<I, T>>
     RefHandoutStack<I, T> for RefHandoutStackNode<'a, I, T, P>
 {
-    type Child<'b> = RefHandoutStackNode<'b, I, T, Self> where Self: 'b;
+    type Child<'b>
+        = RefHandoutStackNode<'b, I, T, Self>
+    where
+        Self: 'b;
 
     fn claim<'b>(&'b mut self, idx: I) -> (Self::Child<'b>, &'b mut T) {
         let universe = self.assert_unused(idx);

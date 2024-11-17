@@ -12,10 +12,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorData, OperatorId,
             OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{
-            Transform, TransformData, TransformId,
-            TransformState,
-        },
+        transform::{Transform, TransformData, TransformId, TransformState},
     },
     options::session_setup::SessionSetupData,
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},

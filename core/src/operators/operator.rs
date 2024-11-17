@@ -468,7 +468,7 @@ impl OperatorData {
             | OperatorData::Chunks(_)
             | OperatorData::MacroDef(_)
             | OperatorData::MacroCall(_) => self.default_op_name(),
-             OperatorData::Custom(op) => op.debug_op_name(),
+            OperatorData::Custom(op) => op.debug_op_name(),
         }
     }
     pub fn output_field_kind(
