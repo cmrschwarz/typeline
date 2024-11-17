@@ -60,7 +60,7 @@ pub fn parse_op_transparent(
 
 impl Operator for OpTransparent {
     fn default_name(&self) -> super::operator::OperatorName {
-        todo!()
+        "transparent".into()
     }
 
     fn output_count(
