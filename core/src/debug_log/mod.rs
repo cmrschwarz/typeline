@@ -10,7 +10,7 @@ use crate::{
     operators::{
         aggregator::TfAggregatorHeader,
         fork::TfFork,
-        forkcat::{FcSubchainIdx, TfForkCat},
+        forkcat::{FcSubchainIdx, TfForkCatHeader, TfForkCatSubchainTrailer},
         transform::{TransformData, TransformId},
     },
     options::chain_settings::RationalsPrintMode,
@@ -251,21 +251,27 @@ fn setup_transform_tf_envs(
     match_chains: &mut Vec<MatchChain>,
     match_chain: &mut MatchChain,
 ) -> Option<TransformId> {
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    let mut succ = tf.successor;
+    let tf_state = &jd.tf_mgr.transforms[tf_id];
+    let succ = tf_state.successor;
+
     match &tf_data[tf_id] {
-        TransformData::ForkCat(fc) => {
-            let mut fc_mc = setup_forkcat_match_chain(jd, tf_data, fc, tf_id);
-            std::mem::swap(match_chain, &mut fc_mc);
-            match_chains.push(fc_mc);
+        TransformData::Custom(tf) => {
+            if let Some(fc) = tf.downcast_ref::<TfForkCatHeader>() {
+                let mut fc_mc =
+                    setup_forkcat_match_chain(jd, tf_data, fc, tf_id);
+                std::mem::swap(match_chain, &mut fc_mc);
+                match_chains.push(fc_mc);
+                return succ;
+            }
         }
         TransformData::Fork(fc) => {
             match_chain
                 .tf_envs
                 .push(setup_fork_tf_env(jd, tf_data, fc, tf_id));
+            return succ;
         }
         TransformData::AggregatorHeader(agg) => {
-            succ = Some(setup_aggregator_tf_envs(
+            return Some(setup_aggregator_tf_envs(
                 jd,
                 tf_data,
                 agg,
@@ -274,23 +280,21 @@ fn setup_transform_tf_envs(
                 match_chain,
             ));
         }
-
-        _ => {
-            let mut fields = Vec::new();
-            let mut group_tracks = Vec::new();
-            let tf = &jd.tf_mgr.transforms[tf_id];
-            if tf.output_group_track_id != tf.input_group_track_id {
-                group_tracks.push(tf.output_group_track_id);
-            }
-            tf_data[tf_id].get_out_fields(jd, tf, &mut fields);
-            match_chain.tf_envs.push(TransformEnv {
-                tf_id: Some(tf_id),
-                group_tracks,
-                subchains: Vec::new(),
-                fields,
-            });
-        }
+        _ => (),
     }
+    let mut fields = Vec::new();
+    let mut group_tracks = Vec::new();
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    if tf.output_group_track_id != tf.input_group_track_id {
+        group_tracks.push(tf.output_group_track_id);
+    }
+    tf_data[tf_id].get_out_fields(jd, tf, &mut fields);
+    match_chain.tf_envs.push(TransformEnv {
+        tf_id: Some(tf_id),
+        group_tracks,
+        subchains: Vec::new(),
+        fields,
+    });
     succ
 }
 
@@ -361,7 +365,7 @@ fn setup_fork_tf_env(
 fn setup_forkcat_match_chain(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
-    fc: &TfForkCat,
+    fc: &TfForkCatHeader,
     tf_id: TransformId,
 ) -> MatchChain {
     let fc_cont = fc.continuation_state.lock().unwrap();
@@ -396,10 +400,11 @@ fn setup_forkcat_match_chain(
         setup_transform_chain_dead_slots(&mut subchain, jd);
         subchains.push(subchain);
     }
-    if let Some(TransformData::ForkCatSubchainTrailer(trailer)) = fc_cont
+    if let Some(trailer) = fc_cont
         .subchains
         .get(FcSubchainIdx::zero())
         .map(|sc| &tf_data[sc.trailer_tf_id])
+        .and_then(|tf| tf.downcast_ref::<TfForkCatSubchainTrailer>())
     {
         for cont_mapping in fc_cont.subchains[trailer.subchain_idx]
             .continuation_field_mappings

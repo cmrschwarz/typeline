@@ -1,4 +1,4 @@
-use std::{fmt::Write, sync::Arc};
+use std::{any::Any, fmt::Write, sync::Arc};
 
 use smallstr::SmallString;
 
@@ -19,6 +19,8 @@ use crate::{
     },
 };
 
+use metamatch::metamatch;
+
 use super::{
     aggregator::{
         handle_tf_aggregator_header, handle_tf_aggregator_trailer,
@@ -34,10 +36,6 @@ use super::{
         TfChunksTrailer,
     },
     fork::{handle_fork_expansion, handle_tf_fork, TfFork},
-    forkcat::{
-        handle_tf_forcat_subchain_trailer, handle_tf_forkcat, TfForkCat,
-        TfForkCatSubchainTrailer,
-    },
     literal::{handle_tf_literal, TfLiteral},
     nop::{handle_tf_nop, TfNop},
     nop_copy::{handle_tf_nop_copy, TfNopCopy},
@@ -61,8 +59,6 @@ pub enum TransformData<'a> {
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
     Fork(TfFork<'a>),
-    ForkCat(TfForkCat),
-    ForkCatSubchainTrailer(TfForkCatSubchainTrailer<'a>),
     Literal(TfLiteral<'a>),
     AggregatorHeader(TfAggregatorHeader),
     AggregatorTrailer(TfAggregatorTrailer),
@@ -94,16 +90,12 @@ impl<'a> TransformData<'a> {
             TransformData::CallConcurrent(_) => "callcc",
             TransformData::CalleeConcurrent(_) => "callcc_callee",
             TransformData::Fork(_) => "fork",
-            TransformData::ForkCat(_) => "forkcat",
             TransformData::Literal(_) => "literal",
             TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
             TransformData::ChunksHeader(_) => "chunks_header",
             TransformData::ChunksTrailer(_) => "chunks_trailer",
-            TransformData::ForkCatSubchainTrailer(_) => {
-                "forkcat_subchain_trailer"
-            }
             TransformData::Custom(tf) => return tf.display_name(jd, tf_id),
         }
         .into()
@@ -122,9 +114,7 @@ impl<'a> TransformData<'a> {
             }
 
             // TODO: fix this
-            TransformData::ForkCat(_)
-            | TransformData::ForkCatSubchainTrailer(_)
-            | TransformData::Disabled
+            TransformData::Disabled
             | TransformData::Nop(_)
             | TransformData::Terminator(_)
             | TransformData::Fork(_)
@@ -139,6 +129,33 @@ impl<'a> TransformData<'a> {
                 custom.collect_out_fields(jd, tf_state, fields)
             }
         }
+    }
+
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        metamatch!(match self {
+            TransformData::Disabled
+            | TransformData::CallConcurrent(_)
+            | TransformData::Literal(_)
+            | TransformData::Fork(_) => None,
+
+            #[expand(T in [
+                Nop,
+                NopCopy,
+                Terminator,
+                Call,
+                CalleeConcurrent,
+                AggregatorHeader,
+                AggregatorTrailer,
+                ChunksHeader,
+                ChunksTrailer,
+            ])]
+            TransformData::T(o) => {
+                let a: &dyn Any = o;
+                a.downcast_ref()
+            }
+
+            TransformData::Custom(o) => o.downcast_ref(),
+        })
     }
 }
 #[derive(Clone)]
@@ -268,6 +285,22 @@ pub trait Transform<'a>: Send + 'a {
         }
         fields.push(tf_state.output_field);
     }
+
+    fn as_any(&self) -> Option<&dyn Any> {
+        None
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        None
+    }
+}
+
+impl<'a> dyn Transform<'a> {
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        self.as_any().and_then(|t| t.downcast_ref::<T>())
+    }
+    pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
+        self.as_any_mut().and_then(|t| t.downcast_mut::<T>())
+    }
 }
 
 pub fn transform_pre_update(
@@ -292,13 +325,11 @@ pub fn transform_pre_update(
             handle_lazy_call_expansion(job, tf_id);
         }
         TransformData::Disabled
-        | TransformData::ForkCat(_)
         | TransformData::ChunksHeader(_)
         | TransformData::ChunksTrailer(_)
         | TransformData::CalleeConcurrent(_)
         | TransformData::Nop(_)
         | TransformData::NopCopy(_)
-        | TransformData::ForkCatSubchainTrailer(_)
         | TransformData::Literal(_)
         | TransformData::Terminator(_)
         | TransformData::AggregatorHeader(_)
@@ -326,14 +357,8 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::Fork(tf) => {
             handle_tf_fork(jd, tf_id, tf);
         }
-        TransformData::ForkCat(fork) => {
-            handle_tf_forkcat(jd, tf_id, fork);
-        }
         TransformData::Nop(tf) => handle_tf_nop(jd, tf_id, tf),
         TransformData::NopCopy(tf) => handle_tf_nop_copy(jd, tf_id, tf),
-        TransformData::ForkCatSubchainTrailer(tf) => {
-            handle_tf_forcat_subchain_trailer(jd, tf_id, tf);
-        }
         TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
         TransformData::CallConcurrent(tf) => {
             handle_tf_call_concurrent(jd, tf_id, tf)
@@ -365,13 +390,11 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             TransformData::Disabled
             | TransformData::Nop(_)
             | TransformData::NopCopy(_)
-            | TransformData::ForkCatSubchainTrailer(_)
             | TransformData::Terminator(_)
             | TransformData::Call(_)
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_)
             | TransformData::Fork(_)
-            | TransformData::ForkCat(_)
             | TransformData::Literal(_)
             //these go straight to the sub transforms
             | TransformData::AggregatorHeader(_)
@@ -389,14 +412,12 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
     match &mut job.transform_data[svu.tf_id] {
         TransformData::CallConcurrent(_) |
         TransformData::Fork(_) |
-        TransformData::ForkCat(_) |
         TransformData::ChunksHeader(_) |
         TransformData::ChunksTrailer(_) |
         TransformData::Terminator(_) |
         TransformData::Call(_) |
         TransformData::Nop(_) |
         TransformData::NopCopy(_) |
-        TransformData::ForkCatSubchainTrailer(_) |
         TransformData::Disabled |
         TransformData::Literal(_) |
         TransformData::CalleeConcurrent(_) |
