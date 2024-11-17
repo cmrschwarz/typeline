@@ -1155,6 +1155,16 @@ fn append_data_cow_headers(
         h.run_length -= append_begin.header_rl_offset;
         h.set_leading_padding(0);
     }
+    if h.run_length == 0 {
+        header_idx += 1;
+        if header_idx == headers.len() {
+            return;
+        }
+        h = headers[header_idx];
+        if append_end.header_idx == header_idx {
+            h.run_length = append_end.header_rl_offset;
+        }
+    }
 
     if append_begin.data_pos > last_observed_data_size {
         let mut padding_to_insert =
@@ -1191,12 +1201,6 @@ fn append_data_cow_headers(
             });
         }
         h.set_leading_padding(padding_to_insert);
-    }
-    if h.run_length == 0 {
-        header_idx += 1;
-        if header_idx == headers.len() {
-            return;
-        }
     }
 
     if last_observed_data_size > append_begin.data_pos {
@@ -2115,8 +2119,8 @@ mod test_append_data_cow_headers {
             after,
         );
         assert_eq!(
+            &*tgt.headers.iter().copied().collect::<Vec<_>>(),
             cow_headers_after,
-            &*tgt.headers.iter().copied().collect::<Vec<_>>()
         );
         assert_eq!(
             tgt.field_count,
@@ -2484,7 +2488,7 @@ mod test_append_data_cow_headers {
                         repr: FieldValueRepr::Undefined,
                         flags: field_value_flags::SAME_VALUE_AS_PREVIOUS
                             | field_value_flags::SHARED_VALUE,
-                        size: 42,
+                        size: 0,
                     },
                     run_length: 1,
                 },
@@ -2520,9 +2524,9 @@ mod test_append_data_cow_headers {
                         repr: FieldValueRepr::Undefined,
                         flags: field_value_flags::SHARED_VALUE
                             | field_value_flags::SAME_VALUE_AS_PREVIOUS,
-                        size: 42,
+                        size: 0,
                     },
-                    run_length: 2,
+                    run_length: 1,
                 },
                 FieldValueHeader {
                     fmt: FieldValueFormat {
@@ -2531,7 +2535,7 @@ mod test_append_data_cow_headers {
                             | field_value_flags::SAME_VALUE_AS_PREVIOUS,
                         size: 42,
                     },
-                    run_length: 2,
+                    run_length: 1,
                 },
             ],
             42,
