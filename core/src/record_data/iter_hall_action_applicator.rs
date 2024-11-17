@@ -353,11 +353,11 @@ impl IterHallActionApplicator {
             }
             let cds = *tgt_field.iter_hall.get_cow_data_source().unwrap();
 
-            // 1. We can assume the snapshot to be up to date because we
-            // just finished running field updates.
-            // 2. We can't just use the field directly here because
+            // - `_raw` is fine because we can assume the snapshot to be up to
+            //   date because we just applied field actions
+            // - we can't just use the field directly here because
             // it could be cow of cow.
-            // 3. We have to do this even in case of full cow because
+            // - We have to do this even in case of full cow because
             // full cow could turn into data cow in the future and at
             // that moment we need this iterator to be in the right place.
             // That's why full cow has the iterator in the first place.

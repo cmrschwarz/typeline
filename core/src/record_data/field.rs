@@ -616,6 +616,18 @@ impl FieldManager {
             _phantom: PhantomData,
         }
     }
+    pub fn field_has_pending_actions(
+        &self,
+        msm: &MatchSetManager,
+        field_id: FieldId,
+    ) -> bool {
+        let field_id = self.dealias_field_id(field_id);
+        let ms_id = self.fields[field_id].borrow().match_set;
+        msm.match_sets[ms_id]
+            .action_buffer
+            .borrow()
+            .field_has_pending_actions(self, field_id)
+    }
     pub fn get_cow_field_ref(
         &self,
         msm: &MatchSetManager,

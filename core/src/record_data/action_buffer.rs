@@ -564,6 +564,34 @@ impl ActionBuffer {
         self.drop_snapshot_refcount(field_snapshot);
     }
 
+    pub fn field_has_pending_actions(
+        &self,
+        fm: &FieldManager,
+        field_id: FieldId,
+    ) -> bool {
+        let field = fm.fields[field_id].borrow();
+        let field_snapshot = field.snapshot.get();
+
+        let Some(field_actor_id) =
+            self.get_actor_id_from_ref(field.first_actor.get())
+        else {
+            return false;
+        };
+
+        let latest_snapshot = self.get_latest_snapshot();
+
+        if latest_snapshot == field_snapshot {
+            return false;
+        }
+
+        for ag in self.action_groups.range(field_snapshot.into_inner()..) {
+            if ag.actor_id.into_usize() >= field_actor_id.into_usize() {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn get_actor_id_from_ref(
         &self,
         actor_ref: ActorRef,
