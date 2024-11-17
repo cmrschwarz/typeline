@@ -2,12 +2,13 @@ use std::ffi::{CStr, CString};
 
 use num::{BigInt, BigRational};
 use pyo3::{
-    conversion::{FromPyObject, ToPyObject},
+    conversion::FromPyObject,
     ffi::{PyObject, PyTypeObject},
+    pybacked::{PyBackedBytes, PyBackedStr},
     types::{
         PyAnyMethods, PyBytes, PyCode, PyDict, PyList, PyString, PyTypeMethods,
     },
-    Bound, Py, PyAny, Python,
+    Bound, IntoPyObject, Py, PyAny, Python,
 };
 use scr_core::{
     chain::ChainId,
@@ -230,15 +231,15 @@ impl Operator for OpPy {
     }
 }
 
-enum PythonValue<'a> {
-    InlineText(&'a str),
-    InlineBytes(&'a [u8]),
+enum PythonValue {
+    InlineText(PyBackedStr),
+    InlineBytes(PyBackedBytes),
     BigInt(BigInt),
     Rational(BigRational),
     Other(FieldValue),
 }
 
-impl PythonValue<'_> {
+impl PythonValue {
     pub fn into_field_value(self) -> FieldValue {
         match self {
             PythonValue::InlineText(v) => FieldValue::Text(v.to_string()),
@@ -269,12 +270,12 @@ fn try_extract_rational(
     Some(BigRational::new_raw(numerator, denominator))
 }
 
-fn get_python_value<'a>(
+fn get_python_value(
     py: Python,
     py_types: &PyTypes,
-    py_val: Bound<'a, PyAny>,
+    py_val: Bound<PyAny>,
     op_id: OperatorId,
-) -> PythonValue<'a> {
+) -> PythonValue {
     let type_ptr = py_val.get_type_ptr().cast::<PyObject>();
     if type_ptr == py_types.none_type.as_ptr() {
         return PythonValue::Other(FieldValue::Null);
@@ -293,12 +294,12 @@ fn get_python_value<'a>(
         }
     }
     if type_ptr == py_types.str_type.as_ptr() {
-        if let Ok(s) = <&str>::extract_bound(&py_val) {
+        if let Ok(s) = py_val.extract::<PyBackedStr>() {
             return PythonValue::InlineText(s);
         }
     }
     if type_ptr == py_types.bytes_type.as_ptr() {
-        if let Ok(b) = <&[u8]>::extract_bound(&py_val) {
+        if let Ok(b) = py_val.extract::<PyBackedBytes>() {
             return PythonValue::InlineBytes(b);
         }
     }
@@ -398,7 +399,9 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         .unwrap_or(FieldValueRef::Undefined);
 
                     let obj = match val {
-                        FieldValueRef::Null => ().to_object(py),
+                        FieldValueRef::Null => {
+                            ().into_pyobject(py).unwrap().into_any()
+                        }
                         // TODO: maybe error / configurable
                         FieldValueRef::Undefined => {
                             unsafe {
@@ -409,13 +412,21 @@ impl<'a> Transform<'a> for TfPy<'a> {
                             }
                             continue;
                         }
-                        FieldValueRef::Int(i) => i.to_object(py),
-                        FieldValueRef::BigInt(i) => i.to_object(py),
-                        FieldValueRef::Float(f) => f.to_object(py),
+                        FieldValueRef::Int(i) => {
+                            i.into_pyobject(py).unwrap().into_any()
+                        }
+                        FieldValueRef::BigInt(i) => {
+                            i.into_pyobject(py).unwrap().into_any()
+                        }
+                        FieldValueRef::Float(f) => {
+                            f.into_pyobject(py).unwrap().into_any()
+                        }
                         FieldValueRef::BigRational(_) => todo!(), /* use fractions.Fraction? */
-                        FieldValueRef::Text(s) => s.to_object(py),
+                        FieldValueRef::Text(s) => {
+                            s.into_pyobject(py).unwrap().into_any()
+                        }
                         FieldValueRef::Bytes(b) => {
-                            PyBytes::new_bound(py, b).into_any().unbind()
+                            PyBytes::new(py, b).into_any()
                         }
                         FieldValueRef::Array(_) => todo!(),
                         FieldValueRef::Argument(_) => todo!(),
@@ -488,10 +499,10 @@ impl<'a> Transform<'a> for TfPy<'a> {
                     get_python_value(py, &self.op.py_types, res, op_id);
                 match value {
                     PythonValue::InlineText(v) => {
-                        inserter.push_str(v, 1, true, false)
+                        inserter.push_str(&v, 1, true, false)
                     }
                     PythonValue::InlineBytes(v) => {
-                        inserter.push_bytes(v, 1, true, false)
+                        inserter.push_bytes(&v, 1, true, false)
                     }
                     PythonValue::BigInt(v) => {
                         inserter.push_big_int(v, 1, true, false)
@@ -584,7 +595,7 @@ pub fn build_op_py(
             )
         }
         let fractions_class = py
-            .import_bound("fractions")
+            .import("fractions")
             .ok()
             .and_then(|v| v.getattr("Fraction").ok())
             .map(|v| v.downcast_into_unchecked().unbind());
@@ -661,11 +672,11 @@ pub fn build_op_py(
                 .push(CStr::from_ptr(var_name).to_str().unwrap().to_owned());
         }
 
-        let locals = PyDict::new_bound(py);
+        let locals = PyDict::new(py);
         locals
             .set_item("code", command.as_c_str().to_str().unwrap())
             .unwrap();
-        let code = r#"
+        let code = cr#"
 import ast
 body = ast.parse(code, mode="exec").body
 if len(body) > 1:
@@ -675,7 +686,7 @@ else:
     statements = None
     expression = compile(code, "<cmd>", "eval")
 "#;
-        if let Err(e) = py.run_bound(code, None, Some(&locals)) {
+        if let Err(e) = py.run(code, None, Some(&locals)) {
             return Err(OperatorCreationError::new_s(
                 format!("Python Command Compilation: {e}"),
                 span,

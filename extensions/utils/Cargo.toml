@@ -26,4 +26,4 @@ mio = { version = "1.0.2", features = ["os-ext", "os-poll"] }
 
 [dev-dependencies]
 scr = { path = "../../", features = ["utils"] }
-rstest = "0.21.0"
+rstest = "0.23.0"

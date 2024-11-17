@@ -15,9 +15,9 @@ test = false
 doctest = false
 
 [dependencies]
+pyo3 = { version = "0.23.1", features = ["num-bigint"] }
 scr_core = { path = "../../core" }
 num = "0.4.3"
-pyo3 = { version = "0.22.6", features = ["num-bigint", "gil-refs"] }
 
 [dev-dependencies]
 scr_ext_utils = { path = "../utils" }
