@@ -118,6 +118,9 @@ pub struct SubchainEntry {
 pub struct TfForkCatHeader {
     pub continuation_state: Arc<Mutex<FcContinuationState>>,
     pub actor_id: ActorId,
+    // we split this transform into two phases.
+    // This is just to get separate debug log entries
+    // and has no semantic benefits/consequences.
     pub relaunch_after_cow_advance: bool,
 }
 
@@ -166,6 +169,9 @@ pub struct TfForkCatSubchainTrailer<'a> {
     // we can't use Arc<RefCell> because transforms need to be Send
     pub continuation_state: Arc<Mutex<FcContinuationState>>,
     // field ref offset of subchain field in continuation field (with id)
+
+    // Same as TfForkCatHeader, just to get separate debug log entries.
+    pub relaunch_for_cow_advance: bool,
 }
 
 fn sc_index_offset(
@@ -627,6 +633,7 @@ fn setup_subchain<'a>(
 
         subchain_idx: fc_sc_idx,
         continuation_state,
+        relaunch_for_cow_advance: false,
     };
 
     let trailer_tf_id = add_transform_to_job(
@@ -998,61 +1005,6 @@ fn pad_continuation_dummy_field(
     drop(cont_field);
 }
 
-// TODO: pass groups from subchains
-// TODO: make sure last group gets field ref'ed correctly, see
-// `forkcat_build_sql_insert`, third invocation of this method
-pub fn propagate_forkcat(
-    jd: &mut JobData,
-    cont_state: &mut FcContinuationState,
-    batch_size: usize,
-) -> bool {
-    let sc_idx_before = cont_state.current_sc;
-
-    let ScVisitResult {
-        field_pos_cont_start,
-        field_pos_cont_end,
-        scs_visited,
-    } = visit_subchains(jd, cont_state, batch_size);
-
-    let fields_produced = field_pos_cont_end - field_pos_cont_start;
-
-    pad_non_visited_subchains(
-        jd,
-        cont_state,
-        sc_idx_before,
-        scs_visited,
-        field_pos_cont_start,
-        field_pos_cont_end,
-    );
-
-    pad_continuation_dummy_field(jd, cont_state, fields_produced);
-
-    advance_subchain_field_iters(
-        jd,
-        cont_state,
-        sc_idx_before,
-        scs_visited,
-        fields_produced,
-    );
-
-    let done = cont_state.subchains.iter().all(|sc| sc.input_done);
-
-    let cont_tf_id = cont_state.continuation_tf_id.unwrap();
-    jd.match_set_mgr.advance_cross_ms_cow_targets(
-        &jd.field_mgr,
-        None,
-        jd.tf_mgr.transforms[cont_tf_id].match_set_id,
-        fields_produced,
-    );
-    jd.tf_mgr.inform_transform_batch_available(
-        cont_tf_id,
-        fields_produced,
-        done,
-    );
-
-    done
-}
-
 impl Transform<'_> for TfForkCatHeader {
     fn display_name(
         &self,
@@ -1060,7 +1012,7 @@ impl Transform<'_> for TfForkCatHeader {
         _tf_id: TransformId,
     ) -> super::transform::DefaultTransformName {
         if self.relaunch_after_cow_advance {
-            "forkcat_header(cow_advance)"
+            "forkcat_header(cow advance only)"
         } else {
             "forkcat_header"
         }
@@ -1075,20 +1027,28 @@ impl Transform<'_> for TfForkCatHeader {
         cont_state.continuation_tf_id = tf.successor;
         let ms_id = tf.match_set_id;
 
-        for sc in cont_state.subchains.iter().rev() {
-            // PERF: maybe provide a bulk version of this?
-            jd.match_set_mgr.advance_cross_ms_cow_targets(
-                &jd.field_mgr,
-                None,
-                jd.tf_mgr.transforms[sc.start_tf_id].match_set_id,
-                batch_size,
-            );
-            jd.tf_mgr.inform_transform_batch_available(
-                sc.start_tf_id,
-                batch_size,
-                ps.input_done,
-            );
+        if !self.relaunch_after_cow_advance {
+            // rev so the first subchain ends up at the top of the stack
+            for sc in cont_state.subchains.iter().rev() {
+                // PERF: maybe provide a bulk version of this?
+                jd.match_set_mgr.advance_cross_ms_cow_targets(
+                    &jd.field_mgr,
+                    None,
+                    jd.tf_mgr.transforms[sc.start_tf_id].match_set_id,
+                    batch_size,
+                );
+                jd.tf_mgr.inform_transform_batch_available(
+                    sc.start_tf_id,
+                    batch_size,
+                    ps.input_done,
+                );
+            }
+            self.relaunch_after_cow_advance = true;
+            jd.tf_mgr.unclaim_batch_size(tf_id, batch_size);
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+            return;
         }
+        self.relaunch_after_cow_advance = false;
         jd.group_track_manager.propagate_leading_groups_to_aliases(
             &jd.match_set_mgr,
             jd.tf_mgr.transforms[tf_id].input_group_track_id,
@@ -1124,22 +1084,83 @@ impl<'a> Transform<'a> for TfForkCatSubchainTrailer<'a> {
         _jd: &JobData,
         _tf_id: TransformId,
     ) -> super::transform::DefaultTransformName {
-        "forkcat_subchain_trailer".into()
+        if self.relaunch_for_cow_advance {
+            "forkcat_subchain_trailer(pre cow advance)"
+        } else {
+            "forkcat_subchain_trailer"
+        }
+        .into()
     }
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+        let cont_state = &mut *(*self.continuation_state).lock().unwrap();
 
-        let mut cont_state = (*self.continuation_state).lock().unwrap();
+        if self.relaunch_for_cow_advance {
+            self.relaunch_for_cow_advance = false;
+            let cont_tf_id = cont_state.continuation_tf_id.unwrap();
+
+            // slight hack
+            let fields_produced = batch_size;
+
+            let done = cont_state.subchains.iter().all(|sc| sc.input_done);
+
+            if done {
+                // we do not use the successor mechanism for this
+                // so we have to do this manually
+                jd.tf_mgr.transforms[tf_id].done = true;
+            }
+
+            jd.match_set_mgr.advance_cross_ms_cow_targets(
+                &jd.field_mgr,
+                None,
+                jd.tf_mgr.transforms[cont_tf_id].match_set_id,
+                fields_produced,
+            );
+            jd.tf_mgr.inform_transform_batch_available(
+                cont_tf_id,
+                fields_produced,
+                done,
+            );
+
+            return;
+        }
 
         let sc_entry = &mut cont_state.subchains[self.subchain_idx];
         sc_entry.input_done = ps.input_done;
         sc_entry.batch_size_available += batch_size;
 
-        let done = propagate_forkcat(jd, &mut cont_state, usize::MAX);
+        let sc_idx_before = cont_state.current_sc;
 
-        if done {
-            jd.tf_mgr.transforms[tf_id].done = true;
-        }
+        let ScVisitResult {
+            field_pos_cont_start,
+            field_pos_cont_end,
+            scs_visited,
+        } = visit_subchains(jd, cont_state, usize::MAX);
+
+        let fields_produced = field_pos_cont_end - field_pos_cont_start;
+
+        pad_non_visited_subchains(
+            jd,
+            cont_state,
+            sc_idx_before,
+            scs_visited,
+            field_pos_cont_start,
+            field_pos_cont_end,
+        );
+
+        pad_continuation_dummy_field(jd, cont_state, fields_produced);
+
+        advance_subchain_field_iters(
+            jd,
+            cont_state,
+            sc_idx_before,
+            scs_visited,
+            fields_produced,
+        );
+
+        self.relaunch_for_cow_advance = true;
+        jd.tf_mgr.unclaim_batch_size(tf_id, fields_produced);
+        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
     }
 }
 
