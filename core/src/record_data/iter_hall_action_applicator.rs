@@ -1106,20 +1106,26 @@ fn append_header_try_merge(
 
         let same_deleted_status = prev.deleted() == h.deleted();
 
-        let new_value_appending_to_same_as_prev =
-            prev.same_value_as_previous() && !h.same_value_as_previous();
-        let different_shared_value =
-            prev.shared_value_and_rl_not_one() && !h.repr.is_zst();
-        let shared_value_conflict =
-            new_value_appending_to_same_as_prev || different_shared_value;
-
         let run_len_available =
             (RunLength::MAX - prev.run_length) >= h.run_length;
+
+        let not_appending_new_value_to_same_as_prev =
+            !prev.same_value_as_previous() || h.same_value_as_previous();
+
+        let not_appending_new_value_to_shared_value = h
+            .same_value_as_previous()
+            || (!prev.shared_value_and_rl_not_one() || h.repr.is_zst());
+
+        let not_appending_shared_value_to_prev = h.same_value_as_previous()
+            || h.repr.is_zst()
+            || !h.shared_value_and_rl_not_one();
 
         appendable = type_compatible
             && same_deleted_status
             && run_len_available
-            && (deficit || !shared_value_conflict)
+            && not_appending_new_value_to_same_as_prev
+            && not_appending_new_value_to_shared_value
+            && not_appending_shared_value_to_prev
             && h.leading_padding() == 0;
 
         if appendable {
@@ -2552,6 +2558,69 @@ mod test_append_data_cow_headers {
                 header_idx: 2,
                 header_rl_offset: 1,
                 data_pos: 42,
+            },
+        );
+    }
+
+    #[test]
+    fn append_shared_value_after_single_value() {
+        test_append_data_cow_headers(
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 8,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 8,
+                    },
+                    run_length: 2,
+                },
+            ],
+            &[FieldValueHeader {
+                fmt: FieldValueFormat {
+                    repr: FieldValueRepr::Int,
+                    flags: field_value_flags::SHARED_VALUE,
+                    size: 8,
+                },
+                run_length: 1,
+            }],
+            &[
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 8,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::Int,
+                        flags: field_value_flags::SHARED_VALUE,
+                        size: 8,
+                    },
+                    run_length: 2,
+                },
+            ],
+            8,
+            FieldLocation {
+                field_pos: 1,
+                header_idx: 0,
+                header_rl_offset: 1,
+                data_pos: 8,
+            },
+            FieldLocation {
+                field_pos: 4,
+                header_idx: 1,
+                header_rl_offset: 2,
+                data_pos: 32,
             },
         );
     }
