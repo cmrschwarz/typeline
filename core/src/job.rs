@@ -195,26 +195,6 @@ impl TransformManager {
         }
         self.push_tf_in_ready_stack(tf_id);
     }
-    pub fn inform_cross_ms_transform_batch_available(
-        &mut self,
-        fm: &FieldManager,
-        msm: &MatchSetManager,
-        tf_id: TransformId,
-        batch_size: usize,
-        cow_advancement: usize,
-        predecessor_done: bool,
-    ) {
-        msm.update_cross_ms_cow_targets(
-            fm,
-            self.transforms[tf_id].match_set_id,
-            cow_advancement,
-        );
-        self.inform_transform_batch_available(
-            tf_id,
-            batch_size,
-            predecessor_done,
-        );
-    }
     pub fn submit_batch(
         &mut self,
         tf_id: TransformId,

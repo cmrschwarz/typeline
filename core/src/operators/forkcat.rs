@@ -675,11 +675,13 @@ pub fn handle_tf_forkcat(
     // rev so the first subchain ends up at the top of the stack
     for sc in cont_state.subchains.iter().rev() {
         // PERF: maybe provide a bulk version of this?
-        jd.tf_mgr.inform_cross_ms_transform_batch_available(
+        jd.match_set_mgr.advance_cross_ms_cow_targets(
             &jd.field_mgr,
-            &jd.match_set_mgr,
-            sc.start_tf_id,
+            jd.tf_mgr.transforms[sc.start_tf_id].match_set_id,
             batch_size,
+        );
+        jd.tf_mgr.inform_transform_batch_available(
+            sc.start_tf_id,
             batch_size,
             ps.input_done,
         );
@@ -1081,11 +1083,14 @@ pub fn propagate_forkcat(
 
     let done = cont_state.subchains.iter().all(|sc| sc.input_done);
 
-    jd.tf_mgr.inform_cross_ms_transform_batch_available(
+    let cont_tf_id = cont_state.continuation_tf_id.unwrap();
+    jd.match_set_mgr.advance_cross_ms_cow_targets(
         &jd.field_mgr,
-        &jd.match_set_mgr,
-        cont_state.continuation_tf_id.unwrap(),
+        jd.tf_mgr.transforms[cont_tf_id].match_set_id,
         fields_produced,
+    );
+    jd.tf_mgr.inform_transform_batch_available(
+        cont_tf_id,
         fields_produced,
         done,
     );

@@ -165,11 +165,13 @@ pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
     // we reverse to make sure that the first subchain ends up
     // on top of the stack and gets executed first
     for tgt in sp.targets.iter().rev() {
-        jd.tf_mgr.inform_cross_ms_transform_batch_available(
+        jd.match_set_mgr.advance_cross_ms_cow_targets(
             &jd.field_mgr,
-            &jd.match_set_mgr,
-            tgt.tf_id,
+            jd.tf_mgr.transforms[tgt.tf_id].match_set_id,
             batch_size,
+        );
+        jd.tf_mgr.inform_transform_batch_available(
+            tgt.tf_id,
             batch_size,
             ps.input_done,
         );

@@ -126,7 +126,7 @@ impl MatchSetManager {
     // the heart of every ms transition. all the cow targets of
     // the ms need to aquire the updated state from their respective
     // sources and the group track has to copy over the new groups
-    pub fn update_cross_ms_cow_targets(
+    pub fn advance_cross_ms_cow_targets(
         &self,
         fm: &FieldManager,
         ms_id: MatchSetId,

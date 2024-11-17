@@ -362,7 +362,7 @@ impl IterHallActionApplicator {
             let field_ref = fm.get_cow_field_ref_raw(field_id);
             let mut iter =
                 fm.lookup_iter(field_id, &field_ref, cds.header_iter_id);
-            // if we use after_last here we put in stuff twice.
+            // if we use after_last here we put in unneccessary padding.
             // TODO: flipping this reveals some bugs in the adjustment
             // code. get rid of thise and then flip back
             let cow_end_before = iter.get_field_location_before_next();
