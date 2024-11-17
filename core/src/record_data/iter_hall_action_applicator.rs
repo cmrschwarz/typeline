@@ -1146,6 +1146,7 @@ fn append_data_cow_headers(
     }
     tgt.field_count += append_end.field_pos - append_begin.field_pos;
     let mut header_idx = append_begin.header_idx;
+
     let mut h = headers[header_idx];
     if append_end.header_idx == header_idx {
         h.run_length = append_end.header_rl_offset;
@@ -1202,7 +1203,19 @@ fn append_data_cow_headers(
         let mut data_deficit = last_observed_data_size - append_begin.data_pos;
 
         while data_deficit > 0 {
-            data_deficit -= h.total_size_unique();
+            let mut hs = h.total_size_unique();
+            if hs > data_deficit {
+                hs -= h.leading_padding();
+                #[cfg(debug_assertions)]
+                if hs > data_deficit {
+                    debug_assert!(!h.shared_value());
+                    debug_assert_eq!(data_deficit % (h.size as usize), 0);
+                }
+                data_deficit = 0;
+            } else {
+                data_deficit -= hs;
+            }
+
             h.set_same_value_as_previous(true);
             h.set_leading_padding(0);
             append_header_try_merge(tgt, h, true);
@@ -2456,7 +2469,6 @@ mod test_append_data_cow_headers {
 
     #[test]
     fn disrespected_dup() {
-        // based on aoc test case_2 step 27
         test_append_data_cow_headers(
             &[
                 FieldValueHeader {
