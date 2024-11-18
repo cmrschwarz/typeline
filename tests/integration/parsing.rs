@@ -1,7 +1,5 @@
-use rstest::rstest;
 use scr::{
     cli::{call_expr::Span, CliArgumentError},
-    extension::ExtensionRegistry,
     options::{
         context_builder::ContextBuilder, session_setup::ScrSetupOptions,
     },
@@ -9,7 +7,6 @@ use scr::{
     utils::test_utils::int_sequence_strings,
     CliOptionsWithDefaultExtensions,
 };
-use scr_ext_python::PythonExtension;
 
 #[test]
 fn seq_sum() -> Result<(), ContextualizedScrError> {
@@ -121,30 +118,45 @@ fn parse_setting_assignment() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[rstest]
-#[case(1, 3, "1/3")]
-#[case(1, 2, "0.5")]
-#[case(1, 7, "1/7")]
-#[case(1234, 1000, "1.234")]
-fn print_dynamic_fraction(
-    #[case] num: i32,
-    #[case] denom: i32,
-    #[case] output: &str,
-) -> Result<(), ScrError> {
+#[cfg(not(miri))]
+mod py {
+    use rstest::rstest;
+    use scr::{
+        extension::ExtensionRegistry,
+        options::{
+            context_builder::ContextBuilder, session_setup::ScrSetupOptions,
+        },
+        scr_error::ScrError,
+    };
+    use scr_ext_python::PythonExtension;
     use std::sync::Arc;
-    let mut exts = ExtensionRegistry::default();
-    exts.extensions.push(Box::new(PythonExtension::default()));
-    exts.setup();
-    let exts = Arc::new(exts);
-    let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_extensions(exts),
-        [
-            "%rpm=dynamic",
-            &format!("py=import fractions; fractions.Fraction({num},{denom})"),
-        ],
-    )?
-    .run_collect_stringified()?;
-    assert_eq!(res, [output]);
 
-    Ok(())
+    #[rstest]
+    #[case(1, 3, "1/3")]
+    #[case(1, 2, "0.5")]
+    #[case(1, 7, "1/7")]
+    #[case(1234, 1000, "1.234")]
+    fn print_dynamic_fraction(
+        #[case] num: i32,
+        #[case] denom: i32,
+        #[case] output: &str,
+    ) -> Result<(), ScrError> {
+        let mut exts = ExtensionRegistry::default();
+        exts.extensions.push(Box::new(PythonExtension::default()));
+        exts.setup();
+        let exts = Arc::new(exts);
+        let res = ContextBuilder::from_cli_arg_strings(
+            ScrSetupOptions::with_extensions(exts),
+            [
+                "%rpm=dynamic",
+                &format!(
+                    "py=import fractions; fractions.Fraction({num},{denom})"
+                ),
+            ],
+        )?
+        .run_collect_stringified()?;
+        assert_eq!(res, [output]);
+
+        Ok(())
+    }
 }

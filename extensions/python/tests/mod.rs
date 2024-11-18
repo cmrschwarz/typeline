@@ -1,3 +1,5 @@
+#![cfg(not(miri))] // miri does not support FFI, which we need for pyo3
+
 use num::BigRational;
 use scr_core::{
     cli::call_expr::Span,

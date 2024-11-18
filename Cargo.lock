@@ -180,6 +180,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitvec"
+version = "1.1.0"
+source = "git+https://github.com/djkoloski/bitvec.git?branch=fix_miri#426bdde5042004df84b1aa23a27c76d03832fe39"
+dependencies = [
+ "funty",
+ "radium",
+ "tap",
+ "wyz",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1959,7 +1970,8 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "bitbybit",
- "bitvec",
+ "bitvec 1.0.1",
+ "bitvec 1.1.0",
  "bstr",
  "derive_more",
  "encoding_rs",

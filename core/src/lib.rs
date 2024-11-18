@@ -26,6 +26,12 @@
 extern crate metamatch;
 extern crate static_assertions;
 
+#[cfg(miri)]
+extern crate bitvec_miri as bitvec;
+
+#[cfg(not(miri))]
+extern crate bitvec_non_miri as bitvec;
+
 #[cfg(feature = "debug_log")]
 pub mod debug_log;
 

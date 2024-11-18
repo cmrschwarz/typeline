@@ -4,6 +4,7 @@ use core::{
 };
 use std::{
     alloc::Layout,
+    cell::UnsafeCell,
     fmt::{Debug, Display, Formatter},
     hash::Hasher,
     mem::{align_of, align_of_val, size_of, size_of_val, ManuallyDrop},
@@ -47,7 +48,7 @@ macro_rules! smallbox {
 #[repr(C)]
 pub struct SmallBox<T: ?Sized, const SPACE: usize> {
     ptr: *mut T,
-    data: [MaybeUninit<u8>; SPACE],
+    data: UnsafeCell<[MaybeUninit<u8>; SPACE]>,
     _phantom: PhantomData<T>,
 }
 
@@ -72,7 +73,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         {
             return SmallBox {
                 ptr: this.ptr,
-                data: [MaybeUninit::uninit(); NEW_SPACE],
+                data: UnsafeCell::new([MaybeUninit::uninit(); NEW_SPACE]),
                 _phantom: PhantomData,
             };
         }
@@ -117,14 +118,17 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
 
         let mut res = SmallBox {
             ptr: target_type_ptr.cast_mut(),
-            data: [MaybeUninit::uninit(); SPACE],
+            data: UnsafeCell::new([MaybeUninit::uninit(); SPACE]),
             _phantom: PhantomData,
         };
 
         let (ptr_address_value, data_ptr) =
             if size <= SPACE && align <= Self::data_align() {
                 // this covers ZSTs aswell
-                (ptr::null_mut(), res.data.as_mut_ptr().cast::<u8>())
+                (
+                    ptr::null_mut(),
+                    res.data.get_mut().as_mut_ptr().cast::<u8>(),
+                )
             } else {
                 let layout = Layout::for_value::<U>(unsafe { &*val });
                 let heap_ptr = unsafe { std::alloc::alloc(layout) };
@@ -146,7 +150,7 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         // Overwrite the pointer but retain metadata in case of a fat pointer.
         let mut ptr = self.ptr;
         unsafe {
-            *std::ptr::addr_of_mut!(ptr).cast() = self.data.as_ptr();
+            *std::ptr::addr_of_mut!(ptr).cast() = self.data.get();
         }
         ptr
     }
@@ -160,7 +164,8 @@ impl<T: ?Sized, const SPACE: usize> SmallBox<T, SPACE> {
         }
         let mut ptr = self.ptr;
         unsafe {
-            *std::ptr::addr_of_mut!(ptr).cast() = self.data.as_mut_ptr();
+            *std::ptr::addr_of_mut!(ptr).cast() =
+                self.data.get_mut().as_mut_ptr();
         }
         ptr
     }
