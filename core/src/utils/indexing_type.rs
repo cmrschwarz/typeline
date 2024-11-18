@@ -18,8 +18,8 @@ pub trait IndexingType:
     + PartialOrd
     + Ord
     + Hash
-    + Add
-    + Sub
+    + Add<Output = Self>
+    + Sub<Output = Self>
     + AddAssign
     + SubAssign
 {

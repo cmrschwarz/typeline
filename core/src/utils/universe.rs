@@ -1,6 +1,7 @@
 use std::{
     marker::PhantomData,
     ops::{Index, IndexMut},
+    ptr::NonNull,
 };
 
 use arrayvec::ArrayVec;
@@ -30,7 +31,9 @@ pub struct Universe<I, T> {
 }
 
 pub struct UniverseMultiRefMutHandout<'a, I, T, const CAP: usize> {
-    universe: &'a mut Universe<I, T>,
+    universe_data: NonNull<UniverseEntry<T>>,
+    first_vacant_entry: &'a mut Option<DebuggableNonMaxUsize>,
+    len: usize,
     handed_out: ArrayVec<I, CAP>,
 }
 
@@ -134,8 +137,15 @@ impl<I: IndexingType, T> Universe<I, T> {
     pub fn multi_ref_mut_handout<const CAP: usize>(
         &mut self,
     ) -> UniverseMultiRefMutHandout<I, T, CAP> {
+        // SAFETY: `UniverseMultiRefMutHandout` supports claiming additional
+        // elements using claim_new. We have to ensure that this is possible
+        // without reallocation as that would invalidate the previously handed
+        // out refs.
+        self.reserve(CAP.into_usize());
         UniverseMultiRefMutHandout {
-            universe: self,
+            len: self.data.len(),
+            universe_data: NonNull::new(self.data.as_mut_ptr()).unwrap(),
+            first_vacant_entry: &mut self.first_vacant_entry,
             handed_out: ArrayVec::new(),
         }
     }
@@ -158,7 +168,7 @@ impl<I: IndexingType, T> Universe<I, T> {
         }
         self.data[index] = self.build_vacant_entry(index);
     }
-    pub fn used_capacity(&mut self) -> usize {
+    pub fn used_capacity(&self) -> usize {
         self.data.len()
     }
     pub fn clear(&mut self) {
@@ -196,15 +206,54 @@ impl<I: IndexingType, T> Universe<I, T> {
     pub fn any_used(&mut self) -> Option<&mut T> {
         self.iter_mut().next()
     }
-    pub fn reserve_id_with(&mut self, id: I, func: impl FnOnce() -> T) {
-        let index = id.into_usize();
+    pub fn reserve(&mut self, additional: usize) {
         let mut len = self.data.len();
-        while len < index {
+        for _ in 0..additional {
             let ve = self.build_vacant_entry(len);
             self.data.push(ve);
             len += 1;
         }
-        self.data.push(UniverseEntry::Occupied(func()))
+    }
+    /// If id is smaller than `used_capacity()`,
+    /// this function is on average O(n) over the amount of vacant
+    /// slots in the universe. Avoid where possible.
+    pub fn reserve_id_with(&mut self, id: I, f: impl FnOnce() -> T) -> &mut T {
+        let idx = id.into_usize();
+        let used_cap = self.used_capacity();
+        if idx >= used_cap {
+            self.reserve((idx - used_cap).saturating_sub(1));
+            self.data.push(UniverseEntry::Occupied(f()));
+        } else {
+            let mut vacant_index =
+                self.first_vacant_entry.unwrap().into_usize();
+            let UniverseEntry::Vacant(mut next) = self.data[vacant_index]
+            else {
+                unreachable!()
+            };
+            if vacant_index == idx {
+                self.first_vacant_entry = next;
+            } else {
+                loop {
+                    let next_idx = next.unwrap().into_usize();
+                    let UniverseEntry::Vacant(next_next) = self.data[next_idx]
+                    else {
+                        unreachable!()
+                    };
+                    if next_idx == idx {
+                        self.data[vacant_index] =
+                            UniverseEntry::Vacant(next_next);
+                        break;
+                    }
+                    vacant_index = next_idx;
+                    next = next_next;
+                }
+            }
+            self.data[idx] = UniverseEntry::Occupied(f());
+        }
+        let UniverseEntry::Occupied(v) = &mut self.data[idx] else {
+            unreachable!()
+        };
+        v
     }
     // returns the id that will be used by the next claim
     // useful for cases where claim_with needs to know the id beforehand
@@ -317,18 +366,42 @@ impl<'a, I: IndexingType, T, const CAP: usize>
     UniverseMultiRefMutHandout<'a, I, T, CAP>
 {
     pub fn claim(&mut self, i: I) -> &'a mut T {
+        let idx = i.into_usize();
+        assert!(self.len > idx);
+
         assert!(!self.handed_out.contains(&i));
         self.handed_out.push(i);
+
         // SAFETY: this type dynamically ensures that each index is handed out
         // exactly once through the assert above
-        unsafe {
-            std::mem::transmute::<&'_ mut T, &'a mut T>(&mut self.universe[i])
-        }
+        let v = unsafe { &mut *self.universe_data.as_ptr().add(idx) };
+
+        let UniverseEntry::Occupied(v) = v else {
+            panic!("attempted to claim vacant universe entry");
+        };
+        v
     }
 
     pub fn claim_new(&mut self, value: T) -> (I, &'a mut T) {
-        let id = self.universe.claim_with_value(value);
-        (id, self.claim(id))
+        let Some(id_raw) = self.first_vacant_entry else {
+            unreachable!()
+        };
+        let idx = id_raw.into_usize();
+        let id = I::from_usize(idx);
+        self.handed_out.push(id);
+        let entry = unsafe { &mut *self.universe_data.as_ptr().add(idx) };
+
+        let UniverseEntry::Vacant(next) = *entry else {
+            unreachable!()
+        };
+        *self.first_vacant_entry = next;
+
+        *entry = UniverseEntry::Occupied(value);
+
+        let UniverseEntry::Occupied(v) = entry else {
+            unreachable!()
+        };
+        (id, v)
     }
 }
 
@@ -336,9 +409,6 @@ impl<'a, I: IndexingType, T, const CAP: usize>
 impl<I: IndexingType, T: Default> Universe<I, T> {
     pub fn claim(&mut self) -> I {
         self.claim_with(Default::default)
-    }
-    pub fn reserve_id(&mut self, id: I) {
-        self.reserve_id_with(id, Default::default);
     }
 }
 
@@ -533,7 +603,11 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
     pub fn any_used(&mut self) -> Option<&mut T> {
         self.universe.any_used()
     }
-    pub fn reserve_id_with(&mut self, id: I, func: impl FnOnce() -> T) {
+    pub fn reserve_id_with(
+        &mut self,
+        id: I,
+        func: impl FnOnce() -> T,
+    ) -> &mut T {
         self.universe.reserve_id_with(id, func)
     }
     pub fn peek_claim_id(&self) -> I {
