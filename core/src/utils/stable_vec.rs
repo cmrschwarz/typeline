@@ -53,8 +53,9 @@ impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
     fn chunk_layout() -> Layout {
         Layout::new::<Chunk<T, CHUNK_SIZE>>()
     }
-    fn layout(chunk_capacity: usize) -> Layout {
-        Layout::array::<Chunk<T, CHUNK_SIZE>>(chunk_capacity).unwrap()
+    fn chunk_pointer_array_layout(chunk_capacity: usize) -> Layout {
+        Layout::array::<MaybeUninit<*mut Chunk<T, CHUNK_SIZE>>>(chunk_capacity)
+            .unwrap()
     }
     pub fn with_capacity(cap: usize) -> Self {
         let v = Self::default();
@@ -109,11 +110,15 @@ impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
         unsafe {
             #[allow(clippy::cast_ptr_alignment)]
             let data = if self.chunk_capacity.get() == 0 {
-                std::alloc::alloc(Self::layout(self.chunk_capacity.get()))
+                std::alloc::alloc(Self::chunk_pointer_array_layout(
+                    chunk_count_new,
+                ))
             } else {
                 std::alloc::realloc(
                     self.data.get().as_ptr().cast(),
-                    Self::layout(self.chunk_capacity.get()),
+                    Self::chunk_pointer_array_layout(
+                        self.chunk_capacity.get(),
+                    ),
                     chunk_count_new,
                 )
             }
@@ -189,7 +194,7 @@ impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
         StableVecIterMut::new(self)
     }
 
-    fn extend(&self, iter: impl IntoIterator<Item = T>) {
+    pub fn extend(&self, iter: impl IntoIterator<Item = T>) {
         // PERF: optimize this
         for elem in iter {
             self.push(elem)
@@ -204,10 +209,18 @@ impl<T, const CHUNK_SIZE: usize> Drop for StableVec<T, CHUNK_SIZE> {
             return;
         }
         self.clear();
+        for i in 0..self.chunk_capacity.get() {
+            unsafe {
+                std::alloc::dealloc(
+                    (*self.data.get().as_ptr().add(i)).cast(),
+                    Self::chunk_layout(),
+                );
+            }
+        }
         unsafe {
             std::alloc::dealloc(
                 self.data.get().as_ptr().cast(),
-                Self::layout(self.chunk_capacity.get()),
+                Self::chunk_pointer_array_layout(self.chunk_capacity.get()),
             );
         }
     }
@@ -320,13 +333,16 @@ impl<'a, T, const CHUNK_SIZE: usize> IntoIterator
 }
 
 pub struct StableVecIntoIter<T, const CHUNK_SIZE: usize> {
-    vec: StableVec<T, CHUNK_SIZE>,
+    vec: ManuallyDrop<StableVec<T, CHUNK_SIZE>>,
     pos: usize,
 }
 
 impl<T, const CHUNK_SIZE: usize> StableVecIntoIter<T, CHUNK_SIZE> {
     pub fn new(vec: StableVec<T, CHUNK_SIZE>) -> Self {
-        Self { vec, pos: 0 }
+        Self {
+            vec: ManuallyDrop::new(vec),
+            pos: 0,
+        }
     }
     unsafe fn drop_remaining_elements(&self) {
         if !std::mem::needs_drop::<T>() {
@@ -363,12 +379,11 @@ impl<T, const CHUNK_SIZE: usize> StableVecIntoIter<T, CHUNK_SIZE> {
             }
         }
     }
-    pub fn into_empty_vec(self) -> StableVec<T, CHUNK_SIZE> {
-        unsafe { self.drop_remaining_elements() };
-        let vec = unsafe { std::ptr::read(std::ptr::addr_of!(self.vec)) };
-        vec.len.set(0);
-        let _ = ManuallyDrop::new(self);
-        vec
+    pub fn into_empty_vec(mut self) -> StableVec<T, CHUNK_SIZE> {
+        unsafe {
+            self.drop_remaining_elements();
+            ManuallyDrop::take(&mut self.vec)
+        }
     }
 }
 
@@ -400,15 +415,10 @@ impl<T, const CHUNK_SIZE: usize> Iterator
 
 impl<T, const CHUNK_SIZE: usize> Drop for StableVecIntoIter<T, CHUNK_SIZE> {
     fn drop(&mut self) {
-        if StableVec::<T>::holds_zsts() {
-            return;
-        }
-
         unsafe {
-            std::alloc::dealloc(
-                self.vec.data.get().as_ptr().cast(),
-                StableVec::<T>::layout(self.vec.chunk_capacity.get()),
-            );
+            self.drop_remaining_elements();
+            self.vec.len.set(0);
+            let _ = ManuallyDrop::take(&mut self.vec);
         }
     }
 }
