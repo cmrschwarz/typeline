@@ -42,17 +42,19 @@ pub unsafe trait RefHandoutStack<I, T> {
     where
         Self: 'b;
     fn claim(&mut self, idx: I) -> (Self::Child<'_>, &mut T);
-    fn assert_unused(&mut self, idx: I) -> &mut Universe<I, T>;
+    fn assert_unused(&mut self, idx: I) -> NonNull<UniverseEntry<T>>;
 }
 
 pub struct RefHandoutStackNode<'a, I, T, P> {
     base: &'a mut P,
-    idx: I,
+    id: I,
     _phantom: PhantomData<fn() -> T>,
 }
 
 pub struct RefHandoutStackBase<'a, I, T> {
-    universe: &'a mut Universe<I, T>,
+    universe_data: NonNull<UniverseEntry<T>>,
+    len: usize,
+    _phantom: PhantomData<&'a mut Universe<I, T>>,
 }
 
 unsafe impl<'a, I: IndexingType, T> RefHandoutStack<I, T>
@@ -63,22 +65,24 @@ unsafe impl<'a, I: IndexingType, T> RefHandoutStack<I, T>
     where
         Self: 'b;
 
-    fn claim<'b>(&'b mut self, idx: I) -> (Self::Child<'b>, &'b mut T) {
-        let elem = unsafe {
-            std::mem::transmute::<&'_ mut T, &'b mut T>(
-                &mut self.universe[idx],
-            )
+    fn claim<'b>(&'b mut self, id: I) -> (Self::Child<'b>, &'b mut T) {
+        let idx = id.into_usize();
+        assert!(idx < self.len);
+        let elem = unsafe { &mut *self.universe_data.as_ptr().add(idx) };
+        let UniverseEntry::Occupied(elem) = elem else {
+            panic!("attempted to claim vacant universe entry")
         };
         let child = RefHandoutStackNode {
             base: self,
-            idx,
+            id,
             _phantom: PhantomData,
         };
         (child, elem)
     }
 
-    fn assert_unused(&mut self, _idx: I) -> &mut Universe<I, T> {
-        self.universe
+    fn assert_unused(&mut self, id: I) -> NonNull<UniverseEntry<T>> {
+        assert!(id.into_usize() < self.len);
+        self.universe_data
     }
 }
 
@@ -90,22 +94,24 @@ unsafe impl<'a, I: IndexingType, T, P: RefHandoutStack<I, T>>
     where
         Self: 'b;
 
-    fn claim<'b>(&'b mut self, idx: I) -> (Self::Child<'b>, &'b mut T) {
-        let universe = self.assert_unused(idx);
-        let elem = unsafe {
-            std::mem::transmute::<&'_ mut T, &'b mut T>(&mut universe[idx])
+    fn claim<'b>(&'b mut self, id: I) -> (Self::Child<'b>, &'b mut T) {
+        let idx = id.into_usize();
+        let universe_data = self.assert_unused(id);
+        let elem = unsafe { &mut *universe_data.as_ptr().add(idx) };
+        let UniverseEntry::Occupied(elem) = elem else {
+            panic!("attempted to claim vacant universe entry")
         };
 
         let child = RefHandoutStackNode {
             base: self,
-            idx,
+            id,
             _phantom: PhantomData,
         };
         (child, elem)
     }
 
-    fn assert_unused(&mut self, idx: I) -> &mut Universe<I, T> {
-        assert!(idx != self.idx);
+    fn assert_unused(&mut self, idx: I) -> NonNull<UniverseEntry<T>> {
+        assert!(idx != self.id);
         self.base.assert_unused(idx)
     }
 }
@@ -137,25 +143,19 @@ impl<I: IndexingType, T> Universe<I, T> {
     pub fn multi_ref_mut_handout<const CAP: usize>(
         &mut self,
     ) -> UniverseMultiRefMutHandout<I, T, CAP> {
-        // SAFETY: `UniverseMultiRefMutHandout` supports claiming additional
-        // elements using claim_new. We have to ensure that this is possible
-        // without reallocation as that would invalidate the previously handed
-        // out refs.
-        self.reserve(CAP.into_usize());
-        UniverseMultiRefMutHandout {
-            len: self.data.len(),
-            universe_data: NonNull::new(self.data.as_mut_ptr()).unwrap(),
-            first_vacant_entry: &mut self.first_vacant_entry,
-            handed_out: ArrayVec::new(),
-        }
+        UniverseMultiRefMutHandout::new(self)
     }
     pub fn ref_mut_handout_stack(&mut self) -> RefHandoutStackBase<I, T> {
-        RefHandoutStackBase { universe: self }
+        RefHandoutStackBase {
+            len: self.data.len(),
+            universe_data: NonNull::new(self.data.as_mut_ptr()).unwrap(),
+            _phantom: PhantomData,
+        }
     }
     fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
-        // SAFETY: we can never have usize::MAX entries before running out of
-        // memory
         let res = UniverseEntry::Vacant(self.first_vacant_entry);
+        // SAFETY: we can never have usize::MAX entries before running out of
+        // memory. Entries are never ZSTs due to the Vacant index.
         self.first_vacant_entry =
             Some(unsafe { DebuggableNonMaxUsize::new_unchecked(index) });
         res
@@ -365,6 +365,19 @@ impl<I: IndexingType, T> Universe<I, T> {
 impl<'a, I: IndexingType, T, const CAP: usize>
     UniverseMultiRefMutHandout<'a, I, T, CAP>
 {
+    fn new(universe: &'a mut Universe<I, T>) -> Self {
+        // SAFETY: `UniverseMultiRefMutHandout` supports claiming additional
+        // elements using claim_new. We have to ensure that this is possible
+        // without reallocation as that would invalidate the previously handed
+        // out refs.
+        universe.reserve(CAP.into_usize());
+        Self {
+            len: universe.data.len(),
+            universe_data: NonNull::new(universe.data.as_mut_ptr()).unwrap(),
+            first_vacant_entry: &mut universe.first_vacant_entry,
+            handed_out: ArrayVec::new(),
+        }
+    }
     pub fn claim(&mut self, i: I) -> &'a mut T {
         let idx = i.into_usize();
         assert!(self.len > idx);
@@ -383,10 +396,9 @@ impl<'a, I: IndexingType, T, const CAP: usize>
     }
 
     pub fn claim_new(&mut self, value: T) -> (I, &'a mut T) {
-        let Some(id_raw) = self.first_vacant_entry else {
-            unreachable!()
-        };
-        let idx = id_raw.into_usize();
+        // first_vacant_entry is guaranteed to be valid because
+        // we called `Universe::reserve(CAP)` before creating this type
+        let idx = self.first_vacant_entry.unwrap().into_usize();
         let id = I::from_usize(idx);
         self.handed_out.push(id);
         let entry = unsafe { &mut *self.universe_data.as_ptr().add(idx) };
