@@ -1215,13 +1215,15 @@ fn append_data_cow_headers(
         let mut data_deficit = last_observed_data_size - append_begin.data_pos;
 
         while data_deficit > 0 {
-            let mut hs = h.total_size_unique();
+            let hs = h.total_size_unique();
             if hs > data_deficit {
-                hs -= h.leading_padding();
                 #[cfg(debug_assertions)]
-                if hs > data_deficit {
-                    debug_assert!(!h.shared_value());
-                    debug_assert_eq!(data_deficit % (h.size as usize), 0);
+                {
+                    let hs = hs - h.leading_padding();
+                    if hs > data_deficit {
+                        debug_assert!(!h.shared_value());
+                        debug_assert_eq!(data_deficit % (h.size as usize), 0);
+                    }
                 }
                 data_deficit = 0;
             } else {
