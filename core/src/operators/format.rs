@@ -1917,14 +1917,17 @@ impl Operator for OpFormat {
                     f.ref_count += 1;
                     id
                 } else {
-                    let dummy_field = jd
-                        .match_set_mgr
-                        .get_dummy_field(tf_state.match_set_id);
+                    let dummy_field =
+                        jd.match_set_mgr.get_dummy_field_with_ref_count(
+                            &jd.field_mgr,
+                            tf_state.match_set_id,
+                        );
                     jd.scope_mgr.insert_field_name(
                         scope_id,
                         name,
                         dummy_field,
                     );
+
                     dummy_field
                 }
             } else {

@@ -176,4 +176,13 @@ impl MatchSetManager {
     pub fn get_dummy_field(&self, ms_id: MatchSetId) -> FieldId {
         self.match_sets[ms_id].dummy_field
     }
+    pub fn get_dummy_field_with_ref_count(
+        &self,
+        fm: &FieldManager,
+        ms_id: MatchSetId,
+    ) -> FieldId {
+        let id = self.get_dummy_field(ms_id);
+        fm.bump_field_refcount(id);
+        id
+    }
 }

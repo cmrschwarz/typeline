@@ -688,10 +688,10 @@ impl<'a> Job<'a> {
                 op_data.output_field_kind(self.job_data.session_data, op_id);
             let output_field = match output_field_kind {
                 OutputFieldKind::Dummy => {
-                    let dummy_field =
-                        self.job_data.match_set_mgr.get_dummy_field(ms_id);
-                    self.job_data.field_mgr.bump_field_refcount(dummy_field);
-                    dummy_field
+                    self.job_data.match_set_mgr.get_dummy_field_with_ref_count(
+                        &self.job_data.field_mgr,
+                        ms_id,
+                    )
                 }
                 OutputFieldKind::SameAsInput => {
                     self.job_data.field_mgr.bump_field_refcount(input_field);
