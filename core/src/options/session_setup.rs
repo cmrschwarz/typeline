@@ -128,12 +128,19 @@ macro_rules! ENV_VAR_CONST_DEBUG_BREAK_ON_STEP {
         "SCR_DEBUG_BREAK_ON_STEP"
     };
 }
+macro_rules! ENV_VAR_CONST_ACTION_LIST_CLEANUP_FREQUENCY {
+    () => {
+        "SCR_ACTION_LIST_CLEANUP_FREQUENCY"
+    };
+}
 
 static ENV_VAR_DEBUG_LOG: &str = ENV_VAR_CONST_DEBUG_LOG!();
 static ENV_VAR_DEBUG_LOG_NO_APPLY: &str = ENV_VAR_CONST_DEBUG_LOG_NO_APPLY!();
 static ENV_VAR_DEBUG_LOG_STEP_MIN: &str = ENV_VAR_CONST_DEBUG_LOG_STEP_MIN!();
 static ENV_VAR_DEBUG_BREAK_ON_STEP: &str =
     ENV_VAR_CONST_DEBUG_BREAK_ON_STEP!();
+static ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY: &str =
+    ENV_VAR_CONST_ACTION_LIST_CLEANUP_FREQUENCY!();
 
 impl SessionSetupSettings {
     pub fn new(opts: &ScrSetupOptions) -> Self {
@@ -301,6 +308,12 @@ impl SessionSetupData {
                 option_env!(ENV_VAR_CONST_DEBUG_LOG_NO_APPLY!()),
             )?;
 
+        let (action_list_cleanup_frequency, _) =
+            self.get_debug_setting_value::<SettingActionListCleanupFrequency>(
+                ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY,
+                option_env!(ENV_VAR_CONST_ACTION_LIST_CLEANUP_FREQUENCY!()),
+            )?;
+
         let (debug_log_step_min, _) = self
             .get_debug_setting_value::<SettingDebugLogStepMin>(
                 ENV_VAR_DEBUG_LOG_STEP_MIN,
@@ -335,11 +348,6 @@ impl SessionSetupData {
                 mt_setting
             }
         };
-
-        let action_list_cleanup_frequency = self
-            .lookup_initial_chain_setting::<SettingActionListCleanupFrequency>(
-            ChainId::ZERO,
-        );
 
         Ok(SessionSettings {
             chain_setting_names: self.chain_setting_names,
