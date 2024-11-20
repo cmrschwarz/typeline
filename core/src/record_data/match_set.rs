@@ -3,7 +3,11 @@ use std::{cell::RefCell, collections::HashMap};
 use crate::{
     index_newtype,
     operators::transform::TransformId,
-    record_data::iter_hall::FieldDataSource,
+    record_data::{
+        action_buffer::{ActionGroupId, SnapshotRef},
+        field_data::FieldData,
+        iter_hall::FieldDataSource,
+    },
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
@@ -65,7 +69,12 @@ impl MatchSetManager {
         // PERF: if the field has no name, and no actor was added
         // after between it's first_actor and the last,
         // we can just set it's name instead of adding an alias field
-        let alias_id = fm.add_field(self, ms_id, first_actor);
+        let alias_id = fm.add_field_raw(
+            ms_id,
+            first_actor,
+            SnapshotRef(ActionGroupId::MAX_VALUE),
+            FieldData::default(),
+        );
         sm.insert_field_name(scope_id, name, alias_id);
         let mut field = fm.fields[field_id].borrow_mut();
         field.shadowed_by = Some(alias_id);

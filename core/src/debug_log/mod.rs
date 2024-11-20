@@ -866,10 +866,17 @@ pub fn field_to_json(
         .action_buffer
         .borrow_mut();
 
+    // field aliases store an invalid snapshot id so we have to deref them
+    let deliased_snapshot = jd.field_mgr.fields
+        [jd.field_mgr.dealias_field_id(field_id)]
+    .borrow()
+    .snapshot
+    .get();
+
     ab.gather_pending_actions(
         &mut pending_actions,
         field.first_actor.get(),
-        field.snapshot.get(),
+        deliased_snapshot,
     );
 
     let cfr = jd.field_mgr.get_cow_field_ref_raw(field_id);

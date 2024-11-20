@@ -331,6 +331,15 @@ impl FieldManager {
         let mut ab = msm.match_sets[ms_id].action_buffer.borrow_mut();
         let snapshot = ab.get_latest_snapshot();
         ab.bump_snapshot_refcount(snapshot);
+        self.add_field_raw(ms_id, first_actor, snapshot, data)
+    }
+    pub fn add_field_raw(
+        &mut self,
+        ms_id: MatchSetId,
+        first_actor: ActorRef,
+        snapshot: SnapshotRef,
+        data: FieldData,
+    ) -> FieldId {
         let mut field = Field {
             ref_count: 1,
             shadowed_since: ActionBuffer::MAX_ACTOR_ID,

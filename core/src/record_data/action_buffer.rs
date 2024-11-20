@@ -21,7 +21,7 @@ use crate::{
 
 index_newtype! {
     pub struct ActorId(u16);
-    pub struct SnapshotRef(ActionGroupId);
+    pub struct SnapshotRef(pub(crate) ActionGroupId);
 
     pub struct ActionGroupId(u32);
 
