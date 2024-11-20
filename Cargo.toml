@@ -73,7 +73,7 @@ csv = ["dep:scr_ext_csv"]
 all_exts = ["utils", "http", "python", "sqlite", "csv"]
 
 full = ["all_exts", "repl", "debug_log"]
-default = ["utils"]
+default = ["utils", "csv"]
 
 [package.metadata.deb]
 features = ["full"]
