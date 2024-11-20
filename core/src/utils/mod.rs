@@ -304,9 +304,11 @@ pub fn cow_to_small_str<A: smallvec::Array<Item = u8>>(
 }
 
 // SAFETY: this is the almighty 'cast anything into anything' function.
-// This is generally only useful if T and Q are known to be the same
-// at runtime, but this cannot be proven to the typechecker / might not hold in
-// a dynamically unreachable branch. Use with extreme caution!
+// Unlike `std::mem::transmute`, this allows T and Q to have theoretically
+// different sizes from the perspective of the type checker. This is generally
+// only useful if T and Q are known to be the exact same type at runtime, but
+// this cannot be proven to the typechecker / might not hold in a dynamically
+// unreachable branch. Use with extreme caution!
 #[allow(clippy::needless_pass_by_value)]
 pub unsafe fn force_cast<T, Q>(v: T) -> Q {
     unsafe { std::ptr::read(std::ptr::addr_of!(v).cast::<Q>()) }
