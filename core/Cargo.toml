@@ -12,18 +12,21 @@ authors = ["Christian Schwarz <cmrs@cmrs.io>"]
 [lib]
 name = "scr_core"
 
-[target.'cfg(miri)'.dependencies]
-bitvec_miri = { package = "bitvec", git = "https://github.com/djkoloski/bitvec.git", branch = "fix_miri", features = [
-    "std",
-], default-features = false }
+[target.'cfg(miri)'.dependencies.bitvec_miri]
+package = "bitvec"
+version = "1.0.1"
+git = "https://github.com/djkoloski/bitvec.git"
+branch = "fix_miri"
+features = ["std"]
+default-features = false
 
-[target.'cfg(not(miri))'.dependencies]
-bitvec_non_miri = { package = "bitvec", version = "1.0.1", features = [
-    "std",
-], default-features = false }
+[target.'cfg(not(miri))'.dependencies.bitvec_non_miri]
+package = "bitvec"
+version = "1.0.1"
+features = ["std"]
+default-features = false
 
 [dependencies]
-
 # currently just for MappedMutexGuard. can be removed once that becomes stable
 parking_lot = "0.12.3"
 
