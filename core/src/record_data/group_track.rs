@@ -202,7 +202,7 @@ impl<'a> RecordGroupActionsApplicator<'a> {
         }
     }
 
-    fn move_to_field_pos(&mut self, field_idx: usize) {
+    fn move_to_field_pos(&mut self, field_idx: usize, allow_trailing: bool) {
         loop {
             let field_pos_delta = field_idx - self.field_pos;
             if field_pos_delta == 0 && self.group_len_rem != 0 {
@@ -214,7 +214,10 @@ impl<'a> RecordGroupActionsApplicator<'a> {
                 break;
             }
             self.field_pos += self.group_len_rem;
-            self.next_group();
+            if !self.try_next_group() {
+                assert!(allow_trailing && field_idx == self.field_pos);
+                break;
+            }
         }
         if !self.inside_passed_elems && self.iter_group_idx != self.group_idx {
             self.advance_affected_iters_to_group();
@@ -232,24 +235,36 @@ impl<'a> RecordGroupActionsApplicator<'a> {
         }
         self.gl.group_lengths.set(self.group_idx, self.group_len);
     }
-    fn next_group(&mut self) {
-        self.phase_out_current_iters();
-        self.apply_modifications();
+    fn try_next_group(&mut self) -> bool {
         if self.inside_passed_elems {
+            if self.gl.group_lengths.is_empty() {
+                return false;
+            }
+            self.phase_out_current_iters();
+            self.apply_modifications();
             self.inside_passed_elems = false;
         } else {
+            if self.group_idx + 1 == self.gl.group_lengths.len() {
+                return false;
+            }
+            self.phase_out_current_iters();
+            self.apply_modifications();
             self.group_idx += 1;
         }
-        debug_assert!(
-            self.group_idx < self.gl.group_lengths.len(),
-            "action index out of bounds for group list"
-        );
         self.group_len = self.gl.group_len(self.group_idx);
         self.group_len_rem = self.group_len;
+        true
+    }
+    fn next_group(&mut self) {
+        let success = self.try_next_group();
+        debug_assert!(success, "action index out of bounds for group list");
     }
     fn apply_action(&mut self, a: FieldAction) {
         let mut action_run_len = a.run_len as usize;
-        self.move_to_field_pos(a.field_idx);
+        self.move_to_field_pos(
+            a.field_idx,
+            matches!(a.kind, FieldActionKind::InsertZst { .. }),
+        );
         match a.kind {
             FieldActionKind::Dup | FieldActionKind::InsertZst { .. } => {
                 self.group_len_rem += action_run_len;
