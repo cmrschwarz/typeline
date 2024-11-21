@@ -14,7 +14,6 @@ name = "scr_core"
 
 [target.'cfg(miri)'.dependencies.bitvec_miri]
 package = "bitvec"
-version = "1.0.1"
 git = "https://github.com/djkoloski/bitvec.git"
 branch = "fix_miri"
 features = ["std"]
