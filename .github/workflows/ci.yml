@@ -16,8 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check --all-features --workspace
-      - run: cargo test --all-features --workspace
+      - run: cargo check --features=full --workspace
+      - run: cargo test --features=full --workspace
 
   doc:
     name: Documentation
@@ -27,7 +27,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rust-docs
-      - run: cargo doc --all-features --workspace
+      - run: cargo doc --features=full --workspace
 
   clippy:
     name: Clippy
@@ -37,7 +37,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --all-features --workspace
+      - run: cargo clippy --features=full --workspace
 
   rustfmt:
     name: Rustfmt

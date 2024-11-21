@@ -90,6 +90,8 @@ repl = ["dep:shlex", "dep:reedline"]
 unstable = []
 debug_state = []
 
+# TODO: this is somehow bugged e.g. in integration::large::multibatch_count
+# investigate.
 debug_disable_terminator = []
 debug_reduce_field_refs = []
 
