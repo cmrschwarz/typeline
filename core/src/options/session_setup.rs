@@ -108,39 +108,31 @@ pub struct SessionSetupData {
     pub extensions: Arc<ExtensionRegistry>,
 }
 
-macro_rules! ENV_VAR_CONST_DEBUG_LOG {
+macro_rules! ENV_VAR_DEBUG_LOG {
     () => {
         "SCR_DEBUG_LOG_PATH"
     };
 }
-macro_rules! ENV_VAR_CONST_DEBUG_LOG_NO_APPLY {
+macro_rules! ENV_VAR_DEBUG_LOG_NO_APPLY {
     () => {
         "SCR_DEBUG_LOG_NO_APPLY"
     };
 }
-macro_rules! ENV_VAR_CONST_DEBUG_LOG_STEP_MIN {
+macro_rules! ENV_VAR_DEBUG_LOG_STEP_MIN {
     () => {
         "SCR_DEBUG_LOG_STEP_MIN"
     };
 }
-macro_rules! ENV_VAR_CONST_DEBUG_BREAK_ON_STEP {
+macro_rules! ENV_VAR_DEBUG_BREAK_ON_STEP {
     () => {
         "SCR_DEBUG_BREAK_ON_STEP"
     };
 }
-macro_rules! ENV_VAR_CONST_ACTION_LIST_CLEANUP_FREQUENCY {
+macro_rules! ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY {
     () => {
         "SCR_ACTION_LIST_CLEANUP_FREQUENCY"
     };
 }
-
-static ENV_VAR_DEBUG_LOG: &str = ENV_VAR_CONST_DEBUG_LOG!();
-static ENV_VAR_DEBUG_LOG_NO_APPLY: &str = ENV_VAR_CONST_DEBUG_LOG_NO_APPLY!();
-static ENV_VAR_DEBUG_LOG_STEP_MIN: &str = ENV_VAR_CONST_DEBUG_LOG_STEP_MIN!();
-static ENV_VAR_DEBUG_BREAK_ON_STEP: &str =
-    ENV_VAR_CONST_DEBUG_BREAK_ON_STEP!();
-static ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY: &str =
-    ENV_VAR_CONST_ACTION_LIST_CLEANUP_FREQUENCY!();
 
 impl SessionSetupSettings {
     pub fn new(opts: &ScrSetupOptions) -> Self {
@@ -292,8 +284,8 @@ impl SessionSetupData {
     ) -> Result<SessionSettings, CliArgumentError> {
         let (mut debug_log_path, debug_log_path_span) = self
             .get_debug_setting_value::<SettingDebugLog>(
-                ENV_VAR_DEBUG_LOG,
-                option_env!(ENV_VAR_CONST_DEBUG_LOG!()),
+                ENV_VAR_DEBUG_LOG!(),
+                option_env!(ENV_VAR_DEBUG_LOG!()),
             )?;
 
         if let Some(path) = debug_log_path.as_ref() {
@@ -304,26 +296,26 @@ impl SessionSetupData {
 
         let (debug_log_no_apply, _) = self
             .get_debug_setting_value::<SettingDebugLogNoApply>(
-                ENV_VAR_DEBUG_LOG_NO_APPLY,
-                option_env!(ENV_VAR_CONST_DEBUG_LOG_NO_APPLY!()),
+                ENV_VAR_DEBUG_LOG_NO_APPLY!(),
+                option_env!(ENV_VAR_DEBUG_LOG_NO_APPLY!()),
             )?;
 
         let (action_list_cleanup_frequency, _) =
             self.get_debug_setting_value::<SettingActionListCleanupFrequency>(
-                ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY,
-                option_env!(ENV_VAR_CONST_ACTION_LIST_CLEANUP_FREQUENCY!()),
+                ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY!(),
+                option_env!(ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY!()),
             )?;
 
         let (debug_log_step_min, _) = self
             .get_debug_setting_value::<SettingDebugLogStepMin>(
-                ENV_VAR_DEBUG_LOG_STEP_MIN,
-                option_env!(ENV_VAR_CONST_DEBUG_LOG_STEP_MIN!()),
+                ENV_VAR_DEBUG_LOG_STEP_MIN!(),
+                option_env!(ENV_VAR_DEBUG_LOG_STEP_MIN!()),
             )?;
 
         let (debug_break_on_step, _) = self
             .get_debug_setting_value::<SettingDebugBreakOnStep>(
-                ENV_VAR_DEBUG_BREAK_ON_STEP,
-                option_env!(ENV_VAR_CONST_DEBUG_BREAK_ON_STEP!()),
+                ENV_VAR_DEBUG_BREAK_ON_STEP!(),
+                option_env!(ENV_VAR_DEBUG_BREAK_ON_STEP!()),
             )?;
 
         if debug_log_path.is_some() && !cfg!(feature = "debug_log") {
