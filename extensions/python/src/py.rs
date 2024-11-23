@@ -170,7 +170,6 @@ impl Operator for OpPy {
         let mut input_fields = Vec::new();
         let jd = &mut job.job_data;
         let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
-        let scope_id = ms.active_scope;
         let next_actor_id = ms.action_buffer.borrow().peek_next_actor_id();
         for fv in &self.free_vars_sse {
             let field_id = if let Some(name) = fv {
@@ -184,13 +183,10 @@ impl Operator for OpPy {
                     f.ref_count += 1;
                     id
                 } else {
-                    let field_id = jd.field_mgr.add_field(
-                        &jd.match_set_mgr,
+                    jd.match_set_mgr.get_dummy_field_with_ref_count(
+                        &jd.field_mgr,
                         tf_state.match_set_id,
-                        jd.field_mgr.get_first_actor(tf_state.input_field),
-                    );
-                    jd.scope_mgr.insert_field_name(scope_id, *name, field_id);
-                    field_id
+                    )
                 }
             } else {
                 let mut f =
