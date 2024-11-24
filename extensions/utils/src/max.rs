@@ -166,18 +166,20 @@ impl Transform<'_> for TfMax {
             let mut gs_rem = group_track_iter.group_len_rem();
             if gs_rem == 0 {
                 let next_available = group_track_iter.try_next_group();
+                if next_available {
+                    group_track_iter.skip_empty_groups();
+                    gs_rem = group_track_iter.group_len_rem();
+                }
                 if next_available || ps.input_done {
                     if let Some(max) = self.curr_max_value.take() {
                         max.push(&mut inserter, true, false);
                         fields_produced += 1;
                     }
                 }
-                if !next_available {
+                if !next_available || gs_rem == 0 {
                     debug_assert_eq!(bs_rem, 0);
                     break;
                 }
-                group_track_iter.skip_empty_groups();
-                gs_rem = group_track_iter.group_len_rem();
             }
             let range = iter
                 .typed_range_fwd(

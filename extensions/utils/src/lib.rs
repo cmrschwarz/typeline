@@ -7,6 +7,7 @@ use explode::parse_op_explode;
 use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
 use head::parse_op_head;
+use max::parse_op_max;
 use primes::parse_op_primes;
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
@@ -32,12 +33,12 @@ pub mod explode;
 pub mod flatten;
 pub mod from_tyson;
 pub mod head;
+pub mod max;
 pub mod primes;
 pub mod string_utils;
 pub mod sum;
 pub mod tail;
 pub mod typename;
-pub mod max;
 
 #[derive(Default)]
 pub struct UtilsExtension {}
@@ -70,6 +71,7 @@ impl Extension for UtilsExtension {
             "explode" => parse_op_explode(&expr)?,
             "flatten" => parse_op_flatten(&expr)?,
             "sum" => parse_op_sum(&expr)?,
+            "max" => parse_op_max(&expr)?,
             "primes" => parse_op_primes(&expr)?,
             "collect" => parse_op_collect(&expr)?,
             "lines" | "l" => parse_op_reject_args(&expr, create_op_lines)?,
