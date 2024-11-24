@@ -24,6 +24,7 @@ pub mod int_string_conversions;
 pub mod integer_sum;
 pub mod io;
 pub mod lazy_lock_guard;
+pub mod max_index;
 pub mod maybe_boxed;
 pub mod maybe_text;
 pub mod multi_ref_mut_handout;
