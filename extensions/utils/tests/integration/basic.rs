@@ -29,6 +29,7 @@ use scr_ext_utils::{
     explode::create_op_explode,
     flatten::create_op_flatten,
     head::create_op_head,
+    max::create_op_max,
     primes::create_op_primes,
     string_utils::create_op_lines,
     sum::create_op_sum,
@@ -223,6 +224,16 @@ fn chunked_tail() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 10, 1).unwrap())
         .add_op(create_op_chunks(3, [create_op_tail(1)]).unwrap())
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [3, 6, 9, 10]);
+    Ok(())
+}
+
+#[test]
+fn chunked_max() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seqn(1, 10, 1).unwrap())
+        .add_op(create_op_chunks(3, [create_op_max()]).unwrap())
         .run_collect_as::<i64>()?;
     assert_eq!(res, [3, 6, 9, 10]);
     Ok(())

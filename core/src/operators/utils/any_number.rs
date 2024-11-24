@@ -14,12 +14,42 @@ pub enum AnyNumber {
     Int(i64),
     BigInt(num::BigInt),
     Float(f64),
-    Rational(BigRational),
+    BigRational(BigRational),
+}
+
+#[derive(Clone, Copy)]
+pub enum AnyNumberRef<'a> {
+    Int(&'a i64),
+    BigInt(&'a num::BigInt),
+    Float(&'a f64),
+    BigRational(&'a BigRational),
 }
 
 impl Default for AnyNumber {
     fn default() -> Self {
         AnyNumber::Int(0)
+    }
+}
+
+impl AnyNumber {
+    pub fn as_ref(&self) -> AnyNumberRef {
+        match self {
+            AnyNumber::Int(v) => AnyNumberRef::Int(&v),
+            AnyNumber::BigInt(v) => AnyNumberRef::BigInt(&v),
+            AnyNumber::Float(v) => AnyNumberRef::Float(&v),
+            AnyNumber::BigRational(v) => AnyNumberRef::BigRational(&v),
+        }
+    }
+}
+
+impl<'a> AnyNumberRef<'a> {
+    pub fn to_owned(&self) -> AnyNumber {
+        match *self {
+            AnyNumberRef::Int(v) => AnyNumber::Int(*v),
+            AnyNumberRef::BigInt(v) => AnyNumber::BigInt(v.clone()),
+            AnyNumberRef::BigRational(v) => AnyNumber::BigRational(v.clone()),
+            AnyNumberRef::Float(v) => AnyNumber::Float(*v),
+        }
     }
 }
 
@@ -41,7 +71,7 @@ impl AnyNumber {
             AnyNumber::Float(v) => {
                 tgt.push_fixed_size_type(v, 1, header_rle, data_rle)
             }
-            AnyNumber::Rational(v) => {
+            AnyNumber::BigRational(v) => {
                 tgt.push_fixed_size_type(v, 1, header_rle, data_rle)
             }
         }
@@ -61,14 +91,14 @@ impl AnyNumber {
                     #[allow(clippy::cast_precision_loss)]
                     f.add_assign(value as f64);
                 } else if !f.is_nan() && !f.is_infinite() {
-                    *self = AnyNumber::Rational(
+                    *self = AnyNumber::BigRational(
                         BigRational::from_f64(*f)
                             .unwrap()
                             .add(BigInt::from(value)),
                     );
                 }
             }
-            AnyNumber::Rational(r) => r.add_assign(BigInt::from(value)),
+            AnyNumber::BigRational(r) => r.add_assign(BigInt::from(value)),
         }
     }
     pub fn add_int_with_rl(&mut self, v: i64, rl: RunLength, fpm: bool) {
@@ -93,14 +123,14 @@ impl AnyNumber {
                     let v_f = v as f64;
                     *f = v_f.mul_add(f64::from(rl), *f);
                 } else if !f.is_nan() && !f.is_infinite() {
-                    *self = AnyNumber::Rational(
+                    *self = AnyNumber::BigRational(
                         BigRational::from_f64(*f)
                             .unwrap()
                             .add(BigInt::from(v).mul(rl)),
                     );
                 }
             }
-            AnyNumber::Rational(r) => r.add_assign(BigInt::from(v).mul(rl)),
+            AnyNumber::BigRational(r) => r.add_assign(BigInt::from(v).mul(rl)),
         }
     }
     pub fn add_ints(&mut self, v: &[i64], fpm: bool) {
@@ -130,12 +160,12 @@ impl AnyNumber {
                 if fpm {
                     f.add_assign(v_x_rl.to_f64().unwrap());
                 } else if !f.is_nan() && !f.is_infinite() {
-                    *self = AnyNumber::Rational(
+                    *self = AnyNumber::BigRational(
                         BigRational::from_f64(*f).unwrap().add(&*v_x_rl),
                     );
                 }
             }
-            AnyNumber::Rational(v) => v.add_assign(&*v_x_rl),
+            AnyNumber::BigRational(v) => v.add_assign(&*v_x_rl),
         }
     }
     pub fn add_float(&mut self, v: f64, rl: RunLength, fpm: bool) {
@@ -145,7 +175,7 @@ impl AnyNumber {
                 AnyNumber::Int(i) => *i as f64,
                 AnyNumber::BigInt(i) => i.to_f64().unwrap(),
                 AnyNumber::Float(f) => *f,
-                AnyNumber::Rational(r) => r.to_f64().unwrap(),
+                AnyNumber::BigRational(r) => r.to_f64().unwrap(),
             };
             // floating point add is commutative, so this order is fine
             // rle somewhat breaks order, you have to disable
@@ -169,13 +199,13 @@ impl AnyNumber {
                 }
                 BigRational::from_f64(f).unwrap()
             }
-            AnyNumber::Rational(r) => r,
+            AnyNumber::BigRational(r) => r,
         };
         let mut v_x_rl = BigRational::from_f64(v).unwrap();
         if rl != 1 {
             v_x_rl.mul_assign(BigInt::from_u32(rl).unwrap());
         }
-        *self = AnyNumber::Rational(curr.add(v_x_rl));
+        *self = AnyNumber::BigRational(curr.add(v_x_rl));
     }
     pub fn add_rational(&mut self, v: &BigRational, rl: RunLength, fpm: bool) {
         let v_x_rl = {
@@ -187,26 +217,26 @@ impl AnyNumber {
         };
         match self {
             AnyNumber::Int(i) => {
-                *self = AnyNumber::Rational(
+                *self = AnyNumber::BigRational(
                     v_x_rl.into_owned().add(BigInt::from(*i)),
                 );
             }
             AnyNumber::BigInt(i) => {
-                *self = AnyNumber::Rational(v_x_rl.into_owned().add(&*i));
+                *self = AnyNumber::BigRational(v_x_rl.into_owned().add(&*i));
             }
             AnyNumber::Float(v) => {
                 if fpm {
                     if v.is_infinite() || v.is_nan() {
                         return;
                     }
-                    *self = AnyNumber::Rational(
+                    *self = AnyNumber::BigRational(
                         BigRational::from_f64(*v).unwrap().add(&*v_x_rl),
                     );
                 } else {
                     v.add_assign(v_x_rl.to_f64().unwrap());
                 }
             }
-            AnyNumber::Rational(v) => v.add_assign(&*v_x_rl),
+            AnyNumber::BigRational(v) => v.add_assign(&*v_x_rl),
         }
     }
 }

@@ -720,6 +720,21 @@ impl FieldManager {
             )
         }
     }
+    pub fn lookup_auto_deref_iter<'a, 'b>(
+        &'a self,
+        msm: &'b MatchSetManager,
+        mut field_id: FieldId,
+        iter_id: FieldIterId,
+    ) -> AutoDerefIter<'a, FieldIter<CowFieldDataRef<'a>>> {
+        let field = self.borrow_field_dealiased(&mut field_id);
+        let state = field.iter_hall.get_iter_state(iter_id);
+        let field_id = self.dealias_field_id(field_id);
+        self.apply_field_actions(msm, field_id, true);
+        let cfdr = self.get_cow_field_ref_raw(field_id);
+        let iter =
+            unsafe { IterHall::get_iter_from_state_unchecked(cfdr, state) };
+        AutoDerefIter::new(self, field_id, iter)
+    }
     pub fn lookup_iter_from_ref<'a>(
         &self,
         iter_ref: FieldIterRef,

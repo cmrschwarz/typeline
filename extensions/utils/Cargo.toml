@@ -23,6 +23,8 @@ num = "0.4.3"
 indexmap = "2.6.0"
 metamatch = "0.2.4"
 mio = { version = "1.0.2", features = ["os-ext", "os-poll"] }
+numcmp = "0.1.0"
+
 
 [dev-dependencies]
 scr = { path = "../../", features = ["utils"] }

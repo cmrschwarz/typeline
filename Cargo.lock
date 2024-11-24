@@ -1361,6 +1361,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "numcmp"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe40509739c4b27ad9a7573523d39dcc8d2b28e893a29aa469b78105369e30b5"
+
+[[package]]
 name = "object"
 version = "0.36.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2067,6 +2073,7 @@ dependencies = [
  "metamatch",
  "mio",
  "num",
+ "numcmp",
  "primes",
  "rstest",
  "scr",
