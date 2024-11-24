@@ -12,6 +12,7 @@ pub mod index_vec;
 
 pub mod aligned_buf;
 pub mod bit_vec_deque;
+pub mod compare_i64_bigint;
 pub mod counting_writer;
 pub mod debuggable_nonmax;
 pub mod dynamic_freelist;
