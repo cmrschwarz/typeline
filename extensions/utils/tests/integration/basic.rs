@@ -2,16 +2,17 @@ use rstest::rstest;
 use scr::{
     operators::{
         chunks::create_op_chunks,
-        compute::create_op_to_int,
+        compute::{create_op_compute, create_op_to_int},
         file_reader::create_op_file_reader_custom,
         foreach::create_op_foreach,
         forkcat::create_op_forkcat,
         join::create_op_join,
+        literal::{create_op_literal, Literal},
         regex::{create_op_regex_with_opts, RegexOptions},
         sequence::{create_op_enum, create_op_seq},
     },
     options::session_setup::ScrSetupOptions,
-    record_data::array::Array,
+    record_data::{array::Array, field::Field},
     utils::test_utils::SliceReader,
     CliOptionsWithDefaultExtensions,
 };
@@ -27,6 +28,7 @@ use scr_core::{
 use scr_ext_utils::{
     collect::create_op_collect,
     dup::create_op_dup,
+    eliminate_errors::create_op_eliminate_errors,
     explode::create_op_explode,
     flatten::create_op_flatten,
     head::create_op_head,
@@ -249,6 +251,25 @@ fn empty_max() -> Result<(), ScrError> {
         )
         .run_collect_as::<i64>()?;
     assert_eq!(&res, &[] as &[i64]);
+    Ok(())
+}
+
+#[test]
+fn batched_ee() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(2)?
+        .add_op(create_op_literal(Literal::Array(Array::Mixed(vec![
+            FieldValue::Int(1),
+            FieldValue::Int(2),
+            FieldValue::Int(3),
+            FieldValue::Text("a".into()),
+        ]))))
+        .add_op(create_op_flatten())
+        .add_op(create_op_compute("_+1")?)
+        .add_op(create_op_eliminate_errors())
+        .add_op(create_op_max())
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [4]);
     Ok(())
 }
 

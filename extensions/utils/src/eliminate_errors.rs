@@ -59,7 +59,9 @@ impl Operator for OpEliminateErrors {
     ) -> TransformInstatiation<'a> {
         TransformInstatiation::Single(TransformData::from_custom(
             TfEliminateErrors {
-                actor_id: job.job_data.add_actor_for_tf_state(tf_state),
+                actor_id: job
+                    .job_data
+                    .add_actor_for_tf_state_ignore_output_field(tf_state),
                 input_iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
             },
         ))

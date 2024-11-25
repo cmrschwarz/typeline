@@ -136,6 +136,11 @@ impl Transform<'_> for TfMax {
         jd: &mut JobData,
         tf_id: scr_core::operators::transform::TransformId,
     ) {
+        jd.tf_mgr.prepare_output_field(
+            &mut jd.field_mgr,
+            &mut jd.match_set_mgr,
+            tf_id,
+        );
         let tf = &jd.tf_mgr.transforms[tf_id];
         let op_id = tf.op_id.unwrap();
         let ms_id = jd.tf_mgr.transforms[tf_id].match_set_id;
@@ -164,23 +169,28 @@ impl Transform<'_> for TfMax {
             field_idx = field_idx_next;
             let field_idx_before = field_idx;
             let mut gs_rem = group_track_iter.group_len_rem();
-            if gs_rem == 0 {
-                let next_available = group_track_iter.try_next_group();
-                if next_available {
+
+            let next_available = if gs_rem == 0 {
+                let next = group_track_iter.try_next_group();
+                if next {
                     group_track_iter.skip_empty_groups();
                     gs_rem = group_track_iter.group_len_rem();
                 }
-                if next_available || ps.input_done {
-                    if let Some(max) = self.curr_max_value.take() {
-                        max.push(&mut inserter, true, false);
-                        fields_produced += 1;
-                    }
-                }
-                if !next_available || gs_rem == 0 {
-                    debug_assert_eq!(bs_rem, 0);
-                    break;
+                next
+            } else {
+                false
+            };
+
+            if next_available || (bs_rem == 0 && ps.input_done) {
+                if let Some(max) = self.curr_max_value.take() {
+                    max.push(&mut inserter, true, false);
+                    fields_produced += 1;
                 }
             }
+            if bs_rem == 0 {
+                break;
+            }
+
             let range = iter
                 .typed_range_fwd(
                     &jd.match_set_mgr,
