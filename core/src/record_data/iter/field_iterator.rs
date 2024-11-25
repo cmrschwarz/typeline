@@ -16,15 +16,17 @@ use super::{
     iter_adapters::BoundedIter, ref_iter::AutoDerefIter,
 };
 
-#[bitfield(u8, default = 0b0111)]
+#[bitfield(u8, default = 0b00000)]
 pub struct FieldIterOpts {
     #[bit(0, rw)]
-    allow_dead: bool,
+    stop_on_dead: bool,
     #[bit(1, rw)]
-    allow_header_ring_wrap: bool,
+    allow_different_kind_if_dead: bool,
     #[bit(2, rw)]
-    allow_data_ring_wrap: bool,
+    allow_header_ring_wrap: bool,
     #[bit(3, rw)]
+    allow_data_ring_wrap: bool,
+    #[bit(4, rw)]
     invert_kinds_check: bool,
 }
 

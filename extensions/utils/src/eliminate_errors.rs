@@ -98,7 +98,7 @@ impl Transform<'_> for TfEliminateErrors {
                 .typed_range_fwd(
                     &jd.match_set_mgr,
                     bs_rem,
-                    FieldIterOpts::DEFAULT,
+                    FieldIterOpts::default(),
                 )
                 .unwrap();
             let count = range.base.field_count;

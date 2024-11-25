@@ -335,7 +335,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         let mut curr_header_rem =
             (self.header_rl_total - self.header_rl_offset) as usize;
         if curr_header_rem == 0
-            || (self.header_fmt.deleted() && !opts.allow_dead())
+            || (self.header_fmt.deleted() && opts.stop_on_dead())
             || (kinds.contains(&self.header_fmt.repr)
                 == opts.invert_kinds_check())
         {
@@ -392,13 +392,19 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
                 self.field_pos += stride_rem;
                 return n;
             }
-            if !opts.allow_dead()
-                && self.fdr.headers().len() != self.header_idx + 1
-                && self.fdr.headers()[self.header_idx + 1].deleted()
-            {
-                stride_rem -= self.next_header() as usize;
-                return n - stride_rem;
+            if self.fdr.headers().len() != self.header_idx + 1 {
+                let h = self.fdr.headers()[self.header_idx + 1];
+
+                let mut done = h.deleted() && opts.stop_on_dead();
+                done |= h.deleted()
+                    && !opts.allow_different_kind_if_dead()
+                    && kinds.contains(&h.repr) == opts.invert_kinds_check();
+                if done {
+                    stride_rem -= self.next_header() as usize;
+                    return n - stride_rem;
+                }
             }
+
             stride_rem -= self.next_header() as usize;
             curr_header_rem = self.header_rl_total as usize;
             data_pos = self.data;
@@ -410,7 +416,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
                 }
             }
             if !self.is_next_valid()
-                || (self.header_fmt.deleted() && !opts.allow_dead())
+                || (self.header_fmt.deleted() && opts.stop_on_dead())
                 || (kinds.contains(&self.header_fmt.repr)
                     == opts.invert_kinds_check())
                 || self.header_idx == header_wrap_idx
@@ -431,7 +437,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         // create slices from this
         if n == 0
             || self.prev_field() == 0
-            || (self.header_fmt.deleted() && !opts.allow_dead())
+            || (self.header_fmt.deleted() && opts.stop_on_dead())
             || (kinds.contains(&self.header_fmt.repr)
                 == opts.invert_kinds_check())
         {
@@ -452,16 +458,22 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             self.fdr.headers().as_slices().0.len().saturating_sub(1)
         };
         loop {
-            if !opts.allow_dead()
-                && self.header_idx != 0
-                && self.fdr.headers()[self.header_idx - 1].deleted()
-            {
-                stride_rem -= self.prev_header() as usize;
-                return n - stride_rem;
+            if self.header_idx != 0 {
+                let h = self.fdr.headers()[self.header_idx + 1];
+
+                let mut done = h.deleted() && opts.stop_on_dead();
+                done |= h.deleted()
+                    && !opts.allow_different_kind_if_dead()
+                    && kinds.contains(&h.repr) == opts.invert_kinds_check();
+                if done {
+                    stride_rem -= self.prev_header() as usize;
+                    return n - stride_rem;
+                }
             }
+
             stride_rem -= self.prev_header() as usize;
             if !self.is_prev_valid()
-                || (self.header_fmt.deleted() && !opts.allow_dead())
+                || (self.header_fmt.deleted() && opts.stop_on_dead())
                 || (kinds.contains(&self.header_fmt.repr)
                     == opts.invert_kinds_check())
                 || wrap_idx == self.header_idx

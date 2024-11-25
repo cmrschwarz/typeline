@@ -715,9 +715,12 @@ impl FieldData {
         let mut iter = self.iter();
         loop {
             let slice_start_pos = iter.get_next_field_data();
-            let Some(range) =
-                iter.typed_range_fwd(usize::MAX, FieldIterOpts::default())
-            else {
+            let Some(range) = iter.typed_range_fwd(
+                usize::MAX,
+                FieldIterOpts::default()
+                    .with_allow_data_ring_wrap(false)
+                    .with_allow_header_ring_wrap(true),
+            ) else {
                 break;
             };
             unsafe {

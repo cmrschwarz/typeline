@@ -195,7 +195,7 @@ impl Transform<'_> for TfMax {
                 .typed_range_fwd(
                     &jd.match_set_mgr,
                     gs_rem.min(bs_rem),
-                    FieldIterOpts::DEFAULT,
+                    FieldIterOpts::default(),
                 )
                 .unwrap();
             group_track_iter.next_n_fields(range.base.field_count);

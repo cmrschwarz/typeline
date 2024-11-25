@@ -12,7 +12,7 @@ use scr::{
         sequence::{create_op_enum, create_op_seq},
     },
     options::session_setup::ScrSetupOptions,
-    record_data::{array::Array, field::Field},
+    record_data::array::Array,
     utils::test_utils::SliceReader,
     CliOptionsWithDefaultExtensions,
 };
@@ -270,6 +270,30 @@ fn batched_ee() -> Result<(), ScrError> {
         .add_op(create_op_max())
         .run_collect_as::<i64>()?;
     assert_eq!(res, [4]);
+    Ok(())
+}
+
+#[test]
+fn batched_max_2() -> Result<(), ScrError> {
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(3)?
+        .add_op(create_op_literal(Literal::Array(Array::Mixed(vec![
+            FieldValue::Int(1),
+            FieldValue::Int(2),
+            FieldValue::Int(3),
+            FieldValue::Text("a".into()),
+            FieldValue::Int(5),
+            FieldValue::Int(12),
+            FieldValue::Text("b".into()),
+            FieldValue::Int(7),
+            FieldValue::Int(8),
+        ]))))
+        .add_op(create_op_flatten())
+        .add_op(create_op_compute("_+1")?)
+        .add_op(create_op_eliminate_errors())
+        .add_op(create_op_max())
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [13]);
     Ok(())
 }
 
