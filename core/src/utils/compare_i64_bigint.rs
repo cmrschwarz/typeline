@@ -12,8 +12,8 @@ pub fn compare_i64_bigint(lhs: i64, rhs: &BigInt) -> Ordering {
             }
         }
         Sign::Plus => {
-            // -lhs < +rhs
-            if lhs < 0 {
+            // -lhs/0 < +rhs
+            if lhs <= 0 {
                 return Ordering::Less;
             }
         }
@@ -33,7 +33,6 @@ pub fn compare_i64_bigint(lhs: i64, rhs: &BigInt) -> Ordering {
     }
 
     let rhs_mag = rhs.iter_u64_digits().next().unwrap();
-    debug_assert!(rhs.iter_u64_digits().skip(1).next().is_none());
 
     if lhs >= 0 {
         return (lhs as u64).cmp(&rhs_mag);

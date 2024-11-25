@@ -58,6 +58,8 @@ regex = "1.11.1"
 regex-syntax = "0.8.5"
 unicode-ident = "1.0.13"
 
+num-order = { version = "1.2", features = ["num-rational", "num-bigint"] }
+
 # for debug_log
 serde_derive = { version = "1.0.215", optional = true }
 serde_json = { version = "1.0.133", optional = true }

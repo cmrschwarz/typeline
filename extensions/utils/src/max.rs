@@ -1,5 +1,3 @@
-use num::{BigRational, FromPrimitive};
-use numcmp::NumCmp;
 use scr_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
@@ -24,10 +22,7 @@ use scr_core::{
         },
         iter_hall::FieldIterId,
     },
-    utils::{
-        compare_i64_bigint::compare_i64_bigint,
-        max_index::{max_index_f64, max_index_i64},
-    },
+    utils::max_index::{max_index_f64, max_index_i64},
 };
 
 use scr_core::operators::utils::any_number::AnyNumber;
@@ -84,50 +79,11 @@ fn merge_max_val(curr: &mut Option<AnyNumber>, new: AnyNumberRef) -> bool {
         *curr = Some(new.to_owned());
         return true;
     };
-    let greater = match (&curr, new) {
-        (AnyNumber::Int(lhs), AnyNumberRef::Int(rhs)) => rhs > lhs,
-        (AnyNumber::Float(lhs), AnyNumberRef::Float(rhs)) => rhs > lhs,
-        (AnyNumber::BigInt(lhs), AnyNumberRef::BigInt(rhs)) => rhs > lhs,
-        (AnyNumber::BigRational(lhs), AnyNumberRef::BigRational(rhs)) => {
-            rhs > lhs
-        }
-
-        (AnyNumber::Int(lhs), AnyNumberRef::Float(rhs)) => rhs.num_gt(*lhs),
-        (AnyNumber::Float(lhs), AnyNumberRef::Int(rhs)) => rhs.num_gt(*lhs),
-
-        (AnyNumber::Int(lhs), AnyNumberRef::BigInt(rhs)) => {
-            compare_i64_bigint(*lhs, rhs).is_le()
-        }
-        (AnyNumber::BigInt(lhs), AnyNumberRef::Int(rhs)) => {
-            compare_i64_bigint(*rhs, lhs).is_gt()
-        }
-
-        (AnyNumber::Int(lhs), AnyNumberRef::BigRational(rhs)) => {
-            rhs > &BigRational::from_i64(*lhs).unwrap() // PERF: :/
-        }
-        (AnyNumber::BigRational(lhs), AnyNumberRef::Int(rhs)) => {
-            &BigRational::from_i64(*rhs).unwrap() > lhs // PERF: :/
-        }
-        (AnyNumber::BigInt(lhs), AnyNumberRef::BigRational(rhs)) => {
-            rhs > &BigRational::from(lhs.clone()) // PERF: :/
-        }
-        (AnyNumber::BigRational(lhs), AnyNumberRef::BigInt(rhs)) => {
-            &BigRational::from(rhs.clone()) > lhs // PERF: :/
-        }
-        // TODO
-        (AnyNumber::BigRational(_lhs), AnyNumberRef::Float(_rhs)) => todo!(),
-        (AnyNumber::BigInt(_lhs), AnyNumberRef::Float(_rhs)) => {
-            todo!()
-        }
-        (AnyNumber::Float(_lhs), AnyNumberRef::BigInt(_rhs)) => {
-            todo!()
-        }
-        (AnyNumber::Float(_lhs), AnyNumberRef::BigRational(_rhs)) => todo!(),
-    };
-    if greater {
+    if new > curr.as_ref() {
         *curr = new.to_owned();
+        return true;
     }
-    greater
+    false
 }
 
 impl Transform<'_> for TfMax {
@@ -162,12 +118,12 @@ impl Transform<'_> for TfMax {
         ab.begin_action_group(self.actor_id);
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let mut bs_rem = batch_size;
-        let mut field_idx;
-        let mut field_idx_next = iter.get_next_field_pos();
+        let mut field_idx = iter.get_next_field_pos();
+        let mut group_start = field_idx;
         let mut fields_produced = 0;
+        let mut new_max_idx_found = None;
+        let mut had_max_value = self.curr_max_value.is_some();
         loop {
-            field_idx = field_idx_next;
-            let field_idx_before = field_idx;
             let mut gs_rem = group_track_iter.group_len_rem();
 
             let next_available = if gs_rem == 0 {
@@ -181,11 +137,38 @@ impl Transform<'_> for TfMax {
                 false
             };
 
+            if next_available || bs_rem == 0 {
+                let hmv = usize::from(had_max_value);
+                if let Some(new_max_id) = new_max_idx_found {
+                    let leading_drop = (new_max_id - group_start) + hmv;
+                    ab.push_action(
+                        FieldActionKind::Drop,
+                        group_start - hmv,
+                        leading_drop,
+                    );
+                    ab.push_action(
+                        FieldActionKind::Drop,
+                        new_max_id + 1 - leading_drop,
+                        ((field_idx - new_max_id) as usize).saturating_sub(1),
+                    );
+                    field_idx -= field_idx - group_start - (1 - hmv);
+                } else {
+                    ab.push_action(
+                        FieldActionKind::Drop,
+                        group_start,
+                        field_idx - group_start,
+                    );
+                    field_idx -= field_idx - group_start;
+                }
+                new_max_idx_found = None;
+            }
             if next_available || (bs_rem == 0 && ps.input_done) {
                 if let Some(max) = self.curr_max_value.take() {
                     max.push(&mut inserter, true, false);
                     fields_produced += 1;
                 }
+                group_start = field_idx;
+                had_max_value = false;
             }
             if bs_rem == 0 {
                 break;
@@ -200,9 +183,9 @@ impl Transform<'_> for TfMax {
                 .unwrap();
             group_track_iter.next_n_fields(range.base.field_count);
             bs_rem -= range.base.field_count;
-            field_idx_next = field_idx + range.base.field_count;
 
             if self.current_group_error_type.is_some() {
+                field_idx += range.base.field_count;
                 continue;
             }
             let mut res_idx = field_idx;
@@ -245,6 +228,7 @@ impl Transform<'_> for TfMax {
 
                     let (&v, rl) = iter.next().unwrap();
                     max_val_f64 = v;
+                    let range_start = field_idx;
                     field_idx += rl as usize;
                     if max_val_f64.is_nan() {
                         while let Some((&v, rl)) = iter.next() {
@@ -256,7 +240,7 @@ impl Transform<'_> for TfMax {
                             field_idx += rl as usize;
                         }
                         if max_val_f64.is_nan() {
-                            res_idx = field_idx_before;
+                            res_idx = range_start;
                         }
                     }
 
@@ -335,30 +319,12 @@ impl Transform<'_> for TfMax {
                             ),
                             op_id,
                         ));
+                    field_idx += range.base.field_count;
                     continue;
                 }
             }
-            let had_max_val = usize::from(self.curr_max_value.is_some());
-            if !merge_max_val(&mut self.curr_max_value, res_val) {
-                ab.push_action(
-                    FieldActionKind::Drop,
-                    field_idx_before,
-                    range.base.field_count,
-                );
-                field_idx_next -= range.base.field_count;
-            } else {
-                let leading_drop = (res_idx - field_idx_before) + had_max_val;
-                ab.push_action(
-                    FieldActionKind::Drop,
-                    field_idx_before - had_max_val,
-                    leading_drop,
-                );
-                ab.push_action(
-                    FieldActionKind::Drop,
-                    res_idx + 1 - leading_drop,
-                    (field_idx_next - res_idx).saturating_sub(1),
-                );
-                field_idx_next -= range.base.field_count - (1 - had_max_val);
+            if merge_max_val(&mut self.curr_max_value, res_val) {
+                new_max_idx_found = Some(res_idx);
             }
         }
         ab.end_action_group();

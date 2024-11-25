@@ -1337,7 +1337,10 @@ version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "537b596b97c40fcf8056d153049eb22f481c17ebce72a513ec9286e4986d1bb6"
 dependencies = [
+ "num-bigint",
  "num-modular",
+ "num-rational",
+ "num-traits",
 ]
 
 [[package]]
@@ -1359,12 +1362,6 @@ checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
 ]
-
-[[package]]
-name = "numcmp"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe40509739c4b27ad9a7573523d39dcc8d2b28e893a29aa469b78105369e30b5"
 
 [[package]]
 name = "object"
@@ -1987,6 +1984,7 @@ dependencies = [
  "memchr",
  "metamatch",
  "num",
+ "num-order",
  "once_cell",
  "parking_lot",
  "reedline",
@@ -2073,7 +2071,7 @@ dependencies = [
  "metamatch",
  "mio",
  "num",
- "numcmp",
+ "num-order",
  "primes",
  "rstest",
  "scr",

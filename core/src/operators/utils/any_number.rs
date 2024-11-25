@@ -1,13 +1,17 @@
 use std::{
     borrow::Cow,
+    cmp::Ordering,
     ops::{Add, AddAssign, Mul, MulAssign},
 };
 
 use crate::{
     record_data::{field_data::RunLength, push_interface::PushInterface},
-    utils::integer_sum::try_integer_sum,
+    utils::{
+        compare_i64_bigint::compare_i64_bigint, integer_sum::try_integer_sum,
+    },
 };
 use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
+use num_order::NumOrd;
 
 #[derive(Clone)]
 pub enum AnyNumber {
@@ -23,6 +27,86 @@ pub enum AnyNumberRef<'a> {
     BigInt(&'a num::BigInt),
     Float(&'a f64),
     BigRational(&'a BigRational),
+}
+
+impl PartialEq for AnyNumber {
+    fn eq(&self, other: &AnyNumber) -> bool {
+        self.partial_cmp(other) == Some(Ordering::Equal)
+    }
+}
+
+impl PartialOrd for AnyNumber {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.as_ref().partial_cmp(&other.as_ref())
+    }
+}
+
+impl<'a, 'b> PartialEq<AnyNumberRef<'b>> for AnyNumberRef<'a> {
+    fn eq(&self, other: &AnyNumberRef<'b>) -> bool {
+        self.partial_cmp(other) == Some(Ordering::Equal)
+    }
+}
+
+impl<'a, 'b> PartialOrd<AnyNumberRef<'b>> for AnyNumberRef<'a> {
+    fn partial_cmp(&self, other: &AnyNumberRef<'b>) -> Option<Ordering> {
+        match (self, other) {
+            (AnyNumberRef::Int(lhs), AnyNumberRef::Int(rhs)) => {
+                Some(lhs.cmp(rhs))
+            }
+            (AnyNumberRef::Float(lhs), AnyNumberRef::Float(rhs)) => {
+                lhs.partial_cmp(rhs)
+            }
+            (AnyNumberRef::BigInt(lhs), AnyNumberRef::BigInt(rhs)) => {
+                Some(lhs.cmp(rhs))
+            }
+            (
+                AnyNumberRef::BigRational(lhs),
+                AnyNumberRef::BigRational(rhs),
+            ) => Some(lhs.cmp(rhs)),
+
+            (AnyNumberRef::Int(lhs), AnyNumberRef::BigInt(rhs)) => {
+                Some(compare_i64_bigint(**lhs, rhs))
+            }
+            (AnyNumberRef::BigInt(lhs), AnyNumberRef::Int(rhs)) => {
+                Some(compare_i64_bigint(**rhs, lhs).reverse())
+            }
+
+            (AnyNumberRef::Int(lhs), AnyNumberRef::Float(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+            (AnyNumberRef::Float(lhs), AnyNumberRef::Int(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+
+            (AnyNumberRef::Int(lhs), AnyNumberRef::BigRational(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+            (AnyNumberRef::BigRational(lhs), AnyNumberRef::Int(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+
+            (AnyNumberRef::BigInt(lhs), AnyNumberRef::Float(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+            (AnyNumberRef::Float(lhs), AnyNumberRef::BigInt(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+
+            (AnyNumberRef::BigInt(lhs), AnyNumberRef::BigRational(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+            (AnyNumberRef::BigRational(lhs), AnyNumberRef::BigInt(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+
+            (AnyNumberRef::Float(lhs), AnyNumberRef::BigRational(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+            (AnyNumberRef::BigRational(lhs), AnyNumberRef::Float(rhs)) => {
+                lhs.num_partial_cmp(*rhs)
+            }
+        }
+    }
 }
 
 impl Default for AnyNumber {
