@@ -2,6 +2,7 @@
 
 use collect::parse_op_collect;
 use dup::{parse_op_drop, parse_op_dup};
+use eliminate_errors::parse_op_eliminate_errors;
 use exec::parse_op_exec;
 use explode::parse_op_explode;
 use flatten::parse_op_flatten;
@@ -28,6 +29,7 @@ use typename::create_op_typename;
 
 pub mod collect;
 pub mod dup;
+pub mod eliminate_errors;
 pub mod exec;
 pub mod explode;
 pub mod flatten;
@@ -72,6 +74,7 @@ impl Extension for UtilsExtension {
             "flatten" => parse_op_flatten(&expr)?,
             "sum" => parse_op_sum(&expr)?,
             "max" => parse_op_max(&expr)?,
+            "eliminate_errors" | "ee" => parse_op_eliminate_errors(&expr)?,
             "primes" => parse_op_primes(&expr)?,
             "collect" => parse_op_collect(&expr)?,
             "lines" | "l" => parse_op_reject_args(&expr, create_op_lines)?,
