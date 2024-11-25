@@ -347,14 +347,15 @@ impl Transform<'_> for TfMax {
                 );
                 field_idx_next -= range.base.field_count;
             } else {
+                let leading_drop = (res_idx - field_idx_before) + had_max_val;
                 ab.push_action(
                     FieldActionKind::Drop,
                     field_idx_before - had_max_val,
-                    (res_idx - field_idx_before) + had_max_val,
+                    leading_drop,
                 );
                 ab.push_action(
                     FieldActionKind::Drop,
-                    res_idx + 1,
+                    res_idx + 1 - leading_drop,
                     (field_idx_next - res_idx).saturating_sub(1),
                 );
                 field_idx_next -= range.base.field_count - (1 - had_max_val);
