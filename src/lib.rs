@@ -27,9 +27,8 @@
 //! bpl str="https://google.com" GET xpath="//@href" r-f="\.png$" GET enum-n write="{:02}.png"
 //! ```
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
-use once_cell::sync::Lazy;
 use options::{
     context_builder::ContextBuilder, session_setup::ScrSetupOptions,
 };
@@ -38,8 +37,8 @@ pub use scr_core::*;
 
 use extension::ExtensionRegistry;
 
-pub static DEFAULT_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
-    Lazy::new(build_extension_registry);
+pub static DEFAULT_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
+    LazyLock::new(build_extension_registry);
 
 pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
     #[allow(unused_mut)]
