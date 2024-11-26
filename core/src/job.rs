@@ -363,32 +363,26 @@ impl<'a> Job<'a> {
         }
     }
     pub fn log_state(&self, message: &str) {
-        if cfg!(feature = "debug_logging")
-            && cfg!(feature = "debug_logging_setup")
-        {
-            eprintln!("{message}");
-            for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
-                let name =
-                    self.transform_data[i].display_name(&self.job_data, i);
-                eprintln!(
-                    "tf {:02} -> {} [fields {} -> {}] (ms {}): {}",
-                    i,
-                    if let Some(s) = tf.successor {
-                        format!("{s}")
-                    } else {
-                        "_".to_string()
-                    },
-                    tf.input_field,
-                    tf.output_field,
-                    tf.match_set_id,
-                    name
-                );
-            }
-            #[cfg(feature = "debug_logging")]
-            for (i, _) in self.job_data.field_mgr.fields.iter_enumerated() {
-                self.job_data.field_mgr.print_field_stats(i);
-                eprintln!();
-            }
+        eprintln!("{message}");
+        for (i, tf) in self.job_data.tf_mgr.transforms.iter_enumerated() {
+            let name = self.transform_data[i].display_name(&self.job_data, i);
+            eprintln!(
+                "tf {:02} -> {} [fields {} -> {}] (ms {}): {}",
+                i,
+                if let Some(s) = tf.successor {
+                    format!("{s}")
+                } else {
+                    "_".to_string()
+                },
+                tf.input_field,
+                tf.output_field,
+                tf.match_set_id,
+                name
+            );
+        }
+        for (i, _) in self.job_data.field_mgr.fields.iter_enumerated() {
+            self.job_data.field_mgr.print_field_stats(i);
+            eprintln!();
         }
     }
     pub fn setup_job(&mut self, mut job_desc: JobDescription) {
@@ -477,6 +471,7 @@ impl<'a> Job<'a> {
             );
         }
         let _ = std::mem::replace(&mut self.temp_vec, input_data_fields);
+        #[cfg(feature = "debug_logging_setup")]
         self.log_state("setting up job");
     }
     pub(crate) fn setup_venture(
@@ -496,6 +491,7 @@ impl<'a> Job<'a> {
         self.job_data
             .tf_mgr
             .push_tf_in_ready_stack(instantiation.tfs_begin);
+        #[cfg(feature = "debug_logging_setup")]
         self.log_state("setting up venture");
     }
 
@@ -945,7 +941,7 @@ impl<'a> Job<'a> {
     }
 
     pub(crate) fn run_stream_producer_update(&mut self, tf_id: TransformId) {
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug_logging_streams")]
         eprintln!(
             "> stream producer update tf {:02} {:>20}, producers: {:?}, stack: {:?}",
             tf_id,
@@ -976,7 +972,7 @@ impl<'a> Job<'a> {
             }
         }
 
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug_logging_streams")]
         eprintln!(
             "/> stream producer update tf {:02} {:>20}, producers: {:?}, stack: {:?}",
             tf_id,
