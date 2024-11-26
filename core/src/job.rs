@@ -64,6 +64,8 @@ pub struct Job<'a> {
     pub temp_vec: Vec<FieldId>,
     #[cfg(feature = "debug_log")]
     debug_log: Option<std::fs::File>,
+    #[cfg(feature = "debug_logging_transform_update_timestamps")]
+    job_start: std::time::SystemTime,
 }
 
 #[derive(Default)]
@@ -360,6 +362,9 @@ impl<'a> Job<'a> {
                     std::fs::File::create(p).expect("debug log path must be valid")
                 }),
             job_data,
+
+            #[cfg(feature = "debug_logging_transform_update_timestamps")]
+            job_start: std::time::SystemTime::now()
         }
     }
     pub fn log_state(&self, message: &str) {
@@ -818,7 +823,7 @@ impl<'a> Job<'a> {
         }
     }
     fn handle_stream_value_update(&mut self, svu: StreamValueUpdate) {
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug_logging_streams")]
         {
             let jd = &mut self.job_data;
             eprintln!(
@@ -830,7 +835,6 @@ impl<'a> Job<'a> {
                 jd.tf_mgr.ready_stack,
                 jd.tf_mgr.pre_stream_transform_stack_cutoff
             );
-            #[cfg(feature = "debug_logging_streams")]
             if !jd.sv_mgr.updates.is_empty() {
                 eprint!("     :: pending sv updates: ");
                 jd.sv_mgr.log_pending_updates(4);
@@ -867,16 +871,25 @@ impl<'a> Job<'a> {
             self.job_data.tf_mgr.transforms[tf_id].available_batch_size;
 
         #[cfg(feature = "debug_logging_transform_update")]
-        eprintln!(
-            "> {}: transform update {}",
-            self.job_data.transform_step_count,
-            self.job_data.tf_mgr.format_transform_state(
-                &self.job_data,
-                tf_id,
-                &self.transform_data,
-                None
-            )
-        );
+        {
+            #[cfg(feature = "debug_logging_transform_update_timestamps")]
+            let timestamp =
+                format!("[{}]", self.job_start.elapsed().unwrap().as_micros());
+
+            #[cfg(not(feature = "debug_logging_transform_update_timestamps"))]
+            let timestamp = "";
+
+            eprintln!(
+                "{timestamp}> {}: transform update {}",
+                self.job_data.transform_step_count,
+                self.job_data.tf_mgr.format_transform_state(
+                    &self.job_data,
+                    tf_id,
+                    &self.transform_data,
+                    None
+                )
+            );
+        }
 
         transform_pre_update(self, tf_id, ctx)?;
         transform_update(self, tf_id);

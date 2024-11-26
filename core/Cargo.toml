@@ -103,6 +103,7 @@ debug_log_show_ref_lookup_iter = ["debug_log"]
 
 debug_logging = ["debug_state"]
 debug_logging_transform_update = ["debug_logging"]
+debug_logging_transform_update_timestamps = ["debug_logging_transform_update"]
 debug_logging_liveness_analysis = ["debug_logging"]
 debug_logging_setup = ["debug_logging"]
 debug_logging_streams = ["debug_logging"]
