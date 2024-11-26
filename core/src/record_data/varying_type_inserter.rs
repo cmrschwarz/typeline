@@ -1,4 +1,4 @@
-use std::{mem::MaybeUninit, ops::DerefMut};
+use std::{mem::MaybeUninit, ops::DerefMut, usize};
 
 use crate::record_data::field_data::INLINE_STR_MAX_LEN;
 
@@ -39,11 +39,15 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
         Self {
             fd,
             count: 0,
-            max: 0,
             data_ptr: std::ptr::null_mut(),
             #[cfg(debug_assertions)]
             data_ptr_end: std::ptr::null_mut(),
-            fmt: FieldValueFormat::default(),
+            max: usize::MAX, // ZST
+            fmt: FieldValueFormat {
+                repr: FieldValueRepr::Null,
+                flags: field_value_flags::DEFAULT,
+                size: 0,
+            },
         }
     }
     pub fn with_reservation(
@@ -322,7 +326,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
                 flags,
                 size: 0,
             };
-            self.max = 0;
+            self.max = usize::MAX; // ZST
         }
         self.count += run_length;
     }
