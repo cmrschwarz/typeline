@@ -215,7 +215,8 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         let res = self.data_ptr;
         unsafe {
             self.data_ptr = self.data_ptr.add(data_len);
-            debug_assert!(self.data_ptr <= self.data_ptr_end);
+            #[cfg(debug_assertions)]
+            assert!(self.data_ptr <= self.data_ptr_end);
         }
         self.count += 1;
         res
@@ -298,7 +299,8 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         unsafe {
             std::ptr::write(self.data_ptr.cast(), data);
             self.data_ptr = self.data_ptr.add(fmt.size as usize);
-            debug_assert!(self.data_ptr <= self.data_ptr_end);
+            #[cfg(debug_assertions)]
+            assert!(self.data_ptr <= self.data_ptr_end);
         }
         self.count += 1;
     }
