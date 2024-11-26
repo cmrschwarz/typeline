@@ -96,8 +96,10 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     }
     pub unsafe fn realloc(&mut self, cap_new: usize) {
         let cap_old = self.cap;
-        self.cap = cap_new;
         let head_old = self.head;
+        let (l1, l2) = self.slice_lengths();
+        let data_old = self.data.as_ptr();
+        self.cap = cap_new;
         self.head = 0;
         if cap_new == 0 {
             if cap_old != 0 {
@@ -119,8 +121,6 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
             };
             return;
         }
-        let data_old = self.data.as_ptr();
-        let (l1, l2) = self.slice_lengths();
         unsafe {
             let data_new = std::alloc::alloc(
                 Layout::from_size_align_unchecked(cap_new, ALIGN),
