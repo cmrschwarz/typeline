@@ -56,6 +56,7 @@ lto = "fat"
 
 [profile.dev]
 panic = "unwind"
+debug = true
 
 [profile.bench]
 inherits = "release"

@@ -20,6 +20,8 @@ pub struct VaryingTypeInserter<FD: DerefMut<Target = FieldData>> {
     count: usize,
     max: usize,
     data_ptr: *mut u8,
+    #[cfg(debug_assertions)]
+    data_ptr_end: *mut u8,
     fmt: FieldValueFormat,
 }
 
@@ -39,6 +41,8 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             count: 0,
             max: 0,
             data_ptr: std::ptr::null_mut(),
+            #[cfg(debug_assertions)]
+            data_ptr_end: std::ptr::null_mut(),
             fmt: FieldValueFormat::default(),
         }
     }
@@ -66,7 +70,17 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             0,
         );
         self.max = reserved_elements;
-        self.data_ptr = unsafe { self.fd.data.tail_ptr_mut().add(padding) };
+        unsafe {
+            self.data_ptr = self.fd.data.tail_ptr_mut().add(padding);
+            #[cfg(debug_assertions)]
+            {
+                self.data_ptr_end = self
+                    .fd
+                    .data
+                    .tail_ptr_mut()
+                    .add(self.fd.data.contiguous_tail_space_available());
+            }
+        }
     }
     fn sanitize_format(fmt: FieldValueFormat) {
         if fmt.repr.is_dst() {
@@ -201,6 +215,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         let res = self.data_ptr;
         unsafe {
             self.data_ptr = self.data_ptr.add(data_len);
+            debug_assert!(self.data_ptr <= self.data_ptr_end);
         }
         self.count += 1;
         res
@@ -283,6 +298,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         unsafe {
             std::ptr::write(self.data_ptr.cast(), data);
             self.data_ptr = self.data_ptr.add(fmt.size as usize);
+            debug_assert!(self.data_ptr <= self.data_ptr_end);
         }
         self.count += 1;
     }
@@ -304,9 +320,9 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
                 flags,
                 size: 0,
             };
+            self.max = 0;
         }
         self.count += run_length;
-        self.max = self.max.max(self.count);
     }
 
     fn bytes_insertion_stream(
