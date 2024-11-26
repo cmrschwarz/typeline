@@ -247,23 +247,24 @@ impl ContextBuilder {
     ) -> Result<Vec<T>, ContextualizedScrError> {
         let mut res = Vec::new();
         for (i, fv) in self.run_collect()?.into_iter().enumerate() {
-            let kind = fv.kind();
-            if let Some(v) = fv.downcast_allowing_text_as_bytes() {
-                res.push(v)
-            } else {
-                return Err(ContextualizedScrError::from_scr_error(
-                    CollectTypeMissmatch {
-                        index: i,
-                        expected: T::REPR,
-                        got: kind,
-                    }
-                    .into(),
-                    None,
-                    None,
-                    None,
-                    None,
-                ));
+            // cannot use if let Some(fv) = fv.downcast() because of lifetime
+            // shenanegans with if let
+            if fv.kind() == T::KIND {
+                res.push(fv.downcast_allowing_text_as_bytes().unwrap());
+                continue;
             }
+            return Err(ContextualizedScrError::from_scr_error(
+                CollectTypeMissmatch {
+                    index: i,
+                    expected: T::REPR,
+                    got: fv,
+                }
+                .into(),
+                None,
+                None,
+                None,
+                None,
+            ));
         }
         Ok(res)
     }

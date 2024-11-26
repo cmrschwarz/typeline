@@ -1,4 +1,8 @@
-use std::{borrow::Cow, fmt::Debug, sync::Arc};
+use std::{
+    borrow::Cow,
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 
 use thiserror::Error;
 
@@ -24,7 +28,7 @@ use crate::{
             SETTING_REASSIGNMENT_ERROR_MESSAGE,
         },
     },
-    record_data::{field_data::FieldValueRepr, field_value::FieldValueKind},
+    record_data::{field_data::FieldValueRepr, field_value::FieldValue},
     utils::{index_slice::IndexSlice, indexing_type::IndexingType},
 };
 
@@ -51,15 +55,24 @@ pub struct ReplDisabledError {
     pub span: Span,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
-#[error("failed to collect {expected} as {got} (element index {index})")]
+#[derive(Error, Debug, Clone, PartialEq)]
 pub struct CollectTypeMissmatch {
     pub index: usize,
     pub expected: FieldValueRepr,
-    pub got: FieldValueKind,
+    pub got: FieldValue,
 }
 
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+impl Display for CollectTypeMissmatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "expected {}, got {}",
+            self.expected,
+            self.got.kind()
+        ))
+    }
+}
+
+#[derive(Error, Debug, Clone, PartialEq)]
 pub enum ScrError {
     #[error(transparent)]
     PrintInfoAndExitError(#[from] PrintInfoAndExitError),
