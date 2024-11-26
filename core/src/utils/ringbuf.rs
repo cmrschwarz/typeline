@@ -161,10 +161,12 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
     fn len_to_align_padding(&self) -> usize {
         (ALIGN - self.len % ALIGN) % ALIGN
     }
-    pub fn make_contiguous(&mut self) {
+    pub fn make_contiguous_with_overhang(&mut self, overhang: usize) {
+        self.len += overhang; // PERF: causes unneccessary copy. TODO: fix.
         let used_space_back = self.space_back();
         // if we don't return here, `space_back == used_space_back`
-        if used_space_back >= self.len {
+        if used_space_back >= self.len + overhang {
+            self.len -= overhang;
             return;
         }
         let ptr = self.data.as_ptr();
@@ -192,6 +194,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
                 );
             }
             self.head = 0;
+            self.len -= overhang;
             return;
         }
         // If we want one contiguous slice at the end, we need to have this
@@ -217,6 +220,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
                 );
             }
             self.head = head_new;
+            self.len -= overhang;
             return;
         }
 
@@ -249,6 +253,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
                     .rotate_left(used_space_front);
             }
             self.head = front_pad;
+            self.len -= overhang;
             return;
         }
 
@@ -268,6 +273,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
                     .rotate_left(used_space_front);
             }
             self.head = head_new;
+            self.len -= overhang;
             return;
         }
 
@@ -289,7 +295,12 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
                 .rotate_left(used_space_front);
         }
         self.head = 0;
+        self.len -= overhang;
     }
+    pub fn make_contiguous(&mut self) {
+        self.make_contiguous_with_overhang(0);
+    }
+
     // `tail_data_to_join_with` is the amount of bytes currently sitting right
     // before the end of the ringbuffer that we want to also be contiguous
     // with the space reserved at the end
@@ -304,7 +315,7 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
             let free_space_front = self.head
                 - (self.len - space_back)
                 - self.front_padding as usize;
-            if free_space_front > additional_cap
+            if free_space_front >= additional_cap
                 && tail_data_to_join_with <= self.used_space_front()
             {
                 return;
@@ -315,12 +326,9 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
             if self.len + additional_cap <= space_back {
                 return;
             }
-            if self.head > additional_cap + self.len_to_align_padding() {
-                return;
-            }
         }
         if self.cap - self.len >= additional_cap {
-            self.make_contiguous();
+            self.make_contiguous_with_overhang(additional_cap);
             return;
         }
         let cap_new = self.calculate_new_cap(self.len + additional_cap);
