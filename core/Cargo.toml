@@ -107,6 +107,7 @@ debug_logging_liveness_analysis = ["debug_logging"]
 debug_logging_setup = ["debug_logging"]
 debug_logging_streams = ["debug_logging"]
 debug_logging_cow_fields = ["debug_logging"]
+debug_logging_group_tracks = ["debug_logging"]
 debug_logging_output_fields = ["debug_logging"]
 debug_logging_field_actions = ["debug_logging"]
 debug_logging_field_action_groups = ["debug_logging"]
@@ -122,6 +123,7 @@ debug_logging_full = [
     "debug_logging_setup",
     "debug_logging_streams",
     "debug_logging_cow_fields",
+    "debug_logging_group_tracks",
     "debug_logging_output_fields",
     "debug_logging_field_actions",
     "debug_logging_field_action_groups",

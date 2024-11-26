@@ -732,7 +732,7 @@ impl GroupTrack {
             return;
         }
 
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug_logging_group_tracks")]
         {
             eprintln!(
                 "appending leading groups from track {} to {}: full: {}({}) partial: {}({}) ",
@@ -806,7 +806,7 @@ impl GroupTrack {
             }
         }
 
-        #[cfg(feature = "debug_logging")]
+        #[cfg(feature = "debug_logging_group_tracks")]
         {
             eprint!("   after:   {alias}",);
             #[cfg(feature = "debug_logging_iter_states")]
