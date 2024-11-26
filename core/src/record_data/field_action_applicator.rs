@@ -391,11 +391,12 @@ impl FieldActionApplicator {
         let post = (header.run_length - pre).saturating_sub(1);
         self.push_copy_command(faas);
 
-        let data_size_pre = if pre == 0 {
-            0
-        } else {
-            header.leading_padding() + (header.size as usize) * (pre as usize)
-        };
+        let data_size_pre = header.leading_padding()
+            + if pre == 0 {
+                0
+            } else {
+                (header.size as usize) * (pre as usize)
+            };
 
         let data_start_mid =
             faas.curr_header_data_start_pre_padding + data_size_pre;
@@ -1538,6 +1539,77 @@ mod test {
             ],
             [],
             [],
+        );
+    }
+
+    #[test]
+    fn adjust_iters_after_dup_on_padded() {
+        // make sure that the padding is not taken away from the iterators,
+        // despite it technically counting as leading dead data
+        test_actions_on_headers(
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        size: 2,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::SlicedFieldReference,
+                        size: 24,
+                        flags: field_value_flags::padding(6),
+                    },
+                    run_length: 2,
+                },
+            ],
+            [
+                FieldAction::new(FieldActionKind::Dup, 0, 4),
+                FieldAction::new(FieldActionKind::Dup, 5, 2),
+            ],
+            [
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::BytesInline,
+                        size: 2,
+                        flags: field_value_flags::DELETED,
+                    },
+                    run_length: 1,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::SlicedFieldReference,
+                        size: 24,
+                        flags: field_value_flags::padding(6)
+                            | field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 5,
+                },
+                FieldValueHeader {
+                    fmt: FieldValueFormat {
+                        repr: FieldValueRepr::SlicedFieldReference,
+                        size: 24,
+                        flags: field_value_flags::SHARED_VALUE,
+                    },
+                    run_length: 3,
+                },
+            ],
+            [IterStateRaw {
+                field_pos: 2,
+                header_start_data_pos_pre_padding: 2,
+                header_idx: 1,
+                header_rl_offset: 2,
+                first_right_leaning_actor_id: LEAN_LEFT,
+            }],
+            [IterStateRaw {
+                field_pos: 8,
+                header_start_data_pos_pre_padding: 32,
+                header_idx: 2,
+                header_rl_offset: 3,
+                first_right_leaning_actor_id: LEAN_LEFT,
+            }],
         );
     }
 
