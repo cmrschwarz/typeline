@@ -62,7 +62,6 @@ fn primes_head() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[ignore] // HACK //TODO: this is borked. fix.
 #[test]
 fn primes_head_multi() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
@@ -299,11 +298,10 @@ fn batched_max_2() -> Result<(), ScrError> {
     Ok(())
 }
 
-#[ignore] // TODO: this test is borked. Fix.
 #[test]
 fn multi_batch_primes_head() -> Result<(), ScrError> {
     let res = ContextBuilder::without_exts()
-        .set_batch_size(3)?
+        .set_batch_size(7)?
         .add_op(create_op_primes())
         .add_op(create_op_head(10))
         .add_op(create_op_sum())

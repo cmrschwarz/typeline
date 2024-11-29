@@ -107,6 +107,7 @@ pub struct GroupTrackIterMut<'a, T: DerefMut<Target = GroupTrack>> {
     base: GroupTrackIter<T>,
     group_len: usize,
     update_group_len: bool,
+    actor_id: ActorId,
     action_buffer: &'a RefCell<ActionBuffer>,
 }
 
@@ -861,6 +862,7 @@ impl GroupTrack {
             base,
             update_group_len: false,
             action_buffer,
+            actor_id,
         }
     }
     pub fn store_iter<T: Deref<Target = Self>>(
@@ -899,22 +901,38 @@ impl GroupTrack {
         &self,
         group_index: GroupIdx,
         field_pos_start: usize,
+        insert_actor_id: Option<ActorId>,
     ) -> Range<GroupTrackIterSortedIndex> {
         let mut start = self
             .iter_states
-            .binary_search_by_key(&(group_index, field_pos_start), |is| {
-                let is = is.get();
-                (is.group_idx, is.group_offset)
-            })
+            .binary_search_by_key(
+                &(
+                    group_index,
+                    field_pos_start + usize::from(insert_actor_id.is_none()),
+                ),
+                |is| {
+                    let is = is.get();
+                    (is.group_idx, is.group_offset)
+                },
+            )
             .unwrap_or_else(|insert_point| insert_point);
         let mut end = if start == self.iter_states.len() {
             start
         } else {
             start + 1
         };
-        while start < end
-            && self.iter_states[start].get().group_idx < group_index
-        {
+        while start < end {
+            let is = self.iter_states[start].get();
+            if is.group_idx >= group_index {
+                break;
+            }
+            if is.field_pos == field_pos_start
+                && insert_actor_id
+                    .map(|id| id < is.first_right_leaning_actor_id)
+                    .unwrap_or(false)
+            {
+                break;
+            }
             start += 1;
         }
         while start < end
@@ -930,7 +948,14 @@ impl GroupTrack {
             if is.group_idx < group_index {
                 break;
             }
-            if is.group_idx == group_index && is.field_pos < field_pos_start {
+            if is.field_pos < field_pos_start {
+                break;
+            }
+            if is.field_pos == field_pos_start
+                && insert_actor_id
+                    .map(|id| id < is.first_right_leaning_actor_id)
+                    .unwrap_or(true)
+            {
                 break;
             }
             start -= 1;
@@ -989,10 +1014,7 @@ impl GroupTrack {
                 is.field_pos += count;
             } else {
                 let count = (-count) as usize;
-                // HACK: refactor this. we need the plus one here
-                // because we start our affected iter range at +1
-                // to not adjust the iters sitting on the same field pos
-                let delta = is.field_pos - field_pos_start + 1;
+                let delta = is.field_pos - field_pos_start;
                 let offs = if delta < count { delta } else { count };
                 is.group_offset -= offs;
                 is.field_pos -= offs;
@@ -1010,9 +1032,14 @@ impl GroupTrack {
         group_index: GroupIdx,
         field_pos_start: usize,
         count: isize,
+        insert_actor_id: Option<ActorId>,
     ) {
         self.advance_affected_iters(
-            self.lookup_iter_sort_key_range(group_index, field_pos_start),
+            self.lookup_iter_sort_key_range(
+                group_index,
+                field_pos_start,
+                insert_actor_id,
+            ),
             field_pos_start,
             count,
         )
@@ -1580,6 +1607,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
             self.base.group_idx,
             self.base.field_pos,
             count as isize,
+            Some(self.actor_id),
         );
 
         let field_pos_prev = self.base.field_pos;
@@ -1626,8 +1654,9 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         );
         self.base.group_track.lookup_and_advance_affected_iters_(
             self.base.group_idx,
-            self.base.field_pos + 1,
+            self.base.field_pos,
             count as isize,
+            None,
         );
     }
     pub fn dup_before(&mut self, field_pos: usize, count: usize) {
@@ -1647,8 +1676,9 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         );
         self.base.group_track.lookup_and_advance_affected_iters_(
             self.base.group_idx,
-            field_pos + 1,
+            field_pos,
             count as isize,
+            None,
         );
     }
     pub fn dup_after(&mut self, field_pos: usize, count: usize) {
@@ -1668,8 +1698,9 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         );
         self.base.group_track.lookup_and_advance_affected_iters_(
             self.base.group_idx,
-            field_pos + 1,
+            field_pos,
             count as isize,
+            None,
         );
     }
     pub fn dup_with_field_pos(&mut self, field_pos: usize, count: usize) {
@@ -1701,8 +1732,9 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         self.update_group_len = true;
         self.base.group_track.lookup_and_advance_affected_iters_(
             self.base.group_idx,
-            self.base.field_pos + 1,
+            self.base.field_pos,
             -(count as isize),
+            None,
         );
     }
     pub fn drop(&mut self, count: usize) {
@@ -1731,8 +1763,9 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         self.base.field_pos -= count;
         self.base.group_track.lookup_and_advance_affected_iters_(
             self.base.group_idx,
-            self.base.field_pos + 1,
+            self.base.field_pos,
             -(count as isize),
+            None,
         );
     }
     fn drop_in_earlier_groups_no_field_action(
@@ -1775,6 +1808,7 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
             group_idx,
             field_pos,
             -(count as isize),
+            None,
         );
     }
     pub fn drop_before(&mut self, field_pos: usize, mut count: usize) {
@@ -1807,8 +1841,9 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         if pos_delta >= count {
             self.base.group_track.lookup_and_advance_affected_iters_(
                 self.base.group_idx,
-                self.base.field_pos - pos_delta + 1,
+                self.base.field_pos - pos_delta,
                 -(count as isize),
+                None,
             );
             self.group_len -= count;
             self.update_group_len = true;
@@ -1833,8 +1868,9 @@ impl<'a, T: DerefMut<Target = GroupTrack>> GroupTrackIterMut<'a, T> {
         if count <= self.base.group_len_rem - pos_delta {
             self.base.group_track.lookup_and_advance_affected_iters_(
                 self.base.group_idx,
-                field_pos + 1,
+                field_pos,
                 -(count as isize),
+                None,
             );
             self.group_len -= count;
             self.base.group_len_rem -= count;

@@ -630,7 +630,6 @@ fn setup_subchain<'a>(
 
     let trailer_tf = TfForkCatSubchainTrailer::<'a> {
         op,
-
         subchain_idx: fc_sc_idx,
         continuation_state,
         relaunch_for_cow_advance: false,
