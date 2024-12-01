@@ -57,6 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-readme
+      # cannot use stable cargo readme as they don't support workspace based configuration yet
+      - run: cargo install --git=https://github.com/yassun7010/cargo-readme --branch=support_cargo_toml cargo-readme --rev=66e0176290ebc32bc110a020de627e98d6b190cc
       - run: cargo readme > README.md
       - run: git diff --exit-code
