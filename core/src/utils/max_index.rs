@@ -247,18 +247,18 @@ pub fn max_index_f64(nums: &[f64]) -> Option<usize> {
 mod test {
     use core::f64;
 
-    use crate::utils::max_index::{max_index_f64, max_index_i64_avx2};
+    use crate::utils::max_index::{max_index_f64, max_index_i64};
 
     #[test]
     fn i64_max_value() {
         let arr = [i64::MAX, 0, 0, 0, 1, 0, 0, -1];
-        assert_eq!(max_index_i64_avx2(&arr), Some(0));
+        assert_eq!(max_index_i64(&arr), Some(0));
     }
 
     #[test]
     fn i64_take_first_if_same() {
         let arr = [-1, 0, 0, 0, 0, 0, 0, 0];
-        assert_eq!(max_index_i64_avx2(&arr), Some(1));
+        assert_eq!(max_index_i64(&arr), Some(1));
     }
 
     #[test]
