@@ -8,16 +8,23 @@ members = [
     "extensions/csv",
 ]
 
+package.version = "0.1.0"
+package.license = "MIT"
+package.authors = ["Christian Schwarz <cmrs@cmrs.io>"]
+package.repository = "https://github.com/cmrschwarz/scr"
+package.edition = "2021"
+package.rust-version = "1.80"
+
 [package]
 name = "scr"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.80"
-
-license = "MIT"
-repository = "https://github.com/cmrschwarz/scr"
-authors = ["Christian Schwarz <cmrs@cmrs.io>"]
 description = "High performance pipeline processor"
+
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 
 autobenches = false
 
