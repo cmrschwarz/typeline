@@ -376,4 +376,26 @@ impl Array {
             Array::Mixed(v) => v.get_mut(index).map(|v| v.as_ref_mut()),
         })
     }
+
+    pub fn ref_iter(&self) -> ArrayRefIter {
+        ArrayRefIter {
+            arr: self,
+            index: 0,
+        }
+    }
+}
+
+pub struct ArrayRefIter<'a> {
+    arr: &'a Array,
+    index: usize,
+}
+
+impl<'a> Iterator for ArrayRefIter<'a> {
+    type Item = FieldValueRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let res = self.arr.get(self.index)?;
+        self.index += 1;
+        Some(res)
+    }
 }

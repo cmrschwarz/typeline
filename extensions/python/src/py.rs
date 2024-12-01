@@ -6,7 +6,8 @@ use pyo3::{
     ffi::{PyObject, PyTypeObject},
     pybacked::{PyBackedBytes, PyBackedStr},
     types::{
-        PyAnyMethods, PyBytes, PyCode, PyDict, PyList, PyString, PyTypeMethods,
+        PyAnyMethods, PyBytes, PyCode, PyDict, PyList, PyListMethods,
+        PyString, PyTypeMethods,
     },
     Bound, IntoPyObject, Py, PyAny, Python,
 };
@@ -40,8 +41,9 @@ use scr_core::{
     scr_error::ScrError,
     smallbox,
     utils::{
+        lazy_lock_guard::LazyRwLockGuard,
         phantom_slot::PhantomSlot,
-        string_store::StringStoreEntry,
+        string_store::{StringStore, StringStoreEntry},
         temp_vec::{transmute_vec, TransmutableContainer},
     },
 };
@@ -352,6 +354,87 @@ fn get_python_value(
     )))
 }
 
+fn to_python_object<'a>(
+    val: FieldValueRef<'_>,
+    py: Python<'a>,
+    lazy_string_store: &mut LazyRwLockGuard<'_, StringStore>,
+) -> Result<Option<Bound<'a, PyAny>>, OperatorApplicationError> {
+    match val {
+        FieldValueRef::Null => {
+            Ok(Some(().into_pyobject(py).unwrap().into_any()))
+        }
+        // TODO: maybe error / configurable
+        FieldValueRef::Undefined => Ok(None),
+        FieldValueRef::Int(i) => {
+            Ok(Some(i.into_pyobject(py).unwrap().into_any()))
+        }
+        FieldValueRef::BigInt(i) => {
+            Ok(Some(i.into_pyobject(py).unwrap().into_any()))
+        }
+        FieldValueRef::Float(f) => {
+            Ok(Some(f.into_pyobject(py).unwrap().into_any()))
+        }
+        FieldValueRef::BigRational(_) => todo!(), // use fractions.
+        // Fraction?
+        FieldValueRef::Text(s) => {
+            Ok(Some(s.into_pyobject(py).unwrap().into_any()))
+        }
+        FieldValueRef::Bytes(b) => Ok(Some(PyBytes::new(py, b).into_any())),
+        FieldValueRef::Argument(_) => todo!(),
+        FieldValueRef::Macro(_) => todo!(),
+        FieldValueRef::Array(a) => {
+            let res =
+                PyList::new(py, std::iter::empty::<Bound<PyDict>>()).unwrap();
+            for v in a.ref_iter() {
+                res.append(to_python_object(v, py, lazy_string_store)?)
+                    .unwrap();
+            }
+            Ok(Some(res.into_any()))
+        }
+        FieldValueRef::Object(o) => {
+            let res = PyDict::new(py);
+            match o {
+                Object::KeysStored(index_map) => {
+                    for (k, v) in index_map {
+                        res.set_item(
+                            k.into_pyobject(py).unwrap(),
+                            to_python_object(
+                                v.as_ref(),
+                                py,
+                                lazy_string_store,
+                            )?,
+                        )
+                        .unwrap();
+                    }
+                }
+                Object::KeysInterned(index_map) => {
+                    for (k, v) in index_map {
+                        res.set_item(
+                            lazy_string_store
+                                .get_mut()
+                                .lookup(*k)
+                                .into_pyobject(py)
+                                .unwrap(),
+                            to_python_object(
+                                v.as_ref(),
+                                py,
+                                lazy_string_store,
+                            )?,
+                        )
+                        .unwrap();
+                    }
+                }
+            }
+            Ok(Some(res.into_any()))
+        }
+        FieldValueRef::Custom(_) => todo!(),
+        FieldValueRef::StreamValueId(_) => todo!(),
+        FieldValueRef::Error(e) => Err(e.clone()),
+        FieldValueRef::FieldReference(_) => todo!(),
+        FieldValueRef::SlicedFieldReference(_) => todo!(),
+    }
+}
+
 impl<'a> Transform<'a> for TfPy<'a> {
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
@@ -365,6 +448,9 @@ impl<'a> Transform<'a> for TfPy<'a> {
             tf_id,
             [output_field],
         );
+
+        let mut lazy_string_store =
+            LazyRwLockGuard::new(&jd.session_data.string_store);
 
         let mut output_field = jd.field_mgr.fields[output_field].borrow_mut();
         let mut inserter = output_field.iter_hall.varying_type_inserter();
@@ -394,56 +480,25 @@ impl<'a> Transform<'a> for TfPy<'a> {
                         .map(|(val, _rl, _fr_offs)| val)
                         .unwrap_or(FieldValueRef::Undefined);
 
-                    let obj = match val {
-                        FieldValueRef::Null => {
-                            ().into_pyobject(py).unwrap().into_any()
-                        }
-                        // TODO: maybe error / configurable
-                        FieldValueRef::Undefined => {
-                            unsafe {
-                                pyo3::ffi::PyDict_DelItem(
-                                    self.locals.as_ptr(),
-                                    self.op.free_vars_py_str[i].as_ptr(),
-                                );
-                            }
-                            continue;
-                        }
-                        FieldValueRef::Int(i) => {
-                            i.into_pyobject(py).unwrap().into_any()
-                        }
-                        FieldValueRef::BigInt(i) => {
-                            i.into_pyobject(py).unwrap().into_any()
-                        }
-                        FieldValueRef::Float(f) => {
-                            f.into_pyobject(py).unwrap().into_any()
-                        }
-                        FieldValueRef::BigRational(_) => todo!(), /* use fractions.Fraction? */
-                        FieldValueRef::Text(s) => {
-                            s.into_pyobject(py).unwrap().into_any()
-                        }
-                        FieldValueRef::Bytes(b) => {
-                            PyBytes::new(py, b).into_any()
-                        }
-                        FieldValueRef::Array(_) => todo!(),
-                        FieldValueRef::Argument(_) => todo!(),
-                        FieldValueRef::Macro(_) => todo!(),
-                        FieldValueRef::Object(_) => todo!(),
-                        FieldValueRef::Custom(_) => todo!(),
-                        FieldValueRef::StreamValueId(_) => todo!(),
-                        FieldValueRef::Error(e) => {
-                            inserter.push_error(e.clone(), 1, true, false);
+                    match to_python_object(val, py, &mut lazy_string_store) {
+                        Ok(Some(value)) => unsafe {
+                            pyo3::ffi::PyDict_SetItem(
+                                self.locals.as_ptr(),
+                                self.op.free_vars_py_str[i].as_ptr(),
+                                value.as_ptr(),
+                            );
+                        },
+                        Ok(None) => unsafe {
+                            pyo3::ffi::PyDict_DelItem(
+                                self.locals.as_ptr(),
+                                self.op.free_vars_py_str[i].as_ptr(),
+                            );
+                        },
+                        Err(e) => {
+                            inserter.push_error(e, 1, true, true);
                             continue 'next_element;
                         }
-                        FieldValueRef::FieldReference(_) => todo!(),
-                        FieldValueRef::SlicedFieldReference(_) => todo!(),
                     };
-                    unsafe {
-                        pyo3::ffi::PyDict_SetItem(
-                            self.locals.as_ptr(),
-                            self.op.free_vars_py_str[i].as_ptr(),
-                            obj.as_ptr(),
-                        );
-                    }
                 }
                 let res = unsafe {
                     if !self.op.statements.is_none(py) {
