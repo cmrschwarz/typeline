@@ -628,8 +628,7 @@ impl LivenessData {
             | OperatorData::Nop(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Select(_)
-            | OperatorData::Literal(_)
-            | OperatorData::MacroDef(_) => (),
+            | OperatorData::Literal(_) => (),
 
             OperatorData::Custom(op) => {
                 return op

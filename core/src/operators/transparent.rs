@@ -234,17 +234,19 @@ impl Operator for OpTransparent {
         let field_before = tf_state.input_field;
         let ms_id_before = tf_state.match_set_id;
 
-        job.job_data.field_mgr.bump_field_refcount(field_before);
-
         let sess = &job.job_data.session_data;
-        let mut instantiation = sess.operator_data
+        let Some(mut instantiation) = sess.operator_data
             [sess.op_data_id(nested_op_id)]
         .operator_build_transforms(
             job,
             tf_state.clone(),
             nested_op_id,
             prebound_outputs,
-        );
+        ) else {
+            return TransformInstatiation::None;
+        };
+
+        job.job_data.field_mgr.bump_field_refcount(field_before);
 
         assert!(
             instantiation.next_match_set == ms_id_before,

@@ -20,8 +20,8 @@ use super::{
     errors::OperatorCreationError,
     macro_call::OpMacroCall,
     operator::{
-        OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
-        OperatorOffsetInChain, PreboundOutputsMap,
+        Operator, OperatorData, OperatorDataId, OperatorId,
+        OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
     },
 };
 
@@ -81,33 +81,72 @@ impl OperatorDeclaration for MacroOpDecl {
     }
 }
 
-pub fn setup_op_macro_def(
-    op: &mut OpMacroDef,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+impl Operator for OpMacroDef {
+    fn default_name(&self) -> super::operator::OperatorName {
+        format!("macro={}", self.macro_decl.data.name_stored).into()
+    }
 
-    let current_chain = sess.get_current_chain();
-    sess.scope_mgr.insert_op_decl(
-        sess.chains[current_chain].scope_id,
-        op.macro_decl.data.name_interned,
-        OpDeclRef(op.macro_decl.clone()),
-    );
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> usize {
+        0
+    }
 
-    Ok(op_id)
-}
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
 
-pub fn insert_tf_macro_def(
-    _job: &mut Job,
-    _op: &OpMacroDef,
-    _op_id: OperatorId,
-    _prebound_outputs: &PreboundOutputsMap,
-) -> OperatorInstantiation {
-    todo!()
+    fn build_transforms<'a>(
+        &'a self,
+        _job: &mut Job<'a>,
+        _tf_state: &mut super::transform::TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        super::operator::TransformInstatiation::None
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> OutputFieldKind {
+        OutputFieldKind::SameAsInput
+    }
+
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+
+        let current_chain = sess.get_current_chain();
+        sess.scope_mgr.insert_op_decl(
+            sess.chains[current_chain].scope_id,
+            self.macro_decl.data.name_interned,
+            OpDeclRef(self.macro_decl.clone()),
+        );
+
+        Ok(op_id)
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        _sess: &mut crate::context::SessionData,
+        _ld: &crate::liveness_analysis::LivenessData,
+        _op_id: OperatorId,
+    ) {
+    }
 }
 
 pub fn parse_op_macro_def(
@@ -129,7 +168,7 @@ pub fn parse_op_macro_def(
     };
     let name = name.try_into_str("macro", sess_opts)?;
 
-    Ok(OperatorData::MacroDef(OpMacroDef {
+    Ok(OperatorData::from_custom(OpMacroDef {
         macro_decl: Arc::new(MacroOpDecl {
             data: Arc::new(MacroDeclData {
                 name_interned: sess_opts.string_store.intern_cloned(&name),

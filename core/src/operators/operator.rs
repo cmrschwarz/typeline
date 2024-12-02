@@ -42,7 +42,6 @@ use super::{
     key::{setup_op_key, OpKey},
     literal::{build_tf_literal, OpLiteral},
     macro_call::{setup_op_macro_call, OpMacroCall},
-    macro_def::{setup_op_macro_def, OpMacroDef},
     multi_op::OpMultiOp,
     nop::{build_tf_nop, setup_op_nop, OpNop},
     nop_copy::{
@@ -78,7 +77,6 @@ pub enum OperatorData {
     Select(OpSelect),
     Literal(OpLiteral),
     Chunks(OpChunks),
-    MacroDef(OpMacroDef),
     MacroCall(OpMacroCall),
     MultiOp(OpMultiOp),
     Custom(SmallBox<dyn Operator, 96>),
@@ -258,14 +256,6 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::MacroDef(op) => setup_op_macro_def(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::MacroCall(op) => setup_op_macro_call(
                 op,
                 sess,
@@ -302,7 +292,6 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Literal(_)
-            | OperatorData::MacroDef(_)
             | OperatorData::Chunks(_) => false,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
@@ -363,7 +352,6 @@ impl OperatorData {
             OperatorData::MacroCall(op) => sess.operator_data
                 [sess.op_data_id(op.multi_op_op_id)]
             .output_count(sess, op.multi_op_op_id),
-            OperatorData::MacroDef(_) => 0,
         }
     }
 
@@ -397,7 +385,6 @@ impl OperatorData {
             | OperatorData::Select(_)
             | OperatorData::Literal(_)
             | OperatorData::Chunks(_)
-            | OperatorData::MacroDef(_)
             | OperatorData::MacroCall(_)
             | OperatorData::MultiOp(_) => (),
             OperatorData::Custom(op) => {
@@ -428,7 +415,6 @@ impl OperatorData {
             OperatorData::NopCopy(_) => "nop_copy".into(),
             OperatorData::MultiOp(_) => "<multi_op>".into(),
             OperatorData::Custom(op) => op.default_name(),
-            OperatorData::MacroDef(_) => "macro".into(),
             OperatorData::MacroCall(op) => op.decl.name_stored.clone().into(),
         }
     }
@@ -464,7 +450,6 @@ impl OperatorData {
             | OperatorData::Select(_)
             | OperatorData::Literal(_)
             | OperatorData::Chunks(_)
-            | OperatorData::MacroDef(_)
             | OperatorData::MacroCall(_) => self.default_op_name(),
             OperatorData::Custom(op) => op.debug_op_name(),
         }
@@ -481,8 +466,7 @@ impl OperatorData {
             | OperatorData::NopCopy(_) => OutputFieldKind::Unique,
             OperatorData::Chunks(_)
             | OperatorData::Nop(_)
-            | OperatorData::Fork(_)
-            | OperatorData::MacroDef(_) => OutputFieldKind::SameAsInput,
+            | OperatorData::Fork(_) => OutputFieldKind::SameAsInput,
             OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Atom(_) => OutputFieldKind::Unconfigured,
@@ -541,8 +525,7 @@ impl OperatorData {
             | OperatorData::Nop(_)
             | OperatorData::Chunks(_)
             | OperatorData::NopCopy(_)
-            | OperatorData::Literal(_)
-            | OperatorData::MacroDef(_) => (),
+            | OperatorData::Literal(_) => (),
         }
     }
     pub fn update_liveness_for_op(
@@ -570,7 +553,6 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Chunks(_)
             | OperatorData::Call(_)
-            | OperatorData::MacroDef(_)
             | OperatorData::CallConcurrent(_) => {
                 output.call_effect = OperatorCallEffect::Diverge;
             }
@@ -712,8 +694,7 @@ impl OperatorData {
             | OperatorData::Atom(_)
             | OperatorData::Chunks(_)
             | OperatorData::Select(_)
-            | OperatorData::Literal(_)
-            | OperatorData::MacroDef(_) => (),
+            | OperatorData::Literal(_) => (),
         }
     }
 
@@ -723,30 +704,29 @@ impl OperatorData {
         mut tf_state: TransformState,
         op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,
-    ) -> OperatorInstantiation {
+    ) -> Option<OperatorInstantiation> {
         let tfs = &mut tf_state;
         let jd = &mut job.job_data;
         let op_base = &jd.session_data.operator_bases[op_id];
         let data: TransformData<'a> = match self {
             OperatorData::Key(_)
-            | OperatorData::MacroDef(_)
             | OperatorData::Atom(_)
             | OperatorData::Select(_) => unreachable!(),
             OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
             OperatorData::Chunks(op) => {
-                return insert_tf_chunks(
+                return Some(insert_tf_chunks(
                     job,
                     op,
                     tf_state,
                     op_base.chain_id,
                     op_id,
                     prebound_outputs,
-                );
+                ));
             }
             OperatorData::Fork(op) => build_tf_fork(jd, op_base, op, tfs),
             OperatorData::ForkCat(op) => {
-                return insert_tf_forkcat(job, op_base, op, tf_state);
+                return Some(insert_tf_forkcat(job, op_base, op, tf_state));
             }
             OperatorData::Literal(op) => {
                 build_tf_literal(jd, op_base, op, tfs)
@@ -764,9 +744,10 @@ impl OperatorData {
                     op_id,
                     prebound_outputs,
                 ) {
+                    TransformInstatiation::None => return None,
                     TransformInstatiation::Single(tf) => tf,
                     TransformInstatiation::Multiple(instantiation) => {
-                        return instantiation
+                        return Some(instantiation)
                     }
                 }
             }
@@ -778,9 +759,10 @@ impl OperatorData {
                     op_id,
                     prebound_outputs,
                 ) {
+                    TransformInstatiation::None => return None,
                     TransformInstatiation::Single(tf) => tf,
                     TransformInstatiation::Multiple(instantiation) => {
-                        return instantiation
+                        return Some(instantiation)
                     }
                 }
             }
@@ -805,13 +787,13 @@ impl OperatorData {
             tf_state,
             data,
         );
-        OperatorInstantiation {
+        Some(OperatorInstantiation {
             tfs_begin: tf_id,
             tfs_end: tf_id,
             next_match_set,
             next_input_field,
             next_group_track,
-        }
+        })
     }
 
     pub fn aggregation_member(
@@ -847,8 +829,7 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Literal(_)
-            | OperatorData::Chunks(_)
-            | OperatorData::MacroDef(_) => None,
+            | OperatorData::Chunks(_) => None,
         }
     }
 }
@@ -856,6 +837,7 @@ impl OperatorData {
 pub enum TransformInstatiation<'a> {
     Single(TransformData<'a>),
     Multiple(OperatorInstantiation),
+    None,
 }
 
 pub trait Operator: Send + Sync {

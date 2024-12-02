@@ -426,7 +426,8 @@ impl Operator for OpAggregator {
                 sub_tf_state,
                 sub_op_id,
                 prebound_outputs,
-            );
+            )
+            .expect("aggregator on zero tf not supported");
             assert!(
                 instantiation.next_match_set == ms_id,
                 "aggregator does not support changing match sets"

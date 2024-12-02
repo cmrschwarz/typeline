@@ -34,9 +34,7 @@ use crate::{
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         record_buffer::RecordBuffer,
-        scope_manager::{
-            OpDeclRef, OperatorDeclaration, ScopeId, ScopeManager,
-        },
+        scope_manager::{ScopeId, ScopeManager},
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::{
@@ -666,18 +664,6 @@ impl<'a> Job<'a> {
                         [op_base.op_data_id];
                     label = k.key_interned;
                 }
-                OperatorData::MacroDef(op) => {
-                    let active_scope = self.job_data.match_set_mgr.match_sets
-                        [ms_id]
-                        .active_scope;
-                    let op_decl = op.macro_decl.clone();
-                    self.job_data.scope_mgr.insert_op_decl(
-                        active_scope,
-                        op_decl.name_interned(),
-                        OpDeclRef(op_decl),
-                    );
-                    continue;
-                }
                 OperatorData::Atom(op) => {
                     let active_scope = self.job_data.match_set_mgr.match_sets
                         [ms_id]
@@ -790,12 +776,14 @@ impl<'a> Job<'a> {
                         .default_op_name()
                         .to_string();
             }
-            let mut instantiation = op_data.operator_build_transforms(
+            let Some(mut instantiation) = op_data.operator_build_transforms(
                 self,
                 tf_state,
                 op_id,
                 prebound_outputs,
-            );
+            ) else {
+                continue;
+            };
 
             input_field = instantiation.next_input_field;
             input_group_track = instantiation.next_group_track;
