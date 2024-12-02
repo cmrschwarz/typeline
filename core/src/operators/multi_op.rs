@@ -21,6 +21,7 @@ use super::{
     transform::TransformState,
 };
 
+#[derive(Default)]
 pub struct OpMultiOp {
     pub operations: Vec<(OperatorData, Span)>,
     pub sub_op_ids: IndexVec<OffsetInAggregation, OperatorId>,
@@ -189,12 +190,32 @@ impl Operator for OpMultiOp {
             });
         }
     }
+
+    fn update_bb_for_op(
+        &self,
+        _sess: &SessionData,
+        _ld: &mut LivenessData,
+        _op_id: OperatorId,
+        _op_n: OffsetInChain,
+        _cn: &crate::chain::Chain,
+        _bb_id: BasicBlockId,
+    ) -> bool {
+        // TODO: maybe support this
+        false
+    }
+
+    fn aggregation_member(
+        &self,
+        agg_offset: OffsetInAggregation,
+    ) -> Option<OperatorId> {
+        self.sub_op_ids.get(agg_offset).copied()
+    }
 }
 
 pub fn create_multi_op_with_span(
     ops: impl IntoIterator<Item = (OperatorData, Span)>,
 ) -> OperatorData {
-    OperatorData::MultiOp(OpMultiOp {
+    OperatorData::from_custom(OpMultiOp {
         operations: ops.into_iter().collect(),
         sub_op_ids: IndexVec::new(),
     })

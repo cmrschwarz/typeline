@@ -41,8 +41,6 @@ use super::{
     },
     key::{setup_op_key, OpKey},
     literal::{build_tf_literal, OpLiteral},
-    macro_call::{setup_op_macro_call, OpMacroCall},
-    multi_op::OpMultiOp,
     nop::{build_tf_nop, setup_op_nop, OpNop},
     nop_copy::{
         build_tf_nop_copy, on_op_nop_copy_liveness_computed, OpNopCopy,
@@ -77,8 +75,6 @@ pub enum OperatorData {
     Select(OpSelect),
     Literal(OpLiteral),
     Chunks(OpChunks),
-    MacroCall(OpMacroCall),
-    MultiOp(OpMultiOp),
     Custom(SmallBox<dyn Operator, 96>),
 }
 
@@ -248,22 +244,6 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::MultiOp(op) => Operator::setup(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
-            OperatorData::MacroCall(op) => setup_op_macro_call(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::Atom(op) => setup_op_atom(
                 op,
                 sess,
@@ -302,13 +282,6 @@ impl OperatorData {
                 };
                 self.has_dynamic_outputs(sess, op_id)
             }
-
-            OperatorData::MultiOp(op) => {
-                Operator::has_dynamic_outputs(op, sess, op_id)
-            }
-            OperatorData::MacroCall(op) => sess.operator_data
-                [sess.op_data_id(op.multi_op_op_id)]
-            .has_dynamic_outputs(sess, op.multi_op_op_id),
             OperatorData::Custom(op) => {
                 Operator::has_dynamic_outputs(&**op, sess, op_id)
             }
@@ -346,12 +319,6 @@ impl OperatorData {
             OperatorData::Custom(op) => {
                 Operator::output_count(&**op, sess, op_id)
             }
-            OperatorData::MultiOp(op) => {
-                Operator::output_count(op, sess, op_id)
-            }
-            OperatorData::MacroCall(op) => sess.operator_data
-                [sess.op_data_id(op.multi_op_op_id)]
-            .output_count(sess, op.multi_op_op_id),
         }
     }
 
@@ -384,9 +351,7 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Literal(_)
-            | OperatorData::Chunks(_)
-            | OperatorData::MacroCall(_)
-            | OperatorData::MultiOp(_) => (),
+            | OperatorData::Chunks(_) => (),
             OperatorData::Custom(op) => {
                 op.assign_op_outputs(sess, ld, op_id, output_count)
             }
@@ -413,14 +378,11 @@ impl OperatorData {
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
             OperatorData::NopCopy(_) => "nop_copy".into(),
-            OperatorData::MultiOp(_) => "<multi_op>".into(),
             OperatorData::Custom(op) => op.default_name(),
-            OperatorData::MacroCall(op) => op.decl.name_stored.clone().into(),
         }
     }
     pub fn debug_op_name(&self) -> OperatorName {
         match self {
-            OperatorData::MultiOp(op) => op.debug_op_name(),
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return self.default_op_name();
@@ -449,8 +411,7 @@ impl OperatorData {
             | OperatorData::Atom(_)
             | OperatorData::Select(_)
             | OperatorData::Literal(_)
-            | OperatorData::Chunks(_)
-            | OperatorData::MacroCall(_) => self.default_op_name(),
+            | OperatorData::Chunks(_) => self.default_op_name(),
             OperatorData::Custom(op) => op.debug_op_name(),
         }
     }
@@ -483,12 +444,6 @@ impl OperatorData {
             OperatorData::Custom(op) => {
                 Operator::output_field_kind(&**op, sess, op_id)
             }
-            OperatorData::MultiOp(op) => {
-                Operator::output_field_kind(op, sess, op_id)
-            }
-            OperatorData::MacroCall(op) => sess.operator_data
-                [sess.op_data_id(op.multi_op_op_id)]
-            .output_field_kind(sess, op.multi_op_op_id),
         }
     }
     pub fn register_output_var_names(
@@ -511,12 +466,6 @@ impl OperatorData {
             OperatorData::Custom(op) => {
                 op.register_output_var_names(ld, sess, op_id)
             }
-            OperatorData::MultiOp(op) => {
-                op.register_output_var_names(ld, sess, op_id)
-            }
-            OperatorData::MacroCall(op) => sess.operator_data
-                [sess.op_data_id(op.multi_op_op_id)]
-            .register_output_var_names(ld, sess, op.multi_op_op_id),
             OperatorData::Call(_)
             | OperatorData::Atom(_)
             | OperatorData::CallConcurrent(_)
@@ -625,27 +574,6 @@ impl OperatorData {
                 input_field,
                 output,
             ),
-            OperatorData::MultiOp(op) => Operator::update_variable_liveness(
-                op,
-                sess,
-                ld,
-                op_offset_after_last_write,
-                op_id,
-                bb_id,
-                input_field,
-                output,
-            ),
-            OperatorData::MacroCall(op) => sess.operator_data
-                [sess.op_data_id(op.multi_op_op_id)]
-            .update_liveness_for_op(
-                sess,
-                ld,
-                op_offset_after_last_write,
-                op_id,
-                bb_id,
-                input_field,
-                output,
-            ),
         }
     }
     pub fn on_liveness_computed(
@@ -666,16 +594,6 @@ impl OperatorData {
             }
             OperatorData::ForkCat(op) => {
                 setup_op_forkcat_liveness_data(sess, op, op_id, ld)
-            }
-            OperatorData::MultiOp(op) => {
-                op.on_liveness_computed(sess, ld, op_id)
-            }
-            OperatorData::MacroCall(op) => {
-                let op_data_id = sess.op_data_id(op.multi_op_op_id);
-                let mut op_data =
-                    std::mem::take(&mut sess.operator_data[op_data_id]);
-                op_data.on_liveness_computed(sess, ld, op_id);
-                sess.operator_data[op_data_id] = op_data;
             }
             OperatorData::Custom(op) => {
                 op.on_liveness_computed(sess, ld, op_id)
@@ -751,31 +669,6 @@ impl OperatorData {
                     }
                 }
             }
-            OperatorData::MultiOp(op) => {
-                match Operator::build_transforms(
-                    op,
-                    job,
-                    tfs,
-                    op_id,
-                    prebound_outputs,
-                ) {
-                    TransformInstatiation::None => return None,
-                    TransformInstatiation::Single(tf) => tf,
-                    TransformInstatiation::Multiple(instantiation) => {
-                        return Some(instantiation)
-                    }
-                }
-            }
-            OperatorData::MacroCall(op) => {
-                return job.job_data.session_data.operator_data
-                    [job.job_data.session_data.op_data_id(op.multi_op_op_id)]
-                .operator_build_transforms(
-                    job,
-                    tf_state,
-                    op_id,
-                    prebound_outputs,
-                )
-            }
         };
 
         let next_input_field = tf_state.output_field;
@@ -801,23 +694,12 @@ impl OperatorData {
         agg_offset: OffsetInAggregation,
     ) -> Option<OperatorId> {
         match self {
-            OperatorData::MultiOp(mop) => {
-                mop.sub_op_ids.get(agg_offset).copied()
-            }
-            OperatorData::MacroCall(mop) => {
-                if agg_offset == OffsetInAggregation::ZERO {
-                    Some(mop.multi_op_op_id)
-                } else {
-                    None
-                }
-            }
             OperatorData::Key(op) => {
                 if let Some(NestedOp::SetUp(op_id)) = op.nested_op {
                     return Some(op_id);
                 }
                 None
             }
-
             OperatorData::Custom(op) => op.aggregation_member(agg_offset),
 
             OperatorData::Nop(_)

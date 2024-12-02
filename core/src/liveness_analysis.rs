@@ -634,9 +634,6 @@ impl LivenessData {
                 return op
                     .update_bb_for_op(sess, self, op_id, op_n, cn, bb_id);
             }
-            OperatorData::MultiOp(_) | OperatorData::MacroCall(_) => {
-                // TODO: maybe support this
-            }
         };
         false
     }

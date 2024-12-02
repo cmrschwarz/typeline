@@ -11,22 +11,19 @@ use crate::{
         array::Array, field_data::FieldValueRepr, field_value::FieldValue,
     },
     scr_error::{ContextualizedScrError, ScrError},
-    utils::indexing_type::IndexingType,
 };
 
 use super::{
     errors::OperatorSetupError,
     macro_def::MacroDeclData,
-    multi_op::create_multi_op,
-    operator::{
-        OffsetInAggregation, OperatorDataId, OperatorId, OperatorOffsetInChain,
-    },
+    multi_op::OpMultiOp,
+    operator::{Operator, OperatorDataId, OperatorId, OperatorOffsetInChain},
 };
 
 pub struct OpMacroCall {
     pub decl: Arc<MacroDeclData>,
     pub arg: Argument,
-    pub multi_op_op_id: OperatorId,
+    pub multi_op: OpMultiOp,
 }
 
 pub fn setup_op_macro_call(
@@ -102,8 +99,6 @@ pub fn setup_op_macro_call(
         }
     };
 
-    let mut ops = Vec::new();
-
     for (i, arg) in arr.into_iter().enumerate() {
         let mut arg = if let FieldValue::Argument(arg) = arg {
             *arg
@@ -149,23 +144,161 @@ pub fn setup_op_macro_call(
         }
 
         // TODO: contextualize error
+        let op_data = sess.parse_argument(arg)?;
 
-        ops.push(sess.parse_argument(arg)?);
+        op.multi_op.sub_op_ids.push(sess.setup_op_from_data(
+            op_data,
+            chain_id,
+            OperatorOffsetInChain::AggregationMember(
+                op_id,
+                op.multi_op.sub_op_ids.next_idx(),
+            ),
+            span,
+        )?);
     }
 
-    let multi_op = create_multi_op(ops);
-
-    let multi_op_data = sess.add_op_data(multi_op);
-
-    op.multi_op_op_id = sess.add_op(
-        multi_op_data,
-        chain_id,
-        OperatorOffsetInChain::AggregationMember(
-            op_id,
-            OffsetInAggregation::ZERO,
-        ),
-        Span::Generated,
-    );
-
     Ok(op_id)
+}
+
+impl Operator for OpMacroCall {
+    fn default_name(&self) -> super::operator::OperatorName {
+        format!(
+            "macro-call<`{}`, {}>",
+            self.decl.name_stored,
+            self.multi_op.default_name()
+        )
+        .into()
+    }
+
+    fn output_count(
+        &self,
+        sess: &crate::context::SessionData,
+        op_id: OperatorId,
+    ) -> usize {
+        self.multi_op.output_count(sess, op_id)
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        sess: &crate::context::SessionData,
+        op_id: OperatorId,
+    ) -> bool {
+        self.multi_op.has_dynamic_outputs(sess, op_id)
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut crate::job::Job<'a>,
+        tf_state: &mut super::transform::TransformState,
+        op_id: OperatorId,
+        prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        self.multi_op
+            .build_transforms(job, tf_state, op_id, prebound_outputs)
+    }
+
+    fn output_field_kind(
+        &self,
+        sess: &crate::context::SessionData,
+        op_id: OperatorId,
+    ) -> super::operator::OutputFieldKind {
+        self.multi_op.output_field_kind(sess, op_id)
+    }
+
+    fn on_op_added(
+        &mut self,
+        so: &mut SessionSetupData,
+        op_id: OperatorId,
+        add_to_chain: bool,
+    ) {
+        self.multi_op.on_op_added(so, op_id, add_to_chain);
+    }
+
+    fn on_subchains_added(
+        &mut self,
+        curr_subchains_end: crate::chain::SubchainIndex,
+    ) {
+        self.multi_op.on_subchains_added(curr_subchains_end);
+    }
+
+    fn register_output_var_names(
+        &self,
+        ld: &mut crate::liveness_analysis::LivenessData,
+        sess: &crate::context::SessionData,
+        op_id: OperatorId,
+    ) {
+        self.multi_op.register_output_var_names(ld, sess, op_id);
+    }
+
+    fn update_bb_for_op(
+        &self,
+        sess: &crate::context::SessionData,
+        ld: &mut crate::liveness_analysis::LivenessData,
+        op_id: OperatorId,
+        op_n: super::operator::OffsetInChain,
+        cn: &crate::chain::Chain,
+        bb_id: crate::liveness_analysis::BasicBlockId,
+    ) -> bool {
+        self.multi_op
+            .update_bb_for_op(sess, ld, op_id, op_n, cn, bb_id)
+    }
+
+    fn assign_op_outputs(
+        &mut self,
+        sess: &mut crate::context::SessionData,
+        ld: &mut crate::liveness_analysis::LivenessData,
+        op_id: OperatorId,
+        output_count: &mut crate::liveness_analysis::OpOutputIdx,
+    ) {
+        self.multi_op
+            .assign_op_outputs(sess, ld, op_id, output_count);
+    }
+
+    fn aggregation_member(
+        &self,
+        agg_offset: super::operator::OffsetInAggregation,
+    ) -> Option<OperatorId> {
+        self.multi_op.aggregation_member(agg_offset)
+    }
+
+    fn update_variable_liveness(
+        &self,
+        sess: &crate::context::SessionData,
+        ld: &mut crate::liveness_analysis::LivenessData,
+        op_offset_after_last_write: super::operator::OffsetInChain,
+        op_id: OperatorId,
+        bb_id: crate::liveness_analysis::BasicBlockId,
+        input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        self.multi_op.update_variable_liveness(
+            sess,
+            ld,
+            op_offset_after_last_write,
+            op_id,
+            bb_id,
+            input_field,
+            output,
+        );
+    }
+
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        sess: &mut crate::context::SessionData,
+        ld: &crate::liveness_analysis::LivenessData,
+        op_id: OperatorId,
+    ) {
+        self.multi_op.on_liveness_computed(sess, ld, op_id);
+    }
 }

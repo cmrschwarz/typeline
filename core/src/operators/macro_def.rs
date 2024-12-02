@@ -11,14 +11,15 @@ use crate::{
     },
     scr_error::ScrError,
     utils::{
-        escaped_writer::EscapedWriter, indexing_type::IndexingType,
-        string_store::StringStoreEntry, text_write::TextWrite,
+        escaped_writer::EscapedWriter, string_store::StringStoreEntry,
+        text_write::TextWrite,
     },
 };
 
 use super::{
     errors::OperatorCreationError,
     macro_call::OpMacroCall,
+    multi_op::OpMultiOp,
     operator::{
         Operator, OperatorData, OperatorDataId, OperatorId,
         OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
@@ -53,10 +54,10 @@ impl OperatorDeclaration for MacroOpDecl {
         _sess: &mut SessionSetupData,
         arg: Argument,
     ) -> Result<OperatorData, ScrError> {
-        Ok(OperatorData::MacroCall(OpMacroCall {
+        Ok(OperatorData::from_custom(OpMacroCall {
             decl: self.data.clone(),
             arg,
-            multi_op_op_id: OperatorId::MAX_VALUE,
+            multi_op: OpMultiOp::default(),
         }))
     }
 
