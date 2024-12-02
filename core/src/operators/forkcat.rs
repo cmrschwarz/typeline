@@ -16,8 +16,8 @@ use crate::{
     index_newtype,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
-        LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
-        BB_INPUT_VAR_ID,
+        LivenessData, OperatorCallEffect, Var, VarId, VarLivenessSlotGroup,
+        VarLivenessSlotKind, BB_INPUT_VAR_ID,
     },
     options::{
         chain_settings::SettingBatchSize, session_setup::SessionSetupData,
@@ -55,8 +55,8 @@ use super::{
     errors::OperatorSetupError,
     nop::create_op_nop,
     operator::{
-        OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
-        OperatorInstantiation, OperatorOffsetInChain,
+        OffsetInChain, Operator, OperatorBase, OperatorData, OperatorDataId,
+        OperatorId, OperatorInstantiation, OperatorOffsetInChain,
     },
     transform::{Transform, TransformData, TransformId, TransformState},
 };
@@ -189,38 +189,6 @@ fn sc_next(fc_sc_count: usize, sc_idx: FcSubchainIdx) -> FcSubchainIdx {
     sc_index_offset(fc_sc_count, sc_idx, 1)
 }
 
-pub fn setup_op_forkcat(
-    op: &mut OpForkCat,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
-
-    let OperatorOffsetInChain::Direct(direct_offset_in_chain) =
-        offset_in_chain
-    else {
-        return Err(OperatorSetupError::new(
-            "operator `forkcat` cannot be part of an aggregation",
-            op_id,
-        )
-        .into());
-    };
-    op.direct_offset_in_chain = direct_offset_in_chain;
-
-    op.subchains_start = sess.chains[chain_id].subchains.next_idx();
-
-    for sc in std::mem::take(&mut op.subchains) {
-        sess.setup_subchain(chain_id, sc)?;
-    }
-
-    op.subchains_end = sess.chains[chain_id].subchains.next_idx();
-
-    Ok(op_id)
-}
-
 fn declare_var_needed_for_sc(
     op: &mut OpForkCat,
     ld: &LivenessData,
@@ -236,197 +204,6 @@ fn declare_var_needed_for_sc(
             bv
         })
         .set(sc_idx, true);
-}
-
-pub fn setup_op_forkcat_liveness_data(
-    _sess: &SessionData,
-    op: &mut OpForkCat,
-    op_id: OperatorId,
-    ld: &LivenessData,
-) {
-    let sc_count = (op.subchains_end - op.subchains_start).into_usize();
-    let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
-    let bb = &ld.basic_blocks[bb_id];
-    // TODO: introduce direct reads (not affected by field refs)
-    // to reduce this set here
-    let successors = ld.get_var_liveness_ored(
-        bb.successors.iter().chain(bb.caller_successors.iter()),
-        VarLivenessSlotGroup::Global,
-    );
-    let successor_reads = successors.get_slot(VarLivenessSlotKind::Reads);
-    for var_id in successor_reads.iter_ones().map(VarId::from_usize) {
-        op.continuation_vars.push(ld.vars[var_id]);
-    }
-    let input_var_idx = BB_INPUT_VAR_ID.into_usize();
-    let successors_read_input = successor_reads[input_var_idx];
-    for (sc_idx, &callee_id) in bb.calls.iter().enumerate() {
-        let call_reads = ld.get_var_liveness_slot(
-            callee_id,
-            VarLivenessSlotGroup::Global,
-            VarLivenessSlotKind::Reads,
-        );
-        let reads = call_reads.iter_ones().map(VarId::from_usize);
-
-        for var_id in reads {
-            declare_var_needed_for_sc(op, ld, var_id, sc_count, sc_idx);
-        }
-        // In case the input field is 'passed through', we mark it as used
-        // here. Otherwise the the first transform will be passed the dummy
-        // input (since it doesn't read it's input directly), which would cause
-        // that to be passed through.
-        let input_read = call_reads[input_var_idx];
-        let input_survives = ld.get_var_liveness_slot(
-            callee_id,
-            VarLivenessSlotGroup::Local,
-            VarLivenessSlotKind::Survives,
-        )[input_var_idx];
-        if !input_read && input_survives && successors_read_input {
-            declare_var_needed_for_sc(
-                op,
-                ld,
-                BB_INPUT_VAR_ID,
-                sc_count,
-                sc_idx,
-            );
-        };
-    }
-}
-
-pub fn insert_tf_forkcat<'a>(
-    job: &mut Job<'a>,
-    op_base: &'a OperatorBase,
-    op: &'a OpForkCat,
-    tf_state: TransformState,
-) -> OperatorInstantiation {
-    let input_field = tf_state.input_field;
-
-    // TODO: scope sharing stuff
-    let cont_scope_id = job.job_data.scope_mgr.add_scope(None);
-
-    let cont_ms_id = job.job_data.match_set_mgr.add_match_set(
-        &mut job.job_data.field_mgr,
-        &mut job.job_data.scope_mgr,
-        cont_scope_id,
-    );
-
-    let gt_parent = job.job_data.group_track_manager.group_tracks
-        [tf_state.input_group_track_id]
-        .borrow()
-        .parent_group_track_id();
-
-    let cont_group_track = job.job_data.group_track_manager.add_group_track(
-        &job.job_data.match_set_mgr,
-        gt_parent,
-        cont_ms_id,
-        ActorRef::Unconfirmed(ActorId::ZERO),
-    );
-
-    #[cfg(feature = "debug_state")]
-    {
-        job.job_data.group_track_manager.group_tracks[cont_group_track]
-            .borrow_mut()
-            .alias_source = Some(tf_state.input_group_track_id);
-    }
-
-    let mut cont_input_field =
-        job.job_data.match_set_mgr.get_dummy_field(cont_ms_id);
-    let mut continuation_var_mapping =
-        IndexVec::<ContinuationVarIdx, FieldId>::new();
-
-    for cv in &op.continuation_vars {
-        let field_id = job.job_data.field_mgr.add_field(
-            &job.job_data.match_set_mgr,
-            cont_ms_id,
-            ActorRef::default(),
-        );
-        job.job_data.scope_mgr.insert_field_name_opt(
-            cont_scope_id,
-            cv.get_name(),
-            field_id,
-        );
-        if cv == &Var::BBInput {
-            cont_input_field = field_id;
-        }
-        continuation_var_mapping.push(field_id);
-    }
-
-    let cont_dummy_field =
-        job.job_data.match_set_mgr.get_dummy_field(cont_ms_id);
-
-    let continuation_dummy_iter = job.job_data.field_mgr.claim_iter_ref(
-        cont_dummy_field,
-        ActorId::ZERO,
-        IterKind::Transform(job.job_data.tf_mgr.transforms.peek_claim_id()),
-    );
-
-    let continuation_state = Arc::new(Mutex::new(FcContinuationState {
-        continuation_tf_id: None, // filled in by the header transform
-        continuation_input_group_track: cont_group_track,
-        continuation_ms_id: cont_ms_id,
-        current_sc: FcSubchainIdx::zero(),
-        subchains: IndexVec::default(),
-        advance_to_next: false,
-        continuation_dummy_iter,
-        group_iters_temp: IndexVec::new(),
-        field_iters_temp: IndexVec::new(),
-        fields_temp: StableVec::new(),
-        cont_field_inserters: IndexVec::new(),
-    }));
-
-    let tf_data = TransformData::from_custom(TfForkCatHeader {
-        continuation_state: continuation_state.clone(),
-        actor_id: job
-            .job_data
-            .add_actor_for_tf_state_ignore_output_field(&tf_state),
-        relaunch_after_cow_advance: false,
-    });
-    let fc_tf_id = add_transform_to_job(
-        &mut job.job_data,
-        &mut job.transform_data,
-        tf_state,
-        tf_data,
-    );
-
-    let mut subchains = IndexVec::new();
-
-    for (fc_sc_idx, sc_idx) in
-        IndexingTypeRange::new(op.subchains_start..op.subchains_end)
-            .enumerate()
-    {
-        let sc_entry = setup_subchain(
-            op,
-            continuation_state.clone(),
-            cont_ms_id,
-            job,
-            op_base,
-            sc_idx,
-            FcSubchainIdx::from_usize(fc_sc_idx),
-            input_field,
-            fc_tf_id,
-            &continuation_var_mapping,
-        );
-        subchains.push(sc_entry);
-    }
-
-    let TransformData::Custom(fc) = &mut job.transform_data[fc_tf_id] else {
-        unreachable!()
-    };
-    let fc: &TfForkCatHeader = fc.downcast_ref().unwrap();
-
-    let mut cont = fc.continuation_state.lock().unwrap();
-    cont.subchains = subchains;
-
-    let tf = &mut job.job_data.tf_mgr.transforms[fc_tf_id];
-    tf.output_field = cont_input_field;
-    job.job_data.field_mgr.bump_field_refcount(cont_input_field);
-
-    OperatorInstantiation {
-        tfs_begin: fc_tf_id,
-        tfs_end: fc_tf_id,
-        next_input_field: cont_input_field,
-        next_group_track: cont_group_track,
-        next_match_set: cont_ms_id,
-    }
 }
 
 fn setup_subchain<'a>(
@@ -1004,6 +781,296 @@ fn pad_continuation_dummy_field(
     drop(cont_field);
 }
 
+impl Operator for OpForkCat {
+    fn default_name(&self) -> super::operator::OperatorName {
+        "forkcat".into()
+    }
+
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
+        // technically this has output, but it always introduces a
+        // separate BB so we don't want to allocate slots for that
+        0
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        // if the case, done by the subchains
+        false
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> super::operator::OutputFieldKind {
+        super::operator::OutputFieldKind::Unconfigured
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut Job<'a>,
+        tf_state: &mut TransformState,
+        op_id: OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        let input_field = tf_state.input_field;
+
+        // TODO: scope sharing stuff
+        let cont_scope_id = job.job_data.scope_mgr.add_scope(None);
+
+        let cont_ms_id = job.job_data.match_set_mgr.add_match_set(
+            &mut job.job_data.field_mgr,
+            &mut job.job_data.scope_mgr,
+            cont_scope_id,
+        );
+
+        let gt_parent = job.job_data.group_track_manager.group_tracks
+            [tf_state.input_group_track_id]
+            .borrow()
+            .parent_group_track_id();
+
+        let cont_group_track =
+            job.job_data.group_track_manager.add_group_track(
+                &job.job_data.match_set_mgr,
+                gt_parent,
+                cont_ms_id,
+                ActorRef::Unconfirmed(ActorId::ZERO),
+            );
+
+        #[cfg(feature = "debug_state")]
+        {
+            job.job_data.group_track_manager.group_tracks[cont_group_track]
+                .borrow_mut()
+                .alias_source = Some(tf_state.input_group_track_id);
+        }
+
+        let mut cont_input_field =
+            job.job_data.match_set_mgr.get_dummy_field(cont_ms_id);
+        let mut continuation_var_mapping =
+            IndexVec::<ContinuationVarIdx, FieldId>::new();
+
+        for cv in &self.continuation_vars {
+            let field_id = job.job_data.field_mgr.add_field(
+                &job.job_data.match_set_mgr,
+                cont_ms_id,
+                ActorRef::default(),
+            );
+            job.job_data.scope_mgr.insert_field_name_opt(
+                cont_scope_id,
+                cv.get_name(),
+                field_id,
+            );
+            if cv == &Var::BBInput {
+                cont_input_field = field_id;
+            }
+            continuation_var_mapping.push(field_id);
+        }
+
+        let cont_dummy_field =
+            job.job_data.match_set_mgr.get_dummy_field(cont_ms_id);
+
+        let continuation_dummy_iter = job.job_data.field_mgr.claim_iter_ref(
+            cont_dummy_field,
+            ActorId::ZERO,
+            IterKind::Transform(
+                job.job_data.tf_mgr.transforms.peek_claim_id(),
+            ),
+        );
+
+        let continuation_state = Arc::new(Mutex::new(FcContinuationState {
+            continuation_tf_id: None, // filled in by the header transform
+            continuation_input_group_track: cont_group_track,
+            continuation_ms_id: cont_ms_id,
+            current_sc: FcSubchainIdx::zero(),
+            subchains: IndexVec::default(),
+            advance_to_next: false,
+            continuation_dummy_iter,
+            group_iters_temp: IndexVec::new(),
+            field_iters_temp: IndexVec::new(),
+            fields_temp: StableVec::new(),
+            cont_field_inserters: IndexVec::new(),
+        }));
+
+        let tf_data = TransformData::from_custom(TfForkCatHeader {
+            continuation_state: continuation_state.clone(),
+            actor_id: job
+                .job_data
+                .add_actor_for_tf_state_ignore_output_field(&tf_state),
+            relaunch_after_cow_advance: false,
+        });
+        let fc_tf_id = add_transform_to_job(
+            &mut job.job_data,
+            &mut job.transform_data,
+            tf_state.clone(),
+            tf_data,
+        );
+
+        let mut subchains = IndexVec::new();
+
+        for (fc_sc_idx, sc_idx) in
+            IndexingTypeRange::new(self.subchains_start..self.subchains_end)
+                .enumerate()
+        {
+            let sc_entry = setup_subchain(
+                self,
+                continuation_state.clone(),
+                cont_ms_id,
+                job,
+                &job.job_data.session_data.operator_bases[op_id],
+                sc_idx,
+                FcSubchainIdx::from_usize(fc_sc_idx),
+                input_field,
+                fc_tf_id,
+                &continuation_var_mapping,
+            );
+            subchains.push(sc_entry);
+        }
+
+        let TransformData::Custom(fc) = &mut job.transform_data[fc_tf_id]
+        else {
+            unreachable!()
+        };
+        let fc: &TfForkCatHeader = fc.downcast_ref().unwrap();
+
+        let mut cont = fc.continuation_state.lock().unwrap();
+        cont.subchains = subchains;
+
+        let tf = &mut job.job_data.tf_mgr.transforms[fc_tf_id];
+        tf.output_field = cont_input_field;
+        job.job_data.field_mgr.bump_field_refcount(cont_input_field);
+
+        super::operator::TransformInstatiation::Multiple(
+            OperatorInstantiation {
+                tfs_begin: fc_tf_id,
+                tfs_end: fc_tf_id,
+                next_input_field: cont_input_field,
+                next_group_track: cont_group_track,
+                next_match_set: cont_ms_id,
+            },
+        )
+    }
+
+    fn update_bb_for_op(
+        &self,
+        sess: &SessionData,
+        ld: &mut LivenessData,
+        _op_id: OperatorId,
+        op_n: OffsetInChain,
+        cn: &crate::chain::Chain,
+        bb_id: crate::liveness_analysis::BasicBlockId,
+    ) -> bool {
+        let bb = &mut ld.basic_blocks[bb_id];
+        for sc in &cn.subchains[self.subchains_start..self.subchains_end] {
+            bb.calls.push(sc.into_bb_id());
+        }
+        ld.split_bb_at_call(sess, bb_id, op_n);
+        true
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        _sess: &mut SessionData,
+        ld: &LivenessData,
+        op_id: OperatorId,
+    ) {
+        let sc_count =
+            (self.subchains_end - self.subchains_start).into_usize();
+        let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
+        let bb = &ld.basic_blocks[bb_id];
+        // TODO: introduce direct reads (not affected by field refs)
+        // to reduce this set here
+        let successors = ld.get_var_liveness_ored(
+            bb.successors.iter().chain(bb.caller_successors.iter()),
+            VarLivenessSlotGroup::Global,
+        );
+        let successor_reads = successors.get_slot(VarLivenessSlotKind::Reads);
+        for var_id in successor_reads.iter_ones().map(VarId::from_usize) {
+            self.continuation_vars.push(ld.vars[var_id]);
+        }
+        let input_var_idx = BB_INPUT_VAR_ID.into_usize();
+        let successors_read_input = successor_reads[input_var_idx];
+        for (sc_idx, &callee_id) in bb.calls.iter().enumerate() {
+            let call_reads = ld.get_var_liveness_slot(
+                callee_id,
+                VarLivenessSlotGroup::Global,
+                VarLivenessSlotKind::Reads,
+            );
+            let reads = call_reads.iter_ones().map(VarId::from_usize);
+
+            for var_id in reads {
+                declare_var_needed_for_sc(self, ld, var_id, sc_count, sc_idx);
+            }
+            // In case the input field is 'passed through', we mark it as used
+            // here. Otherwise the the first transform will be passed the dummy
+            // input (since it doesn't read it's input directly), which would
+            // cause that to be passed through.
+            let input_read = call_reads[input_var_idx];
+            let input_survives = ld.get_var_liveness_slot(
+                callee_id,
+                VarLivenessSlotGroup::Local,
+                VarLivenessSlotKind::Survives,
+            )[input_var_idx];
+            if !input_read && input_survives && successors_read_input {
+                declare_var_needed_for_sc(
+                    self,
+                    ld,
+                    BB_INPUT_VAR_ID,
+                    sc_count,
+                    sc_idx,
+                );
+            };
+        }
+    }
+
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+
+        let OperatorOffsetInChain::Direct(direct_offset_in_chain) =
+            offset_in_chain
+        else {
+            return Err(OperatorSetupError::new(
+                "operator `forkcat` cannot be part of an aggregation",
+                op_id,
+            )
+            .into());
+        };
+        self.direct_offset_in_chain = direct_offset_in_chain;
+
+        self.subchains_start = sess.chains[chain_id].subchains.next_idx();
+
+        for sc in std::mem::take(&mut self.subchains) {
+            sess.setup_subchain(chain_id, sc)?;
+        }
+
+        self.subchains_end = sess.chains[chain_id].subchains.next_idx();
+
+        Ok(op_id)
+    }
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &SessionData,
+        _ld: &mut LivenessData,
+        _op_offset_after_last_write: OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.call_effect = OperatorCallEffect::Diverge;
+    }
+}
+
 impl Transform<'_> for TfForkCatHeader {
     fn display_name(
         &self,
@@ -1171,7 +1238,7 @@ pub fn create_op_forkcat_with_spans(
             sc.push((create_op_nop(), Span::Generated));
         }
     }
-    OperatorData::ForkCat(OpForkCat {
+    OperatorData::from_custom(OpForkCat {
         subchains,
         subchains_start: SubchainIndex::MAX_VALUE,
         subchains_end: SubchainIndex::MAX_VALUE,

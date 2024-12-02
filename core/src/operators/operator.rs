@@ -35,10 +35,6 @@ use super::{
     fork::{
         build_tf_fork, setup_op_fork, setup_op_fork_liveness_data, OpFork,
     },
-    forkcat::{
-        insert_tf_forkcat, setup_op_forkcat, setup_op_forkcat_liveness_data,
-        OpForkCat,
-    },
     key::{setup_op_key, OpKey},
     nop::OpNop,
     select::{setup_op_select, OpSelect},
@@ -61,7 +57,6 @@ pub enum OperatorData {
     Call(OpCall),
     CallConcurrent(OpCallConcurrent),
     Fork(OpFork),
-    ForkCat(OpForkCat),
     Key(OpKey),
     Atom(OpAtom),
     Select(OpSelect),
@@ -195,14 +190,6 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::ForkCat(op) => setup_op_forkcat(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::Call(op) => setup_op_call(
                 op,
                 sess,
@@ -247,7 +234,6 @@ impl OperatorData {
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Chunks(_) => false,
             OperatorData::Key(op) => {
@@ -274,9 +260,6 @@ impl OperatorData {
             OperatorData::Call(_) => 1,
             OperatorData::CallConcurrent(_) => 1,
             OperatorData::Fork(_) => 0,
-            // technically this has output, but it always introduces a
-            // separate BB so we don't want to allocate slots for that
-            OperatorData::ForkCat(_) => 0,
             OperatorData::Atom(_) => 0,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
@@ -320,7 +303,6 @@ impl OperatorData {
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Chunks(_) => (),
             OperatorData::Custom(op) => {
@@ -341,7 +323,6 @@ impl OperatorData {
             OperatorData::Atom(_) => "atom".into(),
             OperatorData::Fork(_) => "fork".into(),
             OperatorData::Chunks(_) => "chunks".into(),
-            OperatorData::ForkCat(_) => "forkcat".into(),
             OperatorData::Key(_) => "key".into(),
             OperatorData::Select(_) => "select".into(),
             OperatorData::Call(_) => "call".into(),
@@ -373,7 +354,6 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::ForkCat(_)
             | OperatorData::Atom(_)
             | OperatorData::Select(_)
             | OperatorData::Chunks(_) => self.default_op_name(),
@@ -392,9 +372,9 @@ impl OperatorData {
             OperatorData::Chunks(_) | OperatorData::Fork(_) => {
                 OutputFieldKind::SameAsInput
             }
-            OperatorData::ForkCat(_)
-            | OperatorData::Select(_)
-            | OperatorData::Atom(_) => OutputFieldKind::Unconfigured,
+            OperatorData::Select(_) | OperatorData::Atom(_) => {
+                OutputFieldKind::Unconfigured
+            }
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return OutputFieldKind::SameAsInput;
@@ -434,7 +414,6 @@ impl OperatorData {
             | OperatorData::Atom(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::ForkCat(_)
             | OperatorData::Chunks(_) => (),
         }
     }
@@ -455,7 +434,6 @@ impl OperatorData {
                 output.flags.input_accessed = false;
             }
             OperatorData::Fork(_)
-            | OperatorData::ForkCat(_)
             | OperatorData::Chunks(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_) => {
@@ -532,9 +510,6 @@ impl OperatorData {
             OperatorData::Fork(op) => {
                 setup_op_fork_liveness_data(op, op_id, ld)
             }
-            OperatorData::ForkCat(op) => {
-                setup_op_forkcat_liveness_data(sess, op, op_id, ld)
-            }
             OperatorData::Custom(op) => {
                 op.on_liveness_computed(sess, ld, op_id)
             }
@@ -579,9 +554,6 @@ impl OperatorData {
                 ));
             }
             OperatorData::Fork(op) => build_tf_fork(jd, op_base, op, tfs),
-            OperatorData::ForkCat(op) => {
-                return Some(insert_tf_forkcat(job, op_base, op, tf_state));
-            }
             OperatorData::Call(op) => build_tf_call(jd, op_base, op, tfs),
             OperatorData::CallConcurrent(op) => {
                 build_tf_call_concurrent(jd, op_base, op, tfs)
@@ -639,7 +611,6 @@ impl OperatorData {
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Chunks(_) => None,
         }
