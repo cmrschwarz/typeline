@@ -41,9 +41,6 @@ use super::{
     },
     key::{setup_op_key, OpKey},
     nop::OpNop,
-    nop_copy::{
-        build_tf_nop_copy, on_op_nop_copy_liveness_computed, OpNopCopy,
-    },
     select::{setup_op_select, OpSelect},
     transform::{TransformData, TransformId, TransformState},
     utils::nested_op::{setup_op_outputs_for_nested_op, NestedOp},
@@ -61,7 +58,6 @@ pub type PreboundOutputsMap =
     HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>;
 
 pub enum OperatorData {
-    NopCopy(OpNopCopy),
     Call(OpCall),
     CallConcurrent(OpCallConcurrent),
     Fork(OpFork),
@@ -239,9 +235,6 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::NopCopy(_) => {
-                Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
-            }
         }
     }
     pub fn has_dynamic_outputs(
@@ -251,7 +244,6 @@ impl OperatorData {
     ) -> bool {
         match self {
             OperatorData::Atom(_)
-            | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
@@ -282,7 +274,6 @@ impl OperatorData {
             OperatorData::Call(_) => 1,
             OperatorData::CallConcurrent(_) => 1,
             OperatorData::Fork(_) => 0,
-            OperatorData::NopCopy(_) => 1,
             // technically this has output, but it always introduces a
             // separate BB so we don't want to allocate slots for that
             OperatorData::ForkCat(_) => 0,
@@ -326,7 +317,6 @@ impl OperatorData {
                 }
             }
             OperatorData::Atom(_)
-            | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
@@ -356,7 +346,6 @@ impl OperatorData {
             OperatorData::Select(_) => "select".into(),
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
-            OperatorData::NopCopy(_) => "nop_copy".into(),
             OperatorData::Custom(op) => op.default_name(),
         }
     }
@@ -381,8 +370,7 @@ impl OperatorData {
                 .into()
             }
 
-            OperatorData::NopCopy(_)
-            | OperatorData::Call(_)
+            OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
@@ -398,9 +386,9 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> OutputFieldKind {
         match self {
-            OperatorData::Call(_)
-            | OperatorData::CallConcurrent(_)
-            | OperatorData::NopCopy(_) => OutputFieldKind::Unique,
+            OperatorData::Call(_) | OperatorData::CallConcurrent(_) => {
+                OutputFieldKind::Unique
+            }
             OperatorData::Chunks(_) | OperatorData::Fork(_) => {
                 OutputFieldKind::SameAsInput
             }
@@ -447,8 +435,7 @@ impl OperatorData {
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
-            | OperatorData::Chunks(_)
-            | OperatorData::NopCopy(_) => (),
+            | OperatorData::Chunks(_) => (),
         }
     }
     pub fn update_liveness_for_op(
@@ -519,13 +506,6 @@ impl OperatorData {
                 output.primary_output = var.natural_output_idx();
                 output.call_effect = OperatorCallEffect::NoCall;
             }
-            OperatorData::NopCopy(_) => {
-                output.flags.may_dup_or_drop = false;
-                output.flags.non_stringified_input_access = false;
-                ld.op_outputs[output.primary_output]
-                    .field_references
-                    .push(input_field);
-            }
 
             OperatorData::Custom(op) => Operator::update_variable_liveness(
                 &**op,
@@ -548,9 +528,6 @@ impl OperatorData {
         match self {
             OperatorData::CallConcurrent(op) => {
                 setup_op_call_concurrent_liveness_data(op, op_id, ld)
-            }
-            OperatorData::NopCopy(op) => {
-                on_op_nop_copy_liveness_computed(op, op_id, ld)
             }
             OperatorData::Fork(op) => {
                 setup_op_fork_liveness_data(op, op_id, ld)
@@ -591,7 +568,6 @@ impl OperatorData {
             OperatorData::Key(_)
             | OperatorData::Atom(_)
             | OperatorData::Select(_) => unreachable!(),
-            OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
             OperatorData::Chunks(op) => {
                 return Some(insert_tf_chunks(
                     job,
@@ -659,8 +635,7 @@ impl OperatorData {
             }
             OperatorData::Custom(op) => op.aggregation_member(agg_offset),
 
-            OperatorData::NopCopy(_)
-            | OperatorData::Atom(_)
+            OperatorData::Atom(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)

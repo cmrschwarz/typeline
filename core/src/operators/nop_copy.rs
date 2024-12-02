@@ -11,7 +11,7 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     nop::create_op_nop,
-    operator::{OperatorData, OperatorId},
+    operator::{Operator, OperatorData, OperatorId},
     transform::{TransformData, TransformId, TransformState},
     utils::basic_transform_update::{basic_transform_update, BasicUpdateData},
 };
@@ -40,33 +40,7 @@ pub fn parse_op_nop_copy(
     }
 }
 pub fn create_op_nop_copy() -> OperatorData {
-    OperatorData::NopCopy(OpNopCopy::default())
-}
-
-pub fn on_op_nop_copy_liveness_computed(
-    op: &mut OpNopCopy,
-    op_id: OperatorId,
-    ld: &LivenessData,
-) {
-    op.may_consume_input = ld.can_consume_nth_access(op_id, 0);
-}
-
-pub fn build_tf_nop_copy<'a>(
-    jd: &mut JobData,
-    op: &OpNopCopy,
-    tf_state: &TransformState,
-) -> TransformData<'a> {
-    jd.field_mgr
-        .setup_field_refs(&mut jd.match_set_mgr, tf_state.input_field);
-    let input_field_ref_offset = jd
-        .field_mgr
-        .register_field_reference(tf_state.output_field, tf_state.input_field);
-    let tfc = TfNopCopy {
-        may_consume_input: op.may_consume_input,
-        input_iter_id: jd.claim_iter_for_tf_state(tf_state),
-        input_field_ref_offset,
-    };
-    TransformData::NopCopy(tfc)
+    OperatorData::from_custom(OpNopCopy::default())
 }
 
 impl TfNopCopy {
@@ -84,6 +58,81 @@ impl TfNopCopy {
             );
         }
         (bud.batch_size, bud.ps.input_done)
+    }
+}
+
+impl Operator for OpNopCopy {
+    fn default_name(&self) -> super::operator::OperatorName {
+        "nop-c".into()
+    }
+
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> usize {
+        1
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut crate::job::Job<'a>,
+        tf_state: &mut TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        job.job_data.field_mgr.setup_field_refs(
+            &mut job.job_data.match_set_mgr,
+            tf_state.input_field,
+        );
+        let input_field_ref_offset =
+            job.job_data.field_mgr.register_field_reference(
+                tf_state.output_field,
+                tf_state.input_field,
+            );
+        let tfc = TfNopCopy {
+            may_consume_input: self.may_consume_input,
+            input_iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
+            input_field_ref_offset,
+        };
+
+        super::operator::TransformInstatiation::Single(TransformData::NopCopy(
+            tfc,
+        ))
+    }
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        ld: &mut LivenessData,
+        _op_offset_after_last_write: super::operator::OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = false;
+        output.flags.non_stringified_input_access = false;
+        ld.op_outputs[output.primary_output]
+            .field_references
+            .push(input_field);
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        _sess: &mut crate::context::SessionData,
+        ld: &LivenessData,
+        op_id: OperatorId,
+    ) {
+        self.may_consume_input = ld.can_consume_nth_access(op_id, 0);
     }
 }
 
