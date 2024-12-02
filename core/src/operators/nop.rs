@@ -10,7 +10,8 @@ use super::{
     errors::OperatorCreationError,
     nop_copy::create_op_nop_copy,
     operator::{
-        OperatorData, OperatorDataId, OperatorId, OperatorOffsetInChain,
+        Operator, OperatorData, OperatorDataId, OperatorId,
+        OperatorOffsetInChain,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -29,7 +30,7 @@ pub fn parse_op_nop(
     }
 }
 pub fn create_op_nop() -> OperatorData {
-    OperatorData::Nop(OpNop::default())
+    OperatorData::from_custom(OpNop::default())
 }
 
 pub fn setup_op_nop(
@@ -63,4 +64,61 @@ pub fn handle_tf_nop(jd: &mut JobData, tf_id: TransformId, _nop: &TfNop) {
         ps.group_to_truncate,
         ps.input_done,
     );
+}
+
+impl Operator for OpNop {
+    fn default_name(&self) -> super::operator::OperatorName {
+        "nop".into()
+    }
+
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> usize {
+        0
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> super::operator::OutputFieldKind {
+        super::operator::OutputFieldKind::SameAsInput
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        _job: &mut crate::job::Job<'a>,
+        _tf_state: &mut TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        super::operator::TransformInstatiation::Single(TransformData::Nop(
+            TfNop {},
+        ))
+    }
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        _ld: &mut crate::liveness_analysis::LivenessData,
+        _op_offset_after_last_write: super::operator::OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.flags.input_accessed = false;
+        output.flags.may_dup_or_drop = false;
+        output.flags.non_stringified_input_access = false;
+    }
 }

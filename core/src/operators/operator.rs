@@ -40,7 +40,7 @@ use super::{
         OpForkCat,
     },
     key::{setup_op_key, OpKey},
-    nop::{build_tf_nop, setup_op_nop, OpNop},
+    nop::OpNop,
     nop_copy::{
         build_tf_nop_copy, on_op_nop_copy_liveness_computed, OpNopCopy,
     },
@@ -60,10 +60,7 @@ index_newtype! {
 pub type PreboundOutputsMap =
     HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>;
 
-pub static DUMMY_OP_NOP: OperatorData = OperatorData::Nop(OpNop {});
-
 pub enum OperatorData {
-    Nop(OpNop),
     NopCopy(OpNopCopy),
     Call(OpCall),
     CallConcurrent(OpCallConcurrent),
@@ -120,7 +117,7 @@ pub type OperatorName = SmallString<[u8; 32]>;
 
 impl Default for OperatorData {
     fn default() -> Self {
-        OperatorData::Nop(OpNop {})
+        OperatorData::from_custom(OpNop {})
     }
 }
 
@@ -202,14 +199,6 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::Nop(op) => setup_op_nop(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::ForkCat(op) => setup_op_forkcat(
                 op,
                 sess,
@@ -261,8 +250,7 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> bool {
         match self {
-            OperatorData::Nop(_)
-            | OperatorData::Atom(_)
+            OperatorData::Atom(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
@@ -294,7 +282,6 @@ impl OperatorData {
             OperatorData::Call(_) => 1,
             OperatorData::CallConcurrent(_) => 1,
             OperatorData::Fork(_) => 0,
-            OperatorData::Nop(_) => 0,
             OperatorData::NopCopy(_) => 1,
             // technically this has output, but it always introduces a
             // separate BB so we don't want to allocate slots for that
@@ -338,8 +325,7 @@ impl OperatorData {
                     return;
                 }
             }
-            OperatorData::Nop(_)
-            | OperatorData::Atom(_)
+            OperatorData::Atom(_)
             | OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
@@ -370,7 +356,6 @@ impl OperatorData {
             OperatorData::Select(_) => "select".into(),
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
-            OperatorData::Nop(_) => "nop".into(),
             OperatorData::NopCopy(_) => "nop_copy".into(),
             OperatorData::Custom(op) => op.default_name(),
         }
@@ -396,8 +381,7 @@ impl OperatorData {
                 .into()
             }
 
-            OperatorData::Nop(_)
-            | OperatorData::NopCopy(_)
+            OperatorData::NopCopy(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
@@ -417,9 +401,9 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::NopCopy(_) => OutputFieldKind::Unique,
-            OperatorData::Chunks(_)
-            | OperatorData::Nop(_)
-            | OperatorData::Fork(_) => OutputFieldKind::SameAsInput,
+            OperatorData::Chunks(_) | OperatorData::Fork(_) => {
+                OutputFieldKind::SameAsInput
+            }
             OperatorData::ForkCat(_)
             | OperatorData::Select(_)
             | OperatorData::Atom(_) => OutputFieldKind::Unconfigured,
@@ -463,7 +447,6 @@ impl OperatorData {
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
-            | OperatorData::Nop(_)
             | OperatorData::Chunks(_)
             | OperatorData::NopCopy(_) => (),
         }
@@ -483,11 +466,6 @@ impl OperatorData {
                 output.flags.may_dup_or_drop = false;
                 output.flags.non_stringified_input_access = false;
                 output.flags.input_accessed = false;
-            }
-            // TODO: this shouldn't access inputs. fix testcases
-            OperatorData::Nop(_) => {
-                output.flags.may_dup_or_drop = false;
-                output.flags.non_stringified_input_access = false;
             }
             OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
@@ -593,7 +571,6 @@ impl OperatorData {
                 }
             }
             OperatorData::Call(_)
-            | OperatorData::Nop(_)
             | OperatorData::Atom(_)
             | OperatorData::Chunks(_)
             | OperatorData::Select(_) => (),
@@ -614,7 +591,6 @@ impl OperatorData {
             OperatorData::Key(_)
             | OperatorData::Atom(_)
             | OperatorData::Select(_) => unreachable!(),
-            OperatorData::Nop(op) => build_tf_nop(op, tfs),
             OperatorData::NopCopy(op) => build_tf_nop_copy(jd, op, tfs),
             OperatorData::Chunks(op) => {
                 return Some(insert_tf_chunks(
@@ -683,8 +659,7 @@ impl OperatorData {
             }
             OperatorData::Custom(op) => op.aggregation_member(agg_offset),
 
-            OperatorData::Nop(_)
-            | OperatorData::NopCopy(_)
+            OperatorData::NopCopy(_)
             | OperatorData::Atom(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
