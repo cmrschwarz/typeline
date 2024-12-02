@@ -2,33 +2,31 @@ use std::sync::Arc;
 
 use crate::{
     chain::ChainId,
-    cli::call_expr::{Argument, Span},
-    context::SessionData,
-    job::Job,
-    operators::operator::OffsetInAggregation,
+    cli::call_expr::{Argument, CallExprEndKind, MetaInfo, Span},
     options::{
         context_builder::ContextBuilder,
         session_setup::{ScrSetupOptions, SessionSetupData},
     },
-    record_data::{array::Array, field_value::FieldValue},
+    record_data::{
+        array::Array, field_data::FieldValueRepr, field_value::FieldValue,
+    },
     scr_error::{ContextualizedScrError, ScrError},
     utils::indexing_type::IndexingType,
 };
 
 use super::{
     errors::OperatorSetupError,
-    macro_def::{MacroDeclData, OpMacroDef},
-    multi_op::OpMultiOp,
+    macro_def::MacroDeclData,
+    multi_op::create_multi_op,
     operator::{
-        Operator, OperatorDataId, OperatorId, OperatorInstantiation,
-        OperatorOffsetInChain, PreboundOutputsMap,
+        OffsetInAggregation, OperatorDataId, OperatorId, OperatorOffsetInChain,
     },
 };
 
 pub struct OpMacroCall {
     pub decl: Arc<MacroDeclData>,
     pub arg: Argument,
-    pub op_multi_op: OpMultiOp,
+    pub multi_op_op_id: OperatorId,
 }
 
 pub fn setup_op_macro_call(
@@ -40,9 +38,6 @@ pub fn setup_op_macro_call(
     span: Span,
 ) -> Result<OperatorId, ScrError> {
     let parent_scope_id = sess.chains[chain_id].scope_id;
-
-    let macro_instaniation_scope =
-        sess.scope_mgr.add_scope(Some(parent_scope_id));
 
     let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
@@ -71,7 +66,6 @@ pub fn setup_op_macro_call(
     )
     .map_err(map_error)?
     .push_fixed_size_type(op.arg.clone(), 1)
-    .add_ops_with_spans(std::mem::take(&mut op.op_multi_op.operations))
     .run_collect()
     .map_err(map_error)?;
 
@@ -107,47 +101,71 @@ pub fn setup_op_macro_call(
             .into());
         }
     };
-    let result_args = if arr.is_empty() {
-        arr.into_cleared_vec()
-    } else if let Array::Argument(arg) = arr {
-        arg
-    } else {
-        return Err(OperatorSetupError::new_s(
-                    format!("error during macro instantiation: code block expected, macro returned array[{}]", arr.repr().unwrap()),
-                    op_id,
-                )
-                .into());
-    };
 
-    for (i, arg) in result_args.into_iter().enumerate() {
-        let op_data = sess.parse_argument(arg)?;
-        sess.setup_op_from_data(
-            op_data,
-            chain_id,
-            OperatorOffsetInChain::AggregationMember(
+    let mut ops = Vec::new();
+
+    for (i, arg) in arr.into_iter().enumerate() {
+        let mut arg = if let FieldValue::Argument(arg) = arg {
+            *arg
+        } else {
+            Argument {
+                value: arg,
+                span: Span::MacroExpansion { op_id },
+                source_scope: parent_scope_id,
+                meta_info: Some(MetaInfo::EndKind(
+                    CallExprEndKind::SpecialBuiltin,
+                )),
+            }
+        };
+
+        let FieldValue::Array(arr) = &mut arg.value else {
+            return Err(OperatorSetupError::new_s(
+                format!(
+                    "error during macro instantiation: in operator {i}: s-expr expected, macro returned {}",
+                    arg.value.kind()
+                ),
                 op_id,
-                OffsetInAggregation::from_usize(i),
-            ),
-            span,
-        )?;
+            )
+            .into());
+        };
+
+        if !arr.is_empty() && arr.repr() != Some(FieldValueRepr::Argument) {
+            let mut arr_argumentized = Vec::new();
+            for v in std::mem::take(arr).into_iter() {
+                if let FieldValue::Argument(arg) = v {
+                    arr_argumentized.push(*arg);
+                } else {
+                    arr_argumentized.push(Argument {
+                        value: v,
+                        span: Span::MacroExpansion { op_id },
+                        source_scope: parent_scope_id,
+                        meta_info: Some(MetaInfo::EndKind(
+                            CallExprEndKind::SpecialBuiltin,
+                        )),
+                    });
+                }
+            }
+            *arr = Array::Argument(arr_argumentized);
+        }
+
+        // TODO: contextualize error
+
+        ops.push(sess.parse_argument(arg)?);
     }
 
+    let multi_op = create_multi_op(ops);
+
+    let multi_op_data = sess.add_op_data(multi_op);
+
+    op.multi_op_op_id = sess.add_op(
+        multi_op_data,
+        chain_id,
+        OperatorOffsetInChain::AggregationMember(
+            op_id,
+            OffsetInAggregation::ZERO,
+        ),
+        Span::Generated,
+    );
+
     Ok(op_id)
-}
-
-pub fn insert_tf_macro_call(
-    _job: &mut Job,
-    _op: &OpMacroDef,
-    _op_id: OperatorId,
-    _prebound_outputs: &PreboundOutputsMap,
-) -> OperatorInstantiation {
-    todo!()
-}
-
-pub fn macro_call_has_dynamic_outputs(
-    op: &OpMacroCall,
-    sess: &SessionData,
-    op_id: OperatorId,
-) -> bool {
-    op.op_multi_op.has_dynamic_outputs(sess, op_id)
 }

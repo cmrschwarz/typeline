@@ -5,7 +5,8 @@ use crate::{
     cli::call_expr::Argument,
     operators::errors::OperatorApplicationError,
     record_data::{
-        field_value::FieldValueKind, field_value_ref::FieldValueRefMut,
+        field_value::{FieldValue, FieldValueKind, FieldValueUnboxed},
+        field_value_ref::FieldValueRefMut,
     },
     utils::{force_cast, temp_vec::convert_vec_cleared},
 };
@@ -13,7 +14,7 @@ use crate::{
 use super::{
     custom_data::CustomDataBox,
     field_data::{FieldValueRepr, FixedSizeFieldValueType},
-    field_value::{FieldReference, FieldValue, Object, SlicedFieldReference},
+    field_value::{FieldReference, Object, SlicedFieldReference},
     field_value_ref::FieldValueRef,
     scope_manager::OpDeclRef,
     stream_value::StreamValueId,
@@ -384,6 +385,43 @@ impl Array {
             index: 0,
         }
     }
+
+    pub fn into_iter(self) -> ArrayIntoIter {
+        metamatch!(match self {
+            #[expand(T in [Null, Undefined])]
+            Array::T(count) =>
+                ArrayIntoIter::T(std::iter::repeat_n(FieldValue::T, count)),
+
+            #[expand(REP in [
+                Text, Bytes, Mixed,
+                Int, Error, Array, Object, OpDecl,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            Array::REP(arr) => {
+                ArrayIntoIter::REP(arr.into_iter())
+            }
+        })
+    }
+    pub fn into_iter_unboxed(self) -> ArrayIntoIterUnboxed {
+        metamatch!(match self {
+            #[expand(T in [Null, Undefined])]
+            Array::T(count) => ArrayIntoIterUnboxed::T(std::iter::repeat_n(
+                FieldValueUnboxed::T,
+                count
+            )),
+
+            #[expand(REP in [
+                Text, Bytes, Mixed,
+                Int, Error, Array, Object, OpDecl,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            Array::REP(arr) => {
+                ArrayIntoIterUnboxed::REP(arr.into_iter())
+            }
+        })
+    }
 }
 
 pub struct ArrayRefIter<'a> {
@@ -398,5 +436,100 @@ impl<'a> Iterator for ArrayRefIter<'a> {
         let res = self.arr.get(self.index)?;
         self.index += 1;
         Some(res)
+    }
+}
+
+pub enum ArrayIntoIterUnboxed {
+    Null(std::iter::RepeatN<FieldValueUnboxed>),
+    Undefined(std::iter::RepeatN<FieldValueUnboxed>),
+    Int(std::vec::IntoIter<i64>),
+    BigInt(std::vec::IntoIter<BigInt>),
+    Float(std::vec::IntoIter<f64>),
+    BigRational(std::vec::IntoIter<BigRational>),
+    Bytes(std::vec::IntoIter<Vec<u8>>),
+    Text(std::vec::IntoIter<String>),
+    Error(std::vec::IntoIter<OperatorApplicationError>),
+    Array(std::vec::IntoIter<Array>),
+    Object(std::vec::IntoIter<Object>),
+    StreamValueId(std::vec::IntoIter<StreamValueId>),
+    Argument(std::vec::IntoIter<Argument>),
+    OpDecl(std::vec::IntoIter<OpDeclRef>),
+    FieldReference(std::vec::IntoIter<FieldReference>),
+    SlicedFieldReference(std::vec::IntoIter<SlicedFieldReference>),
+    Custom(std::vec::IntoIter<CustomDataBox>),
+    Mixed(std::vec::IntoIter<FieldValue>),
+}
+
+impl Iterator for ArrayIntoIterUnboxed {
+    type Item = FieldValueUnboxed;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        metamatch!(match self {
+            #[expand(T in [Null, Undefined])]
+            ArrayIntoIterUnboxed::T(iter) => iter.next(),
+
+            #[expand(REP in [
+                Text, Bytes,
+                Int, Error, Array, Object, OpDecl,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            ArrayIntoIterUnboxed::REP(iter) => {
+                Some(FieldValueUnboxed::REP(iter.next()?))
+            }
+
+            ArrayIntoIterUnboxed::Mixed(iter) => Some(iter.next()?.unbox()),
+        })
+    }
+}
+
+pub enum ArrayIntoIter {
+    Null(std::iter::RepeatN<FieldValue>),
+    Undefined(std::iter::RepeatN<FieldValue>),
+    Int(std::vec::IntoIter<i64>),
+    BigInt(std::vec::IntoIter<BigInt>),
+    Float(std::vec::IntoIter<f64>),
+    BigRational(std::vec::IntoIter<BigRational>),
+    Bytes(std::vec::IntoIter<Vec<u8>>),
+    Text(std::vec::IntoIter<String>),
+    Error(std::vec::IntoIter<OperatorApplicationError>),
+    Array(std::vec::IntoIter<Array>),
+    Object(std::vec::IntoIter<Object>),
+    StreamValueId(std::vec::IntoIter<StreamValueId>),
+    Argument(std::vec::IntoIter<Argument>),
+    OpDecl(std::vec::IntoIter<OpDeclRef>),
+    FieldReference(std::vec::IntoIter<FieldReference>),
+    SlicedFieldReference(std::vec::IntoIter<SlicedFieldReference>),
+    Custom(std::vec::IntoIter<CustomDataBox>),
+    Mixed(std::vec::IntoIter<FieldValue>),
+}
+
+impl Iterator for ArrayIntoIter {
+    type Item = FieldValue;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        metamatch!(match self {
+            #[expand(T in [Null, Undefined])]
+            ArrayIntoIter::T(iter) => iter.next(),
+
+            #[expand(REP in [
+                Text, Bytes,
+                Int, Error, Array, OpDecl,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId
+            ])]
+            ArrayIntoIter::REP(iter) => {
+                Some(FieldValue::REP(iter.next()?))
+            }
+
+            #[expand(REP in [
+                Object, BigInt, BigRational, Argument
+            ])]
+            ArrayIntoIter::REP(iter) => {
+                Some(FieldValue::REP(Box::new(iter.next()?)))
+            }
+
+            ArrayIntoIter::Mixed(iter) => Some(iter.next()?),
+        })
     }
 }

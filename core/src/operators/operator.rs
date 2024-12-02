@@ -41,9 +41,7 @@ use super::{
     },
     key::{setup_op_key, OpKey},
     literal::{build_tf_literal, OpLiteral},
-    macro_call::{
-        macro_call_has_dynamic_outputs, setup_op_macro_call, OpMacroCall,
-    },
+    macro_call::{setup_op_macro_call, OpMacroCall},
     macro_def::{setup_op_macro_def, OpMacroDef},
     multi_op::OpMultiOp,
     nop::{build_tf_nop, setup_op_nop, OpNop},
@@ -319,9 +317,9 @@ impl OperatorData {
             OperatorData::MultiOp(op) => {
                 Operator::has_dynamic_outputs(op, sess, op_id)
             }
-            OperatorData::MacroCall(op) => {
-                macro_call_has_dynamic_outputs(op, sess, op_id)
-            }
+            OperatorData::MacroCall(op) => sess.operator_data
+                [sess.op_data_id(op.multi_op_op_id)]
+            .has_dynamic_outputs(sess, op.multi_op_op_id),
             OperatorData::Custom(op) => {
                 Operator::has_dynamic_outputs(&**op, sess, op_id)
             }
@@ -362,9 +360,9 @@ impl OperatorData {
             OperatorData::MultiOp(op) => {
                 Operator::output_count(op, sess, op_id)
             }
-            OperatorData::MacroCall(op) => {
-                op.op_multi_op.output_count(sess, op_id)
-            }
+            OperatorData::MacroCall(op) => sess.operator_data
+                [sess.op_data_id(op.multi_op_op_id)]
+            .output_count(sess, op.multi_op_op_id),
             OperatorData::MacroDef(_) => 0,
         }
     }
@@ -504,9 +502,9 @@ impl OperatorData {
             OperatorData::MultiOp(op) => {
                 Operator::output_field_kind(op, sess, op_id)
             }
-            OperatorData::MacroCall(op) => {
-                op.op_multi_op.output_field_kind(sess, op_id)
-            }
+            OperatorData::MacroCall(op) => sess.operator_data
+                [sess.op_data_id(op.multi_op_op_id)]
+            .output_field_kind(sess, op.multi_op_op_id),
         }
     }
     pub fn register_output_var_names(
@@ -532,9 +530,9 @@ impl OperatorData {
             OperatorData::MultiOp(op) => {
                 op.register_output_var_names(ld, sess, op_id)
             }
-            OperatorData::MacroCall(op) => {
-                op.op_multi_op.register_output_var_names(ld, sess, op_id)
-            }
+            OperatorData::MacroCall(op) => sess.operator_data
+                [sess.op_data_id(op.multi_op_op_id)]
+            .register_output_var_names(ld, sess, op.multi_op_op_id),
             OperatorData::Call(_)
             | OperatorData::Atom(_)
             | OperatorData::CallConcurrent(_)
@@ -655,17 +653,17 @@ impl OperatorData {
                 input_field,
                 output,
             ),
-            OperatorData::MacroCall(op) => {
-                op.op_multi_op.update_variable_liveness(
-                    sess,
-                    ld,
-                    op_offset_after_last_write,
-                    op_id,
-                    bb_id,
-                    input_field,
-                    output,
-                )
-            }
+            OperatorData::MacroCall(op) => sess.operator_data
+                [sess.op_data_id(op.multi_op_op_id)]
+            .update_liveness_for_op(
+                sess,
+                ld,
+                op_offset_after_last_write,
+                op_id,
+                bb_id,
+                input_field,
+                output,
+            ),
         }
     }
     pub fn on_liveness_computed(
@@ -691,7 +689,11 @@ impl OperatorData {
                 op.on_liveness_computed(sess, ld, op_id)
             }
             OperatorData::MacroCall(op) => {
-                op.op_multi_op.on_liveness_computed(sess, ld, op_id)
+                let op_data_id = sess.op_data_id(op.multi_op_op_id);
+                let mut op_data =
+                    std::mem::take(&mut sess.operator_data[op_data_id]);
+                op_data.on_liveness_computed(sess, ld, op_id);
+                sess.operator_data[op_data_id] = op_data;
             }
             OperatorData::Custom(op) => {
                 op.on_liveness_computed(sess, ld, op_id)
@@ -783,17 +785,14 @@ impl OperatorData {
                 }
             }
             OperatorData::MacroCall(op) => {
-                match op.op_multi_op.build_transforms(
+                return job.job_data.session_data.operator_data
+                    [job.job_data.session_data.op_data_id(op.multi_op_op_id)]
+                .operator_build_transforms(
                     job,
-                    tfs,
+                    tf_state,
                     op_id,
                     prebound_outputs,
-                ) {
-                    TransformInstatiation::Single(tf) => tf,
-                    TransformInstatiation::Multiple(instantiation) => {
-                        return instantiation
-                    }
-                }
+                )
             }
         };
 
@@ -824,7 +823,11 @@ impl OperatorData {
                 mop.sub_op_ids.get(agg_offset).copied()
             }
             OperatorData::MacroCall(mop) => {
-                mop.op_multi_op.sub_op_ids.get(agg_offset).copied()
+                if agg_offset == OffsetInAggregation::ZERO {
+                    Some(mop.multi_op_op_id)
+                } else {
+                    None
+                }
             }
             OperatorData::Key(op) => {
                 if let Some(NestedOp::SetUp(op_id)) = op.nested_op {

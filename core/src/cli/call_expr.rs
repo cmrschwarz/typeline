@@ -510,7 +510,8 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
         // lifetime shenanegans
         let err_pre = arg.error_expect_call_expr();
 
-        let FieldValue::Array(Array::Argument(sub_args)) = &mut arg.value
+        let FieldValue::Array(Array::Argument(sub_args)) =
+            arg.value.deref_argument_mut()
         else {
             return Err(err_pre);
         };

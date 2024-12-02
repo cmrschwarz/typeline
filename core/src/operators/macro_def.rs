@@ -11,7 +11,7 @@ use crate::{
     },
     scr_error::ScrError,
     utils::{
-        escaped_writer::EscapedWriter, index_vec::IndexVec,
+        escaped_writer::EscapedWriter, indexing_type::IndexingType,
         string_store::StringStoreEntry, text_write::TextWrite,
     },
 };
@@ -19,7 +19,6 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     macro_call::OpMacroCall,
-    multi_op::OpMultiOp,
     operator::{
         OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
         OperatorOffsetInChain, PreboundOutputsMap,
@@ -57,10 +56,7 @@ impl OperatorDeclaration for MacroOpDecl {
         Ok(OperatorData::MacroCall(OpMacroCall {
             decl: self.data.clone(),
             arg,
-            op_multi_op: OpMultiOp {
-                operations: Vec::new(),
-                sub_op_ids: IndexVec::new(),
-            },
+            multi_op_op_id: OperatorId::MAX_VALUE,
         }))
     }
 

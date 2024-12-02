@@ -74,6 +74,15 @@ impl OperatorSetupError {
     }
 }
 
+impl Default for OperatorApplicationError {
+    fn default() -> Self {
+        Self::Borrowed {
+            op_id: OperatorId::default(),
+            message: "",
+        }
+    }
+}
+
 impl OperatorApplicationError {
     pub fn new(message: &'static str, op_id: OperatorId) -> Self {
         OperatorApplicationError::Borrowed { op_id, message }

@@ -84,6 +84,35 @@ pub enum FieldValue {
     SlicedFieldReference(SlicedFieldReference),
 }
 
+#[derive(Debug, Clone, Default)]
+pub enum FieldValueUnboxed {
+    #[default]
+    Undefined,
+    Null,
+    Int(i64),
+    BigInt(BigInt),
+    Float(f64),
+    BigRational(BigRational),
+    // PERF: better to use a custom version of Arc<String> for this with only
+    // one indirection (and no weak refs) that still stores the capacity
+    // (unlike `Arc<str>`). Maybe that type stores the meta info at
+    // the end so we can convert to `String` without realloc or memcpy
+    Text(String),
+    Bytes(Vec<u8>), // TODO: same as for `Text`
+    // this is the only field that's allowed to be 32 bytes large
+    // this still keeps FieldValue at 32 bytes due to Rust's
+    // cool enum layout optimizations
+    Array(Array),
+    Object(Object),
+    Custom(CustomDataBox),
+    Error(OperatorApplicationError),
+    OpDecl(OpDeclRef),
+    Argument(Argument),
+    StreamValueId(StreamValueId),
+    FieldReference(FieldReference),
+    SlicedFieldReference(SlicedFieldReference),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Null;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,6 +157,12 @@ impl SlicedFieldReference {
 impl FieldReference {
     pub fn new(field_ref_offset: FieldRefOffset) -> Self {
         Self { field_ref_offset }
+    }
+}
+
+impl Default for Object {
+    fn default() -> Self {
+        Object::KeysStored(IndexMap::default())
     }
 }
 
@@ -555,5 +590,59 @@ impl FieldValue {
             | FieldValue::FieldReference(_)
             | FieldValue::SlicedFieldReference(_) => None,
         }
+    }
+    pub fn unbox(self) -> FieldValueUnboxed {
+        metamatch!(match self {
+            #[expand(REP in [Null, Undefined])]
+            FieldValue::REP => FieldValueUnboxed::REP,
+
+            #[expand(REP in [
+                Int, Error, Array, OpDecl, Text, Bytes,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId,
+            ])]
+            FieldValue::REP(v) => FieldValueUnboxed::REP(v),
+
+            #[expand(REP in [
+                Object, BigInt, BigRational, Argument,
+            ])]
+            FieldValue::REP(v) => FieldValueUnboxed::REP(*v),
+        })
+    }
+
+    pub fn deref_argument(&self) -> &FieldValue {
+        if let FieldValue::Argument(arg) = self {
+            &arg.value
+        } else {
+            self
+        }
+    }
+    pub fn deref_argument_mut(&mut self) -> &mut FieldValue {
+        if let FieldValue::Argument(arg) = self {
+            &mut arg.value
+        } else {
+            self
+        }
+    }
+}
+
+impl FieldValueUnboxed {
+    pub fn into_field_value(self) -> FieldValue {
+        metamatch!(match self {
+            #[expand(REP in [Null, Undefined])]
+            FieldValueUnboxed::REP => FieldValue::REP,
+
+            #[expand(REP in [
+                Int, Error, Array, OpDecl, Text, Bytes,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId,
+            ])]
+            FieldValueUnboxed::REP(v) => FieldValue::REP(v),
+
+            #[expand(REP in [
+                Object, BigInt, BigRational, Argument,
+            ])]
+            FieldValueUnboxed::REP(v) => FieldValue::REP(Box::new(v)),
+        })
     }
 }
