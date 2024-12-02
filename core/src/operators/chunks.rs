@@ -6,6 +6,7 @@ use crate::{
     chain::{ChainId, SubchainIndex},
     cli::call_expr::{Argument, CallExpr, Span},
     job::{add_transform_to_job, Job, JobData},
+    operators::operator::TransformInstatiation,
     options::session_setup::SessionSetupData,
     record_data::{
         group_track::{GroupTrackIterId, GroupTrackIterRef},
@@ -19,8 +20,8 @@ use super::{
     errors::OperatorCreationError,
     nop::create_op_nop,
     operator::{
-        OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
-        OperatorOffsetInChain, PreboundOutputsMap,
+        Operator, OperatorData, OperatorDataId, OperatorId,
+        OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -37,148 +38,6 @@ pub struct TfChunksHeader {
     starting_new_group: bool,
 }
 pub struct TfChunksTrailer {}
-
-pub fn setup_op_chunks(
-    op: &mut OpChunks,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
-    op.subchain_idx = sess.chains[chain_id].subchains.next_idx();
-    sess.setup_subchain(chain_id, std::mem::take(&mut op.subchain))?;
-    Ok(op_id)
-}
-
-pub fn insert_tf_chunks(
-    job: &mut Job,
-    op: &OpChunks,
-    mut tf_state: TransformState,
-    chain_id: ChainId,
-    op_id: OperatorId,
-    prebound_outputs: &PreboundOutputsMap,
-) -> OperatorInstantiation {
-    let subchain_id =
-        job.job_data.session_data.chains[chain_id].subchains[op.subchain_idx];
-    let sc_start_op_id = job.job_data.session_data.chains[subchain_id]
-        .operators
-        .first();
-    let ms_id = tf_state.match_set_id;
-    let desired_batch_size = tf_state.desired_batch_size;
-    let input_field = tf_state.input_field;
-
-    let ms = &mut job.job_data.match_set_mgr.match_sets[ms_id];
-    let next_actor_id = ms.action_buffer.borrow().next_actor_ref();
-    let parent_group_track = tf_state.input_group_track_id;
-
-    let header_tf_id_peek = job.job_data.tf_mgr.transforms.peek_claim_id();
-
-    let parent_group_track_iter =
-        job.job_data.group_track_manager.claim_group_track_iter(
-            parent_group_track,
-            next_actor_id.get_id(),
-            IterKind::Transform(header_tf_id_peek),
-        );
-    let group_track = job.job_data.group_track_manager.add_group_track(
-        &job.job_data.match_set_mgr,
-        Some(parent_group_track),
-        ms_id,
-        next_actor_id,
-    );
-    tf_state.output_group_track_id = group_track;
-
-    let mut trailer_output_field = input_field;
-
-    let header_tf_id = add_transform_to_job(
-        &mut job.job_data,
-        &mut job.transform_data,
-        tf_state,
-        TransformData::ChunksHeader(TfChunksHeader {
-            parent_group_track_iter,
-            stride: op.stride,
-            curr_stride_rem: op.stride,
-            starting_new_group: false,
-        }),
-    );
-    debug_assert!(header_tf_id_peek == header_tf_id);
-
-    let mut out_tf_id = header_tf_id;
-    let mut out_ms_id = ms_id;
-    let mut out_group_track = group_track;
-
-    if let Some(&op_id) = sc_start_op_id {
-        let instantiation = job.setup_transforms_from_op(
-            ms_id,
-            op_id,
-            input_field,
-            group_track,
-            None,
-            prebound_outputs,
-        );
-        trailer_output_field = instantiation.next_input_field;
-        job.job_data.tf_mgr.transforms[header_tf_id].successor =
-            Some(instantiation.tfs_begin);
-
-        out_tf_id = instantiation.tfs_end;
-        out_ms_id = instantiation.next_match_set;
-        out_group_track = instantiation.next_group_track;
-    }
-
-    job.job_data
-        .field_mgr
-        .inc_field_refcount(trailer_output_field, 2);
-
-    let mut trailer_tf_state = TransformState::new(
-        trailer_output_field,
-        trailer_output_field,
-        out_ms_id,
-        desired_batch_size,
-        Some(op_id),
-        out_group_track,
-    );
-
-    let parent_group_track_parent =
-        job.job_data.group_track_manager.group_tracks[parent_group_track]
-            .borrow()
-            .parent_group_track_id();
-    let next_actor_ref = job.job_data.match_set_mgr.match_sets[out_ms_id]
-        .action_buffer
-        .borrow()
-        .next_actor_ref();
-    trailer_tf_state.output_group_track_id =
-        job.job_data.group_track_manager.add_group_track(
-            &job.job_data.match_set_mgr,
-            parent_group_track_parent,
-            out_ms_id,
-            next_actor_ref,
-        );
-
-    #[cfg(feature = "debug_state")]
-    {
-        job.job_data.group_track_manager.group_tracks
-            [trailer_tf_state.output_group_track_id]
-            .borrow_mut()
-            .corresponding_header = Some(group_track);
-    }
-
-    let trailer_tf_id = add_transform_to_job(
-        &mut job.job_data,
-        &mut job.transform_data,
-        trailer_tf_state,
-        TransformData::ChunksTrailer(TfChunksTrailer {}),
-    );
-    job.job_data.tf_mgr.transforms[out_tf_id].successor = Some(trailer_tf_id);
-
-    OperatorInstantiation {
-        tfs_begin: header_tf_id,
-        tfs_end: trailer_tf_id,
-        next_input_field: trailer_output_field,
-        next_group_track: parent_group_track,
-        next_match_set: out_ms_id,
-    }
-}
 
 pub fn handle_tf_chunks_header(
     jd: &mut JobData,
@@ -325,11 +184,201 @@ pub fn create_op_chunks_with_spans(
     if subchain.is_empty() {
         subchain.push((create_op_nop(), Span::Generated));
     }
-    Ok(OperatorData::Chunks(OpChunks {
+    Ok(OperatorData::from_custom(OpChunks {
         subchain,
         subchain_idx: SubchainIndex::MAX_VALUE,
         stride,
     }))
+}
+
+impl Operator for OpChunks {
+    fn default_name(&self) -> super::operator::OperatorName {
+        "chunks".into()
+    }
+
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> usize {
+        0
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> super::operator::OutputFieldKind {
+        super::operator::OutputFieldKind::SameAsInput
+    }
+
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+        self.subchain_idx = sess.chains[chain_id].subchains.next_idx();
+        sess.setup_subchain(chain_id, std::mem::take(&mut self.subchain))?;
+        Ok(op_id)
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut Job<'a>,
+        tf_state: &mut TransformState,
+        op_id: OperatorId,
+        prebound_outputs: &PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        let chain_id =
+            job.job_data.session_data.operator_bases[op_id].chain_id;
+        let subchain_id = job.job_data.session_data.chains[chain_id].subchains
+            [self.subchain_idx];
+        let sc_start_op_id = job.job_data.session_data.chains[subchain_id]
+            .operators
+            .first();
+        let ms_id = tf_state.match_set_id;
+        let desired_batch_size = tf_state.desired_batch_size;
+        let input_field = tf_state.input_field;
+
+        let ms = &mut job.job_data.match_set_mgr.match_sets[ms_id];
+        let next_actor_id = ms.action_buffer.borrow().next_actor_ref();
+        let parent_group_track = tf_state.input_group_track_id;
+
+        let header_tf_id_peek = job.job_data.tf_mgr.transforms.peek_claim_id();
+
+        let parent_group_track_iter =
+            job.job_data.group_track_manager.claim_group_track_iter(
+                parent_group_track,
+                next_actor_id.get_id(),
+                IterKind::Transform(header_tf_id_peek),
+            );
+        let group_track = job.job_data.group_track_manager.add_group_track(
+            &job.job_data.match_set_mgr,
+            Some(parent_group_track),
+            ms_id,
+            next_actor_id,
+        );
+        tf_state.output_group_track_id = group_track;
+
+        let mut trailer_output_field = input_field;
+
+        let header_tf_id = add_transform_to_job(
+            &mut job.job_data,
+            &mut job.transform_data,
+            tf_state.clone(),
+            TransformData::ChunksHeader(TfChunksHeader {
+                parent_group_track_iter,
+                stride: self.stride,
+                curr_stride_rem: self.stride,
+                starting_new_group: false,
+            }),
+        );
+        debug_assert!(header_tf_id_peek == header_tf_id);
+
+        let mut out_tf_id = header_tf_id;
+        let mut out_ms_id = ms_id;
+        let mut out_group_track = group_track;
+
+        if let Some(&op_id) = sc_start_op_id {
+            let instantiation = job.setup_transforms_from_op(
+                ms_id,
+                op_id,
+                input_field,
+                group_track,
+                None,
+                prebound_outputs,
+            );
+            trailer_output_field = instantiation.next_input_field;
+            job.job_data.tf_mgr.transforms[header_tf_id].successor =
+                Some(instantiation.tfs_begin);
+
+            out_tf_id = instantiation.tfs_end;
+            out_ms_id = instantiation.next_match_set;
+            out_group_track = instantiation.next_group_track;
+        }
+
+        job.job_data
+            .field_mgr
+            .inc_field_refcount(trailer_output_field, 2);
+
+        let mut trailer_tf_state = TransformState::new(
+            trailer_output_field,
+            trailer_output_field,
+            out_ms_id,
+            desired_batch_size,
+            Some(op_id),
+            out_group_track,
+        );
+
+        let parent_group_track_parent =
+            job.job_data.group_track_manager.group_tracks[parent_group_track]
+                .borrow()
+                .parent_group_track_id();
+        let next_actor_ref = job.job_data.match_set_mgr.match_sets[out_ms_id]
+            .action_buffer
+            .borrow()
+            .next_actor_ref();
+        trailer_tf_state.output_group_track_id =
+            job.job_data.group_track_manager.add_group_track(
+                &job.job_data.match_set_mgr,
+                parent_group_track_parent,
+                out_ms_id,
+                next_actor_ref,
+            );
+
+        #[cfg(feature = "debug_state")]
+        {
+            job.job_data.group_track_manager.group_tracks
+                [trailer_tf_state.output_group_track_id]
+                .borrow_mut()
+                .corresponding_header = Some(group_track);
+        }
+
+        let trailer_tf_id = add_transform_to_job(
+            &mut job.job_data,
+            &mut job.transform_data,
+            trailer_tf_state,
+            TransformData::ChunksTrailer(TfChunksTrailer {}),
+        );
+        job.job_data.tf_mgr.transforms[out_tf_id].successor =
+            Some(trailer_tf_id);
+
+        TransformInstatiation::Multiple(OperatorInstantiation {
+            tfs_begin: header_tf_id,
+            tfs_end: trailer_tf_id,
+            next_input_field: trailer_output_field,
+            next_group_track: parent_group_track,
+            next_match_set: out_ms_id,
+        })
+    }
+
+    fn update_bb_for_op(
+        &self,
+        sess: &crate::context::SessionData,
+        ld: &mut crate::liveness_analysis::LivenessData,
+        _op_id: OperatorId,
+        op_n: super::operator::OffsetInChain,
+        cn: &crate::chain::Chain,
+        bb_id: crate::liveness_analysis::BasicBlockId,
+    ) -> bool {
+        ld.basic_blocks[bb_id]
+            .calls
+            .push(cn.subchains[self.subchain_idx].into_bb_id());
+        ld.split_bb_at_call(sess, bb_id, op_n);
+        true
+    }
 }
 
 pub fn create_op_chunks(

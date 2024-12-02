@@ -30,7 +30,6 @@ use super::{
         build_tf_call_concurrent, setup_op_call_concurrent,
         setup_op_call_concurrent_liveness_data, OpCallConcurrent,
     },
-    chunks::{insert_tf_chunks, setup_op_chunks, OpChunks},
     fork::{
         build_tf_fork, setup_op_fork, setup_op_fork_liveness_data, OpFork,
     },
@@ -58,7 +57,6 @@ pub enum OperatorData {
     Fork(OpFork),
     Key(OpKey),
     Select(OpSelect),
-    Chunks(OpChunks),
     Custom(SmallBox<dyn Operator, 96>),
 }
 
@@ -179,15 +177,6 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-
-            OperatorData::Chunks(op) => setup_op_chunks(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::Call(op) => setup_op_call(
                 op,
                 sess,
@@ -223,8 +212,7 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::Select(_)
-            | OperatorData::Chunks(_) => false,
+            | OperatorData::Select(_) => false,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return false;
@@ -260,7 +248,6 @@ impl OperatorData {
                     .output_count(sess, op_id)
             }
             OperatorData::Select(_) => 0,
-            OperatorData::Chunks(_) => 0, // last sc output is output
             OperatorData::Custom(op) => {
                 Operator::output_count(&**op, sess, op_id)
             }
@@ -293,8 +280,7 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::Select(_)
-            | OperatorData::Chunks(_) => {
+            | OperatorData::Select(_) => {
                 let op_base = &mut sess.operator_bases[op_id];
                 op_base.outputs_start = *output_count;
                 op_base.outputs_end = op_base.outputs_start;
@@ -308,7 +294,6 @@ impl OperatorData {
     pub fn default_op_name(&self) -> OperatorName {
         match self {
             OperatorData::Fork(_) => "fork".into(),
-            OperatorData::Chunks(_) => "chunks".into(),
             OperatorData::Key(_) => "key".into(),
             OperatorData::Select(_) => "select".into(),
             OperatorData::Call(_) => "call".into(),
@@ -340,8 +325,7 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::Select(_)
-            | OperatorData::Chunks(_) => self.default_op_name(),
+            | OperatorData::Select(_) => self.default_op_name(),
             OperatorData::Custom(op) => op.debug_op_name(),
         }
     }
@@ -354,9 +338,7 @@ impl OperatorData {
             OperatorData::Call(_) | OperatorData::CallConcurrent(_) => {
                 OutputFieldKind::Unique
             }
-            OperatorData::Chunks(_) | OperatorData::Fork(_) => {
-                OutputFieldKind::SameAsInput
-            }
+            OperatorData::Fork(_) => OutputFieldKind::SameAsInput,
             OperatorData::Select(_) => OutputFieldKind::Unconfigured,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
@@ -395,8 +377,7 @@ impl OperatorData {
             }
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
-            | OperatorData::Fork(_)
-            | OperatorData::Chunks(_) => (),
+            | OperatorData::Fork(_) => (),
         }
     }
     pub fn update_liveness_for_op(
@@ -411,7 +392,6 @@ impl OperatorData {
     ) {
         match &self {
             OperatorData::Fork(_)
-            | OperatorData::Chunks(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_) => {
                 output.call_effect = OperatorCallEffect::Diverge;
@@ -499,9 +479,7 @@ impl OperatorData {
                     sess.operator_data[op_data_id] = op_data;
                 }
             }
-            OperatorData::Call(_)
-            | OperatorData::Chunks(_)
-            | OperatorData::Select(_) => (),
+            OperatorData::Call(_) | OperatorData::Select(_) => (),
         }
     }
 
@@ -517,16 +495,6 @@ impl OperatorData {
         let op_base = &jd.session_data.operator_bases[op_id];
         let data: TransformData<'a> = match self {
             OperatorData::Key(_) | OperatorData::Select(_) => unreachable!(),
-            OperatorData::Chunks(op) => {
-                return Some(insert_tf_chunks(
-                    job,
-                    op,
-                    tf_state,
-                    op_base.chain_id,
-                    op_id,
-                    prebound_outputs,
-                ));
-            }
             OperatorData::Fork(op) => build_tf_fork(jd, op_base, op, tfs),
             OperatorData::Call(op) => build_tf_call(jd, op_base, op, tfs),
             OperatorData::CallConcurrent(op) => {
@@ -584,8 +552,7 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::Select(_)
-            | OperatorData::Chunks(_) => None,
+            | OperatorData::Select(_) => None,
         }
     }
 }

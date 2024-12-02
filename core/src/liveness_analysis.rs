@@ -19,7 +19,6 @@ use crate::{
     operators::{
         call::OpCall,
         call_concurrent::OpCallConcurrent,
-        chunks::OpChunks,
         fork::OpFork,
         operator::{OffsetInChain, OperatorData, OperatorId},
         utils::nested_op::NestedOp,
@@ -597,10 +596,6 @@ impl LivenessData {
                     bb.successors.push(sc.into_bb_id());
                 }
                 return true;
-            }
-            OperatorData::Chunks(OpChunks { subchain_idx, .. }) => {
-                bb.calls.push(cn.subchains[*subchain_idx].into_bb_id());
-                self.split_bb_at_call(sess, bb_id, op_n);
             }
             OperatorData::Key(op) => {
                 let Some(nested_op) = &op.nested_op else {
