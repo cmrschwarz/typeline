@@ -1,5 +1,5 @@
 use crate::{
-    chain::{ChainId, SubchainIndex},
+    chain::ChainId,
     cli::call_expr::Span,
     context::SessionData,
     job::Job,
@@ -135,13 +135,15 @@ impl Operator for OpMultiOp {
 
     fn output_field_kind(
         &self,
-        _sess: &SessionData,
+        sess: &SessionData,
         _op_id: OperatorId,
     ) -> super::operator::OutputFieldKind {
-        OutputFieldKind::Unconfigured
+        let Some(&last) = self.sub_op_ids.last() else {
+            return OutputFieldKind::Dummy;
+        };
+        let op_data_id = sess.op_data_id(last);
+        sess.operator_data[op_data_id].output_field_kind(sess, last)
     }
-
-    fn on_subchains_added(&mut self, _current_subchain_count: SubchainIndex) {}
 
     fn register_output_var_names(
         &self,
@@ -209,6 +211,25 @@ impl Operator for OpMultiOp {
         agg_offset: OffsetInAggregation,
     ) -> Option<OperatorId> {
         self.sub_op_ids.get(agg_offset).copied()
+    }
+
+    fn assign_op_outputs(
+        &mut self,
+        sess: &mut SessionData,
+        ld: &mut LivenessData,
+        op_id: OperatorId,
+        output_count: &mut OpOutputIdx,
+    ) {
+        let outputs_before = *output_count;
+        for &op_id in &self.sub_op_ids {
+            sess.with_mut_op_data(op_id, |sess, op| {
+                op.assign_op_outputs(sess, ld, op_id, output_count)
+            });
+        }
+        let outputs_after = *output_count;
+        let op_base = &mut sess.operator_bases[op_id];
+        op_base.outputs_start = outputs_before;
+        op_base.outputs_end = outputs_after;
     }
 }
 

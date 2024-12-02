@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use smallstr::SmallString;
 
 use crate::{
-    chain::{Chain, ChainId, SubchainIndex},
+    chain::{Chain, ChainId},
     cli::call_expr::Span,
     context::SessionData,
     index_newtype,
@@ -298,24 +298,24 @@ impl OperatorData {
                     );
                     return;
                 }
+                let op_base = &mut sess.operator_bases[op_id];
+                op_base.outputs_start = *output_count;
+                op_base.outputs_end = op_base.outputs_start;
             }
             OperatorData::Atom(_)
             | OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
             | OperatorData::Select(_)
-            | OperatorData::Chunks(_) => (),
+            | OperatorData::Chunks(_) => {
+                let op_base = &mut sess.operator_bases[op_id];
+                op_base.outputs_start = *output_count;
+                op_base.outputs_end = op_base.outputs_start;
+            }
             OperatorData::Custom(op) => {
                 op.assign_op_outputs(sess, ld, op_id, output_count)
             }
         }
-
-        let op_output_count = self.output_count(sess, op_id);
-        let op_base = &mut sess.operator_bases[op_id];
-        op_base.outputs_start = *output_count;
-        *output_count += OpOutputIdx::from_usize(op_output_count);
-        op_base.outputs_end = *output_count;
-        ld.append_op_outputs(op_output_count, op_id);
     }
 
     pub fn default_op_name(&self) -> OperatorName {
@@ -641,14 +641,7 @@ pub trait Operator: Send + Sync {
         _sess: &SessionData,
         _op_id: OperatorId,
     ) -> bool;
-    fn on_op_added(
-        &mut self,
-        _so: &mut SessionSetupData,
-        _op_id: OperatorId,
-        _add_to_chain: bool,
-    ) {
-    }
-    fn on_subchains_added(&mut self, _curr_subchains_end: SubchainIndex) {}
+
     fn register_output_var_names(
         &self,
         _ld: &mut LivenessData,
@@ -669,11 +662,17 @@ pub trait Operator: Send + Sync {
     }
     fn assign_op_outputs(
         &mut self,
-        _sess: &mut SessionData,
-        _ld: &mut LivenessData,
-        _op_id: OperatorId,
-        _output_count: &mut OpOutputIdx,
+        sess: &mut SessionData,
+        ld: &mut LivenessData,
+        op_id: OperatorId,
+        output_count: &mut OpOutputIdx,
     ) {
+        let op_output_count = self.output_count(sess, op_id);
+        let op_base = &mut sess.operator_bases[op_id];
+        op_base.outputs_start = *output_count;
+        *output_count += OpOutputIdx::from_usize(op_output_count);
+        op_base.outputs_end = *output_count;
+        ld.append_op_outputs(op_output_count, op_id);
     }
     fn aggregation_member(
         &self,
