@@ -605,7 +605,7 @@ impl<'a> Iterator for FieldValueSliceIter<'a> {
             }
             #[expand(REP in [
                 Int, BigInt, Float, BigRational,
-                Object, Array, Argument, Macro, Custom, Error,
+                Object, Array, Argument, OpDecl, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference
             ])]
             FieldValueSlice::REP(v) => {

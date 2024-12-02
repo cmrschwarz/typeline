@@ -8,8 +8,8 @@ use arrayvec::ArrayVec;
 use bstr::ByteSlice;
 
 use super::{
-    text_write::TextWrite, utf8_codepoint_len_from_first_byte,
-    MAX_UTF8_CHAR_LEN,
+    text_write::{MaybeTextWrite, TextWrite},
+    utf8_codepoint_len_from_first_byte, MAX_UTF8_CHAR_LEN,
 };
 
 pub struct PointerWriter {
@@ -80,6 +80,17 @@ impl TextWrite for PointerWriter {
 
     fn write_all_text(&mut self, buf: &str) -> std::io::Result<()> {
         std::io::Write::write_all(self, buf.as_bytes())
+    }
+}
+impl MaybeTextWrite for PointerWriter {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
     }
 }
 

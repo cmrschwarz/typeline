@@ -244,7 +244,7 @@ impl<S: ChainSetting> SettingTypeConverter for SettingConverterBool<S> {
             | FieldValueRef::Object(_)
             | FieldValueRef::Custom(_)
             | FieldValueRef::Error(_)
-            | FieldValueRef::Macro(_)
+            | FieldValueRef::OpDecl(_)
             | FieldValueRef::StreamValueId(_)
             | FieldValueRef::FieldReference(_)
             | FieldValueRef::SlicedFieldReference(_) => {
@@ -421,7 +421,7 @@ impl<S: ChainSetting> SettingTypeConverter for SettingConverterPath<S> {
             | FieldValueRef::Object(_)
             | FieldValueRef::Custom(_)
             | FieldValueRef::Error(_)
-            | FieldValueRef::Macro(_)
+            | FieldValueRef::OpDecl(_)
             | FieldValueRef::Argument(_)
             | FieldValueRef::StreamValueId(_)
             | FieldValueRef::FieldReference(_)

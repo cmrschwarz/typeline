@@ -1068,7 +1068,7 @@ pub fn setup_key_output_state(
                 (BigRational, &mut fc),
                 (Object, &mut fc),
                 (Array, &mut fc),
-                (Macro, &mut fc),
+                (OpDecl, &mut fc),
                 (Argument, &mut fc)
             ])]
             FieldValueSlice::REP(ints) => {
@@ -1632,7 +1632,7 @@ fn write_fmt_key(
                 }
             }
 
-            #[expand(REP in [BigRational, Object, Array, Argument, Macro])]
+            #[expand(REP in [BigRational, Object, Array, Argument, OpDecl])]
             FieldValueSlice::REP(vs) => {
                 let mut fc = FormattingContext {
                     ss: Some(&mut string_store),

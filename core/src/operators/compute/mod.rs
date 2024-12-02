@@ -241,9 +241,9 @@ impl Operator for OpCompute {
                         f.ref_count += 1;
                         field_id
                     }
-                    ScopeValue::Macro(m) => {
+                    ScopeValue::OpDecl(m) => {
                         idents.push(ExternVarData::Literal(
-                            FieldValue::Macro(m.clone()),
+                            FieldValue::OpDecl(m.clone()),
                         ));
                         continue;
                     }

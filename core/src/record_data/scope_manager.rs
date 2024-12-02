@@ -4,16 +4,24 @@ use std::{
 };
 
 use crate::{
+    cli::call_expr::Argument,
     index_newtype,
-    operators::macro_def::MacroRef,
+    operators::operator::OperatorData,
+    options::session_setup::SessionSetupData,
+    scr_error::ScrError,
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32,
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
-        string_store::StringStoreEntry, universe::Universe,
+        string_store::StringStoreEntry, text_write::MaybeTextWrite,
+        universe::Universe,
     },
 };
 
-use super::{field::FieldId, field_value::FieldValue};
+use super::{
+    field::FieldId,
+    field_value::FieldValue,
+    formattable::{Formattable, FormattingContext},
+};
 
 index_newtype! {
     pub struct ScopeId(DebuggableNonMaxU32);
@@ -24,14 +32,52 @@ pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;
 #[derive(Clone)]
 pub enum ScopeValue {
     Field(FieldId),
-    Macro(MacroRef),
     Atom(Arc<Atom>),
+    OpDecl(OpDeclRef),
 }
 
 #[derive(Clone, Default)]
 pub struct Scope {
     pub parent: Option<ScopeId>,
     pub values: HashMap<StringStoreEntry, ScopeValue, BuildIdentityHasher>,
+}
+
+pub trait OperatorDeclaration: Send + Sync {
+    fn name_stored(&self) -> &str;
+    fn name_interned(&self) -> StringStoreEntry;
+    fn instantiate(
+        &self,
+        sess: &mut SessionSetupData,
+        arg: Argument,
+    ) -> Result<OperatorData, ScrError>;
+    fn format<'a, 'b>(
+        &self,
+        _ctx: &mut FormattingContext,
+        w: &mut dyn MaybeTextWrite,
+    ) -> std::io::Result<()> {
+        w.write_fmt(format_args!("<Op Decl `{}`>", self.name_stored()))
+    }
+}
+
+#[derive(Clone, derive_more::Deref, derive_more::DerefMut)]
+pub struct OpDeclRef(pub Arc<dyn OperatorDeclaration>);
+
+impl std::fmt::Debug for OpDeclRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("<Op Decl `{}`>", self.name_stored()))
+    }
+}
+
+impl<'a, 'b: 'a> Formattable<'a, 'b> for OpDeclRef {
+    type Context = FormattingContext<'a, 'b>;
+
+    fn format<W: MaybeTextWrite + ?Sized>(
+        &self,
+        ctx: &mut Self::Context,
+        w: &mut W,
+    ) -> std::io::Result<()> {
+        self.0.format(ctx, w.deref_dyn())
+    }
 }
 
 pub struct Atom {
@@ -43,23 +89,29 @@ pub struct ScopeManager {
     pub scopes: Universe<ScopeId, Scope>,
 }
 
+impl PartialEq for OpDeclRef {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::addr_eq(&self.0, &other.0)
+    }
+}
+
 impl ScopeValue {
     pub fn field_id(&self) -> Option<FieldId> {
         match self {
             ScopeValue::Field(field_id) => Some(*field_id),
-            ScopeValue::Macro(_) | ScopeValue::Atom(_) => None,
+            ScopeValue::OpDecl(_) | ScopeValue::Atom(_) => None,
         }
     }
-    pub fn macro_ref(&self) -> Option<&MacroRef> {
+    pub fn op_decl(&self) -> Option<&OpDeclRef> {
         match self {
-            ScopeValue::Macro(m) => Some(m),
+            ScopeValue::OpDecl(m) => Some(m),
             ScopeValue::Field(_) | ScopeValue::Atom(_) => None,
         }
     }
     pub fn atom(&self) -> Option<&Arc<Atom>> {
         match self {
             ScopeValue::Atom(a) => Some(a),
-            ScopeValue::Field(_) | ScopeValue::Macro(_) => None,
+            ScopeValue::Field(_) | ScopeValue::OpDecl(_) => None,
         }
     }
 }
@@ -156,13 +208,13 @@ impl ScopeManager {
             self.insert_field_name(scope_id, name, field_id)
         }
     }
-    pub fn insert_macro(
+    pub fn insert_op_decl(
         &mut self,
         scope_id: ScopeId,
         name: StringStoreEntry,
-        macro_def: MacroRef,
+        op_decl: OpDeclRef,
     ) {
-        self.insert_value(scope_id, name, ScopeValue::Macro(macro_def));
+        self.insert_value(scope_id, name, ScopeValue::OpDecl(op_decl));
     }
     pub fn insert_atom(
         &mut self,
@@ -195,11 +247,11 @@ impl ScopeManager {
         self.visit_value(scope_id, name, |v| v.atom().cloned())
     }
 
-    pub fn lookup_macro(
+    pub fn lookup_op_decl(
         &self,
         scope_id: ScopeId,
         name: StringStoreEntry,
-    ) -> Option<MacroRef> {
-        self.visit_value(scope_id, name, |v| v.macro_ref().cloned())
+    ) -> Option<OpDeclRef> {
+        self.visit_value(scope_id, name, |v| v.op_decl().cloned())
     }
 }

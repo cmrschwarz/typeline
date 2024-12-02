@@ -309,6 +309,15 @@ impl ContextBuilder {
         self.input_data.push_null(run_length, true);
         self
     }
+    pub(crate) fn push_fixed_size_type<T: FixedSizeFieldValueType>(
+        mut self,
+        data: T,
+        run_length: usize,
+    ) -> Self {
+        self.input_data
+            .push_fixed_size_type(data, run_length, true, false);
+        self
+    }
     pub fn with_record_set(
         mut self,
         f: impl FnOnce(&mut RecordSet, &mut SessionSetupData),

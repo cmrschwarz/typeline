@@ -2,7 +2,7 @@ use std::{borrow::Cow, ops::Deref};
 
 use bstr::{ByteSlice, ByteVec};
 
-use super::text_write::TextWrite;
+use super::text_write::{MaybeTextWrite, TextWrite};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MaybeText {
@@ -439,6 +439,18 @@ impl std::io::Write for MaybeText {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+impl MaybeTextWrite for MaybeText {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
     }
 }
 

@@ -431,7 +431,7 @@ impl OperatorData {
             OperatorData::MultiOp(_) => "<multi_op>".into(),
             OperatorData::Custom(op) => op.default_name(),
             OperatorData::MacroDef(_) => "macro".into(),
-            OperatorData::MacroCall(op) => op.name.clone().into(),
+            OperatorData::MacroCall(op) => op.decl.name_stored.clone().into(),
         }
     }
     pub fn debug_op_name(&self) -> OperatorName {

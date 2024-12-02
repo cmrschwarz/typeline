@@ -1034,7 +1034,7 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                     todo!();
                 }
 
-                #[expand(REP in [Object, Array, Argument, Macro, BigRational])]
+                #[expand(REP in [Object, Array, Argument, OpDecl, BigRational])]
                 FieldValueSlice::REP(v) => {
                     let mut fc = FormattingContext {
                         ss: Some(&mut string_store),

@@ -18,7 +18,6 @@ use crate::{
             parse_op_literal_zst, parse_op_str, parse_op_tyson,
             parse_op_tyson_value, Literal,
         },
-        macro_call::parse_op_macro_call,
         macro_def::parse_op_macro_def,
         nop::parse_op_nop,
         operator::OperatorData,
@@ -171,11 +170,11 @@ pub fn parse_operator_data(
     let mut expr = CallExpr::from_argument_mut(&mut arg)?;
 
     let scope_id = sess.chains[sess.curr_chain].scope_id;
-    if let Some(mac) = sess
-        .scope_mgr
-        .lookup_macro(scope_id, sess.string_store.intern_cloned(expr.op_name))
-    {
-        return parse_op_macro_call(sess, arg, Some(mac));
+    if let Some(op_decl) = sess.scope_mgr.lookup_op_decl(
+        scope_id,
+        sess.string_store.intern_cloned(expr.op_name),
+    ) {
+        return op_decl.instantiate(sess, arg);
     }
 
     Ok(match expr.op_name {

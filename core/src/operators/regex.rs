@@ -1379,7 +1379,7 @@ impl<'a> Transform<'a> for TfRegex<'a> {
                 | FieldValueSlice::Float(_)
                 | FieldValueSlice::BigRational(_)
                 | FieldValueSlice::Argument(_)
-                | FieldValueSlice::Macro(_) => {
+                | FieldValueSlice::OpDecl(_) => {
                     todo!();
                 }
 

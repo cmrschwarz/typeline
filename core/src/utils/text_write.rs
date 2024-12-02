@@ -82,7 +82,7 @@ pub trait TextWrite {
     fn flush_text(&mut self) -> std::io::Result<()>;
 }
 
-impl<W: TextWrite> TextWrite for &mut W {
+impl<W: TextWrite + ?Sized> TextWrite for &mut W {
     unsafe fn write_text_unchecked(
         &mut self,
         buf: &[u8],
@@ -135,11 +135,6 @@ impl<W: std::io::Write> TextWrite for TextWriteIoAdapter<W> {
         self.0.flush()
     }
 }
-impl<W: std::io::Write> From<W> for TextWriteIoAdapter<W> {
-    fn from(base: W) -> Self {
-        Self(base)
-    }
-}
 impl<W: std::io::Write> std::io::Write for TextWriteIoAdapter<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.write(buf)
@@ -165,6 +160,22 @@ impl<W: std::io::Write> std::io::Write for TextWriteIoAdapter<W> {
         fmt: std::fmt::Arguments<'_>,
     ) -> std::io::Result<()> {
         self.0.write_fmt(fmt)
+    }
+}
+impl<W: std::io::Write> MaybeTextWrite for TextWriteIoAdapter<W> {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
+    }
+}
+impl<W: std::io::Write> From<W> for TextWriteIoAdapter<W> {
+    fn from(base: W) -> Self {
+        Self(base)
     }
 }
 
@@ -213,48 +224,34 @@ impl<W: std::fmt::Write> std::fmt::Write for TextWriteFormatAdapter<W> {
     }
 }
 
-#[derive(derive_more::Deref, derive_more::DerefMut)]
-pub struct TextWriteRefAdapter<'a, W: TextWrite>(pub &'a mut W);
-
-impl<W: TextWrite> TextWrite for TextWriteRefAdapter<'_, W> {
-    unsafe fn write_all_text_unchecked(
-        &mut self,
-        buf: &[u8],
-    ) -> std::io::Result<()> {
-        unsafe { self.0.write_all_text_unchecked(buf) }
-    }
-
-    fn write_all_text(&mut self, buf: &str) -> std::io::Result<()> {
-        self.0.write_all_text(buf)
-    }
-
-    unsafe fn write_text_unchecked(
-        &mut self,
-        buf: &[u8],
-    ) -> std::io::Result<usize> {
-        unsafe { self.0.write_text_unchecked(buf) }
-    }
-
-    fn flush_text(&mut self) -> std::io::Result<()> {
-        self.0.flush_text()
-    }
-}
-impl<'a, W: TextWrite> From<&'a mut W> for TextWriteRefAdapter<'a, W> {
-    fn from(base: &'a mut W) -> Self {
-        Self(base)
-    }
-}
-
 pub trait MaybeTextWrite: TextWrite + std::io::Write {
     fn as_text_write(&mut self) -> &mut dyn TextWrite;
     fn as_io_write(&mut self) -> &mut dyn std::io::Write;
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite;
 }
-impl<T: TextWrite + std::io::Write + Sized> MaybeTextWrite for T {
+
+impl MaybeTextWrite for &mut dyn MaybeTextWrite {
     fn as_text_write(&mut self) -> &mut dyn TextWrite {
-        self
+        (**self).as_text_write()
     }
     fn as_io_write(&mut self) -> &mut dyn std::io::Write {
-        self
+        (**self).as_io_write()
+    }
+
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        *self
+    }
+}
+impl<W: MaybeTextWrite> MaybeTextWrite for &mut W {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        (**self).as_text_write()
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        (**self).as_io_write()
+    }
+
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        *self
     }
 }
 
@@ -348,6 +345,17 @@ impl<W: MaybeTextWrite> std::io::Write for MaybeTextWriteFlaggedAdapter<W> {
         self
     }
 }
+impl<W: MaybeTextWrite> MaybeTextWrite for MaybeTextWriteFlaggedAdapter<W> {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        &mut self.base // we just pass through anyways
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
+    }
+}
 
 #[derive(Clone)]
 pub struct MaybeTextWritePanicAdapter<W: TextWrite>(pub W);
@@ -386,6 +394,18 @@ impl<W: TextWrite> TextWrite for MaybeTextWritePanicAdapter<W> {
         args: std::fmt::Arguments<'_>,
     ) -> std::io::Result<()> {
         self.0.write_text_fmt(args)
+    }
+}
+
+impl<W: TextWrite> MaybeTextWrite for MaybeTextWritePanicAdapter<W> {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
     }
 }
 
@@ -505,5 +525,17 @@ impl<'a> std::io::Write for ByteComparingStream<'a> {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+impl MaybeTextWrite for ByteComparingStream<'_> {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
     }
 }

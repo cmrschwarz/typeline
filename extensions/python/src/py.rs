@@ -381,7 +381,7 @@ fn to_python_object<'a>(
         }
         FieldValueRef::Bytes(b) => Ok(Some(PyBytes::new(py, b).into_any())),
         FieldValueRef::Argument(_) => todo!(),
-        FieldValueRef::Macro(_) => todo!(),
+        FieldValueRef::OpDecl(_) => todo!(),
         FieldValueRef::Array(a) => {
             let res =
                 PyList::new(py, std::iter::empty::<Bound<PyDict>>()).unwrap();

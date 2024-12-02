@@ -5,7 +5,7 @@ use bstr::ByteSlice;
 
 use super::{
     printable_unicode::is_char_printable,
-    text_write::{TextWrite, TextWriteFormatAdapter},
+    text_write::{MaybeTextWrite, TextWrite, TextWriteFormatAdapter},
     utf8_codepoint_len_from_first_byte, MAX_UTF8_CHAR_LEN,
 };
 
@@ -310,6 +310,17 @@ impl<W: TextWrite> TextWrite for EscapedWriter<W> {
 
     fn write_all_text(&mut self, buf: &str) -> std::io::Result<()> {
         std::io::Write::write_all(self, buf.as_bytes())
+    }
+}
+impl<W: TextWrite> MaybeTextWrite for EscapedWriter<W> {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
     }
 }
 

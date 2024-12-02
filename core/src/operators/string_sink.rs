@@ -410,7 +410,7 @@ impl<'a> Transform<'a> for TfStringSink<'a> {
                     }
                 }
 
-                #[expand(REP in [BigRational, Array, Object, Argument, Macro])]
+                #[expand(REP in [BigRational, Array, Object, Argument, OpDecl])]
                 FieldValueSlice::REP(values) => {
                     let mut fc = FormattingContext {
                         ss: Some(&mut string_store),

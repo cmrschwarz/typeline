@@ -34,7 +34,9 @@ use crate::{
         match_set::{MatchSetId, MatchSetManager},
         push_interface::PushInterface,
         record_buffer::RecordBuffer,
-        scope_manager::{ScopeId, ScopeManager},
+        scope_manager::{
+            OpDeclRef, OperatorDeclaration, ScopeId, ScopeManager,
+        },
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
     utils::{
@@ -668,11 +670,11 @@ impl<'a> Job<'a> {
                     let active_scope = self.job_data.match_set_mgr.match_sets
                         [ms_id]
                         .active_scope;
-                    let macro_def = op.macro_def.clone().unwrap();
-                    self.job_data.scope_mgr.insert_macro(
+                    let op_decl = op.macro_decl.clone();
+                    self.job_data.scope_mgr.insert_op_decl(
                         active_scope,
-                        macro_def.name,
-                        macro_def,
+                        op_decl.name_interned(),
+                        OpDeclRef(op_decl),
                     );
                     continue;
                 }

@@ -2,52 +2,86 @@ use std::sync::Arc;
 
 use crate::{
     chain::ChainId,
-    cli::{
-        call_expr::{Argument, Span},
-        parse_operator_data,
-    },
+    cli::call_expr::{Argument, Span},
     job::Job,
     options::session_setup::SessionSetupData,
+    record_data::{
+        formattable::Formattable,
+        scope_manager::{OpDeclRef, OperatorDeclaration},
+    },
     scr_error::ScrError,
-    utils::string_store::StringStoreEntry,
+    utils::{
+        escaped_writer::EscapedWriter, index_vec::IndexVec,
+        string_store::StringStoreEntry, text_write::TextWrite,
+    },
 };
 
 use super::{
     errors::OperatorCreationError,
-    nop::create_op_nop,
+    macro_call::OpMacroCall,
+    multi_op::OpMultiOp,
     operator::{
         OperatorData, OperatorDataId, OperatorId, OperatorInstantiation,
         OperatorOffsetInChain, PreboundOutputsMap,
     },
 };
 
-pub struct Macro {
-    pub name: StringStoreEntry,
-    pub operations: Vec<(OperatorData, Span)>,
+pub struct MacroDeclData {
+    pub name_stored: String,
+    pub name_interned: StringStoreEntry,
+    pub args: Arc<[Argument]>,
+    pub span: Span,
 }
 
-#[derive(Clone, derive_more::Deref, derive_more::DerefMut)]
-pub struct MacroRef(pub Arc<Macro>);
-
-impl PartialEq for MacroRef {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::as_ptr(&self.0) == Arc::as_ptr(&other.0)
-    }
+pub struct MacroOpDecl {
+    data: Arc<MacroDeclData>,
 }
 
 pub struct OpMacroDef {
-    pub name: String,
-    pub operations: Vec<(OperatorData, Span)>,
-    pub macro_def: Option<MacroRef>,
+    pub macro_decl: Arc<MacroOpDecl>,
 }
 
-impl std::fmt::Debug for MacroRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "Macro{{ name: \"{}\", operations: [<{}>] }}",
-            self.name,
-            self.operations.len()
-        ))
+impl OperatorDeclaration for MacroOpDecl {
+    fn name_interned(&self) -> StringStoreEntry {
+        self.data.name_interned
+    }
+    fn name_stored(&self) -> &str {
+        &self.data.name_stored
+    }
+
+    fn instantiate(
+        &self,
+        _sess: &mut SessionSetupData,
+        arg: Argument,
+    ) -> Result<OperatorData, ScrError> {
+        Ok(OperatorData::MacroCall(OpMacroCall {
+            decl: self.data.clone(),
+            arg,
+            op_multi_op: OpMultiOp {
+                operations: Vec::new(),
+                sub_op_ids: IndexVec::new(),
+            },
+        }))
+    }
+
+    fn format<'a, 'b>(
+        &self,
+        ctx: &mut crate::record_data::formattable::FormattingContext,
+        w: &mut dyn crate::utils::text_write::MaybeTextWrite,
+    ) -> std::io::Result<()> {
+        w.write_all_text("[ \"")?;
+        let mut ew = EscapedWriter::new(w.as_text_write(), b'\"');
+        ew.write_all_text(self.name_stored())?;
+        drop(ew);
+        w.write_all_text("\", [")?;
+        for (i, arg) in self.data.args.iter().enumerate() {
+            if i != 0 {
+                w.write_all_text(", ")?;
+            }
+            arg.format(ctx, w)?
+        }
+        w.write_all_text("] ]")?;
+        Ok(())
     }
 }
 
@@ -61,19 +95,12 @@ pub fn setup_op_macro_def(
 ) -> Result<OperatorId, ScrError> {
     let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
-    let macro_name =
-        sess.string_store.intern_moved(std::mem::take(&mut op.name));
-
-    let macro_def = MacroRef(Arc::new(Macro {
-        name: macro_name,
-        operations: std::mem::take(&mut op.operations),
-    }));
-
-    op.macro_def = Some(macro_def.clone());
-
-    let scope_id = sess.chains[chain_id].scope_id;
-
-    sess.scope_mgr.insert_macro(scope_id, macro_name, macro_def);
+    let current_chain = sess.get_current_chain();
+    sess.scope_mgr.insert_op_decl(
+        sess.chains[current_chain].scope_id,
+        op.macro_decl.data.name_interned,
+        OpDeclRef(op.macro_decl.clone()),
+    );
 
     Ok(op_id)
 }
@@ -87,53 +114,33 @@ pub fn insert_tf_macro_def(
     todo!()
 }
 
-pub fn create_op_macro_def_with_opts(
-    name: String,
-    mut operations: Vec<(OperatorData, Span)>,
-) -> OperatorData {
-    if operations.is_empty() {
-        operations.push((create_op_nop(), Span::Generated));
-    }
-    OperatorData::MacroDef(OpMacroDef {
-        name,
-        operations,
-        macro_def: None,
-    })
-}
-pub fn create_op_macro_def(
-    name: String,
-    operators: impl IntoIterator<Item = OperatorData>,
-) -> OperatorData {
-    let subchain_with_opts = operators
-        .into_iter()
-        .map(|op_data| (op_data, Span::Generated))
-        .collect();
-    create_op_macro_def_with_opts(name, subchain_with_opts)
-}
-
 pub fn parse_op_macro_def(
     sess_opts: &mut SessionSetupData,
     mut arg: Argument,
 ) -> Result<OperatorData, ScrError> {
-    let mut operations = Vec::new();
+    let span = arg.span;
 
-    let mut args_iter = arg.expect_arg_array_mut()?.drain(1..);
-    let first_arg = args_iter.next();
-    let Some(first_arg) = first_arg else {
-        drop(args_iter);
+    let mut args = std::mem::take(arg.expect_arg_array_mut()?).into_iter();
+
+    let _ = args.next();
+
+    let Some(name) = args.next() else {
         return Err(OperatorCreationError::new(
             "missing name argument for macro definition",
             arg.span,
         )
         .into());
     };
-    let name = first_arg.expect_string("macro")?;
+    let name = name.try_into_str("macro", sess_opts)?;
 
-    for arg in args_iter {
-        let span = arg.span;
-        let op_data = parse_operator_data(sess_opts, arg)?;
-        operations.push((op_data, span));
-    }
-
-    Ok(create_op_macro_def_with_opts(name.into(), operations))
+    Ok(OperatorData::MacroDef(OpMacroDef {
+        macro_decl: Arc::new(MacroOpDecl {
+            data: Arc::new(MacroDeclData {
+                name_interned: sess_opts.string_store.intern_cloned(&name),
+                name_stored: name,
+                args: Arc::from_iter(args),
+                span,
+            }),
+        }),
+    }))
 }

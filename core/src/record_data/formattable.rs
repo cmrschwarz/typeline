@@ -11,11 +11,12 @@ use num::{
 
 use crate::{
     cli::call_expr::Argument,
-    operators::{errors::OperatorApplicationError, macro_def::MacroRef},
+    operators::errors::OperatorApplicationError,
     options::chain_settings::RationalsPrintMode,
     record_data::{
         array::Array,
         field_value::{Object, Undefined},
+        scope_manager::OpDeclRef,
         stream_value::StreamValueData,
     },
     utils::{
@@ -27,9 +28,7 @@ use crate::{
         int_string_conversions::i64_digits,
         lazy_lock_guard::LazyRwLockGuard,
         string_store::StringStore,
-        text_write::{
-            MaybeTextWrite, TextWrite, TextWriteIoAdapter, TextWriteRefAdapter,
-        },
+        text_write::{MaybeTextWrite, TextWrite, TextWriteIoAdapter},
         MAX_UTF8_CHAR_LEN,
     },
     NULL_STR, UNDEFINED_STR,
@@ -256,7 +255,7 @@ impl RealizedFormatKey {
 
 pub trait Formattable<'a, 'b> {
     type Context;
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         ctx: &mut Self::Context,
         w: &mut W,
@@ -301,7 +300,7 @@ impl Formattable<'_, '_> for [u8] {
     fn total_length_cheap(&self, opts: &mut Self::Context) -> bool {
         opts.type_repr_format != TypeReprFormat::Regular
     }
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         opts: &mut Self::Context,
         w: &mut W,
@@ -337,7 +336,7 @@ impl Formattable<'_, '_> for str {
     fn total_length_cheap(&self, opts: &mut Self::Context) -> bool {
         opts.type_repr_format != TypeReprFormat::Regular
     }
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         opts: &mut Self::Context,
         w: &mut W,
@@ -370,7 +369,7 @@ impl Formattable<'_, '_> for i64 {
     fn total_length_cheap(&self, _ctx: &mut Self::Context) -> bool {
         true
     }
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         ctx: &mut Self::Context,
         w: &mut W,
@@ -402,7 +401,7 @@ impl Formattable<'_, '_> for i64 {
 impl<'a, 'b: 'a> Formattable<'a, 'b> for Object {
     type Context = FormattingContext<'a, 'b>;
 
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         fc: &mut Self::Context,
         w: &mut W,
@@ -448,7 +447,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Object {
 impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
     type Context = FormattingContext<'a, 'b>;
 
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         fc: &mut Self::Context,
         w: &mut W,
@@ -458,7 +457,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
             'b,
             T: Formattable<'a, 'b> + ?Sized,
             I: IntoIterator<Item = impl Borrow<T>>,
-            W: MaybeTextWrite,
+            W: MaybeTextWrite + ?Sized,
         >(
             iter: I,
             fc: &mut T::Context,
@@ -495,7 +494,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
                 (BigInt, BigInt, &mut fc.rfk),
                 (BigRational, BigRational, fc),
                 (Argument, Argument, fc),
-                (Macro, MacroRef, fc),
+                (OpDecl, OpDeclRef, fc),
                 (Error, OperatorApplicationError, &mut fc.value_formatting_opts()),
             ])]
             Array::REP(v) => {
@@ -527,7 +526,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
 }
 impl<'a, 'b: 'a> Formattable<'a, 'b> for BigRational {
     type Context = FormattingContext<'a, 'b>;
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         fc: &mut Self::Context,
         w: &mut W,
@@ -538,7 +537,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for BigRational {
 }
 impl Formattable<'_, '_> for BigInt {
     type Context = RealizedFormatKey;
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         _fc: &mut Self::Context,
         w: &mut W,
@@ -549,7 +548,7 @@ impl Formattable<'_, '_> for BigInt {
 }
 impl Formattable<'_, '_> for f64 {
     type Context = RealizedFormatKey;
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         ctx: &mut Self::Context,
         w: &mut W,
@@ -590,7 +589,7 @@ impl Formattable<'_, '_> for Null {
     fn total_length_cheap(&self, _ctx: &mut Self::Context) -> bool {
         true
     }
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         _ctx: &mut Self::Context,
         w: &mut W,
@@ -610,7 +609,7 @@ impl Formattable<'_, '_> for Undefined {
     fn total_length_cheap(&self, _ctx: &mut Self::Context) -> bool {
         true
     }
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         _ctx: &mut Self::Context,
         w: &mut W,
@@ -627,7 +626,7 @@ impl Formattable<'_, '_> for Undefined {
 }
 impl Formattable<'_, '_> for OperatorApplicationError {
     type Context = ValueFormattingOpts; // is_stream_value
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         opts: &mut Self::Context,
         w: &mut W,
@@ -653,7 +652,7 @@ impl Formattable<'_, '_> for OperatorApplicationError {
 impl Formattable<'_, '_> for dyn CustomData {
     type Context = RealizedFormatKey;
 
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         ctx: &mut Self::Context,
         w: &mut W,
@@ -696,7 +695,7 @@ pub fn with_formattable<'a, 'b: 'a, R>(
             (BigInt, &mut fc.rfk),
             (BigRational, fc),
             (Argument, fc),
-            (Macro, fc),
+            (OpDecl, fc),
             (Text, &mut fc.value_formatting_opts()),
             (Bytes, &mut fc.value_formatting_opts()),
             (Error, &mut fc.value_formatting_opts()),
@@ -716,13 +715,13 @@ pub fn with_formattable<'a, 'b: 'a, R>(
 
 impl<'a, 'b: 'a> Formattable<'a, 'b> for FieldValueRef<'_> {
     type Context = FormattingContext<'a, 'b>;
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         opts: &mut Self::Context,
         w: &mut W,
     ) -> std::io::Result<()> {
-        struct Format<'a, W>(&'a mut W);
-        impl<'a, W: MaybeTextWrite> WithFormattable for Format<'a, W> {
+        struct Format<'a, W: ?Sized>(&'a mut W);
+        impl<'a, W: MaybeTextWrite + ?Sized> WithFormattable for Format<'a, W> {
             type Result = std::io::Result<()>;
             fn call<'x, 'y, F: Formattable<'x, 'y> + ?Sized>(
                 &mut self,
@@ -820,7 +819,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for FieldValueRef<'_> {
 impl<'a, 'b: 'a> Formattable<'a, 'b> for Argument {
     type Context = FormattingContext<'a, 'b>;
 
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         ctx: &mut Self::Context,
         w: &mut W,
@@ -853,41 +852,10 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Argument {
     }
 }
 
-impl<'a, 'b: 'a> Formattable<'a, 'b> for MacroRef {
-    type Context = FormattingContext<'a, 'b>;
-
-    fn format<W: MaybeTextWrite>(
-        &self,
-        ctx: &mut Self::Context,
-        w: &mut W,
-    ) -> std::io::Result<()> {
-        w.write_all_text("[ \"")?;
-        let mut ew = EscapedWriter::new(w, b'\"');
-        let Some(ss) = &mut ctx.ss else {
-            return Err(std::io::Error::new(
-                ErrorKind::InvalidInput,
-                "string store needed but not supplied",
-            ));
-        };
-        ew.write_all_text(ss.get().lookup(self.name))?;
-        let w = ew.into_inner()?;
-        w.write_all_text("\", [")?;
-        for (i, (op, _span)) in self.operations.iter().enumerate() {
-            if i != 0 {
-                w.write_all_text(", ")?;
-            }
-            // TODO: do this properly
-            w.write_all_text(&op.debug_op_name())?;
-        }
-        w.write_all_text("] ]")?;
-        Ok(())
-    }
-}
-
 impl<'a, 'b> Formattable<'a, 'b> for StreamValue<'_> {
     type Context = ValueFormattingOpts;
 
-    fn format<W: MaybeTextWrite>(
+    fn format<W: MaybeTextWrite + ?Sized>(
         &self,
         ctx: &mut Self::Context,
         mut w: &mut W,
@@ -915,7 +883,7 @@ impl<'a, 'b> Formattable<'a, 'b> for StreamValue<'_> {
         }
         fn write_parts(
             this: &StreamValue,
-            w: &mut impl MaybeTextWrite,
+            w: &mut (impl MaybeTextWrite + ?Sized),
         ) -> std::io::Result<()> {
             for part in &this.data {
                 match part {
@@ -986,7 +954,7 @@ pub fn calc_fmt_layout<'a, 'b, F: Formattable<'a, 'b> + ?Sized>(
 
 pub fn format_bytes(w: &mut impl TextWrite, v: &[u8]) -> std::io::Result<()> {
     w.write_all_text("b\"")?;
-    let mut w = EscapedWriter::new(TextWriteRefAdapter(w), b'"');
+    let mut w = EscapedWriter::new(w, b'"');
     std::io::Write::write_all(&mut w, v)?;
     w.into_inner().unwrap().write_all_text("\"")?;
     Ok(())
@@ -1000,11 +968,11 @@ pub fn format_bytes_raw(
 }
 
 pub fn format_quoted_string_raw(
-    w: &mut impl TextWrite,
+    w: &mut (impl TextWrite + ?Sized),
     v: &str,
 ) -> std::io::Result<()> {
     w.write_all_text("\"")?;
-    let mut w = EscapedWriter::new(TextWriteRefAdapter(w), b'"');
+    let mut w = EscapedWriter::new(w, b'"');
     std::io::Write::write_all(&mut w, v.as_bytes())?;
     w.into_inner().unwrap().write_all_text("\"")?;
     Ok(())
@@ -1046,7 +1014,7 @@ impl<'a, 'b> FormattingContext<'a, 'b> {
 }
 
 pub fn format_rational(
-    w: &mut impl TextWrite,
+    w: &mut (impl TextWrite + ?Sized),
     v: &BigRational,
     mode: RationalsPrintMode,
 ) -> std::io::Result<()> {
@@ -1085,7 +1053,7 @@ pub fn format_rational(
 }
 
 pub fn format_rational_as_decimals_raw(
-    w: &mut impl TextWrite,
+    w: &mut (impl TextWrite + ?Sized),
     v: &BigRational,
     mut decimals: u32,
 ) -> std::io::Result<()> {

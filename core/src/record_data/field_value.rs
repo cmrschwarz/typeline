@@ -6,7 +6,7 @@ use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
 
 use crate::{
     cli::call_expr::Argument,
-    operators::{errors::OperatorApplicationError, macro_def::MacroRef},
+    operators::errors::OperatorApplicationError,
     record_data::field_value_ref::FieldValueSlice,
     utils::{
         force_cast,
@@ -23,6 +23,7 @@ use super::{
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
     field_value_ref::{FieldValueRef, FieldValueRefMut},
     formattable::{Formattable, FormattingContext},
+    scope_manager::OpDeclRef,
     stream_value::StreamValueId,
 };
 
@@ -41,7 +42,7 @@ pub enum FieldValueKind {
     Object,
     Array,
     Argument,
-    Macro,
+    OpDecl,
     FieldReference,
     SlicedFieldReference,
     StreamValueId,
@@ -76,7 +77,7 @@ pub enum FieldValue {
     Object(Box<Object>),
     Custom(CustomDataBox),
     Error(OperatorApplicationError),
-    Macro(MacroRef),
+    OpDecl(OpDeclRef),
     Argument(Box<Argument>),
     StreamValueId(StreamValueId),
     FieldReference(FieldReference),
@@ -186,7 +187,7 @@ impl FieldValueKind {
 
             #[expand(T in [
                 Undefined, Null, Error, Object, Array,
-                Argument, Macro, FieldReference,
+                Argument, OpDecl, FieldReference,
                 SlicedFieldReference, StreamValueId, Custom
             ])]
             FieldValueKind::T => FieldValueRepr::T,
@@ -208,7 +209,7 @@ impl FieldValueKind {
             FieldValueKind::SlicedFieldReference => "sliced_field_reference",
             FieldValueKind::StreamValueId => "stream_value_id",
             FieldValueKind::Argument => "argument",
-            FieldValueKind::Macro => "macro",
+            FieldValueKind::OpDecl => "macro",
         }
     }
     pub fn is_valid_utf8(self) -> bool {
@@ -221,7 +222,7 @@ impl FieldValueKind {
             | FieldValueKind::Text
             | FieldValueKind::Object
             | FieldValueKind::Array
-            | FieldValueKind::Macro => true,
+            | FieldValueKind::OpDecl => true,
             FieldValueKind::Bytes
             | FieldValueKind::FieldReference
             | FieldValueKind::SlicedFieldReference
@@ -239,7 +240,7 @@ impl PartialEq for FieldValue {
             Self::REP => matches!(other, Self::REP),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Bytes, Text, Macro,
+                Int, Error, Array, Object, Bytes, Text, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -267,7 +268,7 @@ impl FieldValue {
             FieldValue::Bytes(_) => FieldValueRepr::BytesBuffer,
 
             #[expand(REP in [
-                Int, Error, Array, Object, Macro,
+                Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -280,7 +281,7 @@ impl FieldValue {
             FieldValue::REP => <dyn Any>::downcast_ref(&REP),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Text, Bytes, Macro,
+                Int, Error, Array, Object, Text, Bytes, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -299,7 +300,7 @@ impl FieldValue {
             v @ FieldValue::T => <dyn Any>::downcast_mut(v),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Text, Bytes, Macro,
+                Int, Error, Array, Object, Text, Bytes, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -324,7 +325,7 @@ impl FieldValue {
             | FieldValue::Float(_)
             | FieldValue::BigRational(_)
             | FieldValue::Array(_)
-            | FieldValue::Macro(_)
+            | FieldValue::OpDecl(_)
             | FieldValue::Object(_)
             | FieldValue::Custom(_)
             | FieldValue::Error(_)
@@ -360,7 +361,7 @@ impl FieldValue {
             #[expand(REP in [
                 Int, Error, Array, Object, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, BigInt, BigRational, Argument, Macro
+                StreamValueId, BigInt, BigRational, Argument, OpDecl
             ])]
             FieldValue::REP(v) => FieldValueRef::REP(v),
         })
@@ -374,7 +375,7 @@ impl FieldValue {
             FieldValue::REP => FieldValueSlice::REP(1),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Macro,
+                Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument,
             ])]
@@ -397,7 +398,7 @@ impl FieldValue {
             #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, BigInt, BigRational, Argument, Macro
+                StreamValueId, BigInt, BigRational, Argument, OpDecl
             ])]
             FieldValue::REP(v) => FieldValueRefMut::REP(v),
 
@@ -434,7 +435,7 @@ impl FieldValue {
             #[expand(REP in [
                 Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, BigInt, BigRational, Argument, Macro
+                StreamValueId, BigInt, BigRational, Argument, OpDecl
             ])]
             FieldValueRepr::REP => {
                 if T::FIELD_VALUE_BOXED {
@@ -505,7 +506,7 @@ impl FieldValue {
             | FieldValue::Null
             | FieldValue::Array(_)
             | FieldValue::Object(_)
-            | FieldValue::Macro(_)
+            | FieldValue::OpDecl(_)
             | FieldValue::Custom(_)
             | FieldValue::Error(_)
             | FieldValue::StreamValueId(_)
@@ -549,7 +550,7 @@ impl FieldValue {
             | FieldValue::Object(_)
             | FieldValue::Custom(_)
             | FieldValue::Error(_)
-            | FieldValue::Macro(_)
+            | FieldValue::OpDecl(_)
             | FieldValue::StreamValueId(_)
             | FieldValue::FieldReference(_)
             | FieldValue::SlicedFieldReference(_) => None,

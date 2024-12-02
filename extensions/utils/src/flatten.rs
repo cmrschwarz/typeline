@@ -193,7 +193,7 @@ fn flatten_array(
             }
 
             #[expand(REP in [
-                Int, Float, Array, Object, Argument, Macro,
+                Int, Float, Array, Object, Argument, OpDecl,
                 BigInt, BigRational, Custom,
                 FieldReference, SlicedFieldReference,
                 StreamValueId, Error,
@@ -236,7 +236,7 @@ fn flatten_argument(
     metamatch!(match &v.value {
         FieldValue::Undefined | FieldValue::Null |
         #[expand_pattern(REP in [
-            Int, Float, StreamValueId, BigInt, Macro,
+            Int, Float, StreamValueId, BigInt, OpDecl,
             BigRational, Text, Bytes,Custom, Error,
             FieldReference, SlicedFieldReference
         ])]
@@ -280,7 +280,7 @@ impl TfFlatten {
                 #[expand_pattern(REP in [
                     Undefined, Null, Int, Float, StreamValueId, BigInt,
                     BigRational, TextInline, TextBuffer, BytesInline,
-                    BytesBuffer, Custom, Error, Macro
+                    BytesBuffer, Custom, Error, OpDecl
                 ])]
                 FieldValueSlice::REP(_) => {
                     field_idx += range.base.field_count;

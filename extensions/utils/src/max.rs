@@ -307,7 +307,7 @@ impl Transform<'_> for TfMax {
                 | FieldValueSlice::Custom(_)
                 | FieldValueSlice::Error(_)
                 | FieldValueSlice::Argument(_)
-                | FieldValueSlice::Macro(_)
+                | FieldValueSlice::OpDecl(_)
                 | FieldValueSlice::StreamValueId(_)
                 | FieldValueSlice::FieldReference(_)
                 | FieldValueSlice::SlicedFieldReference(_) => {

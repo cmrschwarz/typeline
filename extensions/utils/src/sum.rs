@@ -220,7 +220,7 @@ impl TfSum {
                 #[expand_pattern(REP in [
                     Null, Undefined,
                     BytesInline, TextInline, TextBuffer, BytesBuffer,
-                    Array, Object, Argument, Macro, Custom,
+                    Array, Object, Argument, OpDecl, Custom,
                     StreamValueId, Error, FieldReference, SlicedFieldReference
                 ])]
                 FieldValueSlice::REP(_) => {

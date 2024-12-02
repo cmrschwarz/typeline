@@ -2,7 +2,10 @@ use std::io::Write;
 
 use bstr::ByteSlice;
 
-use crate::utils::{maybe_text::MaybeTextRef, text_write::TextWrite};
+use crate::utils::{
+    maybe_text::MaybeTextRef,
+    text_write::{MaybeTextWrite, TextWrite},
+};
 
 use super::{
     field_data::{
@@ -281,6 +284,18 @@ impl std::io::Write for MaybeTextInsertionStream<'_> {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+impl MaybeTextWrite for MaybeTextInsertionStream<'_> {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
     }
 }
 impl Drop for MaybeTextInsertionStream<'_> {

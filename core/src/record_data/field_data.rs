@@ -15,11 +15,11 @@ use super::{
         },
     },
     match_set::MatchSetManager,
+    scope_manager::OpDeclRef,
     varying_type_inserter::VaryingTypeInserter,
 };
 use crate::{
-    cli::call_expr::Argument,
-    operators::{errors::OperatorApplicationError, macro_def::MacroRef},
+    cli::call_expr::Argument, operators::errors::OperatorApplicationError,
     utils::ringbuf::RingBuf,
 };
 use metamatch::metamatch;
@@ -67,7 +67,7 @@ pub enum FieldValueRepr {
     Array,
     Custom,
     Error,
-    Macro,
+    OpDecl,
     Argument,
     StreamValueId,
     FieldReference,
@@ -308,9 +308,9 @@ unsafe impl FixedSizeFieldValueType for Argument {
     const KIND: FieldValueKind = FieldValueKind::Argument;
     const FIELD_VALUE_BOXED: bool = true;
 }
-unsafe impl FixedSizeFieldValueType for MacroRef {
-    const REPR: FieldValueRepr = FieldValueRepr::Macro;
-    const KIND: FieldValueKind = FieldValueKind::Macro;
+unsafe impl FixedSizeFieldValueType for OpDeclRef {
+    const REPR: FieldValueRepr = FieldValueRepr::OpDecl;
+    const KIND: FieldValueKind = FieldValueKind::OpDecl;
 }
 unsafe impl FixedSizeFieldValueType for CustomDataBox {
     const REPR: FieldValueRepr = FieldValueRepr::Custom;
@@ -348,7 +348,7 @@ impl FieldValueRepr {
                 (StreamValueId, StreamValueId),
                 (FieldReference, FieldReference),
                 (SlicedFieldReference, SlicedFieldReference),
-                (Macro, MacroRef),
+                (OpDecl, OpDeclRef),
                 (Argument, Argument),
             ])]
             FieldValueRepr::REP => callable.call::<T>(),
@@ -456,7 +456,7 @@ impl FieldValueRepr {
             FieldValueRepr::Object => "object",
             FieldValueRepr::Array => "array",
             FieldValueRepr::Argument => "argument",
-            FieldValueRepr::Macro => "macro",
+            FieldValueRepr::OpDecl => "op_decl",
             FieldValueRepr::Custom => "custom",
         }
     }
@@ -924,7 +924,7 @@ impl FieldData {
 
                 #[expand(REP in [
                     BigInt, BigRational, Error, Object, Array,
-                    Argument, Macro, Custom
+                    Argument, OpDecl, Custom
                 ])]
                 FieldValueSlice::REP(data) => {
                     for (v, rl) in
@@ -1025,7 +1025,7 @@ unsafe fn append_data(
 
             #[expand(REP in [
                 BigInt, BigRational, TextBuffer, BytesBuffer,
-                Error, Object, Array, Argument, Custom, Macro
+                Error, Object, Array, Argument, Custom, OpDecl
             ])]
             FieldValueSlice::REP(v) => {
                 debug_assert!(!FieldValueRepr::REP.is_trivially_copyable());

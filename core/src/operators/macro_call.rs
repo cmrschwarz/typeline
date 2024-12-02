@@ -1,35 +1,34 @@
+use std::sync::Arc;
+
 use crate::{
     chain::ChainId,
-    cli::{
-        call_expr::{Argument, CallExpr, Span},
-        parse_operator_data,
-    },
+    cli::call_expr::{Argument, Span},
     context::SessionData,
     job::Job,
     operators::operator::OffsetInAggregation,
     options::{
-        context_builder::ContextBuilder, session_setup::SessionSetupData,
+        context_builder::ContextBuilder,
+        session_setup::{ScrSetupOptions, SessionSetupData},
     },
-    record_data::field_value::FieldValue,
-    scr_error::ScrError,
+    record_data::{array::Array, field_value::FieldValue},
+    scr_error::{ContextualizedScrError, ScrError},
     utils::indexing_type::IndexingType,
 };
 
 use super::{
     errors::OperatorSetupError,
-    macro_def::{MacroRef, OpMacroDef},
-    multi_op::{create_multi_op_with_span, OpMultiOp},
+    macro_def::{MacroDeclData, OpMacroDef},
+    multi_op::OpMultiOp,
     operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId,
-        OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
+        Operator, OperatorDataId, OperatorId, OperatorInstantiation,
+        OperatorOffsetInChain, PreboundOutputsMap,
     },
 };
 
 pub struct OpMacroCall {
-    pub name: String,
-    pub target: Option<MacroRef>,
+    pub decl: Arc<MacroDeclData>,
+    pub arg: Argument,
     pub op_multi_op: OpMultiOp,
-    pub span: Span,
 }
 
 pub fn setup_op_macro_call(
@@ -47,45 +46,78 @@ pub fn setup_op_macro_call(
 
     let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
-    let macro_name = sess.string_store.intern_cloned(&op.name);
+    let map_error = |e: ContextualizedScrError| {
+        OperatorSetupError::new_s(
+            format!(
+                "error during macro instantiation '{}': {}",
+                op.decl.name_stored, e.contextualized_message
+            ),
+            op_id,
+        )
+    };
 
-    let Some(macro_def) =
-        sess.scope_mgr.lookup_macro(parent_scope_id, macro_name)
-    else {
+    let result_args = ContextBuilder::from_arguments(
+        ScrSetupOptions {
+            extensions: sess.extensions.clone(),
+            deny_threading: true,
+            allow_repl: false,
+            start_with_stdin: false,
+            print_output: false,
+            add_success_updator: false,
+            skip_first_cli_arg: false,
+        },
+        None,
+        Vec::from_iter(op.decl.args.iter().cloned()),
+    )
+    .map_err(map_error)?
+    .push_fixed_size_type(op.arg.clone(), 1)
+    .add_ops_with_spans(std::mem::take(&mut op.op_multi_op.operations))
+    .run_collect()
+    .map_err(map_error)?;
+
+    if result_args.len() != 1 {
         return Err(OperatorSetupError::new_s(
-            format!("call to undeclared symbol '{}'", op.name),
+            format!("error during macro instantiation: single code block expected, macro returned {}", result_args.len()),
             op_id,
         )
         .into());
-    };
+    }
 
-    let result_args = ContextBuilder::with_exts(sess.extensions.clone())
-        .add_ops_with_spans(std::mem::take(&mut op.op_multi_op.operations))
-        .run_collect()
-        .map_err(|e| {
-            OperatorSetupError::new_s(
-                format!(
-                    "error during macro instantiation '{}': {}",
-                    op.name, e.contextualized_message
-                ),
+    let arr = match result_args.into_iter().next().unwrap() {
+        FieldValue::Array(arr) => arr,
+        FieldValue::Argument(arg) => {
+            if let FieldValue::Array(arr) = arg.value {
+                arr
+            } else {
+                return Err(OperatorSetupError::new_s(
+                    format!(
+                        "error during macro instantiation: code block expected, macro returned argument[{}]",
+                        arg.value.kind()
+                    ),
+                    op_id,
+                )
+                .into());
+            }
+        }
+        arg @ _ => {
+            return Err(OperatorSetupError::new_s(
+                format!("error during macro instantiation: code block expected, macro returned {}", arg.kind()),
                 op_id,
             )
-        })?
-        .into_iter()
-        .map(|val| {
-            // TODO: handle errors
-            if let FieldValue::Argument(arg) = val {
-                *arg
-            } else {
-                Argument {
-                    value: val,
-                    span: Span::MacroExpansion { op_id },
-                    source_scope: macro_instaniation_scope,
-                    meta_info: None,
-                }
-            }
-        })
-        .collect::<Vec<_>>();
+            .into());
+        }
+    };
+    let result_args = if arr.is_empty() {
+        arr.into_cleared_vec()
+    } else if let Array::Argument(arg) = arr {
+        arg
+    } else {
+        return Err(OperatorSetupError::new_s(
+                    format!("error during macro instantiation: code block expected, macro returned array[{}]", arr.repr().unwrap()),
+                    op_id,
+                )
+                .into());
+    };
 
     for (i, arg) in result_args.into_iter().enumerate() {
         let op_data = sess.parse_argument(arg)?;
@@ -99,8 +131,6 @@ pub fn setup_op_macro_call(
             span,
         )?;
     }
-
-    op.target = Some(macro_def);
 
     Ok(op_id)
 }
@@ -120,71 +150,4 @@ pub fn macro_call_has_dynamic_outputs(
     op_id: OperatorId,
 ) -> bool {
     op.op_multi_op.has_dynamic_outputs(sess, op_id)
-}
-
-pub fn create_op_macro_call_raw(
-    name: String,
-    target: Option<MacroRef>,
-    operations: Vec<(OperatorData, Span)>,
-    span: Span,
-) -> OpMacroCall {
-    let OperatorData::MultiOp(op_multi_op) =
-        create_multi_op_with_span(operations)
-    else {
-        unreachable!()
-    };
-    OpMacroCall {
-        name,
-        target,
-        op_multi_op,
-        span,
-    }
-}
-
-pub fn create_op_macro_call_with_spans(
-    name: String,
-    target: Option<MacroRef>,
-    operations: Vec<(OperatorData, Span)>,
-) -> OperatorData {
-    OperatorData::MacroCall(create_op_macro_call_raw(
-        name,
-        target,
-        operations,
-        Span::Generated,
-    ))
-}
-
-pub fn create_op_macro_call(
-    name: String,
-    target: Option<MacroRef>,
-    operators: impl IntoIterator<Item = OperatorData>,
-) -> OperatorData {
-    let subchain_with_opts = operators
-        .into_iter()
-        .map(|op_data| (op_data, Span::Generated))
-        .collect();
-    create_op_macro_call_with_spans(name, target, subchain_with_opts)
-}
-
-pub fn parse_op_macro_call(
-    sess_opts: &mut SessionSetupData,
-    mut arg: Argument,
-    target: Option<MacroRef>,
-) -> Result<OperatorData, ScrError> {
-    let mut operations = Vec::new();
-
-    let expr = CallExpr::from_argument_mut(&mut arg)?;
-
-    for arg in expr.args {
-        let span = arg.span;
-        let op_data = parse_operator_data(sess_opts, std::mem::take(arg))?;
-        operations.push((op_data, span));
-    }
-
-    Ok(OperatorData::MacroCall(create_op_macro_call_raw(
-        expr.op_name.to_string(),
-        target,
-        operations,
-        arg.span,
-    )))
 }

@@ -598,7 +598,7 @@ fn execute_binary_op_for_int_lhs(
                 | FieldValueSlice::Custom(_)
                 | FieldValueSlice::Error(_)
                 | FieldValueSlice::Argument(_)
-                | FieldValueSlice::Macro(_)
+                | FieldValueSlice::OpDecl(_)
                 | FieldValueSlice::StreamValueId(_) => {
                     // PERF: we could consume more values from rhs here
                     insert_binary_op_type_error(
@@ -643,7 +643,7 @@ fn execute_binary_op(
         | FieldValueSlice::Custom(_)
         | FieldValueSlice::Error(_)
         | FieldValueSlice::Argument(_)
-        | FieldValueSlice::Macro(_)
+        | FieldValueSlice::OpDecl(_)
         | FieldValueSlice::StreamValueId(_) => {
             insert_binary_op_type_error_iter_rhs(
                 op_id,
@@ -734,7 +734,7 @@ fn execute_cast_int(
         | FieldValueSlice::Array(_)
         | FieldValueSlice::Custom(_)
         | FieldValueSlice::Argument(_)
-        | FieldValueSlice::Macro(_)
+        | FieldValueSlice::OpDecl(_)
         | FieldValueSlice::StreamValueId(_)
         | FieldValueSlice::FieldReference(_)
         | FieldValueSlice::SlicedFieldReference(_) => {

@@ -5,7 +5,8 @@ use bstr::ByteSlice;
 use super::{
     is_utf8_continuation_byte,
     text_write::{
-        MaybeTextWriteFlaggedAdapter, TextWrite, TextWriteIoAdapter,
+        MaybeTextWrite, MaybeTextWriteFlaggedAdapter, TextWrite,
+        TextWriteIoAdapter,
     },
     valid_utf8_codepoint_begins,
 };
@@ -54,6 +55,17 @@ impl TextWrite for LengthCountingWriter {
     ) -> std::io::Result<()> {
         self.len += buf.len();
         Ok(())
+    }
+}
+impl MaybeTextWrite for LengthCountingWriter {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
     }
 }
 
@@ -128,6 +140,17 @@ impl TextWrite for LengthAndCharsCountingWriter {
     ) -> std::io::Result<()> {
         std::fmt::write(self, args).unwrap();
         Ok(())
+    }
+}
+impl MaybeTextWrite for LengthAndCharsCountingWriter {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
     }
 }
 
@@ -219,6 +242,17 @@ impl TextWrite for CharLimitedLengthAndCharsCountingWriter {
 
     fn flush_text(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+impl MaybeTextWrite for CharLimitedLengthAndCharsCountingWriter {
+    fn as_text_write(&mut self) -> &mut dyn TextWrite {
+        self
+    }
+    fn as_io_write(&mut self) -> &mut dyn std::io::Write {
+        self
+    }
+    fn deref_dyn(&mut self) -> &mut dyn MaybeTextWrite {
+        self
     }
 }
 

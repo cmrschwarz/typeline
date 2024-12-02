@@ -114,7 +114,7 @@ impl TfTypename {
                 | FieldValueSlice::Object(_)
                 | FieldValueSlice::Error(_)
                 | FieldValueSlice::Argument(_)
-                | FieldValueSlice::Macro(_)
+                | FieldValueSlice::OpDecl(_)
                 | FieldValueSlice::Array(_) => {
                     inserter.push_with_rl(
                         range.base.data.repr().kind().to_str(),

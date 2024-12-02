@@ -183,7 +183,7 @@ impl Argument {
             | FieldValue::Array(_)
             | FieldValue::Object(_)
             | FieldValue::Error(_)
-            | FieldValue::Macro(_)
+            | FieldValue::OpDecl(_)
             | FieldValue::Custom(_)
             | FieldValue::FieldReference(_)
             | FieldValue::SlicedFieldReference(_) => Err(OperatorCreationError::new_s(
@@ -277,6 +277,17 @@ impl Argument {
                 ))
             }
         }
+    }
+
+    pub fn try_into_str(
+        self,
+        op_name: &str,
+        sess: &mut SessionSetupData,
+    ) -> Result<String, OperatorCreationError> {
+        if let FieldValue::Text(t) = self.value {
+            return Ok(t);
+        }
+        Ok(self.stringify_as_text(op_name, sess)?.to_string())
     }
 
     pub fn expect_int<I>(
