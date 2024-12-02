@@ -40,7 +40,6 @@ use super::{
         OpForkCat,
     },
     key::{setup_op_key, OpKey},
-    literal::{build_tf_literal, OpLiteral},
     nop::{build_tf_nop, setup_op_nop, OpNop},
     nop_copy::{
         build_tf_nop_copy, on_op_nop_copy_liveness_computed, OpNopCopy,
@@ -73,7 +72,6 @@ pub enum OperatorData {
     Key(OpKey),
     Atom(OpAtom),
     Select(OpSelect),
-    Literal(OpLiteral),
     Chunks(OpChunks),
     Custom(SmallBox<dyn Operator, 96>),
 }
@@ -252,7 +250,7 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::Literal(_) | OperatorData::NopCopy(_) => {
+            OperatorData::NopCopy(_) => {
                 Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
             }
         }
@@ -271,7 +269,6 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
-            | OperatorData::Literal(_)
             | OperatorData::Chunks(_) => false,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
@@ -314,7 +311,6 @@ impl OperatorData {
                     .output_count(sess, op_id)
             }
             OperatorData::Select(_) => 0,
-            OperatorData::Literal(_) => 1,
             OperatorData::Chunks(_) => 0, // last sc output is output
             OperatorData::Custom(op) => {
                 Operator::output_count(&**op, sess, op_id)
@@ -350,7 +346,6 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
-            | OperatorData::Literal(_)
             | OperatorData::Chunks(_) => (),
             OperatorData::Custom(op) => {
                 op.assign_op_outputs(sess, ld, op_id, output_count)
@@ -373,7 +368,6 @@ impl OperatorData {
             OperatorData::ForkCat(_) => "forkcat".into(),
             OperatorData::Key(_) => "key".into(),
             OperatorData::Select(_) => "select".into(),
-            OperatorData::Literal(op) => op.default_op_name(),
             OperatorData::Call(_) => "call".into(),
             OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Nop(_) => "nop".into(),
@@ -410,7 +404,6 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Atom(_)
             | OperatorData::Select(_)
-            | OperatorData::Literal(_)
             | OperatorData::Chunks(_) => self.default_op_name(),
             OperatorData::Custom(op) => op.debug_op_name(),
         }
@@ -421,8 +414,7 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> OutputFieldKind {
         match self {
-            OperatorData::Literal(_)
-            | OperatorData::Call(_)
+            OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::NopCopy(_) => OutputFieldKind::Unique,
             OperatorData::Chunks(_)
@@ -473,8 +465,7 @@ impl OperatorData {
             | OperatorData::ForkCat(_)
             | OperatorData::Nop(_)
             | OperatorData::Chunks(_)
-            | OperatorData::NopCopy(_)
-            | OperatorData::Literal(_) => (),
+            | OperatorData::NopCopy(_) => (),
         }
     }
     pub fn update_liveness_for_op(
@@ -558,12 +549,6 @@ impl OperatorData {
                     .push(input_field);
             }
 
-            OperatorData::Literal(di) => {
-                output.flags.may_dup_or_drop = di.insert_count.is_some();
-                output.flags.input_accessed = false;
-                output.flags.non_stringified_input_access = false;
-            }
-
             OperatorData::Custom(op) => Operator::update_variable_liveness(
                 &**op,
                 sess,
@@ -611,8 +596,7 @@ impl OperatorData {
             | OperatorData::Nop(_)
             | OperatorData::Atom(_)
             | OperatorData::Chunks(_)
-            | OperatorData::Select(_)
-            | OperatorData::Literal(_) => (),
+            | OperatorData::Select(_) => (),
         }
     }
 
@@ -645,9 +629,6 @@ impl OperatorData {
             OperatorData::Fork(op) => build_tf_fork(jd, op_base, op, tfs),
             OperatorData::ForkCat(op) => {
                 return Some(insert_tf_forkcat(job, op_base, op, tf_state));
-            }
-            OperatorData::Literal(op) => {
-                build_tf_literal(jd, op_base, op, tfs)
             }
             OperatorData::Call(op) => build_tf_call(jd, op_base, op, tfs),
             OperatorData::CallConcurrent(op) => {
@@ -710,7 +691,6 @@ impl OperatorData {
             | OperatorData::Fork(_)
             | OperatorData::ForkCat(_)
             | OperatorData::Select(_)
-            | OperatorData::Literal(_)
             | OperatorData::Chunks(_) => None,
         }
     }

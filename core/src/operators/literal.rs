@@ -25,7 +25,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{OperatorBase, OperatorData, OperatorName},
+    operator::{Operator, OperatorData, OperatorName, TransformInstatiation},
     transform::{TransformData, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
@@ -63,8 +63,8 @@ pub struct TfLiteral<'a> {
     iter_id: FieldIterId,
 }
 
-impl OpLiteral {
-    pub fn default_op_name(&self) -> OperatorName {
+impl Operator for OpLiteral {
+    fn default_name(&self) -> OperatorName {
         match &self.data {
             Literal::Null => "null",
             Literal::Undefined => "undefined",
@@ -85,24 +85,56 @@ impl OpLiteral {
         }
         .into()
     }
-}
 
-pub fn build_tf_literal<'a>(
-    jd: &mut JobData,
-    _op_base: &OperatorBase,
-    op: &'a OpLiteral,
-    tf_state: &mut TransformState,
-) -> TransformData<'a> {
-    let actor_id = jd.add_actor_for_tf_state(tf_state);
-    let iter_id = jd.claim_iter_for_tf_state(tf_state);
-    TransformData::Literal(TfLiteral {
-        data: &op.data,
-        explicit_count: op
-            .insert_count
-            .map(|count| ExplicitCount { count, actor_id }),
-        value_inserted: false,
-        iter_id,
-    })
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: super::operator::OperatorId,
+    ) -> usize {
+        1
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: super::operator::OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut crate::job::Job<'a>,
+        tf_state: &mut TransformState,
+        _op_id: super::operator::OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
+        let iter_id = job.job_data.claim_iter_for_tf_state(tf_state);
+        TransformInstatiation::Single(TransformData::Literal(TfLiteral {
+            data: &self.data,
+            explicit_count: self
+                .insert_count
+                .map(|count| ExplicitCount { count, actor_id }),
+            value_inserted: false,
+            iter_id,
+        }))
+    }
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        _ld: &mut crate::liveness_analysis::LivenessData,
+        _op_offset_after_last_write: super::operator::OffsetInChain,
+        _op_id: super::operator::OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = self.insert_count.is_some();
+        output.flags.input_accessed = false;
+        output.flags.non_stringified_input_access = false;
+    }
 }
 
 pub fn insert_value(
@@ -200,7 +232,7 @@ pub fn parse_op_literal_zst(
     literal: Literal,
 ) -> Result<OperatorData, ScrError> {
     let insert_count = parse_insert_count_reject_value(expr)?;
-    Ok(OperatorData::Literal(OpLiteral {
+    Ok(OperatorData::from_custom(OpLiteral {
         data: literal,
         insert_count,
     }))
@@ -213,7 +245,7 @@ pub fn parse_op_str(
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
     let value_owned = value.into_owned();
-    Ok(OperatorData::Literal(OpLiteral {
+    Ok(OperatorData::from_custom(OpLiteral {
         data: if stream {
             Literal::StreamString(Arc::new(value_owned))
         } else {
@@ -231,7 +263,7 @@ pub fn parse_op_error(
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
     let value_owned = value.into_owned();
-    Ok(OperatorData::Literal(OpLiteral {
+    Ok(OperatorData::from_custom(OpLiteral {
         data: if stream {
             Literal::StreamError(value_owned)
         } else {
@@ -340,7 +372,7 @@ pub fn parse_op_int(
         };
         Literal::BigInt(big_int)
     };
-    Ok(OperatorData::Literal(OpLiteral { data, insert_count }))
+    Ok(OperatorData::from_custom(OpLiteral { data, insert_count }))
 }
 pub fn parse_op_bytes(
     sess: &mut SessionSetupData,
@@ -350,7 +382,7 @@ pub fn parse_op_bytes(
     let call_expr = CallExpr::from_argument_mut(arg)?;
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args(sess, &call_expr)?;
-    Ok(OperatorData::Literal(OpLiteral {
+    Ok(OperatorData::from_custom(OpLiteral {
         data: if stream {
             Literal::StreamBytes(Arc::new(value.into_owned()))
         } else {
@@ -405,7 +437,7 @@ pub fn parse_op_tyson(
         )
     })?;
     let lit = field_value_to_literal(value);
-    Ok(OperatorData::Literal(OpLiteral {
+    Ok(OperatorData::from_custom(OpLiteral {
         data: lit,
         insert_count,
     }))
@@ -436,7 +468,7 @@ pub fn build_op_tyson_value(
         OperatorCreationError::new_s(format!("invalid tyson: {e}"), value_span)
     })?;
     let lit = field_value_to_literal(value);
-    Ok(OperatorData::Literal(OpLiteral {
+    Ok(OperatorData::from_custom(OpLiteral {
         data: lit,
         insert_count,
     }))
@@ -455,7 +487,7 @@ pub fn create_op_literal_with_insert_count(
     data: Literal,
     insert_count: Option<usize>,
 ) -> OperatorData {
-    OperatorData::Literal(OpLiteral { data, insert_count })
+    OperatorData::from_custom(OpLiteral { data, insert_count })
 }
 
 pub fn create_op_literal(data: Literal) -> OperatorData {
