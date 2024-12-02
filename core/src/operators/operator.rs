@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap};
 
 use smallstr::SmallString;
 
@@ -25,7 +25,6 @@ use crate::{
 };
 
 use super::{
-    atom::{setup_op_atom, OpAtom},
     call::{build_tf_call, setup_op_call, OpCall},
     call_concurrent::{
         build_tf_call_concurrent, setup_op_call_concurrent,
@@ -58,7 +57,6 @@ pub enum OperatorData {
     CallConcurrent(OpCallConcurrent),
     Fork(OpFork),
     Key(OpKey),
-    Atom(OpAtom),
     Select(OpSelect),
     Chunks(OpChunks),
     Custom(SmallBox<dyn Operator, 96>),
@@ -214,14 +212,6 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::Atom(op) => setup_op_atom(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
         }
     }
     pub fn has_dynamic_outputs(
@@ -230,8 +220,7 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> bool {
         match self {
-            OperatorData::Atom(_)
-            | OperatorData::Call(_)
+            OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
             | OperatorData::Select(_)
@@ -260,7 +249,6 @@ impl OperatorData {
             OperatorData::Call(_) => 1,
             OperatorData::CallConcurrent(_) => 1,
             OperatorData::Fork(_) => 0,
-            OperatorData::Atom(_) => 0,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return 0;
@@ -302,8 +290,7 @@ impl OperatorData {
                 op_base.outputs_start = *output_count;
                 op_base.outputs_end = op_base.outputs_start;
             }
-            OperatorData::Atom(_)
-            | OperatorData::Call(_)
+            OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
             | OperatorData::Select(_)
@@ -320,7 +307,6 @@ impl OperatorData {
 
     pub fn default_op_name(&self) -> OperatorName {
         match self {
-            OperatorData::Atom(_) => "atom".into(),
             OperatorData::Fork(_) => "fork".into(),
             OperatorData::Chunks(_) => "chunks".into(),
             OperatorData::Key(_) => "key".into(),
@@ -354,7 +340,6 @@ impl OperatorData {
             OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
-            | OperatorData::Atom(_)
             | OperatorData::Select(_)
             | OperatorData::Chunks(_) => self.default_op_name(),
             OperatorData::Custom(op) => op.debug_op_name(),
@@ -372,9 +357,7 @@ impl OperatorData {
             OperatorData::Chunks(_) | OperatorData::Fork(_) => {
                 OutputFieldKind::SameAsInput
             }
-            OperatorData::Select(_) | OperatorData::Atom(_) => {
-                OutputFieldKind::Unconfigured
-            }
+            OperatorData::Select(_) => OutputFieldKind::Unconfigured,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return OutputFieldKind::SameAsInput;
@@ -411,7 +394,6 @@ impl OperatorData {
                 op.register_output_var_names(ld, sess, op_id)
             }
             OperatorData::Call(_)
-            | OperatorData::Atom(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
             | OperatorData::Chunks(_) => (),
@@ -428,11 +410,6 @@ impl OperatorData {
         output: &mut OperatorLivenessOutput,
     ) {
         match &self {
-            OperatorData::Atom(_) => {
-                output.flags.may_dup_or_drop = false;
-                output.flags.non_stringified_input_access = false;
-                output.flags.input_accessed = false;
-            }
             OperatorData::Fork(_)
             | OperatorData::Chunks(_)
             | OperatorData::Call(_)
@@ -523,7 +500,6 @@ impl OperatorData {
                 }
             }
             OperatorData::Call(_)
-            | OperatorData::Atom(_)
             | OperatorData::Chunks(_)
             | OperatorData::Select(_) => (),
         }
@@ -540,9 +516,7 @@ impl OperatorData {
         let jd = &mut job.job_data;
         let op_base = &jd.session_data.operator_bases[op_id];
         let data: TransformData<'a> = match self {
-            OperatorData::Key(_)
-            | OperatorData::Atom(_)
-            | OperatorData::Select(_) => unreachable!(),
+            OperatorData::Key(_) | OperatorData::Select(_) => unreachable!(),
             OperatorData::Chunks(op) => {
                 return Some(insert_tf_chunks(
                     job,
@@ -607,8 +581,7 @@ impl OperatorData {
             }
             OperatorData::Custom(op) => op.aggregation_member(agg_offset),
 
-            OperatorData::Atom(_)
-            | OperatorData::Call(_)
+            OperatorData::Call(_)
             | OperatorData::CallConcurrent(_)
             | OperatorData::Fork(_)
             | OperatorData::Select(_)
@@ -722,4 +695,21 @@ pub trait Operator: Send + Sync {
         op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a>;
+
+    fn as_any(&self) -> Option<&dyn Any> {
+        None
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn Any> {
+        None
+    }
+}
+
+impl dyn Operator {
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        self.as_any().and_then(|t| t.downcast_ref::<T>())
+    }
+
+    pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
+        self.as_any_mut().and_then(|t| t.downcast_mut::<T>())
+    }
 }

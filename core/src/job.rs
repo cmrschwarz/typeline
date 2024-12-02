@@ -7,7 +7,7 @@ use crate::{
     chain::{Chain, ChainId},
     context::{ContextData, JobDescription, SessionData, VentureDescription},
     operators::{
-        atom::assign_atom,
+        atom::{assign_atom, OpAtom},
         call::handle_eager_call_expansion,
         call_concurrent::setup_callee_concurrent,
         operator::{
@@ -664,12 +664,14 @@ impl<'a> Job<'a> {
                         [op_base.op_data_id];
                     label = k.key_interned;
                 }
-                OperatorData::Atom(op) => {
-                    let active_scope = self.job_data.match_set_mgr.match_sets
-                        [ms_id]
-                        .active_scope;
-                    assign_atom(op, &mut self.job_data, active_scope);
-                    continue;
+                OperatorData::Custom(op) => {
+                    if let Some(op) = op.downcast_ref::<OpAtom>() {
+                        let active_scope =
+                            self.job_data.match_set_mgr.match_sets[ms_id]
+                                .active_scope;
+                        assign_atom(op, &mut self.job_data, active_scope);
+                        continue;
+                    }
                 }
                 _ => (),
             }

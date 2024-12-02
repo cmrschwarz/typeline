@@ -186,7 +186,7 @@ pub fn integer_sub_immediate_stop_on_overflow_avx2(
             #[allow(clippy::cast_ptr_alignment)]
             let lhs_v = _mm256_loadu_si256(lhs_p.add(i).cast::<__m256i>());
 
-            let res_v = _mm256_add_epi64(lhs_v, rhs_v);
+            let res_v = _mm256_sub_epi64(lhs_v, rhs_v);
 
             #[allow(clippy::cast_ptr_alignment)]
             _mm256_storeu_si256(res_p.add(i).cast::<__m256i>(), res_v);
@@ -224,7 +224,7 @@ pub fn integer_sub_from_immediate_stop_on_overflow_avx2(
             #[allow(clippy::cast_ptr_alignment)]
             let rhs_v = _mm256_loadu_si256(rhs_p.add(i).cast::<__m256i>());
 
-            let res_v = _mm256_add_epi64(lhs_v, rhs_v);
+            let res_v = _mm256_sub_epi64(lhs_v, rhs_v);
 
             #[allow(clippy::cast_ptr_alignment)]
             _mm256_storeu_si256(res_p.add(i).cast::<__m256i>(), res_v);

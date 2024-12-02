@@ -16,7 +16,8 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     operator::{
-        OperatorData, OperatorDataId, OperatorId, OperatorOffsetInChain,
+        Operator, OperatorData, OperatorDataId, OperatorId,
+        OperatorOffsetInChain,
     },
 };
 
@@ -60,26 +61,89 @@ pub fn parse_op_atom(
     ))
 }
 
-pub fn setup_op_atom(
-    op: &mut OpAtom,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    let key_interned = sess.string_store.intern_cloned(&op.key);
-    op.key_interned = Some(key_interned);
-    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+impl Operator for OpAtom {
+    fn default_name(&self) -> super::operator::OperatorName {
+        "atom".into()
+    }
 
-    sess.scope_mgr.insert_atom(
-        sess.chains[chain_id].scope_id,
-        key_interned,
-        Arc::new(Atom::new(op.value.clone())),
-    );
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> usize {
+        0
+    }
 
-    Ok(op_id)
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> super::operator::OutputFieldKind {
+        super::operator::OutputFieldKind::SameAsInput
+    }
+
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let key_interned = sess.string_store.intern_cloned(&self.key);
+        self.key_interned = Some(key_interned);
+        let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+
+        sess.scope_mgr.insert_atom(
+            sess.chains[chain_id].scope_id,
+            key_interned,
+            Arc::new(Atom::new(self.value.clone())),
+        );
+
+        Ok(op_id)
+    }
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        _ld: &mut crate::liveness_analysis::LivenessData,
+        _op_offset_after_last_write: super::operator::OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.flags.may_dup_or_drop = false;
+        output.flags.non_stringified_input_access = false;
+        output.flags.input_accessed = false;
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        _job: &mut crate::job::Job<'a>,
+        _tf_state: &mut super::transform::TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        super::operator::TransformInstatiation::None
+    }
+
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }
+
 pub fn assign_atom(atom: &OpAtom, jd: &mut JobData, scope: ScopeId) {
     jd.scope_mgr.insert_atom(
         scope,
@@ -89,7 +153,7 @@ pub fn assign_atom(atom: &OpAtom, jd: &mut JobData, scope: ScopeId) {
 }
 
 pub fn create_op_atom(key: String, value: FieldValue) -> OperatorData {
-    OperatorData::Atom(OpAtom {
+    OperatorData::from_custom(OpAtom {
         key,
         key_interned: None,
         value,

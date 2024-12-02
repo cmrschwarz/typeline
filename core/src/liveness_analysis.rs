@@ -612,7 +612,7 @@ impl LivenessData {
                 return self
                     .update_bb_for_op(sess, sub_op_id, op_n, cn, bb_id);
             }
-            OperatorData::Atom(_) | OperatorData::Select(_) => (),
+            OperatorData::Select(_) => (),
 
             OperatorData::Custom(op) => {
                 return op
