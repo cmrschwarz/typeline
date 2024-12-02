@@ -11,7 +11,8 @@ use crate::{
     context::ContextData,
     job::{Job, JobData},
     liveness_analysis::{
-        LivenessData, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
+        LivenessData, OperatorCallEffect, VarId, VarLivenessSlotGroup,
+        VarLivenessSlotKind,
     },
     operators::operator::OffsetInChain,
     options::session_setup::SessionSetupData,
@@ -33,7 +34,7 @@ use crate::{
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
-        OperatorBase, OperatorData, OperatorDataId, OperatorId,
+        Operator, OperatorData, OperatorDataId, OperatorId,
         OperatorOffsetInChain,
     },
     terminator::add_terminator,
@@ -67,79 +68,6 @@ pub struct TfFork<'a> {
     pub targets: Vec<ForkTarget>,
     pub accessed_fields_per_subchain:
         &'a IndexVec<SubchainIndex, HashSet<Option<StringStoreEntry>>>,
-}
-
-pub fn setup_op_fork(
-    op: &mut OpFork,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
-
-    if !matches!(offset_in_chain, OperatorOffsetInChain::Direct(_)) {
-        return Err(OperatorSetupError::new(
-            "operator `fork` cannot be part of an aggregation",
-            op_id,
-        )
-        .into());
-    };
-
-    op.subchains_start = sess.chains[chain_id].subchains.next_idx();
-
-    debug_assert!(op.prebound_ops.is_empty() || op.arguments.is_empty());
-
-    for sc in std::mem::take(&mut op.prebound_ops) {
-        sess.setup_subchain(chain_id, sc)?;
-    }
-
-    for args in std::mem::take(&mut op.arguments) {
-        sess.setup_subchain_from_args(chain_id, args)?;
-    }
-
-    op.subchains_end = sess.chains[chain_id].subchains.next_idx();
-
-    Ok(op_id)
-}
-
-pub fn setup_op_fork_liveness_data(
-    op: &mut OpFork,
-    op_id: OperatorId,
-    ld: &LivenessData,
-) {
-    let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
-    debug_assert!(ld.basic_blocks[bb_id].calls.is_empty());
-    let bb = &ld.basic_blocks[bb_id];
-    for &callee_bb_id in &bb.successors {
-        let mut accessed_vars = HashSet::new();
-        for var_id in ld
-            .get_var_liveness_slot(
-                callee_bb_id,
-                VarLivenessSlotGroup::Global,
-                VarLivenessSlotKind::Reads,
-            )
-            .iter_ones()
-            .map(VarId::from_usize)
-        {
-            accessed_vars.insert(ld.vars[var_id].get_name());
-        }
-        op.accessed_fields_per_subchain.push(accessed_vars);
-    }
-}
-
-pub fn build_tf_fork<'a>(
-    _jd: &mut JobData,
-    _op_base: &OperatorBase,
-    op: &'a OpFork,
-    _tf_state: &mut TransformState,
-) -> TransformData<'a> {
-    TransformData::Fork(TfFork {
-        expanded: false,
-        targets: Vec::new(),
-        accessed_fields_per_subchain: &op.accessed_fields_per_subchain,
-    })
 }
 
 pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
@@ -328,10 +256,149 @@ fn setup_fork_subchain(
     }
 }
 
+impl Operator for OpFork {
+    fn default_name(&self) -> super::operator::OperatorName {
+        "fork".into()
+    }
+
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> usize {
+        0
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> super::operator::OutputFieldKind {
+        super::operator::OutputFieldKind::SameAsInput
+    }
+
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+
+        if !matches!(offset_in_chain, OperatorOffsetInChain::Direct(_)) {
+            return Err(OperatorSetupError::new(
+                "operator `fork` cannot be part of an aggregation",
+                op_id,
+            )
+            .into());
+        };
+
+        self.subchains_start = sess.chains[chain_id].subchains.next_idx();
+
+        debug_assert!(
+            self.prebound_ops.is_empty() || self.arguments.is_empty()
+        );
+
+        for sc in std::mem::take(&mut self.prebound_ops) {
+            sess.setup_subchain(chain_id, sc)?;
+        }
+
+        for args in std::mem::take(&mut self.arguments) {
+            sess.setup_subchain_from_args(chain_id, args)?;
+        }
+
+        self.subchains_end = sess.chains[chain_id].subchains.next_idx();
+
+        Ok(op_id)
+    }
+
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        _ld: &mut LivenessData,
+        _op_offset_after_last_write: OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.call_effect = OperatorCallEffect::Diverge;
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        _sess: &mut crate::context::SessionData,
+        ld: &LivenessData,
+        op_id: OperatorId,
+    ) {
+        let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
+        debug_assert!(ld.basic_blocks[bb_id].calls.is_empty());
+        let bb = &ld.basic_blocks[bb_id];
+        for &callee_bb_id in &bb.successors {
+            let mut accessed_vars = HashSet::new();
+            for var_id in ld
+                .get_var_liveness_slot(
+                    callee_bb_id,
+                    VarLivenessSlotGroup::Global,
+                    VarLivenessSlotKind::Reads,
+                )
+                .iter_ones()
+                .map(VarId::from_usize)
+            {
+                accessed_vars.insert(ld.vars[var_id].get_name());
+            }
+            self.accessed_fields_per_subchain.push(accessed_vars);
+        }
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        _job: &mut Job<'a>,
+        _tf_state: &mut TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        super::operator::TransformInstatiation::Single(TransformData::Fork(
+            TfFork {
+                expanded: false,
+                targets: Vec::new(),
+                accessed_fields_per_subchain: &self
+                    .accessed_fields_per_subchain,
+            },
+        ))
+    }
+
+    fn update_bb_for_op(
+        &self,
+        _sess: &crate::context::SessionData,
+        ld: &mut LivenessData,
+        _op_id: OperatorId,
+        _op_n: OffsetInChain,
+        cn: &crate::chain::Chain,
+        bb_id: crate::liveness_analysis::BasicBlockId,
+    ) -> bool {
+        let bb = &mut ld.basic_blocks[bb_id];
+        for sc in &cn.subchains[self.subchains_start..self.subchains_end] {
+            bb.successors.push(sc.into_bb_id());
+        }
+        true
+    }
+}
+
 pub fn create_op_fork_with_spans(
     subchains: Vec<Vec<(OperatorData, Span)>>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    Ok(OperatorData::Fork(OpFork {
+    Ok(OperatorData::from_custom(OpFork {
         subchains_start: SubchainIndex::MAX_VALUE,
         subchains_end: SubchainIndex::MAX_VALUE,
         accessed_fields_per_subchain: IndexVec::new(),
@@ -368,7 +435,7 @@ pub fn parse_op_fork(mut arg: Argument) -> Result<OperatorData, ScrError> {
     }
 
     subchains.push(curr_subchain);
-    Ok(OperatorData::Fork(OpFork {
+    Ok(OperatorData::from_custom(OpFork {
         subchains_start: SubchainIndex::MAX_VALUE,
         subchains_end: SubchainIndex::MAX_VALUE,
         accessed_fields_per_subchain: IndexVec::new(),
