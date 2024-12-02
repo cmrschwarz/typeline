@@ -135,14 +135,10 @@ impl Operator for OpMultiOp {
 
     fn output_field_kind(
         &self,
-        sess: &SessionData,
+        _sess: &SessionData,
         _op_id: OperatorId,
     ) -> super::operator::OutputFieldKind {
-        let Some(&last) = self.sub_op_ids.last() else {
-            return OutputFieldKind::Dummy;
-        };
-        let op_data_id = sess.op_data_id(last);
-        sess.operator_data[op_data_id].output_field_kind(sess, last)
+        OutputFieldKind::Unconfigured
     }
 
     fn register_output_var_names(
