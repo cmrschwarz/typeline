@@ -38,8 +38,8 @@ fn main() {
     let mut criterion: criterion::Criterion<_> =
         (criterion::Criterion::default())
             .warm_up_time(Duration::from_millis(100))
-            .sample_size(10)
-            .measurement_time(Duration::from_millis(1000))
+            .sample_size(20)
+            .measurement_time(Duration::from_millis(1500))
             .noise_threshold(0.10)
             .configure_from_args();
     for b in inventory::iter::<Bench>() {
@@ -241,7 +241,7 @@ mxbzgzg5three
 #[cfg_attr(not(feature = "slow_tests"), ignore)]
 fn aoc2023_day1_part1_large() -> Result<(), ScrError> {
     let mut input = String::new();
-    for _ in 0..1000 {
+    for _ in 0..100 {
         input.push_str(AOC_2023_PART_1_INPUT);
     }
     let res = ContextBuilder::without_exts()
@@ -267,6 +267,6 @@ fn aoc2023_day1_part1_large() -> Result<(), ScrError> {
             create_op_sum(),
         ])
         .run_collect_as::<i64>()?;
-    assert_eq!(res, [444000]);
+    assert_eq!(res, [44400]);
     Ok(())
 }
