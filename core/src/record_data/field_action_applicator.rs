@@ -857,8 +857,9 @@ impl FieldActionApplicator {
         faas: &mut FieldActionApplicationState,
     ) {
         let mut header;
+        let mut header_iter = headers.iter().skip(faas.header_idx);
+        header = *header_iter.next().unwrap();
         loop {
-            header = &headers[faas.header_idx];
             if !header.deleted() {
                 let field_pos_new =
                     faas.field_pos + header.run_length as usize;
@@ -890,13 +891,13 @@ impl FieldActionApplicator {
             }
             faas.header_idx += 1;
             faas.header_idx_new += 1;
-            // this can happen if the field is too short (has)
-            // implicit nulls at the end
-            if faas.header_idx == headers.len() {
+            let Some(h) = header_iter.next() else {
+                // this can happen if the field is too short (has)
+                // implicit nulls at the end
                 return;
-            }
-            faas.curr_header_original_rl =
-                headers[faas.header_idx].effective_run_length();
+            };
+            header = *h;
+            faas.curr_header_original_rl = header.effective_run_length();
         }
         Self::update_current_iters_start(iterators, faas);
     }

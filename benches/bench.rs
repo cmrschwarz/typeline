@@ -240,8 +240,9 @@ mxbzgzg5three
 #[apply(scrbench)]
 #[cfg_attr(not(feature = "slow_tests"), ignore)]
 fn aoc2023_day1_part1_large() -> Result<(), ScrError> {
+    const COUNT: usize = 10000;
     let mut input = String::new();
-    for _ in 0..100 {
+    for _ in 0..COUNT {
         input.push_str(AOC_2023_PART_1_INPUT);
     }
     let res = ContextBuilder::without_exts()
@@ -267,6 +268,6 @@ fn aoc2023_day1_part1_large() -> Result<(), ScrError> {
             create_op_sum(),
         ])
         .run_collect_as::<i64>()?;
-    assert_eq!(res, [44400]);
+    assert_eq!(res, [444 * COUNT as i64]);
     Ok(())
 }

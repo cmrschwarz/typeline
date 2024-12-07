@@ -41,6 +41,7 @@ pub mod string_utils;
 pub mod sum;
 pub mod tail;
 pub mod typename;
+pub mod lines;
 
 #[derive(Default)]
 pub struct UtilsExtension {}

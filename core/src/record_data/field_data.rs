@@ -559,6 +559,7 @@ impl FieldValueFormat {
             self.set_shared_value(true);
         }
     }
+    #[inline(always)]
     pub fn normalize_shared_value(&mut self, rl: RunLength) {
         if rl == 1 || self.repr.is_zst() {
             self.set_shared_value(true);
@@ -598,6 +599,7 @@ impl FieldValueFormat {
 }
 
 impl FieldValueHeader {
+    #[inline(always)]
     pub fn shared_value_or_rl_one(self) -> bool {
         self.run_length == 1 || self.shared_value()
     }
@@ -618,13 +620,15 @@ impl FieldValueHeader {
             self.run_length
         }
     }
+    #[inline(always)]
     pub fn data_size(&self) -> usize {
-        if self.shared_value() {
+        if self.shared_value_or_rl_one() {
             self.size as usize
         } else {
             self.size as usize * self.run_length as usize
         }
     }
+    #[inline(always)]
     pub fn data_size_unique(&self) -> usize {
         if self.same_value_as_previous() {
             0
@@ -632,9 +636,11 @@ impl FieldValueHeader {
             self.data_size()
         }
     }
+    #[inline(always)]
     pub fn total_size(&self) -> usize {
         self.data_size() + self.leading_padding()
     }
+    #[inline(always)]
     pub fn total_size_unique(&self) -> usize {
         if self.same_value_as_previous() {
             0
@@ -642,9 +648,11 @@ impl FieldValueHeader {
             self.total_size()
         }
     }
+    #[inline(always)]
     pub fn run_len_rem(&self) -> RunLength {
         RunLength::MAX - self.run_length
     }
+    #[inline(always)]
     pub fn effective_run_length(&self) -> RunLength {
         if self.deleted() {
             0
@@ -673,6 +681,7 @@ impl FieldValueHeader {
             && !self.shared_value_and_rl_not_one()
     }
 
+    #[inline(always)]
     pub fn shared_value_and_rl_not_one(&self) -> bool {
         self.shared_value() && self.run_length != 1
     }

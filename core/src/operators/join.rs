@@ -102,7 +102,6 @@ pub struct TfJoin<'a> {
     actor_id: ActorId,
 
     first_record_added: bool,
-    buffer: MaybeText,
 
     stream_value_error: bool,
     current_group_error: Option<OperatorApplicationError>,
@@ -120,6 +119,8 @@ pub struct TfJoin<'a> {
     producing_batches: Vec<GroupBatchId>,
     // temp storage for delayed stream value ref count drops
     svs_to_drop: Vec<StreamValueId>,
+
+    buffer: MaybeText,
 }
 
 static ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
