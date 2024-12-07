@@ -224,6 +224,16 @@ pub struct AccessFlags {
     pub may_dup_or_drop: bool,
 }
 
+impl Default for AccessFlags {
+    fn default() -> Self {
+        Self {
+            input_accessed: true,
+            non_stringified_input_access: true,
+            may_dup_or_drop: true,
+        }
+    }
+}
+
 impl AccessFlags {
     pub fn or(&self, other: &Self) -> Self {
         Self {
