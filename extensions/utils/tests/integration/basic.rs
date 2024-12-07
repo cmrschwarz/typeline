@@ -1,5 +1,3 @@
-use std::io::Cursor;
-
 use rstest::rstest;
 use scr::{
     operators::{
@@ -350,39 +348,5 @@ fn aoc2023_day1_part1(#[case] batch_size: usize) -> Result<(), ScrError> {
         ])
         .run_collect_as::<i64>()?;
     assert_eq!(res, [444]);
-    Ok(())
-}
-
-#[cfg_attr(not(feature = "slow_tests"), ignore)]
-#[test]
-fn aoc2023_day1_part1_large() -> Result<(), ScrError> {
-    let mut input = String::new();
-    for _ in 0..1000 {
-        input.push_str(AOC_2023_PART_1_INPUT);
-    }
-    let res = ContextBuilder::without_exts()
-        .set_batch_size(64)?
-        .add_ops([
-            create_op_file_reader_custom(
-                Box::new(Cursor::new(input.into_bytes())),
-                1,
-            ),
-            create_op_lines(),
-            create_op_foreach([
-                create_op_regex_with_opts(
-                    "\\d",
-                    RegexOptions {
-                        multimatch: true,
-                        ..Default::default()
-                    },
-                )?,
-                create_op_forkcat([[create_op_head(1)], [create_op_tail(1)]]),
-                create_op_join(None, None, false),
-                create_op_to_int(),
-            ]),
-            create_op_sum(),
-        ])
-        .run_collect_as::<i64>()?;
-    assert_eq!(res, [444000]);
     Ok(())
 }

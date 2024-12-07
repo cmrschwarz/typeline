@@ -973,11 +973,11 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                 }
 
                 #[expand((REP, ITER, REF) in [
-                (TextInline, RefAwareInlineTextIter, TextRef),
-                (TextBuffer, RefAwareTextBufferIter, TextRef),
-                (BytesInline, RefAwareInlineBytesIter, BytesRef),
-                (BytesBuffer, RefAwareBytesBufferIter, BytesRef),
-            ])]
+                    (TextInline, RefAwareInlineTextIter, TextRef),
+                    (TextBuffer, RefAwareTextBufferIter, TextRef),
+                    (BytesInline, RefAwareInlineBytesIter, BytesRef),
+                    (BytesBuffer, RefAwareBytesBufferIter, BytesRef),
+                ])]
                 FieldValueSlice::REP(text) => {
                     for (v, rl, _offs) in ITER::from_range(&range, text) {
                         push_join_data(
@@ -989,9 +989,9 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                     }
                 }
                 #[expand((REP, CONV_FN) in [
-                (Int, i64_to_str(false, *v)),
-                (Float, f64_to_str(*v)),
-            ])]
+                    (Int, i64_to_str(false, *v)),
+                    (Float, f64_to_str(*v)),
+                ])]
                 FieldValueSlice::REP(ints) => {
                     for (v, rl) in
                         FieldValueRangeIter::from_range(&range, ints)
@@ -1034,7 +1034,9 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                     todo!();
                 }
 
-                #[expand(REP in [Object, Array, Argument, OpDecl, BigRational])]
+                #[expand(REP in [
+                    Object, Array, Argument, OpDecl, BigRational
+                ])]
                 FieldValueSlice::REP(v) => {
                     let mut fc = FormattingContext {
                         ss: Some(&mut string_store),

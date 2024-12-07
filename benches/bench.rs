@@ -1,5 +1,13 @@
 use macro_rules_attribute::apply;
 use paste::paste;
+use scr::operators::{
+    compute::create_op_to_int,
+    file_reader::create_op_file_reader_custom,
+    foreach::create_op_foreach,
+    forkcat::create_op_forkcat,
+    join::create_op_join,
+    regex::{create_op_regex_with_opts, RegexOptions},
+};
 use scr_core::{
     operators::{
         format::create_op_format,
@@ -12,8 +20,11 @@ use scr_core::{
         int_sequence_newline_separated, int_sequence_strings,
     },
 };
-use scr_ext_utils::string_utils::create_op_lines;
-use std::{fmt::Write, sync::LazyLock, time::Duration};
+use scr_ext_utils::{
+    head::create_op_head, string_utils::create_op_lines, sum::create_op_sum,
+    tail::create_op_tail,
+};
+use std::{fmt::Write, io::Cursor, sync::LazyLock, time::Duration};
 
 #[allow(unused)]
 struct Bench {
@@ -27,7 +38,8 @@ fn main() {
     let mut criterion: criterion::Criterion<_> =
         (criterion::Criterion::default())
             .warm_up_time(Duration::from_millis(100))
-            .measurement_time(Duration::from_millis(300))
+            .sample_size(10)
+            .measurement_time(Duration::from_millis(1000))
             .noise_threshold(0.10)
             .configure_from_args();
     for b in inventory::iter::<Bench>() {
@@ -40,18 +52,25 @@ fn main() {
 
 // generates a `#[test]` fn and a criterion bench for the annotated function
 macro_rules! scrbench {
-    (fn $fn_name:ident () $body:tt) => {
+    ($(#[$attrs:meta])* fn $fn_name:ident () $body:block) => {
+        scrbench! {
+            $(#[$attrs])*
+            fn $fn_name() -> () $body
+        }
+    };
+    ($(#[$attrs:meta])* fn $fn_name:ident () -> $ret:ty $body:block) => {
         paste! {
-            fn [< raw_ $fn_name >]() $body
+            fn [< raw_ $fn_name >]() -> $ret $body
 
             #[test]
-            fn $fn_name() {
-                [< raw_ $fn_name >]();
+            $(#[$attrs])*
+            fn $fn_name() -> $ret {
+                [< raw_ $fn_name >]()
             }
 
             inventory::submit!(Bench {
                 name: stringify!($fn_name),
-                bench_fn: [< raw_ $fn_name >],
+                bench_fn: || _ = [< raw_ $fn_name >](),
             });
         }
     };
@@ -204,4 +223,50 @@ fn seq_into_regex_drop_unless_seven() {
         .run_collect_stringified()
         .unwrap();
     assert_eq!(res, &**EXPECTED);
+}
+
+const AOC_2023_PART_1_INPUT: &str = r#"2qlljdqcbeight
+eight47srvbfive
+slconeightfoureight557m38
+xvqeightwosixnine61eightsn2tdczfhx
+msixonexch1twokjbdlhchqk1
+112ninejlhhjmjzkzgdsix
+6six7jr
+878eightgvsqvzfthree
+2jxzhlkhdktxfjjleightdfpgfxjv
+mxbzgzg5three
+"#;
+
+#[apply(scrbench)]
+#[cfg_attr(not(feature = "slow_tests"), ignore)]
+fn aoc2023_day1_part1_large() -> Result<(), ScrError> {
+    let mut input = String::new();
+    for _ in 0..1000 {
+        input.push_str(AOC_2023_PART_1_INPUT);
+    }
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(64)?
+        .add_ops([
+            create_op_file_reader_custom(
+                Box::new(Cursor::new(input.into_bytes())),
+                1,
+            ),
+            create_op_lines(),
+            create_op_foreach([
+                create_op_regex_with_opts(
+                    "\\d",
+                    RegexOptions {
+                        multimatch: true,
+                        ..Default::default()
+                    },
+                )?,
+                create_op_forkcat([[create_op_head(1)], [create_op_tail(1)]]),
+                create_op_join(None, None, false),
+                create_op_to_int(),
+            ]),
+            create_op_sum(),
+        ])
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, [444000]);
+    Ok(())
 }
