@@ -387,16 +387,6 @@ fn push_finished_stream_value(
     todo!();
 }
 
-pub fn reset_group_stats(join: &mut TfJoin) {
-    join.curr_group_len = 0;
-    join.first_record_added = false;
-    join.buffer.clear();
-    join.active_stream_value_submitted = false;
-    join.active_stream_value = None;
-    join.active_group_batch = None;
-    join.current_group_error = None;
-}
-
 pub fn drop_group(
     join: &mut TfJoin,
     sv_mgr: &mut StreamValueManager,
@@ -405,10 +395,16 @@ pub fn drop_group(
     if let Some(gbi) = join.active_group_batch {
         drop_group_batch_sv_subscriptions(sv_mgr, tf_id, join, gbi);
         join.group_batches.release(gbi);
+        join.active_group_batch = None;
+        join.active_stream_value = None;
+        join.active_stream_value_submitted = false;
     } else {
         debug_assert!(join.active_stream_value.is_none());
+        join.current_group_error = None;
+        join.buffer.clear();
     }
-    reset_group_stats(join);
+    join.curr_group_len = 0;
+    join.first_record_added = false;
 }
 
 fn make_group_batch_producer(join: &mut TfJoin, gbi: GroupBatchId) {
@@ -427,9 +423,11 @@ pub fn emit_group(
     output_inserter: &mut VaryingTypeInserter<&mut FieldData>,
     groups_emitted: &mut usize,
 ) {
-    let len = join.buffer.len();
-    let mut emitted = true;
+    join.curr_group_len = 0;
+    join.first_record_added = false;
+
     if let Some(sv_id) = join.active_stream_value {
+        let mut emitted = true;
         join.active_stream_value = None;
 
         let mut done = true;
@@ -451,6 +449,7 @@ pub fn emit_group(
         }
 
         if join.active_stream_value_submitted {
+            join.active_stream_value_submitted = false;
             emitted = false;
             if join.active_stream_value_appended || done {
                 sv_mgr.inform_stream_value_subscribers(sv_id);
@@ -459,9 +458,20 @@ pub fn emit_group(
             output_inserter.push_stream_value_id(sv_id, 1, true, false);
         }
         join.active_stream_value_appended = false;
-    } else if let Some(err) = join.current_group_error.take() {
+        *groups_emitted += usize::from(emitted);
+        return;
+    }
+
+    *groups_emitted += 1;
+
+    if let Some(err) = join.current_group_error.take() {
         output_inserter.push_error(err, 1, true, false);
-    } else if len < INLINE_STR_MAX_LEN {
+        return;
+    }
+
+    let len = join.buffer.len();
+
+    if len < INLINE_STR_MAX_LEN {
         output_inserter.push_inline_maybe_text_ref(
             join.buffer.as_ref(),
             1,
@@ -469,13 +479,12 @@ pub fn emit_group(
             false,
         );
         join.buffer.clear();
-    } else {
-        let buffer =
-            std::mem::replace(&mut join.buffer, MaybeText::with_capacity(len));
-        output_inserter.push_maybe_text(buffer, 1, true, false);
+        return;
     }
-    reset_group_stats(join);
-    *groups_emitted += usize::from(emitted);
+
+    let buffer =
+        std::mem::replace(&mut join.buffer, MaybeText::with_capacity(len));
+    output_inserter.push_maybe_text(buffer, 1, true, false);
 }
 fn push_error(
     join: &mut TfJoin,
@@ -489,6 +498,7 @@ fn push_error(
         join.active_stream_value_appended = true;
     } else {
         join.current_group_error = Some(e);
+        join.buffer.clear();
     }
 }
 
