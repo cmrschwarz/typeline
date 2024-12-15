@@ -727,20 +727,15 @@ impl<'a, 'b> Drop for StreamValueDataInserter<'a, 'b> {
 }
 
 impl<'a> StreamValue<'a> {
-    pub fn subscribe(
+    pub fn subscribe_with_offset(
         &mut self,
         #[cfg_attr(not(feature = "debug_logging_streams"), allow(unused))]
         sv_id: StreamValueId,
         tf_id: TransformId,
         custom_data: usize,
         notify_only_once_done: bool,
-        treat_current_data_as_consumed: bool,
+        data_offset: StreamValueDataOffset,
     ) {
-        let data_offset = if treat_current_data_as_consumed {
-            self.data_offset_end()
-        } else {
-            StreamValueDataOffset::default()
-        };
         self.subscribers.push(StreamValueSubscription {
             tf_id,
             data_offset,
@@ -755,6 +750,28 @@ impl<'a> StreamValue<'a> {
             self.ref_count,
             self.data
         );
+    }
+    pub fn subscribe(
+        &mut self,
+        #[cfg_attr(not(feature = "debug_logging_streams"), allow(unused))]
+        sv_id: StreamValueId,
+        tf_id: TransformId,
+        custom_data: usize,
+        notify_only_once_done: bool,
+        treat_current_data_as_consumed: bool,
+    ) {
+        let data_offset = if treat_current_data_as_consumed {
+            self.data_offset_end()
+        } else {
+            StreamValueDataOffset::default()
+        };
+        self.subscribe_with_offset(
+            sv_id,
+            tf_id,
+            custom_data,
+            notify_only_once_done,
+            data_offset,
+        )
     }
     pub fn data_offset_end(&self) -> StreamValueDataOffset {
         // we use the end of the last element, not the start of the next

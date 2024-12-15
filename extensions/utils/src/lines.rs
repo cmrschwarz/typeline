@@ -26,9 +26,13 @@ use scr_core::{
         },
         iter_hall::FieldIterId,
         push_interface::PushInterface,
+        stream_value::StreamValue,
     },
     scr_error::ScrError,
+    utils::indexing_type::IndexingType,
 };
+
+use bstr::ByteSlice;
 
 use metamatch::metamatch;
 
@@ -39,6 +43,7 @@ pub struct TfLines {
     input_iter_id: FieldIterId,
     actor_id: ActorId,
     input_field_ref_offset: FieldRefOffset,
+    pending_streams: usize,
 }
 
 pub fn parse_op_flatten(expr: &CallExpr) -> Result<OperatorData, ScrError> {
@@ -98,6 +103,7 @@ impl Operator for OpLines {
             actor_id,
             input_iter_id,
             input_field_ref_offset,
+            pending_streams: 0,
         };
 
         TransformInstatiation::Single(TransformData::from_custom(tfe))
@@ -190,8 +196,16 @@ impl TfLines {
                     for (&sv_id, rl) in
                         RefAwareFieldValueRangeIter::from_range(&range, ids)
                     {
+                        if self.pending_streams == 0 {}
+                        let output = bud
+                            .sv_mgr
+                            .claim_stream_value(StreamValue::default());
                         bud.sv_mgr.subscribe_to_stream_value(
-                            sv_id, bud.tf_id, 0, false, false,
+                            sv_id,
+                            bud.tf_id,
+                            output.into_usize(),
+                            false,
+                            false,
                         );
                         field_idx += rl as usize;
                     }
@@ -214,8 +228,9 @@ impl Transform<'_> for TfLines {
 
     fn handle_stream_value_update(
         &mut self,
-        jd: &mut JobData<'_>,
-        svu: scr_core::record_data::stream_value::StreamValueUpdate,
+        _jd: &mut JobData<'_>,
+        _svu: scr_core::record_data::stream_value::StreamValueUpdate,
     ) {
+        todo!()
     }
 }
