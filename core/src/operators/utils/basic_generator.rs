@@ -2,9 +2,7 @@ use crate::{
     job::JobData,
     liveness_analysis::OperatorLivenessOutput,
     operators::{
-        operator::{
-            Operator, OperatorData, OperatorName, TransformInstatiation,
-        },
+        operator::{Operator, OperatorName, TransformInstatiation},
         transform::{Transform, TransformData, TransformId},
     },
     record_data::{
@@ -168,7 +166,7 @@ impl<T: BasicGenerator + 'static> BasicGeneratorWrapper<T> {
     pub fn new(base: T) -> Self {
         Self { base }
     }
-    pub fn new_operator(base: T) -> OperatorData {
+    pub fn new_operator(base: T) -> Box<dyn Operator> {
         Box::new(Self::new(base))
     }
 }

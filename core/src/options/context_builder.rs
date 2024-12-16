@@ -10,7 +10,7 @@ use crate::{
         aggregator::{create_op_aggregate, create_op_aggregate_appending},
         field_value_sink::{create_op_field_value_sink, FieldValueSinkHandle},
         key::create_op_key_with_op,
-        operator::OperatorData,
+        operator::Operator,
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     record_data::{
@@ -101,7 +101,7 @@ impl ContextBuilder {
         )
     }
 
-    pub fn add_op(mut self, op_data: OperatorData) -> Self {
+    pub fn add_op(mut self, op_data: Box<dyn Operator>) -> Self {
         self.setup_data.setup_op_generated(op_data).unwrap();
         self
     }
@@ -109,7 +109,7 @@ impl ContextBuilder {
     pub fn add_op_with_key(
         mut self,
         key: impl Into<String>,
-        op_data: OperatorData,
+        op_data: Box<dyn Operator>,
     ) -> Self {
         self.setup_data
             .setup_op_generated(create_op_key_with_op(key.into(), op_data))
@@ -119,7 +119,7 @@ impl ContextBuilder {
 
     pub fn add_ops(
         mut self,
-        operations: impl IntoIterator<Item = OperatorData>,
+        operations: impl IntoIterator<Item = Box<dyn Operator>>,
     ) -> Self {
         for op_data in operations {
             self.setup_data.setup_op_generated(op_data).unwrap();
@@ -129,7 +129,7 @@ impl ContextBuilder {
 
     pub fn add_ops_with_spans(
         mut self,
-        operations: impl IntoIterator<Item = (OperatorData, Span)>,
+        operations: impl IntoIterator<Item = (Box<dyn Operator>, Span)>,
     ) -> Self {
         for (op_data, span) in operations {
             self.setup_data
@@ -155,7 +155,7 @@ impl ContextBuilder {
 
     pub fn add_op_aggregate(
         mut self,
-        sub_ops: impl IntoIterator<Item = OperatorData>,
+        sub_ops: impl IntoIterator<Item = Box<dyn Operator>>,
     ) -> Self {
         self.setup_data
             .setup_op_generated(create_op_aggregate(sub_ops))
@@ -165,7 +165,7 @@ impl ContextBuilder {
 
     pub fn add_op_aggregate_appending(
         mut self,
-        sub_ops: impl IntoIterator<Item = OperatorData>,
+        sub_ops: impl IntoIterator<Item = Box<dyn Operator>>,
     ) -> Self {
         self.setup_data
             .setup_op_generated(create_op_aggregate_appending(sub_ops))

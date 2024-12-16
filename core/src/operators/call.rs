@@ -16,7 +16,7 @@ use crate::{
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
-        OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+        OffsetInChain, Operator, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain, TransformInstatiation,
     },
     transform::{Transform, TransformData, TransformId, TransformState},
@@ -203,7 +203,7 @@ impl<'a> Transform<'a> for TfCall {
 
 pub fn parse_op_call(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let target = expr.require_single_string_arg()?;
     Ok(Box::new(OpCall {
         lazy: true,
@@ -212,7 +212,7 @@ pub fn parse_op_call(
     }))
 }
 
-pub fn create_op_call(name: String) -> OperatorData {
+pub fn create_op_call(name: String) -> Box<dyn Operator> {
     Box::new(OpCall {
         lazy: true,
         target_name: name,
@@ -220,7 +220,7 @@ pub fn create_op_call(name: String) -> OperatorData {
     })
 }
 
-pub fn create_op_call_eager(target: ChainId) -> OperatorData {
+pub fn create_op_call_eager(target: ChainId) -> Box<dyn Operator> {
     Box::new(OpCall {
         lazy: false,
         target_name: String::new(),

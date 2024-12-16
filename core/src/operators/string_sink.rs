@@ -49,8 +49,7 @@ use crate::{
 use super::{
     errors::OperatorApplicationError,
     operator::{
-        Operator, OperatorData, OperatorId, PreboundOutputsMap,
-        TransformInstatiation,
+        Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
     },
     transform::{Transform, TransformData, TransformId, TransformState},
 };
@@ -133,7 +132,9 @@ pub struct OpStringSink {
     pub handle: StringSinkHandle,
 }
 
-pub fn create_op_string_sink(handle: &'_ StringSinkHandle) -> OperatorData {
+pub fn create_op_string_sink(
+    handle: &'_ StringSinkHandle,
+) -> Box<dyn Operator> {
     Box::new(OpStringSink {
         handle: handle.clone(),
     })

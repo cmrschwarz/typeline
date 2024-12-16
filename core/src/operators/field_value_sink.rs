@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::{
     errors::OperatorApplicationError,
-    operator::{Operator, OperatorData, TransformInstatiation},
+    operator::{Operator, TransformInstatiation},
     transform::{Transform, TransformData, TransformId, TransformState},
 };
 
@@ -47,7 +47,7 @@ pub struct OpFieldValueSink {
 
 pub fn create_op_field_value_sink(
     handle: &'_ FieldValueSinkHandle,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     Box::new(OpFieldValueSink {
         handle: handle.clone(),
     })

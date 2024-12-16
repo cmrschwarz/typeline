@@ -11,7 +11,7 @@ use scr_core::{
     },
     operators::{
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
+            OffsetInChain, Operator, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
@@ -63,12 +63,14 @@ pub struct TfExplode {
 // always cleared between method calls
 unsafe impl Send for TfExplode {}
 
-pub fn parse_op_explode(expr: &CallExpr) -> Result<OperatorData, ScrError> {
+pub fn parse_op_explode(
+    expr: &CallExpr,
+) -> Result<Box<dyn Operator>, ScrError> {
     expr.reject_args()?;
     Ok(create_op_explode())
 }
 
-pub fn create_op_explode() -> OperatorData {
+pub fn create_op_explode() -> Box<dyn Operator> {
     Box::new(OpExplode::default())
 }
 

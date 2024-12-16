@@ -31,7 +31,7 @@ use scr_core::{
             FormatKeyRefData, FormatKeyRefId, FormatPart, FormatPartIndex,
         },
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+            OffsetInChain, Operator, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
@@ -1509,7 +1509,7 @@ fn append_exec_arg(
     Ok(())
 }
 
-pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
+pub fn parse_op_exec(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
     let mut parts = IndexVec::new();
     let mut refs = IndexVec::new();
     let mut fmt_arg_part_ends = IndexVec::new();
@@ -1560,14 +1560,14 @@ pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
 
 pub fn create_op_exec_from_strings<'a>(
     args: impl IntoIterator<Item = impl Into<&'a str>>,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     create_op_exec_with_opts_from_strings(OpExecOpts::default(), args)
 }
 
 pub fn create_op_exec_with_opts_from_strings<'a>(
     opts: OpExecOpts,
     args: impl IntoIterator<Item = impl Into<&'a str>>,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let mut parts = IndexVec::new();
     let mut refs = IndexVec::new();
     let mut fmt_arg_part_ends = IndexVec::new();

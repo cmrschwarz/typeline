@@ -5,8 +5,7 @@ use scr_core::{
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
         operator::{
-            Operator, OperatorData, OperatorId, PreboundOutputsMap,
-            TransformInstatiation,
+            Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformState},
         utils::basic_transform_update::{
@@ -262,11 +261,11 @@ impl Transform<'_> for TfSum {
 
 pub fn parse_op_sum(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     expr.reject_args()?;
     Ok(create_op_sum())
 }
 
-pub fn create_op_sum() -> OperatorData {
+pub fn create_op_sum() -> Box<dyn Operator> {
     Box::new(OpSum {})
 }

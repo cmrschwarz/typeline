@@ -36,7 +36,7 @@ use super::{
     errors::{io_error_to_op_error, OperatorCreationError},
     multi_op::create_multi_op,
     operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId, OperatorName,
+        Operator, OperatorDataId, OperatorId, OperatorName,
         OperatorOffsetInChain, TransformInstatiation,
     },
     regex::{create_op_regex_lines, create_op_regex_trim_trailing_newline},
@@ -294,7 +294,7 @@ fn parse_file_reader_flags(
 pub fn parse_op_file_reader(
     sess: &SessionSetupData,
     mut expr: CallExpr,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     expr.split_flags_arg_normalized(&sess.string_store, true);
     let (flags, args) = expr.split_flags_arg(true);
 
@@ -310,7 +310,7 @@ pub fn parse_op_file_reader(
 pub fn parse_op_stdin(
     sess: &SessionSetupData,
     mut expr: CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     expr.split_flags_arg_normalized(&sess.string_store, true);
     let (flags, args) = expr.split_flags_arg(true);
     if !args.is_empty() {
@@ -327,7 +327,7 @@ fn build_op_file(
     value: &[u8],
     opts: FileReaderOptions,
     #[cfg_attr(unix, allow(unused))] span: Span,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let path = {
         #[cfg(unix)]
         {
@@ -359,7 +359,7 @@ fn build_op_file(
     Ok(op)
 }
 
-fn build_op_stdin(opts: FileReaderOptions) -> OperatorData {
+fn build_op_stdin(opts: FileReaderOptions) -> Box<dyn Operator> {
     let op = create_op_stdin(opts.insert_count.unwrap_or(0));
     if opts.lines {
         // TODO: create optimized version of this
@@ -376,7 +376,7 @@ fn build_op_stdin(opts: FileReaderOptions) -> OperatorData {
 pub fn create_op_file_reader(
     file_kind: ReadableFileKind,
     insert_count: usize,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     Box::new(OpFileReader {
         file_kind,
         insert_count: if insert_count == 0 {
@@ -389,17 +389,20 @@ pub fn create_op_file_reader(
     })
 }
 
-pub fn create_op_file(path: PathBuf, insert_count: usize) -> OperatorData {
+pub fn create_op_file(
+    path: PathBuf,
+    insert_count: usize,
+) -> Box<dyn Operator> {
     create_op_file_reader(ReadableFileKind::File(path), insert_count)
 }
-pub fn create_op_stdin(insert_count: usize) -> OperatorData {
+pub fn create_op_stdin(insert_count: usize) -> Box<dyn Operator> {
     create_op_file_reader(ReadableFileKind::Stdin, insert_count)
 }
 
 pub fn create_op_stream_dummy(
     value: &[u8],
     insert_count: usize,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     create_op_file_reader_custom(
         Box::new(std::io::Cursor::new(value.to_owned())),
         insert_count,
@@ -409,7 +412,7 @@ pub fn create_op_stream_dummy(
 pub fn create_op_file_reader_custom(
     read: Box<dyn Read + Send>,
     insert_count: usize,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     create_op_file_reader(
         ReadableFileKind::Custom(Mutex::new(Some(read))),
         insert_count,
@@ -423,7 +426,7 @@ pub fn create_op_file_reader_custom(
 pub fn create_op_file_reader_custom_not_cloneable(
     read: Box<dyn Read + Send>,
     insert_count: usize,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     create_op_file_reader(
         ReadableFileKind::Custom(Mutex::new(Some(read))),
         insert_count,

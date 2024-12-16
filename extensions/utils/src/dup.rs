@@ -7,8 +7,8 @@ use scr_core::{
     },
     operators::{
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId,
-            OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorId, OutputFieldKind,
+            PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
     },
@@ -161,16 +161,16 @@ impl Transform<'_> for TfDup {
     }
 }
 
-pub fn create_op_dup(count: usize) -> OperatorData {
+pub fn create_op_dup(count: usize) -> Box<dyn Operator> {
     Box::new(OpDup { count })
 }
 
-pub fn parse_op_dup(expr: &CallExpr) -> Result<OperatorData, ScrError> {
+pub fn parse_op_dup(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
     let count = expr.require_at_most_one_number_arg(false)?.unwrap_or(2);
     Ok(create_op_dup(count))
 }
 
-pub fn parse_op_drop(expr: &CallExpr) -> Result<OperatorData, ScrError> {
+pub fn parse_op_drop(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
     expr.reject_args()?;
     Ok(create_op_dup(0))
 }

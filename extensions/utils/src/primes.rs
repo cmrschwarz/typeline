@@ -3,7 +3,7 @@ use scr_core::{
     cli::call_expr::CallExpr,
     operators::{
         errors::OperatorCreationError,
-        operator::OperatorData,
+        operator::Operator,
         utils::{
             basic_generator::{BasicGenerator, BasicGeneratorWrapper},
             generator_transform_update::{GeneratorMode, GeneratorSequence},
@@ -77,13 +77,13 @@ impl BasicGenerator for OpPrimes {
     }
 }
 
-pub fn create_op_primes() -> OperatorData {
+pub fn create_op_primes() -> Box<dyn Operator> {
     BasicGeneratorWrapper::new_operator(OpPrimes)
 }
 
 pub fn parse_op_primes(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     expr.reject_args()?;
     Ok(create_op_primes())
 }

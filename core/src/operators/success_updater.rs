@@ -16,10 +16,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::{
-        Operator, OperatorData, OperatorId, OutputFieldKind,
-        TransformInstatiation,
-    },
+    operator::{Operator, OperatorId, OutputFieldKind, TransformInstatiation},
     transform::{Transform, TransformData, TransformId, TransformState},
 };
 
@@ -122,10 +119,10 @@ impl Transform<'_> for TfSuccessUpdator {
 
 pub fn parse_op_success_updator(
     arg: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     arg.reject_args()?;
     Ok(create_op_success_updator())
 }
-pub fn create_op_success_updator() -> OperatorData {
+pub fn create_op_success_updator() -> Box<dyn Operator> {
     Box::new(OpSuccessUpdator::default())
 }

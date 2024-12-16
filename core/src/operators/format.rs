@@ -6,7 +6,7 @@ use unicode_ident::is_xid_start;
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{
-        OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+        OffsetInChain, Operator, OperatorDataId, OperatorId,
         OperatorOffsetInChain, TransformInstatiation,
     },
     transform::{Transform, TransformData, TransformId, TransformState},
@@ -715,7 +715,7 @@ pub fn parse_format_string(
 pub fn build_op_format(
     fmt: &[u8],
     span: Span,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let mut refs = IndexVec::new();
     let mut parts = IndexVec::new();
     parse_format_string(fmt, &mut refs, &mut parts).map_err(|(i, msg)| {
@@ -738,18 +738,18 @@ pub fn build_op_format(
 
 pub fn parse_op_format(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let val = expr.require_single_plaintext_arg()?;
     build_op_format(val, expr.span)
 }
 pub fn create_op_format(
     val: &str,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     build_op_format(val.as_bytes(), Span::Generated)
 }
 pub fn create_op_format_b(
     val: &[u8],
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     build_op_format(val, Span::Generated)
 }
 

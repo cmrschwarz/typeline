@@ -53,7 +53,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{Operator, OperatorData, OperatorName, TransformInstatiation},
+    operator::{Operator, OperatorName, TransformInstatiation},
     print::typed_slice_zst_str,
     transform::{Transform, TransformData, TransformId, TransformState},
 };
@@ -133,7 +133,7 @@ pub fn argument_matches_op_join(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)
 }
 
-pub fn parse_op_join(expr: &CallExpr) -> Result<OperatorData, ScrError> {
+pub fn parse_op_join(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
     let mut count = None;
     let mut drop_incomplete = false;
     let mut drop_incomplete_span = Span::Generated;
@@ -195,14 +195,17 @@ pub fn create_op_join(
     separator: Option<MaybeText>,
     join_count: Option<usize>,
     drop_incomplete: bool,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     Box::new(OpJoin {
         separator: separator.map(MaybeText::into_boxed),
         join_count,
         drop_incomplete,
     })
 }
-pub fn create_op_join_str(separator: &str, join_count: usize) -> OperatorData {
+pub fn create_op_join_str(
+    separator: &str,
+    join_count: usize,
+) -> Box<dyn Operator> {
     let sep = match separator {
         "" => None,
         v => Some(MaybeTextBoxed::from_text(v)),

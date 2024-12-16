@@ -19,7 +19,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::{OperatorData, OperatorName},
+    operator::{Operator, OperatorName},
     utils::{
         basic_generator::{BasicGenerator, BasicGeneratorWrapper},
         generator_transform_update::{GeneratorMode, GeneratorSequence},
@@ -229,7 +229,7 @@ pub fn parse_op_seq(
     call: &CallExpr,
     mode: SequenceMode,
     natural_number_mode: bool,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     if matches!(mode, SequenceMode::Enum | SequenceMode::EnumUnbounded)
         && call.args.is_empty()
     {
@@ -298,7 +298,7 @@ fn create_op_sequence_with_opts(
     step: i64,
     mode: SequenceMode,
     span: Span,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     if step == 0 {
         return Err(OperatorCreationError::new(
             "sequence step size cannot be zero",
@@ -339,7 +339,7 @@ pub fn create_op_sequence(
     start: i64,
     end: i64,
     step: i64,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     create_op_sequence_with_opts(
         start,
         end,
@@ -352,21 +352,21 @@ pub fn create_op_seq(
     start: i64,
     end: i64,
     step: i64,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     create_op_sequence(start, end, step)
 }
 pub fn create_op_seqn(
     start: i64,
     end: i64,
     step: i64,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     create_op_sequence(start, end + 1, step)
 }
 pub fn create_op_enum(
     start: i64,
     end: i64,
     step: i64,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     create_op_sequence_with_opts(
         start,
         end,
@@ -379,7 +379,7 @@ pub fn create_op_enum_unbounded(
     start: i64,
     end: i64,
     step: i64,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     create_op_sequence_with_opts(
         start,
         end,

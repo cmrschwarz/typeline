@@ -44,7 +44,7 @@ use parser::ComputeExprParser;
 use super::{
     errors::OperatorCreationError,
     operator::{
-        OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+        OffsetInChain, Operator, OperatorDataId, OperatorId,
         OperatorOffsetInChain, TransformInstatiation,
     },
     transform::{Transform, TransformData, TransformId, TransformState},
@@ -106,7 +106,7 @@ pub struct TfCompute<'a> {
 pub fn build_op_compute(
     fmt: &[u8],
     span: Span,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let mut let_bindings = IndexVec::new();
     let mut unbound_refs = IndexVec::new();
 
@@ -377,25 +377,25 @@ impl<'a> Transform<'a> for TfCompute<'a> {
 pub fn parse_op_compute(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let val = expr.require_single_plaintext_arg_autoconvert(sess)?;
     build_op_compute(val.as_bytes(), expr.span)
 }
 pub fn create_op_compute(
     val: &str,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     build_op_compute(val.as_bytes(), Span::Generated)
 }
 pub fn create_op_compute_b(
     val: &[u8],
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     build_op_compute(val, Span::Generated)
 }
 
-pub fn build_op_to_int(span: Span) -> OperatorData {
+pub fn build_op_to_int(span: Span) -> Box<dyn Operator> {
     build_op_compute(b"int(_)", span).unwrap()
 }
 
-pub fn create_op_to_int() -> OperatorData {
+pub fn create_op_to_int() -> Box<dyn Operator> {
     build_op_to_int(Span::Generated)
 }

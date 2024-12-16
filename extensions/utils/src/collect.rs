@@ -5,8 +5,7 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            Operator, OperatorData, OperatorId, PreboundOutputsMap,
-            TransformInstatiation,
+            Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformState},
         utils::basic_transform_update::{
@@ -234,13 +233,13 @@ impl Transform<'_> for TfCollect {
     }
 }
 
-pub fn create_op_collect() -> OperatorData {
+pub fn create_op_collect() -> Box<dyn Operator> {
     Box::new(OpCollect {})
 }
 
 pub fn parse_op_collect(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     expr.reject_args()?;
     Ok(create_op_collect())
 }

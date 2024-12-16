@@ -12,7 +12,7 @@ use crate::{
         call_concurrent::setup_callee_concurrent,
         key::OpKey,
         operator::{
-            OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
+            Operator, OperatorBase, OperatorId, OperatorInstantiation,
             OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
         },
         select::OpSelect,
@@ -574,7 +574,7 @@ impl<'a> Job<'a> {
             ops.iter().map(|op_id| {
                 let op_base =
                     &self.job_data.session_data.operator_bases[*op_id];
-                let op_data = &self.job_data.session_data.operator_data
+                let op_data = &*self.job_data.session_data.operator_data
                     [op_base.op_data_id];
                 (*op_id, op_base, op_data)
             }),
@@ -589,7 +589,11 @@ impl<'a> Job<'a> {
     pub fn setup_transforms_for_op_iter(
         &mut self,
         ops: impl IntoIterator<
-            Item = (OperatorId, &'a OperatorBase, &'a OperatorData),
+            Item = (
+                OperatorId,
+                &'a OperatorBase,
+                &'a (dyn Operator + 'static),
+            ),
         >,
         mut ms_id: MatchSetId,
         mut input_field: FieldId,
@@ -640,7 +644,7 @@ impl<'a> Job<'a> {
                 op_id = nested_op_id;
                 op_base =
                     &self.job_data.session_data.operator_bases[nested_op_id];
-                op_data = &self.job_data.session_data.operator_data
+                op_data = &*self.job_data.session_data.operator_data
                     [op_base.op_data_id];
                 label = k.key_interned;
             }

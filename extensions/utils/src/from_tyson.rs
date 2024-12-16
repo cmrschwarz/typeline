@@ -7,8 +7,7 @@ use scr_core::{
     operators::{
         errors::OperatorApplicationError,
         operator::{
-            Operator, OperatorData, OperatorId, PreboundOutputsMap,
-            TransformInstatiation,
+            Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformState},
         utils::basic_transform_update::{
@@ -253,6 +252,6 @@ impl Transform<'_> for TfFromTyson {
     }
 }
 
-pub fn create_op_from_tyson() -> OperatorData {
+pub fn create_op_from_tyson() -> Box<dyn Operator> {
     Box::new(OpFromTyson {})
 }

@@ -55,8 +55,8 @@ use super::{
     errors::OperatorSetupError,
     nop::create_op_nop,
     operator::{
-        OffsetInChain, Operator, OperatorBase, OperatorData, OperatorDataId,
-        OperatorId, OperatorInstantiation, OperatorOffsetInChain,
+        OffsetInChain, Operator, OperatorBase, OperatorDataId, OperatorId,
+        OperatorInstantiation, OperatorOffsetInChain,
     },
     transform::{Transform, TransformData, TransformId, TransformState},
 };
@@ -83,7 +83,7 @@ index_newtype! {
 }
 
 pub struct OpForkCat {
-    pub subchains: Vec<Vec<(OperatorData, Span)>>,
+    pub subchains: Vec<Vec<(Box<dyn Operator>, Span)>>,
 
     pub subchains_start: SubchainIndex,
     pub subchains_end: SubchainIndex,
@@ -1231,8 +1231,8 @@ impl<'a> Transform<'a> for TfForkCatSubchainTrailer<'a> {
 }
 
 pub fn create_op_forkcat_with_spans(
-    mut subchains: Vec<Vec<(OperatorData, Span)>>,
-) -> OperatorData {
+    mut subchains: Vec<Vec<(Box<dyn Operator>, Span)>>,
+) -> Box<dyn Operator> {
     for sc in &mut subchains {
         if sc.is_empty() {
             sc.push((create_op_nop(), Span::Generated));
@@ -1249,8 +1249,10 @@ pub fn create_op_forkcat_with_spans(
 }
 
 pub fn create_op_forkcat(
-    subchains: impl IntoIterator<Item = impl IntoIterator<Item = OperatorData>>,
-) -> OperatorData {
+    subchains: impl IntoIterator<
+        Item = impl IntoIterator<Item = Box<dyn Operator>>,
+    >,
+) -> Box<dyn Operator> {
     let subchains = subchains
         .into_iter()
         .map(|sc| {
@@ -1265,7 +1267,7 @@ pub fn create_op_forkcat(
 pub fn parse_op_forkcat(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>,ScrError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
     for arg in std::mem::take(arg.expect_arg_array_mut()?)

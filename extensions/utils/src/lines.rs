@@ -5,8 +5,8 @@ use scr_core::{
     operators::{
         errors::OperatorApplicationError,
         operator::{
-            Operator, OperatorData, OperatorId, OperatorName,
-            PreboundOutputsMap, TransformInstatiation,
+            Operator, OperatorId, OperatorName, PreboundOutputsMap,
+            TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
         utils::basic_transform_update::{
@@ -46,12 +46,14 @@ pub struct TfLines {
     pending_streams: usize,
 }
 
-pub fn parse_op_flatten(expr: &CallExpr) -> Result<OperatorData, ScrError> {
+pub fn parse_op_flatten(
+    expr: &CallExpr,
+) -> Result<Box<dyn Operator>, ScrError> {
     expr.reject_args()?;
     Ok(create_op_flatten())
 }
 
-pub fn create_op_flatten() -> OperatorData {
+pub fn create_op_flatten() -> Box<dyn Operator> {
     Box::new(OpLines::default())
 }
 

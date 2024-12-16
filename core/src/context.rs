@@ -27,8 +27,7 @@ use crate::{
     operators::{
         nop::OpNop,
         operator::{
-            OffsetInChain, OperatorBase, OperatorData, OperatorDataId,
-            OperatorId,
+            OffsetInChain, Operator, OperatorBase, OperatorDataId, OperatorId,
         },
     },
     options::{
@@ -98,7 +97,7 @@ pub struct SessionData {
     pub chains: IndexVec<ChainId, Chain>,
     pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub operator_bases: IndexVec<OperatorId, OperatorBase>,
-    pub operator_data: IndexVec<OperatorDataId, OperatorData>,
+    pub operator_data: IndexVec<OperatorDataId, Box<dyn Operator>>,
     pub cli_args: Option<IndexVec<CliArgIdx, Vec<u8>>>,
     pub string_store: RwLock<StringStore>,
     pub extensions: Arc<ExtensionRegistry>,
@@ -129,7 +128,7 @@ impl SessionData {
     pub fn with_mut_op_data<R>(
         &mut self,
         op_id: OperatorId,
-        f: impl FnOnce(&mut Self, &mut OperatorData) -> R,
+        f: impl FnOnce(&mut Self, &mut Box<dyn Operator>) -> R,
     ) -> R {
         let op_data_id = self.op_data_id(op_id);
         let mut op_data = std::mem::replace(

@@ -14,16 +14,16 @@ use crate::{
 
 use super::{
     operator::{
-        OffsetInAggregation, OffsetInChain, Operator, OperatorData,
-        OperatorDataId, OperatorId, OperatorName, OperatorOffsetInChain,
-        OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
+        OffsetInAggregation, OffsetInChain, Operator, OperatorDataId,
+        OperatorId, OperatorName, OperatorOffsetInChain, OutputFieldKind,
+        PreboundOutputsMap, TransformInstatiation,
     },
     transform::TransformState,
 };
 
 #[derive(Default)]
 pub struct OpMultiOp {
-    pub operations: Vec<(OperatorData, Span)>,
+    pub operations: Vec<(Box<dyn Operator>, Span)>,
     pub sub_op_ids: IndexVec<OffsetInAggregation, OperatorId>,
 }
 
@@ -121,7 +121,7 @@ impl Operator for OpMultiOp {
             self.sub_op_ids.iter().map(|&sub_op_id| {
                 let op_base =
                     &job.job_data.session_data.operator_bases[sub_op_id];
-                let op_data = &job.job_data.session_data.operator_data
+                let op_data = &*job.job_data.session_data.operator_data
                     [op_base.op_data_id];
                 (sub_op_id, op_base, op_data)
             }),
@@ -230,8 +230,8 @@ impl Operator for OpMultiOp {
 }
 
 pub fn create_multi_op_with_span(
-    ops: impl IntoIterator<Item = (OperatorData, Span)>,
-) -> OperatorData {
+    ops: impl IntoIterator<Item = (Box<dyn Operator>, Span)>,
+) -> Box<dyn Operator> {
     Box::new(OpMultiOp {
         operations: ops.into_iter().collect(),
         sub_op_ids: IndexVec::new(),
@@ -239,7 +239,7 @@ pub fn create_multi_op_with_span(
 }
 
 pub fn create_multi_op(
-    ops: impl IntoIterator<Item = OperatorData>,
-) -> OperatorData {
+    ops: impl IntoIterator<Item = Box<dyn Operator>>,
+) -> Box<dyn Operator> {
     create_multi_op_with_span(ops.into_iter().map(|op| (op, Span::Generated)))
 }

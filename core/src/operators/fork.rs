@@ -33,16 +33,13 @@ use crate::{
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
-    operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId,
-        OperatorOffsetInChain,
-    },
+    operator::{Operator, OperatorDataId, OperatorId, OperatorOffsetInChain},
     terminator::add_terminator,
     transform::{TransformData, TransformId, TransformState},
 };
 
 pub struct OpFork {
-    pub prebound_ops: Vec<Vec<(OperatorData, Span)>>,
+    pub prebound_ops: Vec<Vec<(Box<dyn Operator>, Span)>>,
     pub arguments: Vec<Vec<Argument>>,
 
     pub subchains_start: SubchainIndex,
@@ -396,8 +393,8 @@ impl Operator for OpFork {
 }
 
 pub fn create_op_fork_with_spans(
-    subchains: Vec<Vec<(OperatorData, Span)>>,
-) -> Result<OperatorData, OperatorCreationError> {
+    subchains: Vec<Vec<(Box<dyn Operator>, Span)>>,
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     Ok(Box::new(OpFork {
         subchains_start: SubchainIndex::MAX_VALUE,
         subchains_end: SubchainIndex::MAX_VALUE,
@@ -408,8 +405,10 @@ pub fn create_op_fork_with_spans(
 }
 
 pub fn create_op_fork(
-    subchains: impl IntoIterator<Item = impl IntoIterator<Item = OperatorData>>,
-) -> Result<OperatorData, OperatorCreationError> {
+    subchains: impl IntoIterator<
+        Item = impl IntoIterator<Item = Box<dyn Operator>>,
+    >,
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let subchains = subchains
         .into_iter()
         .map(|it| it.into_iter().map(|v| (v, Span::Generated)).collect())
@@ -417,7 +416,9 @@ pub fn create_op_fork(
     create_op_fork_with_spans(subchains)
 }
 
-pub fn parse_op_fork(mut arg: Argument) -> Result<OperatorData, ScrError> {
+pub fn parse_op_fork(
+    mut arg: Argument,
+) -> Result<Box<dyn Operator>, ScrError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
 

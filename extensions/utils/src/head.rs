@@ -8,8 +8,8 @@ use scr_core::{
     },
     operators::{
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId,
-            OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorId, OutputFieldKind,
+            PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
     },
@@ -238,7 +238,7 @@ impl Transform<'_> for TfHeadSubtractive {
     }
 }
 
-pub fn create_op_head(count: isize) -> OperatorData {
+pub fn create_op_head(count: isize) -> Box<dyn Operator> {
     Box::new(OpHead {
         count,
         accessed_fields_after: Default::default(),
@@ -246,7 +246,7 @@ pub fn create_op_head(count: isize) -> OperatorData {
     })
 }
 
-pub fn parse_op_head(expr: &CallExpr) -> Result<OperatorData, ScrError> {
+pub fn parse_op_head(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
     let count = expr.require_at_most_one_number_arg(false)?.unwrap_or(1);
     Ok(create_op_head(count))
 }

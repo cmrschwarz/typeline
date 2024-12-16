@@ -18,15 +18,15 @@ use crate::{
 use super::{
     nop_copy::create_op_nop_copy,
     operator::{
-        OffsetInAggregation, Operator, OperatorData, OperatorDataId,
-        OperatorId, OperatorInstantiation, OperatorOffsetInChain,
-        PreboundOutputsMap, TransformInstatiation,
+        OffsetInAggregation, Operator, OperatorDataId, OperatorId,
+        OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
+        TransformInstatiation,
     },
     transform::{TransformData, TransformId, TransformState},
 };
 
 pub struct OpAggregator {
-    pub sub_ops_from_user: Vec<(OperatorData, Span)>,
+    pub sub_ops_from_user: Vec<(Box<dyn Operator>, Span)>,
     pub sub_ops: IndexVec<OffsetInAggregation, OperatorId>,
 }
 
@@ -62,8 +62,8 @@ pub struct TfAggregatorTrailer {
 }
 
 pub fn create_op_aggregate(
-    sub_ops: impl IntoIterator<Item = OperatorData>,
-) -> OperatorData {
+    sub_ops: impl IntoIterator<Item = Box<dyn Operator>>,
+) -> Box<dyn Operator> {
     Box::new(OpAggregator {
         sub_ops_from_user: sub_ops
             .into_iter()
@@ -74,8 +74,8 @@ pub fn create_op_aggregate(
 }
 
 pub fn create_op_aggregate_appending(
-    sub_ops: impl IntoIterator<Item = OperatorData>,
-) -> OperatorData {
+    sub_ops: impl IntoIterator<Item = Box<dyn Operator>>,
+) -> Box<dyn Operator> {
     create_op_aggregate(std::iter::once(create_op_nop_copy()).chain(sub_ops))
 }
 

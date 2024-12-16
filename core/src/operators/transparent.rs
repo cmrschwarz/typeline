@@ -15,8 +15,8 @@ use super::{
     errors::OperatorCreationError,
     nop::OpNop,
     operator::{
-        OffsetInAggregation, Operator, OperatorData, OperatorDataId,
-        OperatorId, OperatorOffsetInChain, PreboundOutputsMap,
+        OffsetInAggregation, Operator, OperatorDataId, OperatorId,
+        OperatorOffsetInChain, PreboundOutputsMap,
     },
     transform::TransformState,
     utils::nested_op::{setup_op_outputs_for_nested_op, NestedOp},
@@ -27,22 +27,22 @@ pub struct OpTransparent {
 }
 
 pub fn create_op_transparent_with_span(
-    op: OperatorData,
+    op: Box<dyn Operator>,
     span: Span,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     Box::new(OpTransparent {
         nested_op: NestedOp::Operator(Box::new((op, span))),
     })
 }
 
-pub fn create_op_transparent(op: OperatorData) -> OperatorData {
+pub fn create_op_transparent(op: Box<dyn Operator>) -> Box<dyn Operator> {
     create_op_transparent_with_span(op, Span::Generated)
 }
 
 pub fn parse_op_transparent(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let expr = CallExpr::from_argument_mut(&mut arg)?;
 
     if expr.args.len() != 1 {

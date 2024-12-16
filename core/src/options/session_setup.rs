@@ -12,7 +12,7 @@ use crate::{
         file_reader::create_op_stdin,
         nop::OpNop,
         operator::{
-            OperatorBase, OperatorData, OperatorDataId, OperatorId,
+            Operator, OperatorBase, OperatorDataId, OperatorId,
             OperatorOffsetInChain,
         },
         print::{create_op_print_with_opts, PrintOptions},
@@ -102,7 +102,7 @@ pub struct SessionSetupData {
     pub chains: IndexVec<ChainId, Chain>,
     pub chain_labels: HashMap<StringStoreEntry, ChainId, BuildIdentityHasher>,
     pub operator_bases: IndexVec<OperatorId, OperatorBase>,
-    pub operator_data: IndexVec<OperatorDataId, OperatorData>,
+    pub operator_data: IndexVec<OperatorDataId, Box<dyn Operator>>,
     pub string_store: StringStore,
     pub cli_args: Option<IndexVec<CliArgIdx, Vec<u8>>>,
     pub chain_setting_names: ChainSettingNames,
@@ -445,7 +445,10 @@ impl SessionSetupData {
         Ok(())
     }
 
-    pub fn add_op_data(&mut self, op_data: OperatorData) -> OperatorDataId {
+    pub fn add_op_data(
+        &mut self,
+        op_data: Box<dyn Operator>,
+    ) -> OperatorDataId {
         self.operator_data.push_get_id(op_data)
     }
 
@@ -527,7 +530,7 @@ impl SessionSetupData {
 
     pub fn setup_op_from_data(
         &mut self,
-        mut op_data: OperatorData,
+        mut op_data: Box<dyn Operator>,
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
@@ -556,7 +559,7 @@ impl SessionSetupData {
 
     pub fn setup_op_generated(
         &mut self,
-        op_data: OperatorData,
+        op_data: Box<dyn Operator>,
     ) -> Result<OperatorId, ScrError> {
         let offset_in_chain = self.direct_chain_offset(self.curr_chain);
         self.setup_op_from_data(
@@ -569,7 +572,7 @@ impl SessionSetupData {
 
     pub fn setup_ops_with_spans(
         &mut self,
-        operations: impl IntoIterator<Item = (OperatorData, Span)>,
+        operations: impl IntoIterator<Item = (Box<dyn Operator>, Span)>,
     ) -> Result<(), ScrError> {
         for (op_data, span) in operations {
             self.setup_op_from_data(
@@ -612,7 +615,7 @@ impl SessionSetupData {
     pub fn setup_subchain(
         &mut self,
         chain_id: ChainId,
-        subchain_data: impl IntoIterator<Item = (OperatorData, Span)>,
+        subchain_data: impl IntoIterator<Item = (Box<dyn Operator>, Span)>,
     ) -> Result<ChainId, ScrError> {
         let subchain_id = self.add_subchain(chain_id, None);
         for (op, span) in subchain_data {
@@ -631,7 +634,7 @@ impl SessionSetupData {
     pub fn setup_subchain_generated(
         &mut self,
         chain_id: ChainId,
-        subchain_data: impl IntoIterator<Item = OperatorData>,
+        subchain_data: impl IntoIterator<Item = Box<dyn Operator>>,
     ) -> Result<ChainId, ScrError> {
         self.setup_subchain(
             chain_id,
@@ -642,7 +645,7 @@ impl SessionSetupData {
     pub fn parse_argument(
         &mut self,
         arg: Argument,
-    ) -> Result<OperatorData, ScrError> {
+    ) -> Result<Box<dyn Operator>, ScrError> {
         parse_operator_data(self, arg)
     }
 

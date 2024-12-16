@@ -21,8 +21,8 @@ use super::{
     macro_call::OpMacroCall,
     multi_op::OpMultiOp,
     operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId,
-        OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
+        Operator, OperatorDataId, OperatorId, OperatorOffsetInChain,
+        OutputFieldKind, PreboundOutputsMap,
     },
 };
 
@@ -53,7 +53,7 @@ impl OperatorDeclaration for MacroOpDecl {
         &self,
         _sess: &mut SessionSetupData,
         arg: Argument,
-    ) -> Result<OperatorData, ScrError> {
+    ) -> Result<Box<dyn Operator>, ScrError> {
         Ok(Box::new(OpMacroCall {
             decl: self.data.clone(),
             arg,
@@ -153,7 +153,7 @@ impl Operator for OpMacroDef {
 pub fn parse_op_macro_def(
     sess_opts: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let span = arg.span;
 
     let mut args = std::mem::take(arg.expect_arg_array_mut()?).into_iter();

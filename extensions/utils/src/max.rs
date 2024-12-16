@@ -5,8 +5,7 @@ use scr_core::{
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
         operator::{
-            Operator, OperatorData, OperatorId, PreboundOutputsMap,
-            TransformInstatiation,
+            Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformState},
         utils::any_number::AnyNumberRef,
@@ -339,11 +338,11 @@ impl Transform<'_> for TfMax {
 
 pub fn parse_op_max(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     expr.reject_args()?;
     Ok(create_op_max())
 }
 
-pub fn create_op_max() -> OperatorData {
+pub fn create_op_max() -> Box<dyn Operator> {
     Box::new(OpMax {})
 }

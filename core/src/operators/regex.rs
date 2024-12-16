@@ -52,7 +52,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId, OperatorName,
+        Operator, OperatorDataId, OperatorId, OperatorName,
         OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
     },
     transform::{Transform, TransformData, TransformId, TransformState},
@@ -246,7 +246,7 @@ pub fn build_op_regex(
     regex_text: &str,
     opts: RegexOptions,
     span: Span,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let mut output_group_id = 0;
 
     let (re, empty_group_replacement) =
@@ -384,7 +384,7 @@ pub fn parse_regex_opts(
 pub fn parse_op_regex(
     sess: &mut SessionSetupData,
     mut expr: CallExpr,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     expr.split_flags_arg_normalized(&sess.string_store, true);
     let (flags, regex) = expr.split_flags_arg(true);
     if regex.len() != 1 {
@@ -403,14 +403,14 @@ pub fn parse_op_regex(
 pub fn create_op_regex_with_opts(
     regex: &str,
     opts: RegexOptions,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     build_op_regex(regex, opts, Span::Generated)
 }
-pub fn create_op_regex(regex: &str) -> Result<OperatorData, ScrError> {
+pub fn create_op_regex(regex: &str) -> Result<Box<dyn Operator>, ScrError> {
     build_op_regex(regex, RegexOptions::default(), Span::Generated)
 }
 
-pub fn create_op_regex_lines() -> OperatorData {
+pub fn create_op_regex_lines() -> Box<dyn Operator> {
     build_op_regex(
         "^(?<>.*)$",
         RegexOptions {
@@ -424,7 +424,7 @@ pub fn create_op_regex_lines() -> OperatorData {
     .unwrap()
 }
 
-pub fn create_op_regex_trim_trailing_newline() -> OperatorData {
+pub fn create_op_regex_trim_trailing_newline() -> Box<dyn Operator> {
     build_op_regex(
         "^(?<>.*?)\n?$",
         RegexOptions {

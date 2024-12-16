@@ -39,7 +39,7 @@ use crate::{
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
-        OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+        OffsetInChain, Operator, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain, OutputFieldKind,
         TransformInstatiation,
     },
@@ -91,7 +91,7 @@ impl Drop for TfCalleeConcurrent {
 
 pub fn parse_op_call_concurrent(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let target = expr.require_single_string_arg()?;
     Ok(Box::new(OpCallConcurrent {
         target_name: target.to_owned(),
@@ -100,7 +100,7 @@ pub fn parse_op_call_concurrent(
     }))
 }
 
-pub fn create_op_callcc(name: String) -> OperatorData {
+pub fn create_op_callcc(name: String) -> Box<dyn Operator> {
     Box::new(OpCallConcurrent {
         target_name: name,
         target_resolved: None,

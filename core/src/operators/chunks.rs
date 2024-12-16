@@ -20,14 +20,14 @@ use super::{
     errors::OperatorCreationError,
     nop::create_op_nop,
     operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId,
-        OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
+        Operator, OperatorDataId, OperatorId, OperatorInstantiation,
+        OperatorOffsetInChain, PreboundOutputsMap,
     },
     transform::{TransformData, TransformId, TransformState},
 };
 
 pub struct OpChunks {
-    pub subchain: Vec<(OperatorData, Span)>,
+    pub subchain: Vec<(Box<dyn Operator>, Span)>,
     pub subchain_idx: SubchainIndex,
     pub stride: usize,
 }
@@ -171,8 +171,8 @@ pub fn handle_tf_chunks_trailer(
 pub fn create_op_chunks_with_spans(
     stride: usize,
     stride_span: Span,
-    subchain: impl IntoIterator<Item = (OperatorData, Span)>,
-) -> Result<OperatorData, OperatorCreationError> {
+    subchain: impl IntoIterator<Item = (Box<dyn Operator>, Span)>,
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     if stride == 0 {
         return Err(OperatorCreationError::new(
             "chunk stride cannot be zero",
@@ -383,8 +383,8 @@ impl Operator for OpChunks {
 
 pub fn create_op_chunks(
     stride: usize,
-    subchain: impl IntoIterator<Item = OperatorData>,
-) -> Result<OperatorData, OperatorCreationError> {
+    subchain: impl IntoIterator<Item = Box<dyn Operator>>,
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     create_op_chunks_with_spans(
         stride,
         Span::Generated,
@@ -395,7 +395,7 @@ pub fn create_op_chunks(
 pub fn parse_op_chunks(
     sess: &mut SessionSetupData,
     arg: &mut Argument,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let expr = CallExpr::from_argument_mut(arg)?;
 
     let stride_arg = expr.require_nth_arg(0, "stride")?;

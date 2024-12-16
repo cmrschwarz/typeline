@@ -25,7 +25,7 @@ use crate::{
 
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{Operator, OperatorData, OperatorName, TransformInstatiation},
+    operator::{Operator, OperatorName, TransformInstatiation},
     transform::{TransformData, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
@@ -230,7 +230,7 @@ pub fn handle_tf_literal(
 pub fn parse_op_literal_zst(
     expr: &CallExpr,
     literal: Literal,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let insert_count = parse_insert_count_reject_value(expr)?;
     Ok(Box::new(OpLiteral {
         data: literal,
@@ -241,7 +241,7 @@ pub fn parse_op_str(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
     stream: bool,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
     let value_owned = value.into_owned();
@@ -259,7 +259,7 @@ pub fn parse_op_error(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
     stream: bool,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
     let value_owned = value.into_owned();
@@ -358,7 +358,7 @@ pub fn parse_insert_count_and_value_args_str<'a>(
 pub fn parse_op_int(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
 
@@ -378,7 +378,7 @@ pub fn parse_op_bytes(
     sess: &mut SessionSetupData,
     arg: &mut Argument,
     stream: bool,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let call_expr = CallExpr::from_argument_mut(arg)?;
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args(sess, &call_expr)?;
@@ -414,7 +414,7 @@ pub fn parse_op_tyson(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
     affinity: FieldValueKind,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(sess, expr)?;
     let value = parse_tyson(
@@ -458,7 +458,7 @@ pub fn build_op_tyson_value(
     value: &[u8],
     value_span: Span,
     insert_count: Option<usize>,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let value = parse_tyson(
         value,
         use_fpm(&mut sess),
@@ -477,7 +477,7 @@ pub fn build_op_tyson_value(
 pub fn parse_op_tyson_value(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(sess, expr)?;
     build_op_tyson_value(Some(sess), &value, value_span, insert_count)
@@ -486,97 +486,100 @@ pub fn parse_op_tyson_value(
 pub fn create_op_literal_with_insert_count(
     data: Literal,
     insert_count: Option<usize>,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     Box::new(OpLiteral { data, insert_count })
 }
 
-pub fn create_op_literal(data: Literal) -> OperatorData {
+pub fn create_op_literal(data: Literal) -> Box<dyn Operator> {
     create_op_literal_with_insert_count(data, None)
 }
 pub fn create_op_literal_n(
     data: Literal,
     insert_count: usize,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     create_op_literal_with_insert_count(data, Some(insert_count))
 }
 
-pub fn create_op_error(str: &str) -> OperatorData {
+pub fn create_op_error(str: &str) -> Box<dyn Operator> {
     create_op_literal(Literal::Error(str.to_owned()))
 }
-pub fn create_op_str(str: &str) -> OperatorData {
+pub fn create_op_str(str: &str) -> Box<dyn Operator> {
     create_op_literal(Literal::Text(str.to_owned()))
 }
-pub fn create_op_stream_bytes(v: &[u8]) -> OperatorData {
+pub fn create_op_stream_bytes(v: &[u8]) -> Box<dyn Operator> {
     create_op_literal(Literal::StreamBytes(Arc::new(v.to_owned())))
 }
-pub fn create_op_stream_str(v: &str) -> OperatorData {
+pub fn create_op_stream_str(v: &str) -> Box<dyn Operator> {
     create_op_literal(Literal::StreamString(Arc::new(v.to_owned())))
 }
-pub fn create_op_bytes(v: &[u8]) -> OperatorData {
+pub fn create_op_bytes(v: &[u8]) -> Box<dyn Operator> {
     create_op_literal(Literal::Bytes(v.to_owned()))
 }
-pub fn create_op_stream_error(str: &str) -> OperatorData {
+pub fn create_op_stream_error(str: &str) -> Box<dyn Operator> {
     create_op_literal(Literal::StreamError(str.to_owned()))
 }
-pub fn create_op_int(v: i64) -> OperatorData {
+pub fn create_op_int(v: i64) -> Box<dyn Operator> {
     create_op_literal(Literal::Int(v))
 }
-pub fn create_op_int_big(v: BigInt) -> OperatorData {
+pub fn create_op_int_big(v: BigInt) -> Box<dyn Operator> {
     create_op_literal(Literal::BigInt(v))
 }
-pub fn create_op_null() -> OperatorData {
+pub fn create_op_null() -> Box<dyn Operator> {
     create_op_literal(Literal::Null)
 }
-pub fn create_op_undefined() -> OperatorData {
+pub fn create_op_undefined() -> Box<dyn Operator> {
     create_op_literal(Literal::Undefined)
 }
-pub fn create_op_v(str: &str) -> Result<OperatorData, ScrError> {
+pub fn create_op_v(str: &str) -> Result<Box<dyn Operator>, ScrError> {
     build_op_tyson_value(None, str.as_bytes(), Span::Generated, None)
 }
 
-pub fn create_op_error_n(str: &str, insert_count: usize) -> OperatorData {
+pub fn create_op_error_n(str: &str, insert_count: usize) -> Box<dyn Operator> {
     create_op_literal_n(Literal::Error(str.to_owned()), insert_count)
 }
-pub fn create_op_str_n(str: &str, insert_count: usize) -> OperatorData {
+pub fn create_op_str_n(str: &str, insert_count: usize) -> Box<dyn Operator> {
     create_op_literal_n(Literal::Text(str.to_owned()), insert_count)
 }
 pub fn create_op_stream_bytes_n(
     v: &[u8],
     insert_count: usize,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     create_op_literal_n(
         Literal::StreamBytes(Arc::new(v.to_owned())),
         insert_count,
     )
 }
-pub fn create_op_stream_str_n(v: &str, insert_count: usize) -> OperatorData {
+pub fn create_op_stream_str_n(
+    v: &str,
+    insert_count: usize,
+) -> Box<dyn Operator> {
     create_op_literal_n(
         Literal::StreamString(Arc::new(v.to_owned())),
         insert_count,
     )
 }
-pub fn create_op_bytes_n(v: &[u8], insert_count: usize) -> OperatorData {
+pub fn create_op_bytes_n(v: &[u8], insert_count: usize) -> Box<dyn Operator> {
     create_op_literal_n(Literal::Bytes(v.to_owned()), insert_count)
 }
 pub fn create_op_stream_error_n(
     str: &str,
     insert_count: usize,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     create_op_literal_n(Literal::StreamError(str.to_owned()), insert_count)
 }
-pub fn create_op_int_n(v: i64, insert_count: usize) -> OperatorData {
+pub fn create_op_int_n(v: i64, insert_count: usize) -> Box<dyn Operator> {
     create_op_literal_n(Literal::Int(v), insert_count)
 }
-pub fn create_op_null_n(insert_count: usize) -> OperatorData {
+pub fn create_op_null_n(insert_count: usize) -> Box<dyn Operator> {
     create_op_literal_n(Literal::Null, insert_count)
 }
-pub fn create_op_success_n(insert_count: usize) -> OperatorData {
+pub fn create_op_success_n(insert_count: usize) -> Box<dyn Operator> {
     create_op_literal_n(Literal::Undefined, insert_count)
 }
 pub fn create_op_v_n(
     str: &str,
     insert_count: usize,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     build_op_tyson_value(
         None,
         str.as_bytes(),

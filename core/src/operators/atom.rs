@@ -15,10 +15,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId,
-        OperatorOffsetInChain,
-    },
+    operator::{Operator, OperatorDataId, OperatorId, OperatorOffsetInChain},
 };
 
 pub struct OpAtom {
@@ -30,7 +27,7 @@ pub struct OpAtom {
 pub fn parse_op_atom(
     _sess: &mut SessionSetupData,
     expr: &mut CallExpr,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let op_name = expr.op_name;
 
     if expr.args.len() < 2 {
@@ -152,7 +149,7 @@ pub fn assign_atom(atom: &OpAtom, jd: &mut JobData, scope: ScopeId) {
     );
 }
 
-pub fn create_op_atom(key: String, value: FieldValue) -> OperatorData {
+pub fn create_op_atom(key: String, value: FieldValue) -> Box<dyn Operator> {
     Box::new(OpAtom {
         key,
         key_interned: None,

@@ -8,7 +8,7 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId, OperatorName,
+            OffsetInChain, Operator, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
@@ -32,12 +32,12 @@ pub struct TfTypename {
 
 pub fn parse_op_typename(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     expr.reject_args()?;
     Ok(create_op_typename())
 }
 
-pub fn create_op_typename() -> OperatorData {
+pub fn create_op_typename() -> Box<dyn Operator> {
     Box::new(OpTypename::default())
 }
 

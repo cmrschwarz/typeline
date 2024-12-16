@@ -10,8 +10,8 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId,
-        OperatorOffsetInChain, OutputFieldKind,
+        Operator, OperatorDataId, OperatorId, OperatorOffsetInChain,
+        OutputFieldKind,
     },
 };
 
@@ -23,7 +23,7 @@ pub struct OpSelect {
 
 pub fn parse_op_select(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let val = expr.require_single_string_arg()?;
     Ok(Box::new(OpSelect {
         key: val.to_owned(),
@@ -31,7 +31,7 @@ pub fn parse_op_select(
     }))
 }
 
-pub fn create_op_select(key: impl Into<String>) -> OperatorData {
+pub fn create_op_select(key: impl Into<String>) -> Box<dyn Operator> {
     Box::new(OpSelect {
         key: key.into(),
         key_interned: None,

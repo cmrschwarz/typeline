@@ -34,8 +34,6 @@ index_newtype! {
 pub type PreboundOutputsMap =
     HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>;
 
-pub type OperatorData = Box<dyn Operator>;
-
 #[derive(Clone, Copy)]
 pub enum OperatorOffsetInChain {
     Direct(OffsetInChain),

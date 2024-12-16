@@ -19,8 +19,8 @@ use scr_core::{
     operators::{
         errors::OperatorApplicationError,
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId,
-            PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorId, PreboundOutputsMap,
+            TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
         utils::basic_transform_update::{
@@ -718,13 +718,13 @@ impl Transform<'_> for TfHttpRequest {
 #[allow(non_snake_case)]
 pub fn create_op_GET_with_opts(
     tls_settings: TlsSettings,
-) -> Result<OperatorData, rustls::Error> {
+) -> Result<Box<dyn Operator>, rustls::Error> {
     Ok(Box::new(OpHttpRequest {
         client_config: make_config(tls_settings)?,
     }))
 }
 
 #[allow(non_snake_case)]
-pub fn create_op_GET() -> OperatorData {
+pub fn create_op_GET() -> Box<dyn Operator> {
     create_op_GET_with_opts(TlsSettings::default()).unwrap()
 }

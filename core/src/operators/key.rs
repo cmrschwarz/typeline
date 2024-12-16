@@ -14,8 +14,8 @@ use super::{
     errors::OperatorCreationError,
     nop::OpNop,
     operator::{
-        OffsetInAggregation, Operator, OperatorData, OperatorDataId,
-        OperatorId, OperatorOffsetInChain, OutputFieldKind,
+        OffsetInAggregation, Operator, OperatorDataId, OperatorId,
+        OperatorOffsetInChain, OutputFieldKind,
     },
     utils::nested_op::{setup_op_outputs_for_nested_op, NestedOp},
 };
@@ -29,7 +29,7 @@ pub struct OpKey {
 pub fn parse_op_key(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let expr = CallExpr::from_argument_mut(&mut arg)?;
     let op_name = expr.op_name;
 
@@ -73,7 +73,7 @@ pub fn parse_op_key(
     }))
 }
 
-pub fn create_op_key(key: String) -> OperatorData {
+pub fn create_op_key(key: String) -> Box<dyn Operator> {
     Box::new(OpKey {
         key,
         key_interned: None,
@@ -81,7 +81,10 @@ pub fn create_op_key(key: String) -> OperatorData {
     })
 }
 
-pub fn create_op_key_with_op(key: String, op: OperatorData) -> OperatorData {
+pub fn create_op_key_with_op(
+    key: String,
+    op: Box<dyn Operator>,
+) -> Box<dyn Operator> {
     Box::new(OpKey {
         key,
         key_interned: None,

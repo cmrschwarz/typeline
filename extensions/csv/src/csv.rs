@@ -18,7 +18,7 @@ use scr_core::{
     operators::{
         errors::OperatorApplicationError,
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+            OffsetInChain, Operator, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
@@ -646,7 +646,7 @@ pub fn create_op_csv(
     input: ReadableTarget,
     header: bool,
     disable_quotes: bool,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     Box::new(OpCsv {
         input,
         header,
@@ -660,7 +660,7 @@ pub fn create_op_csv_from_file(
     input_file: impl Into<PathBuf>,
     header: bool,
     disable_quotes: bool,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     create_op_csv(
         ReadableTarget::File(input_file.into()),
         header,
@@ -671,7 +671,7 @@ pub fn create_op_csv_from_file(
 pub fn parse_op_csv(
     sess: &mut SessionSetupData,
     expr: CallExpr,
-) -> Result<Option<OperatorData>, ScrError> {
+) -> Result<Option<Box<dyn Operator>>, ScrError> {
     let (flags, args) = expr.split_flags_arg(false);
     if args.len() != 1 {
         return Err(expr.error_require_exact_positional_count(1).into());

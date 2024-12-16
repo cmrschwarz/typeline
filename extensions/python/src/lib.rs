@@ -2,7 +2,7 @@ use py::build_op_py;
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::operator::OperatorData,
+    operators::operator::Operator,
     options::session_setup::SessionSetupData,
     scr_error::ScrError,
 };
@@ -20,7 +20,7 @@ impl Extension for PythonExtension {
         &self,
         _ctx_opts: &mut SessionSetupData,
         arg: &mut Argument,
-    ) -> Result<Option<OperatorData>, ScrError> {
+    ) -> Result<Option<Box<dyn Operator>>, ScrError> {
         let expr = CallExpr::from_argument(arg)?;
         if expr.op_name == "py" {
             let val = expr.require_single_string_arg()?;

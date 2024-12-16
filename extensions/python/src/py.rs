@@ -22,7 +22,7 @@ use scr_core::{
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+            OffsetInChain, Operator, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
@@ -613,7 +613,7 @@ unsafe fn debug_print_py_object(
 pub fn build_op_py(
     cmd: String,
     span: Span,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     let command = match CString::new(cmd) {
         Ok(cmd) => cmd,
         Err(e) => {
@@ -765,6 +765,8 @@ else:
     })
 }
 
-pub fn create_op_py(cmd: &str) -> Result<OperatorData, OperatorCreationError> {
+pub fn create_op_py(
+    cmd: &str,
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     build_op_py(cmd.to_owned(), Span::Generated)
 }

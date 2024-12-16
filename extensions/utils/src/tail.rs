@@ -9,8 +9,8 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            OffsetInChain, Operator, OperatorData, OperatorId,
-            OutputFieldKind, PreboundOutputsMap, TransformInstatiation,
+            OffsetInChain, Operator, OperatorId, OutputFieldKind,
+            PreboundOutputsMap, TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformId, TransformState},
     },
@@ -225,7 +225,7 @@ impl Transform<'_> for TfTailAdditive {
     }
 }
 
-pub fn create_op_tail(count: usize) -> OperatorData {
+pub fn create_op_tail(count: usize) -> Box<dyn Operator> {
     Box::new(OpTail {
         count,
         additive_mode: false,
@@ -234,7 +234,7 @@ pub fn create_op_tail(count: usize) -> OperatorData {
     })
 }
 
-pub fn create_op_tail_add(count: usize) -> OperatorData {
+pub fn create_op_tail_add(count: usize) -> Box<dyn Operator> {
     Box::new(OpTail {
         count,
         additive_mode: true,
@@ -246,7 +246,7 @@ pub fn create_op_tail_add(count: usize) -> OperatorData {
 pub fn parse_op_tail(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let arg = expr.require_at_most_one_arg()?;
     let Some(arg) = arg else {
         return Ok(create_op_tail(1));

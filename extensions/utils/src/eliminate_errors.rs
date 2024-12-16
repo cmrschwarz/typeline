@@ -5,8 +5,8 @@ use scr_core::{
     operators::{
         errors::OperatorCreationError,
         operator::{
-            Operator, OperatorData, OperatorId, OutputFieldKind,
-            PreboundOutputsMap, TransformInstatiation,
+            Operator, OperatorId, OutputFieldKind, PreboundOutputsMap,
+            TransformInstatiation,
         },
         transform::{Transform, TransformData, TransformState},
     },
@@ -122,11 +122,11 @@ impl Transform<'_> for TfEliminateErrors {
 
 pub fn parse_op_eliminate_errors(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     expr.reject_args()?;
     Ok(create_op_eliminate_errors())
 }
 
-pub fn create_op_eliminate_errors() -> OperatorData {
+pub fn create_op_eliminate_errors() -> Box<dyn Operator> {
     Box::new(OpEliminateErrors {})
 }

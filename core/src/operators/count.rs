@@ -7,7 +7,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
-    operator::{Operator, OperatorData, TransformInstatiation},
+    operator::{Operator, TransformInstatiation},
     transform::{Transform, TransformData, TransformId, TransformState},
 };
 
@@ -155,11 +155,11 @@ impl Transform<'_> for TfCount {
 
 pub fn parse_op_count(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     expr.reject_args()?;
     Ok(Box::new(OpCount {}))
 }
 
-pub fn create_op_count() -> OperatorData {
+pub fn create_op_count() -> Box<dyn Operator> {
     Box::new(OpCount {})
 }

@@ -20,7 +20,7 @@ use crate::{
         },
         macro_def::parse_op_macro_def,
         nop::parse_op_nop,
-        operator::OperatorData,
+        operator::Operator,
         print::parse_op_print,
         regex::parse_op_regex,
         select::parse_op_select,
@@ -166,7 +166,7 @@ fn try_parse_as_special_op<'a>(
 pub fn parse_operator_data(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let mut expr = CallExpr::from_argument_mut(&mut arg)?;
 
     let scope_id = sess.chains[sess.curr_chain].scope_id;

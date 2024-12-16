@@ -9,10 +9,7 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     nop_copy::create_op_nop_copy,
-    operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId,
-        OperatorOffsetInChain,
-    },
+    operator::{Operator, OperatorDataId, OperatorId, OperatorOffsetInChain},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -22,14 +19,14 @@ pub struct TfNop {}
 
 pub fn parse_op_nop(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     if expr.require_at_most_one_plaintext_arg()? == Some(b"-c") {
         Ok(create_op_nop_copy())
     } else {
         Ok(create_op_nop())
     }
 }
-pub fn create_op_nop() -> OperatorData {
+pub fn create_op_nop() -> Box<dyn Operator> {
     Box::new(OpNop::default())
 }
 

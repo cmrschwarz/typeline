@@ -31,7 +31,7 @@ use crate::{
 
 use super::{
     errors::OperatorApplicationError,
-    operator::{Operator, OperatorData, TransformInstatiation},
+    operator::{Operator, TransformInstatiation},
     transform::{Transform, TransformData, TransformId, TransformState},
 };
 
@@ -44,7 +44,7 @@ pub struct OpToStr {
 pub fn parse_op_to_str(
     sess: &SessionSetupData,
     mut expr: CallExpr,
-) -> Result<OperatorData, CliArgumentError> {
+) -> Result<Box<dyn Operator>, CliArgumentError> {
     // this should not happen in the cli parser because it checks using
     // `argument_matches_data_inserter`
     let mut force = false;
@@ -78,7 +78,7 @@ pub fn parse_op_to_str(
 pub fn create_op_to_str(
     invalid_unicode_handler: Option<InvalidUnicodeHandler>,
     convert_errors: bool,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     Box::new(OpToStr {
         invalid_unicode_handler,
         convert_errors,

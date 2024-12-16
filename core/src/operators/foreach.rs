@@ -19,14 +19,14 @@ use super::{
     foreach_unique::parse_op_foreach_unique,
     nop::create_op_nop,
     operator::{
-        Operator, OperatorData, OperatorDataId, OperatorId,
-        OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
+        Operator, OperatorDataId, OperatorId, OperatorInstantiation,
+        OperatorOffsetInChain, PreboundOutputsMap,
     },
     transform::{Transform, TransformData, TransformId, TransformState},
 };
 
 pub struct OpForeach {
-    pub subchain: Vec<(OperatorData, Span)>,
+    pub subchain: Vec<(Box<dyn Operator>, Span)>,
     pub subchain_idx: SubchainIndex,
 }
 pub struct TfForeachHeader {
@@ -364,8 +364,8 @@ impl Transform<'_> for TfForeachTrailer {
 }
 
 pub fn create_op_foreach_with_spans(
-    subchain: impl IntoIterator<Item = (OperatorData, Span)>,
-) -> OperatorData {
+    subchain: impl IntoIterator<Item = (Box<dyn Operator>, Span)>,
+) -> Box<dyn Operator> {
     let mut subchain = subchain.into_iter().collect::<Vec<_>>();
     if subchain.is_empty() {
         subchain.push((create_op_nop(), Span::Generated));
@@ -377,8 +377,8 @@ pub fn create_op_foreach_with_spans(
 }
 
 pub fn create_op_foreach(
-    subchain: impl IntoIterator<Item = OperatorData>,
-) -> OperatorData {
+    subchain: impl IntoIterator<Item = Box<dyn Operator>>,
+) -> Box<dyn Operator> {
     create_op_foreach_with_spans(
         subchain.into_iter().map(|v| (v, Span::Generated)),
     )
@@ -387,7 +387,7 @@ pub fn create_op_foreach(
 pub fn parse_op_foreach(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<OperatorData, ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let mut subchain = Vec::new();
     let expr = CallExpr::from_argument(&arg)?;
     if let (Some(flags), _) = expr.split_flags_arg(false) {

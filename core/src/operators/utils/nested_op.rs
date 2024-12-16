@@ -2,11 +2,11 @@ use crate::{
     cli::call_expr::Span,
     context::SessionData,
     liveness_analysis::{LivenessData, OpOutputIdx},
-    operators::operator::{OperatorData, OperatorId},
+    operators::operator::{Operator, OperatorId},
 };
 
 pub enum NestedOp {
-    Operator(Box<(OperatorData, Span)>),
+    Operator(Box<(Box<dyn Operator>, Span)>),
     SetUp(OperatorId),
 }
 

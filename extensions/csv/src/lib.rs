@@ -2,7 +2,7 @@ use csv::parse_op_csv;
 use scr_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
-    operators::operator::OperatorData,
+    operators::operator::Operator,
     options::session_setup::SessionSetupData,
     scr_error::ScrError,
 };
@@ -20,7 +20,7 @@ impl Extension for CsvExtension {
         &self,
         sess: &mut SessionSetupData,
         arg: &mut Argument,
-    ) -> Result<Option<OperatorData>, ScrError> {
+    ) -> Result<Option<Box<dyn Operator>>, ScrError> {
         let expr = CallExpr::from_argument_mut(arg)?;
         if expr.op_name == "csv" {
             return parse_op_csv(sess, expr);

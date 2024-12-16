@@ -6,7 +6,7 @@ use std::{
 use crate::{
     cli::call_expr::Argument,
     index_newtype,
-    operators::operator::OperatorData,
+    operators::operator::Operator,
     options::session_setup::SessionSetupData,
     scr_error::ScrError,
     utils::{
@@ -49,7 +49,7 @@ pub trait OperatorDeclaration: Send + Sync {
         &self,
         sess: &mut SessionSetupData,
         arg: Argument,
-    ) -> Result<OperatorData, ScrError>;
+    ) -> Result<Box<dyn Operator>, ScrError>;
     fn format<'a, 'b>(
         &self,
         _ctx: &mut FormattingContext,

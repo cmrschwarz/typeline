@@ -15,7 +15,7 @@ use scr_core::{
     extension::Extension,
     operators::{
         compute::create_op_to_int, errors::OperatorCreationError,
-        operator::OperatorData,
+        operator::Operator,
     },
     options::session_setup::SessionSetupData,
     scr_error::ScrError,
@@ -35,13 +35,13 @@ pub mod explode;
 pub mod flatten;
 pub mod from_tyson;
 pub mod head;
+pub mod lines;
 pub mod max;
 pub mod primes;
 pub mod string_utils;
 pub mod sum;
 pub mod tail;
 pub mod typename;
-pub mod lines;
 
 #[derive(Default)]
 pub struct UtilsExtension {}
@@ -54,13 +54,13 @@ impl Extension for UtilsExtension {
         &self,
         sess: &mut SessionSetupData,
         arg: &mut Argument,
-    ) -> Result<Option<OperatorData>, ScrError> {
+    ) -> Result<Option<Box<dyn Operator>>, ScrError> {
         let expr = CallExpr::from_argument_mut(arg)?;
 
         fn parse_op_reject_args(
             expr: &CallExpr,
-            create_fn: fn() -> OperatorData,
-        ) -> Result<OperatorData, OperatorCreationError> {
+            create_fn: fn() -> Box<dyn Operator>,
+        ) -> Result<Box<dyn Operator>, OperatorCreationError> {
             expr.reject_args()?;
             Ok(create_fn())
         }

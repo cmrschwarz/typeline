@@ -4,7 +4,7 @@ use metamatch::metamatch;
 
 use super::{
     errors::OperatorApplicationError,
-    operator::{Operator, OperatorData, TransformInstatiation},
+    operator::{Operator, TransformInstatiation},
     transform::{Transform, TransformData, TransformId, TransformState},
     utils::writable::{AnyWriter, WritableTarget},
 };
@@ -91,7 +91,7 @@ pub struct TfPrint<'a> {
 
 pub fn parse_op_print(
     expr: &CallExpr,
-) -> Result<OperatorData, CliArgumentError> {
+) -> Result<Box<dyn Operator>, CliArgumentError> {
     let mut opts = PrintOptions::default();
     for arg in expr.parsed_args_iter() {
         match arg.value {
@@ -116,7 +116,7 @@ pub fn parse_op_print(
     }))
 }
 
-pub fn create_op_print() -> OperatorData {
+pub fn create_op_print() -> Box<dyn Operator> {
     Box::new(OpPrint {
         target: WritableTarget::Stdout,
         opts: PrintOptions {
@@ -128,7 +128,7 @@ pub fn create_op_print() -> OperatorData {
 pub fn create_op_print_with_opts(
     target: WritableTarget,
     opts: PrintOptions,
-) -> OperatorData {
+) -> Box<dyn Operator> {
     Box::new(OpPrint { target, opts })
 }
 

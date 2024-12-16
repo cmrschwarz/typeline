@@ -11,7 +11,7 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     nop::create_op_nop,
-    operator::{Operator, OperatorData, OperatorId},
+    operator::{Operator, OperatorId},
     transform::{TransformData, TransformId, TransformState},
     utils::basic_transform_update::{basic_transform_update, BasicUpdateData},
 };
@@ -32,14 +32,14 @@ pub struct TfNopCopy {
 
 pub fn parse_op_nop_copy(
     expr: &CallExpr,
-) -> Result<OperatorData, OperatorCreationError> {
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
     if expr.require_at_most_one_plaintext_arg()? == Some(b"-c") {
         Ok(create_op_nop_copy())
     } else {
         Ok(create_op_nop())
     }
 }
-pub fn create_op_nop_copy() -> OperatorData {
+pub fn create_op_nop_copy() -> Box<dyn Operator> {
     Box::new(OpNopCopy::default())
 }
 
