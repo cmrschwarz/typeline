@@ -1,6 +1,7 @@
 use scr_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
+    index_newtype,
     job::{Job, JobData},
     operators::{
         errors::OperatorApplicationError,
@@ -26,10 +27,13 @@ use scr_core::{
         },
         iter_hall::FieldIterId,
         push_interface::PushInterface,
-        stream_value::StreamValue,
+        stream_value::{StreamValue, StreamValueDataOffset, StreamValueId},
     },
     scr_error::ScrError,
-    utils::indexing_type::IndexingType,
+    utils::{
+        debuggable_nonmax::DebuggableNonMaxUsize, indexing_type::IndexingType,
+        universe::Universe,
+    },
 };
 
 use bstr::ByteSlice;
@@ -39,21 +43,29 @@ use metamatch::metamatch;
 #[derive(Default)]
 pub struct OpLines {}
 
+index_newtype! {
+    struct LineStreamIdx(DebuggableNonMaxUsize);
+}
+
+struct LineStream {
+    output_stream_value: StreamValueId,
+    line_start_offset: StreamValueDataOffset,
+}
+
 pub struct TfLines {
     input_iter_id: FieldIterId,
     actor_id: ActorId,
     input_field_ref_offset: FieldRefOffset,
-    pending_streams: usize,
+    trailing_line_stream: Option<LineStreamIdx>,
+    line_streams: Universe<LineStreamIdx, LineStream>,
 }
 
-pub fn parse_op_flatten(
-    expr: &CallExpr,
-) -> Result<Box<dyn Operator>, ScrError> {
+pub fn parse_op_lines(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
     expr.reject_args()?;
-    Ok(create_op_flatten())
+    Ok(create_op_lines())
 }
 
-pub fn create_op_flatten() -> Box<dyn Operator> {
+pub fn create_op_lines() -> Box<dyn Operator> {
     Box::new(OpLines::default())
 }
 
@@ -105,7 +117,8 @@ impl Operator for OpLines {
             actor_id,
             input_iter_id,
             input_field_ref_offset,
-            pending_streams: 0,
+            trailing_line_stream: None,
+            line_streams: Universe::new(),
         };
 
         TransformInstatiation::Single(Box::new(tfe))
@@ -122,7 +135,16 @@ impl TfLines {
             .action_buffer
             .borrow_mut();
         ab.begin_action_group(self.actor_id);
-        let mut field_idx = bud.iter.get_next_field_pos();
+        let field_idx_start = bud.iter.get_next_field_pos();
+        let mut field_idx = field_idx_start;
+        let extra_stream = false;
+
+        if self.trailing_line_stream.is_some() {
+            debug_assert!(bud.batch_size > 0);
+            let v = bud.iter.next_value(&bud.match_set_mgr, 1);
+            debug_assert!(v.is_some());
+            self.trailing_line_stream = None;
+        }
 
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             metamatch!(match range.base.data {
@@ -198,14 +220,21 @@ impl TfLines {
                     for (&sv_id, rl) in
                         RefAwareFieldValueRangeIter::from_range(&range, ids)
                     {
-                        if self.pending_streams == 0 {}
+                        let sv = &bud.sv_mgr.stream_values[sv_id];
+                        if sv.done {}
+                        let offset = sv.data_consumed;
                         let output = bud
                             .sv_mgr
                             .claim_stream_value(StreamValue::default());
+                        let lsi =
+                            self.line_streams.claim_with_value(LineStream {
+                                output_stream_value: output,
+                                line_start_offset: offset,
+                            });
                         bud.sv_mgr.subscribe_to_stream_value(
                             sv_id,
                             bud.tf_id,
-                            output.into_usize(),
+                            lsi.into_usize(),
                             false,
                             false,
                         );
@@ -217,7 +246,10 @@ impl TfLines {
             })
         }
         ab.end_action_group();
-        (field_idx, bud.ps.input_done)
+        (
+            field_idx - field_idx_start + usize::from(extra_stream),
+            bud.ps.input_done,
+        )
     }
 }
 
