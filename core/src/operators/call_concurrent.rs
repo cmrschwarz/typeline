@@ -9,7 +9,8 @@ use crate::{
     context::{ContextData, VentureDescription},
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
-        LivenessData, Var, VarId, VarLivenessSlotGroup, VarLivenessSlotKind,
+        LivenessData, OperatorCallEffect, Var, VarId, VarLivenessSlotGroup,
+        VarLivenessSlotKind,
     },
     options::{
         chain_settings::{SettingBatchSize, SettingMaxThreads},
@@ -38,8 +39,9 @@ use crate::{
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{
-        OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
-        OperatorInstantiation, OperatorOffsetInChain,
+        OffsetInChain, Operator, OperatorData, OperatorDataId, OperatorId,
+        OperatorInstantiation, OperatorOffsetInChain, OutputFieldKind,
+        TransformInstatiation,
     },
     transform::{TransformData, TransformId, TransformState},
 };
@@ -91,108 +93,18 @@ pub fn parse_op_call_concurrent(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let target = expr.require_single_string_arg()?;
-    Ok(OperatorData::CallConcurrent(OpCallConcurrent {
+    Ok(OperatorData::from_custom(OpCallConcurrent {
         target_name: target.to_owned(),
         target_resolved: None,
         target_accessed_fields: Vec::new(),
     }))
 }
 
-pub fn setup_op_call_concurrent(
-    op: &mut OpCallConcurrent,
-    sess: &mut SessionSetupData,
-    op_data_id: OperatorDataId,
-    chain_id: ChainId,
-    offset_in_chain: OperatorOffsetInChain,
-    span: Span,
-) -> Result<OperatorId, ScrError> {
-    let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
-
-    if let Some(target) = sess
-        .string_store
-        .lookup_str(&op.target_name)
-        .and_then(|sse| sess.chain_labels.get(&sse))
-    {
-        op.target_resolved = Some(*target);
-    } else {
-        return Err(OperatorSetupError::new_s(
-            format!("unknown chain label '{}'", op.target_name),
-            op_id,
-        )
-        .into());
-    }
-
-    if sess.get_chain_setting::<SettingMaxThreads>(chain_id) == 1 {
-        return Err(OperatorSetupError::new(
-            "callcc cannot be used with a max thread count of 1, see `h=j`",
-            op_id,
-        )
-        .into());
-    }
-    Ok(op_id)
-}
-
-pub fn setup_op_call_concurrent_liveness_data(
-    op: &mut OpCallConcurrent,
-    op_id: OperatorId,
-    ld: &LivenessData,
-) {
-    let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
-    debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
-    let succ_var_data =
-        ld.get_var_liveness(bb_id, VarLivenessSlotGroup::Succession);
-    for var_id in succ_var_data
-        .get_slot(VarLivenessSlotKind::Reads)
-        .iter_ones()
-        .map(VarId::from_usize)
-    {
-        let writes = succ_var_data.get_slot(VarLivenessSlotKind::HeaderWrites)
-            [var_id.into_usize()];
-        match ld.vars[var_id] {
-            Var::Named(name) => {
-                op.target_accessed_fields.push((Some(name), writes))
-            }
-            Var::BBInput => {
-                op.target_accessed_fields.push((None, writes));
-            }
-            Var::DynVar => todo!(),
-            Var::VoidVar => (),
-        }
-    }
-}
-
 pub fn create_op_callcc(name: String) -> OperatorData {
-    OperatorData::CallConcurrent(OpCallConcurrent {
+    OperatorData::from_custom(OpCallConcurrent {
         target_name: name,
         target_resolved: None,
         target_accessed_fields: Vec::new(),
-    })
-}
-
-pub fn build_tf_call_concurrent<'a>(
-    jd: &mut JobData,
-    _op_base: &OperatorBase,
-    op: &'a OpCallConcurrent,
-    tf_state: &TransformState,
-) -> TransformData<'a> {
-    let buffer = Arc::<RecordBuffer>::new(RecordBuffer {
-        fields: Mutex::new(RecordBufferData {
-            remaining_consumers: 1,
-            ..Default::default()
-        }),
-        ..Default::default()
-    });
-
-    TransformData::CallConcurrent(TfCallConcurrent {
-        expanded: false,
-        target_chain: op.target_resolved.unwrap(),
-        field_mappings: Vec::new(),
-        buffer,
-        actor_id: jd.match_set_mgr.match_sets[tf_state.match_set_id]
-            .action_buffer
-            .borrow_mut()
-            .add_actor(),
-        target_accessed_fields: &op.target_accessed_fields,
     })
 }
 
@@ -525,4 +437,158 @@ pub fn handle_tf_callee_concurrent(
     }
     jd.tf_mgr
         .submit_batch(tf_id, available_batch_size, None, input_done);
+}
+
+impl Operator for OpCallConcurrent {
+    fn default_name(&self) -> super::operator::OperatorName {
+        "callcc".into()
+    }
+
+    fn output_count(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> usize {
+        0
+    }
+
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        false
+    }
+
+    fn build_transforms<'a>(
+        &'a self,
+        job: &mut Job<'a>,
+        tf_state: &mut TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &super::operator::PreboundOutputsMap,
+    ) -> super::operator::TransformInstatiation<'a> {
+        let buffer = Arc::<RecordBuffer>::new(RecordBuffer {
+            fields: Mutex::new(RecordBufferData {
+                remaining_consumers: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        TransformInstatiation::Single(TransformData::CallConcurrent(
+            TfCallConcurrent {
+                expanded: false,
+                target_chain: self.target_resolved.unwrap(),
+                field_mappings: Vec::new(),
+                buffer,
+                actor_id: job.job_data.match_set_mgr.match_sets
+                    [tf_state.match_set_id]
+                    .action_buffer
+                    .borrow_mut()
+                    .add_actor(),
+                target_accessed_fields: &self.target_accessed_fields,
+            },
+        ))
+    }
+
+    fn update_bb_for_op(
+        &self,
+        sess: &crate::context::SessionData,
+        ld: &mut LivenessData,
+        _op_id: OperatorId,
+        op_n: OffsetInChain,
+        _cn: &crate::chain::Chain,
+        bb_id: crate::liveness_analysis::BasicBlockId,
+    ) -> bool {
+        ld.basic_blocks[bb_id]
+            .calls
+            .push(self.target_resolved.unwrap().into_bb_id());
+        ld.split_bb_at_call(sess, bb_id, op_n);
+        true
+    }
+    fn update_variable_liveness(
+        &self,
+        _sess: &crate::context::SessionData,
+        _ld: &mut LivenessData,
+        _op_offset_after_last_write: OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: crate::liveness_analysis::BasicBlockId,
+        _input_field: crate::liveness_analysis::OpOutputIdx,
+        output: &mut crate::liveness_analysis::OperatorLivenessOutput,
+    ) {
+        output.call_effect = OperatorCallEffect::Diverge
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: OperatorId,
+    ) -> OutputFieldKind {
+        OutputFieldKind::Unconfigured
+    }
+
+    fn setup(
+        &mut self,
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, ScrError> {
+        let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+
+        if let Some(target) = sess
+            .string_store
+            .lookup_str(&self.target_name)
+            .and_then(|sse| sess.chain_labels.get(&sse))
+        {
+            self.target_resolved = Some(*target);
+        } else {
+            return Err(OperatorSetupError::new_s(
+                format!("unknown chain label '{}'", self.target_name),
+                op_id,
+            )
+            .into());
+        }
+
+        if sess.get_chain_setting::<SettingMaxThreads>(chain_id) == 1 {
+            return Err(OperatorSetupError::new(
+                    "callcc cannot be used with a max thread count of 1, see `h=j`",
+                    op_id,
+                )
+                .into());
+        }
+        Ok(op_id)
+    }
+
+    fn on_liveness_computed(
+        &mut self,
+        _sess: &mut crate::context::SessionData,
+        ld: &LivenessData,
+        op_id: OperatorId,
+    ) {
+        let bb_id = ld.operator_liveness_data[op_id].basic_block_id;
+        debug_assert!(ld.basic_blocks[bb_id].calls.len() == 1);
+        let succ_var_data =
+            ld.get_var_liveness(bb_id, VarLivenessSlotGroup::Succession);
+        for var_id in succ_var_data
+            .get_slot(VarLivenessSlotKind::Reads)
+            .iter_ones()
+            .map(VarId::from_usize)
+        {
+            let writes = succ_var_data
+                .get_slot(VarLivenessSlotKind::HeaderWrites)
+                [var_id.into_usize()];
+            match ld.vars[var_id] {
+                Var::Named(name) => {
+                    self.target_accessed_fields.push((Some(name), writes))
+                }
+                Var::BBInput => {
+                    self.target_accessed_fields.push((None, writes));
+                }
+                Var::DynVar => todo!(),
+                Var::VoidVar => (),
+            }
+        }
+    }
 }

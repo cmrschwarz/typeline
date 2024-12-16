@@ -25,10 +25,6 @@ use crate::{
 };
 
 use super::{
-    call_concurrent::{
-        build_tf_call_concurrent, setup_op_call_concurrent,
-        setup_op_call_concurrent_liveness_data, OpCallConcurrent,
-    },
     key::{setup_op_key, OpKey},
     nop::OpNop,
     select::{setup_op_select, OpSelect},
@@ -48,7 +44,6 @@ pub type PreboundOutputsMap =
     HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>;
 
 pub enum OperatorData {
-    CallConcurrent(OpCallConcurrent),
     Key(OpKey),
     Select(OpSelect),
     Custom(SmallBox<dyn Operator, 96>),
@@ -163,14 +158,6 @@ impl OperatorData {
                 offset_in_chain,
                 span,
             ),
-            OperatorData::CallConcurrent(op) => setup_op_call_concurrent(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::Custom(op) => Operator::setup(
                 &mut **op,
                 sess,
@@ -187,7 +174,7 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> bool {
         match self {
-            OperatorData::CallConcurrent(_) | OperatorData::Select(_) => false,
+            OperatorData::Select(_) => false,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return false;
@@ -209,7 +196,6 @@ impl OperatorData {
     ) -> usize {
         #[allow(clippy::match_same_arms)]
         match &self {
-            OperatorData::CallConcurrent(_) => 1,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
                     return 0;
@@ -250,7 +236,7 @@ impl OperatorData {
                 op_base.outputs_start = *output_count;
                 op_base.outputs_end = op_base.outputs_start;
             }
-            OperatorData::CallConcurrent(_) | OperatorData::Select(_) => {
+            OperatorData::Select(_) => {
                 let op_base = &mut sess.operator_bases[op_id];
                 op_base.outputs_start = *output_count;
                 op_base.outputs_end = op_base.outputs_start;
@@ -265,7 +251,6 @@ impl OperatorData {
         match self {
             OperatorData::Key(_) => "key".into(),
             OperatorData::Select(_) => "select".into(),
-            OperatorData::CallConcurrent(_) => "callcc".into(),
             OperatorData::Custom(op) => op.default_name(),
         }
     }
@@ -289,9 +274,7 @@ impl OperatorData {
                 }
                 .into()
             }
-            OperatorData::CallConcurrent(_) | OperatorData::Select(_) => {
-                self.default_op_name()
-            }
+            OperatorData::Select(_) => self.default_op_name(),
             OperatorData::Custom(op) => op.debug_op_name(),
         }
     }
@@ -301,7 +284,6 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> OutputFieldKind {
         match self {
-            OperatorData::CallConcurrent(_) => OutputFieldKind::Unique,
             OperatorData::Select(_) => OutputFieldKind::Unconfigured,
             OperatorData::Key(op) => {
                 let Some(nested) = &op.nested_op else {
@@ -338,7 +320,6 @@ impl OperatorData {
             OperatorData::Custom(op) => {
                 op.register_output_var_names(ld, sess, op_id)
             }
-            OperatorData::CallConcurrent(_) => (),
         }
     }
     pub fn update_liveness_for_op(
@@ -352,9 +333,6 @@ impl OperatorData {
         output: &mut OperatorLivenessOutput,
     ) {
         match &self {
-            OperatorData::CallConcurrent(_) => {
-                output.call_effect = OperatorCallEffect::Diverge;
-            }
             OperatorData::Key(key) => {
                 if let Some(NestedOp::SetUp(nested_op_id)) = key.nested_op {
                     sess.operator_data[sess.op_data_id(nested_op_id)]
@@ -420,9 +398,6 @@ impl OperatorData {
         op_id: OperatorId,
     ) {
         match self {
-            OperatorData::CallConcurrent(op) => {
-                setup_op_call_concurrent_liveness_data(op, op_id, ld)
-            }
             OperatorData::Custom(op) => {
                 op.on_liveness_computed(sess, ld, op_id)
             }
@@ -447,14 +422,8 @@ impl OperatorData {
         prebound_outputs: &PreboundOutputsMap,
     ) -> Option<OperatorInstantiation> {
         let tfs = &mut tf_state;
-        let jd = &mut job.job_data;
-        let op_base = &jd.session_data.operator_bases[op_id];
         let data: TransformData<'a> = match self {
             OperatorData::Key(_) | OperatorData::Select(_) => unreachable!(),
-            OperatorData::CallConcurrent(op) => {
-                build_tf_call_concurrent(jd, op_base, op, tfs)
-            }
-
             OperatorData::Custom(op) => {
                 match Operator::build_transforms(
                     &**op,
@@ -502,8 +471,7 @@ impl OperatorData {
                 None
             }
             OperatorData::Custom(op) => op.aggregation_member(agg_offset),
-
-            OperatorData::CallConcurrent(_) | OperatorData::Select(_) => None,
+            OperatorData::Select(_) => None,
         }
     }
 }

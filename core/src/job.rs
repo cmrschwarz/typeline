@@ -674,7 +674,6 @@ impl<'a> Job<'a> {
                         continue;
                     }
                 }
-                _ => (),
             }
             let output_field_kind =
                 op_data.output_field_kind(self.job_data.session_data, op_id);

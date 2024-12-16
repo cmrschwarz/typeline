@@ -17,7 +17,6 @@ use crate::{
     context::SessionData,
     index_newtype,
     operators::{
-        call_concurrent::OpCallConcurrent,
         operator::{OffsetInChain, OperatorData, OperatorId},
         utils::nested_op::NestedOp,
     },
@@ -581,17 +580,8 @@ impl LivenessData {
         cn: &Chain,
         bb_id: BasicBlockId,
     ) -> bool {
-        let bb = &mut self.basic_blocks[bb_id];
         let op_base = &sess.operator_bases[op_id];
         match &sess.operator_data[op_base.op_data_id] {
-            OperatorData::CallConcurrent(OpCallConcurrent {
-                target_resolved,
-                ..
-            }) => {
-                bb.calls.push(target_resolved.unwrap().into_bb_id());
-                self.split_bb_at_call(sess, bb_id, op_n);
-                return true;
-            }
             OperatorData::Key(op) => {
                 let Some(nested_op) = &op.nested_op else {
                     return false;
@@ -603,7 +593,6 @@ impl LivenessData {
                     .update_bb_for_op(sess, sub_op_id, op_n, cn, bb_id);
             }
             OperatorData::Select(_) => (),
-
             OperatorData::Custom(op) => {
                 return op
                     .update_bb_for_op(sess, self, op_id, op_n, cn, bb_id);
