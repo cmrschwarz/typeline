@@ -26,7 +26,6 @@ use super::{
         handle_tf_aggregator_header, handle_tf_aggregator_trailer,
         TfAggregatorHeader, TfAggregatorTrailer,
     },
-    call::{handle_lazy_call_expansion, TfCall},
     call_concurrent::{
         handle_call_concurrent_expansion, handle_tf_call_concurrent,
         handle_tf_callee_concurrent, TfCallConcurrent, TfCalleeConcurrent,
@@ -55,7 +54,6 @@ pub enum TransformData<'a> {
     Nop(TfNop),
     NopCopy(TfNopCopy),
     Terminator(TfTerminator),
-    Call(TfCall),
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
     Fork(TfFork<'a>),
@@ -86,7 +84,6 @@ impl<'a> TransformData<'a> {
             TransformData::Disabled => "disabled",
             TransformData::Nop(_) => "nop",
             TransformData::NopCopy(_) => "nop-c",
-            TransformData::Call(_) => "call",
             TransformData::CallConcurrent(_) => "callcc",
             TransformData::CalleeConcurrent(_) => "callcc_callee",
             TransformData::Fork(_) => "fork",
@@ -121,7 +118,6 @@ impl<'a> TransformData<'a> {
             | TransformData::AggregatorHeader(_)
             | TransformData::ChunksHeader(_)
             | TransformData::ChunksTrailer(_)
-            | TransformData::Call(_)
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_) => (),
 
@@ -142,7 +138,6 @@ impl<'a> TransformData<'a> {
                 Nop,
                 NopCopy,
                 Terminator,
-                Call,
                 CalleeConcurrent,
                 AggregatorHeader,
                 AggregatorTrailer,
@@ -319,11 +314,6 @@ pub fn transform_pre_update(
                 handle_call_concurrent_expansion(job, tf_id, ctx)?;
             }
         }
-        TransformData::Call(_) => {
-            // this removes itself on the first invocation,
-            // so no need for any check
-            handle_lazy_call_expansion(job, tf_id);
-        }
         TransformData::Disabled
         | TransformData::ChunksHeader(_)
         | TransformData::ChunksTrailer(_)
@@ -366,7 +356,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::CalleeConcurrent(tf) => {
             handle_tf_callee_concurrent(jd, tf_id, tf)
         }
-        TransformData::Call(_) => (),
         TransformData::Terminator(tf) => handle_tf_terminator(jd, tf_id, tf),
         TransformData::Custom(tf) => tf.update(jd, tf_id),
         TransformData::AggregatorHeader(agg_header) => {
@@ -391,7 +380,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::Nop(_)
             | TransformData::NopCopy(_)
             | TransformData::Terminator(_)
-            | TransformData::Call(_)
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_)
             | TransformData::Fork(_)
@@ -415,7 +403,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::ChunksHeader(_) |
         TransformData::ChunksTrailer(_) |
         TransformData::Terminator(_) |
-        TransformData::Call(_) |
         TransformData::Nop(_) |
         TransformData::NopCopy(_) |
         TransformData::Disabled |

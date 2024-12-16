@@ -8,7 +8,7 @@ use crate::{
     context::{ContextData, JobDescription, SessionData, VentureDescription},
     operators::{
         atom::{assign_atom, OpAtom},
-        call::handle_eager_call_expansion,
+        call::{handle_eager_call_expansion, OpCall},
         call_concurrent::setup_callee_concurrent,
         operator::{
             OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
@@ -599,22 +599,6 @@ impl<'a> Job<'a> {
         for (mut op_id, mut op_base, mut op_data) in ops {
             let mut label = None;
             match op_data {
-                OperatorData::Call(op) => {
-                    if !op.lazy {
-                        let mut instantiation = handle_eager_call_expansion(
-                            op,
-                            self,
-                            ms_id,
-                            input_field,
-                            input_group_track,
-                            predecessor_tf,
-                        );
-                        if let Some(start) = start_tf_id {
-                            instantiation.tfs_begin = start;
-                        }
-                        return instantiation;
-                    }
-                }
                 OperatorData::Select(op) => {
                     if let Some(field_id) =
                         self.job_data.scope_mgr.lookup_field(
@@ -665,6 +649,23 @@ impl<'a> Job<'a> {
                     label = k.key_interned;
                 }
                 OperatorData::Custom(op) => {
+                    if let Some(op) = op.downcast_ref::<OpCall>() {
+                        if !op.lazy {
+                            let mut instantiation =
+                                handle_eager_call_expansion(
+                                    op,
+                                    self,
+                                    ms_id,
+                                    input_field,
+                                    input_group_track,
+                                    predecessor_tf,
+                                );
+                            if let Some(start) = start_tf_id {
+                                instantiation.tfs_begin = start;
+                            }
+                            return instantiation;
+                        }
+                    }
                     if let Some(op) = op.downcast_ref::<OpAtom>() {
                         let active_scope =
                             self.job_data.match_set_mgr.match_sets[ms_id]

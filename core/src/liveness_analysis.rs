@@ -17,7 +17,6 @@ use crate::{
     context::SessionData,
     index_newtype,
     operators::{
-        call::OpCall,
         call_concurrent::OpCallConcurrent,
         operator::{OffsetInChain, OperatorData, OperatorId},
         utils::nested_op::NestedOp,
@@ -588,9 +587,6 @@ impl LivenessData {
             OperatorData::CallConcurrent(OpCallConcurrent {
                 target_resolved,
                 ..
-            })
-            | OperatorData::Call(OpCall {
-                target_resolved, ..
             }) => {
                 bb.calls.push(target_resolved.unwrap().into_bb_id());
                 self.split_bb_at_call(sess, bb_id, op_n);
