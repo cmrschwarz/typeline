@@ -280,7 +280,6 @@ fn setup_transform_tf_envs(
                 return succ;
             }
         }
-        _ => (),
     }
     let mut fields = Vec::new();
     let mut group_tracks = Vec::new();

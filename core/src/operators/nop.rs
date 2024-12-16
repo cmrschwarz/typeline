@@ -16,6 +16,7 @@ use super::{
 #[derive(Clone, Default)]
 pub struct OpNop {}
 
+#[derive(Clone, Default)]
 pub struct TfNop {}
 
 pub fn parse_op_nop(

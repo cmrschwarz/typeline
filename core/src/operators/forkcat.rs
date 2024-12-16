@@ -929,10 +929,7 @@ impl Operator for OpForkCat {
             subchains.push(sc_entry);
         }
 
-        let TransformData::Custom(fc) = &mut job.transform_data[fc_tf_id]
-        else {
-            unreachable!()
-        };
+        let TransformData::Custom(fc) = &mut job.transform_data[fc_tf_id];
         let fc: &TfForkCatHeader = fc.downcast_ref().unwrap();
 
         let mut cont = fc.continuation_state.lock().unwrap();
@@ -1267,7 +1264,7 @@ pub fn create_op_forkcat(
 pub fn parse_op_forkcat(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<Box<dyn Operator>,ScrError> {
+) -> Result<Box<dyn Operator>, ScrError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
     for arg in std::mem::take(arg.expect_arg_array_mut()?)
