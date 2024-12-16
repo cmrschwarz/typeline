@@ -10,11 +10,12 @@ use super::{
     errors::OperatorCreationError,
     nop_copy::create_op_nop_copy,
     operator::{Operator, OperatorDataId, OperatorId, OperatorOffsetInChain},
-    transform::{TransformData, TransformId, TransformState},
+    transform::{Transform, TransformData, TransformId, TransformState},
 };
 
 #[derive(Clone, Default)]
 pub struct OpNop {}
+
 pub struct TfNop {}
 
 pub fn parse_op_nop(
@@ -49,18 +50,7 @@ pub fn build_tf_nop<'a>(
 }
 
 pub fn create_tf_nop<'a>() -> TransformData<'a> {
-    TransformData::Nop(TfNop {})
-}
-
-pub fn handle_tf_nop(jd: &mut JobData, tf_id: TransformId, _nop: &TfNop) {
-    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
-
-    jd.tf_mgr.submit_batch(
-        tf_id,
-        batch_size,
-        ps.group_to_truncate,
-        ps.input_done,
-    );
+    TransformData::from_custom(TfNop {})
 }
 
 impl Operator for OpNop {
@@ -99,9 +89,9 @@ impl Operator for OpNop {
         _op_id: OperatorId,
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> super::operator::TransformInstatiation<'a> {
-        super::operator::TransformInstatiation::Single(TransformData::Nop(
-            TfNop {},
-        ))
+        super::operator::TransformInstatiation::Single(
+            TransformData::from_custom(TfNop {}),
+        )
     }
 
     fn update_variable_liveness(
@@ -117,5 +107,18 @@ impl Operator for OpNop {
         output.flags.input_accessed = false;
         output.flags.may_dup_or_drop = false;
         output.flags.non_stringified_input_access = false;
+    }
+}
+
+impl<'a> Transform<'a> for TfNop {
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            batch_size,
+            ps.group_to_truncate,
+            ps.input_done,
+        );
     }
 }
