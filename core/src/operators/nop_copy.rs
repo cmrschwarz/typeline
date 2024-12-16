@@ -40,7 +40,7 @@ pub fn parse_op_nop_copy(
     }
 }
 pub fn create_op_nop_copy() -> OperatorData {
-    OperatorData::from_custom(OpNopCopy::default())
+    Box::new(OpNopCopy::default())
 }
 
 impl TfNopCopy {

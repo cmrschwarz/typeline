@@ -292,7 +292,7 @@ pub fn build_op_regex(
             .ok()
     };
 
-    Ok(OperatorData::from_custom(OpRegex {
+    Ok(Box::new(OpRegex {
         regex_text: regex_text.to_owned(),
         regex,
         text_only_regex,

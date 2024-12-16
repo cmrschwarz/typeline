@@ -729,7 +729,7 @@ pub fn build_op_format(
         .iter()
         .any(|p| matches!(p, FormatPart::ByteLiteral(_)));
 
-    Ok(OperatorData::from_custom(OpFormat {
+    Ok(Box::new(OpFormat {
         parts,
         refs,
         contains_raw_bytes,

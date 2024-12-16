@@ -196,7 +196,7 @@ pub fn create_op_join(
     join_count: Option<usize>,
     drop_incomplete: bool,
 ) -> OperatorData {
-    OperatorData::from_custom(OpJoin {
+    Box::new(OpJoin {
         separator: separator.map(MaybeText::into_boxed),
         join_count,
         drop_incomplete,
@@ -207,7 +207,7 @@ pub fn create_op_join_str(separator: &str, join_count: usize) -> OperatorData {
         "" => None,
         v => Some(MaybeTextBoxed::from_text(v)),
     };
-    OperatorData::from_custom(OpJoin {
+    Box::new(OpJoin {
         separator: sep,
         join_count: if join_count == 0 {
             None

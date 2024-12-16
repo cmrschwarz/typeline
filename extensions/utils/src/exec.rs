@@ -1548,14 +1548,14 @@ pub fn parse_op_exec(expr: &CallExpr) -> Result<OperatorData, ScrError> {
         }
     }
 
-    Ok(OperatorData::Custom(smallbox!(OpExec {
+    Ok(Box::new(OpExec {
         fmt_parts: parts,
         refs,
         fmt_arg_part_ends,
         opts,
         stderr_field_name: INVALID_STRING_STORE_ENTRY,
         exit_code_field_name: INVALID_STRING_STORE_ENTRY,
-    })))
+    }))
 }
 
 pub fn create_op_exec_from_strings<'a>(
@@ -1582,12 +1582,12 @@ pub fn create_op_exec_with_opts_from_strings<'a>(
         )?;
     }
 
-    Ok(OperatorData::Custom(smallbox!(OpExec {
+    Ok(Box::new(OpExec {
         fmt_parts: parts,
         refs,
         fmt_arg_part_ends,
         opts,
         stderr_field_name: INVALID_STRING_STORE_ENTRY,
         exit_code_field_name: INVALID_STRING_STORE_ENTRY,
-    })))
+    }))
 }

@@ -12,6 +12,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
+    nop::OpNop,
     operator::{
         OffsetInAggregation, Operator, OperatorData, OperatorDataId,
         OperatorId, OperatorOffsetInChain, OutputFieldKind,
@@ -65,7 +66,7 @@ pub fn parse_op_key(
         .into());
     }
 
-    Ok(OperatorData::from_custom(OpKey {
+    Ok(Box::new(OpKey {
         key,
         key_interned: None,
         nested_op,
@@ -73,7 +74,7 @@ pub fn parse_op_key(
 }
 
 pub fn create_op_key(key: String) -> OperatorData {
-    OperatorData::from_custom(OpKey {
+    Box::new(OpKey {
         key,
         key_interned: None,
         nested_op: None,
@@ -81,7 +82,7 @@ pub fn create_op_key(key: String) -> OperatorData {
 }
 
 pub fn create_op_key_with_op(key: String, op: OperatorData) -> OperatorData {
-    OperatorData::from_custom(OpKey {
+    Box::new(OpKey {
         key,
         key_interned: None,
         nested_op: Some(NestedOp::Operator(Box::new((op, Span::Generated)))),
@@ -105,7 +106,10 @@ impl Operator for OpKey {
         let NestedOp::Operator(op_span) = nested_op else {
             panic!("operator was already set up");
         };
-        let (sub_op, span) = *std::mem::take(op_span);
+        let (sub_op, span) = *std::mem::replace(
+            op_span,
+            Box::new((Box::new(OpNop::default()), Span::default())),
+        );
         let sub_op_id = sess.setup_op_from_data(
             sub_op,
             sess.curr_chain,
@@ -172,7 +176,7 @@ impl Operator for OpKey {
     ) {
         if let Some(NestedOp::SetUp(nested_op_id)) = self.nested_op {
             sess.operator_data[sess.op_data_id(nested_op_id)]
-                .update_liveness_for_op(
+                .update_variable_liveness(
                     sess,
                     ld,
                     op_offset_after_last_write,
@@ -259,8 +263,10 @@ impl Operator for OpKey {
     ) {
         if let Some(NestedOp::SetUp(op_id)) = self.nested_op {
             let op_data_id = sess.op_data_id(op_id);
-            let mut op_data =
-                std::mem::take(&mut sess.operator_data[op_data_id]);
+            let mut op_data = std::mem::replace(
+                &mut sess.operator_data[op_data_id],
+                Box::new(OpNop::default()),
+            );
             op_data.on_liveness_computed(sess, ld, op_id);
             sess.operator_data[op_data_id] = op_data;
         }

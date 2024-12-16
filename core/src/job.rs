@@ -600,83 +600,73 @@ impl<'a> Job<'a> {
         let mut start_tf_id = None;
         for (mut op_id, mut op_base, mut op_data) in ops {
             let mut label = None;
-            match op_data {
-                OperatorData::Custom(op) => {
-                    if let Some(op) = op.downcast_ref::<OpSelect>() {
-                        if let Some(field_id) =
-                            self.job_data.scope_mgr.lookup_field(
-                                self.job_data.match_set_mgr.match_sets[ms_id]
-                                    .active_scope,
-                                op.key_interned.unwrap(),
-                            )
-                        {
-                            input_field = field_id;
-                        } else {
-                            let ms =
-                                &self.job_data.match_set_mgr.match_sets[ms_id];
-                            let actor = ActorRef::Unconfirmed(
-                                ms.action_buffer.borrow().peek_next_actor_id(),
-                            );
-                            input_field = self.job_data.field_mgr.add_field(
-                                &self.job_data.match_set_mgr,
-                                ms_id,
-                                actor,
-                            );
-                            self.job_data.scope_mgr.insert_field_name(
-                                ms.active_scope,
-                                op.key_interned.unwrap(),
-                                input_field,
-                            );
-                        }
-                        continue;
+            if let Some(op) = op_data.downcast_ref::<OpSelect>() {
+                if let Some(field_id) = self.job_data.scope_mgr.lookup_field(
+                    self.job_data.match_set_mgr.match_sets[ms_id].active_scope,
+                    op.key_interned.unwrap(),
+                ) {
+                    input_field = field_id;
+                } else {
+                    let ms = &self.job_data.match_set_mgr.match_sets[ms_id];
+                    let actor = ActorRef::Unconfirmed(
+                        ms.action_buffer.borrow().peek_next_actor_id(),
+                    );
+                    input_field = self.job_data.field_mgr.add_field(
+                        &self.job_data.match_set_mgr,
+                        ms_id,
+                        actor,
+                    );
+                    self.job_data.scope_mgr.insert_field_name(
+                        ms.active_scope,
+                        op.key_interned.unwrap(),
+                        input_field,
+                    );
+                }
+                continue;
+            }
+            if let Some(k) = op_data.downcast_ref::<OpKey>() {
+                let Some(NestedOp::SetUp(nested_op_id)) = k.nested_op else {
+                    debug_assert!(k.nested_op.is_none());
+                    let output_field =
+                        self.job_data.match_set_mgr.add_field_alias(
+                            &mut self.job_data.field_mgr,
+                            &mut self.job_data.scope_mgr,
+                            input_field,
+                            k.key_interned.unwrap(),
+                        );
+                    input_field = output_field;
+                    continue;
+                };
+                op_id = nested_op_id;
+                op_base =
+                    &self.job_data.session_data.operator_bases[nested_op_id];
+                op_data = &self.job_data.session_data.operator_data
+                    [op_base.op_data_id];
+                label = k.key_interned;
+            }
+            if let Some(op) = op_data.downcast_ref::<OpCall>() {
+                if !op.lazy {
+                    let mut instantiation = handle_eager_call_expansion(
+                        op,
+                        self,
+                        ms_id,
+                        input_field,
+                        input_group_track,
+                        predecessor_tf,
+                    );
+                    if let Some(start) = start_tf_id {
+                        instantiation.tfs_begin = start;
                     }
-                    if let Some(k) = op.downcast_ref::<OpKey>() {
-                        let Some(NestedOp::SetUp(nested_op_id)) = k.nested_op
-                        else {
-                            debug_assert!(k.nested_op.is_none());
-                            let output_field =
-                                self.job_data.match_set_mgr.add_field_alias(
-                                    &mut self.job_data.field_mgr,
-                                    &mut self.job_data.scope_mgr,
-                                    input_field,
-                                    k.key_interned.unwrap(),
-                                );
-                            input_field = output_field;
-                            continue;
-                        };
-                        op_id = nested_op_id;
-                        op_base = &self.job_data.session_data.operator_bases
-                            [nested_op_id];
-                        op_data = &self.job_data.session_data.operator_data
-                            [op_base.op_data_id];
-                        label = k.key_interned;
-                    }
-                    if let Some(op) = op.downcast_ref::<OpCall>() {
-                        if !op.lazy {
-                            let mut instantiation =
-                                handle_eager_call_expansion(
-                                    op,
-                                    self,
-                                    ms_id,
-                                    input_field,
-                                    input_group_track,
-                                    predecessor_tf,
-                                );
-                            if let Some(start) = start_tf_id {
-                                instantiation.tfs_begin = start;
-                            }
-                            return instantiation;
-                        }
-                    }
-                    if let Some(op) = op.downcast_ref::<OpAtom>() {
-                        let active_scope =
-                            self.job_data.match_set_mgr.match_sets[ms_id]
-                                .active_scope;
-                        assign_atom(op, &mut self.job_data, active_scope);
-                        continue;
-                    }
+                    return instantiation;
                 }
             }
+            if let Some(op) = op_data.downcast_ref::<OpAtom>() {
+                let active_scope =
+                    self.job_data.match_set_mgr.match_sets[ms_id].active_scope;
+                assign_atom(op, &mut self.job_data, active_scope);
+                continue;
+            }
+
             let output_field_kind =
                 op_data.output_field_kind(self.job_data.session_data, op_id);
             let output_field = match output_field_kind {
@@ -777,15 +767,17 @@ impl<'a> Job<'a> {
 
                 of.producing_transform_arg =
                     self.job_data.session_data.operator_data[op_data_id]
-                        .default_op_name()
+                        .default_name()
                         .to_string();
             }
-            let Some(mut instantiation) = op_data.operator_build_transforms(
-                self,
-                tf_state,
-                op_id,
-                prebound_outputs,
-            ) else {
+            let Some(mut instantiation) = op_data
+                .build_transforms_expand_single(
+                    self,
+                    tf_state,
+                    op_id,
+                    prebound_outputs,
+                )
+            else {
                 continue;
             };
 

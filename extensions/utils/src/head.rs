@@ -239,11 +239,11 @@ impl Transform<'_> for TfHeadSubtractive {
 }
 
 pub fn create_op_head(count: isize) -> OperatorData {
-    OperatorData::Custom(smallbox!(OpHead {
+    Box::new(OpHead {
         count,
         accessed_fields_after: Default::default(),
-        dyn_var_accessed: false
-    }))
+        dyn_var_accessed: false,
+    })
 }
 
 pub fn parse_op_head(expr: &CallExpr) -> Result<OperatorData, ScrError> {

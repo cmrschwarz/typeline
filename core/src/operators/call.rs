@@ -205,7 +205,7 @@ pub fn parse_op_call(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let target = expr.require_single_string_arg()?;
-    Ok(OperatorData::from_custom(OpCall {
+    Ok(Box::new(OpCall {
         lazy: true,
         target_name: target.to_owned(),
         target_resolved: None,
@@ -213,7 +213,7 @@ pub fn parse_op_call(
 }
 
 pub fn create_op_call(name: String) -> OperatorData {
-    OperatorData::from_custom(OpCall {
+    Box::new(OpCall {
         lazy: true,
         target_name: name,
         target_resolved: None,
@@ -221,7 +221,7 @@ pub fn create_op_call(name: String) -> OperatorData {
 }
 
 pub fn create_op_call_eager(target: ChainId) -> OperatorData {
-    OperatorData::from_custom(OpCall {
+    Box::new(OpCall {
         lazy: false,
         target_name: String::new(),
         target_resolved: Some(target),

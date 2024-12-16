@@ -122,7 +122,7 @@ pub fn build_op_compute(
     let compilation =
         Compiler::compile(expr, &let_bindings, &mut unbound_refs);
 
-    Ok(OperatorData::from_custom(OpCompute {
+    Ok(Box::new(OpCompute {
         unbound_refs,
         compilation,
     }))

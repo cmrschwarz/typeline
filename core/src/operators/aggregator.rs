@@ -64,7 +64,7 @@ pub struct TfAggregatorTrailer {
 pub fn create_op_aggregate(
     sub_ops: impl IntoIterator<Item = OperatorData>,
 ) -> OperatorData {
-    OperatorData::from_custom(OpAggregator {
+    Box::new(OpAggregator {
         sub_ops_from_user: sub_ops
             .into_iter()
             .map(|v| (v, Span::Generated))
@@ -282,7 +282,7 @@ impl Operator for OpAggregator {
             let mut sub_op_output =
                 OperatorLivenessOutput::with_defaults(outputs_start);
             sess.operator_data[sess.op_data_id(sub_op_id)]
-                .update_liveness_for_op(
+                .update_variable_liveness(
                     sess,
                     ld,
                     op_offset_after_last_write,
@@ -421,7 +421,7 @@ impl Operator for OpAggregator {
             sub_tf_state.is_split = i + 1 != self.sub_ops.len();
             let instantiation = job.job_data.session_data.operator_data
                 [job.job_data.session_data.op_data_id(sub_op_id)]
-            .operator_build_transforms(
+            .build_transforms_expand_single(
                 job,
                 sub_tf_state,
                 sub_op_id,

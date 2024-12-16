@@ -13,6 +13,7 @@ use crate::{
 
 use super::{
     errors::OperatorCreationError,
+    nop::OpNop,
     operator::{
         OffsetInAggregation, Operator, OperatorData, OperatorDataId,
         OperatorId, OperatorOffsetInChain, PreboundOutputsMap,
@@ -29,7 +30,7 @@ pub fn create_op_transparent_with_span(
     op: OperatorData,
     span: Span,
 ) -> OperatorData {
-    OperatorData::from_custom(OpTransparent {
+    Box::new(OpTransparent {
         nested_op: NestedOp::Operator(Box::new((op, span))),
     })
 }
@@ -111,7 +112,10 @@ impl Operator for OpTransparent {
         let NestedOp::Operator(op_span) = &mut self.nested_op else {
             panic!("operator was already set up");
         };
-        let (op_data, span) = *std::mem::take(op_span);
+        let (op_data, span) = *std::mem::replace(
+            op_span,
+            Box::new((Box::new(OpNop::default()), Span::default())),
+        );
 
         let sub_op_id = sess.add_op_data(op_data);
         let nested_op_id = sess.add_op(
@@ -153,7 +157,7 @@ impl Operator for OpTransparent {
         let NestedOp::SetUp(nested_op_id) = self.nested_op else {
             unreachable!()
         };
-        sess.operator_data[sess.op_data_id(op_id)].update_liveness_for_op(
+        sess.operator_data[sess.op_data_id(op_id)].update_variable_liveness(
             sess,
             ld,
             op_offset_after_last_write,
@@ -204,8 +208,10 @@ impl Operator for OpTransparent {
     ) {
         if let NestedOp::SetUp(op_id) = self.nested_op {
             let op_data_id = sess.op_data_id(op_id);
-            let mut op_data =
-                std::mem::take(&mut sess.operator_data[op_data_id]);
+            let mut op_data = std::mem::replace(
+                &mut sess.operator_data[op_data_id],
+                Box::new(OpNop::default()),
+            );
             op_data.on_liveness_computed(sess, ld, op_id);
             sess.operator_data[op_data_id] = op_data;
         }
@@ -237,7 +243,7 @@ impl Operator for OpTransparent {
         let sess = &job.job_data.session_data;
         let Some(mut instantiation) = sess.operator_data
             [sess.op_data_id(nested_op_id)]
-        .operator_build_transforms(
+        .build_transforms_expand_single(
             job,
             tf_state.clone(),
             nested_op_id,

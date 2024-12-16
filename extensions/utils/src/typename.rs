@@ -38,7 +38,7 @@ pub fn parse_op_typename(
 }
 
 pub fn create_op_typename() -> OperatorData {
-    OperatorData::Custom(smallbox!(OpTypename::default()))
+    Box::new(OpTypename::default())
 }
 
 impl Operator for OpTypename {

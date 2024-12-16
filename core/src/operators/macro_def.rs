@@ -54,7 +54,7 @@ impl OperatorDeclaration for MacroOpDecl {
         _sess: &mut SessionSetupData,
         arg: Argument,
     ) -> Result<OperatorData, ScrError> {
-        Ok(OperatorData::from_custom(OpMacroCall {
+        Ok(Box::new(OpMacroCall {
             decl: self.data.clone(),
             arg,
             multi_op: OpMultiOp::default(),
@@ -169,7 +169,7 @@ pub fn parse_op_macro_def(
     };
     let name = name.try_into_str("macro", sess_opts)?;
 
-    Ok(OperatorData::from_custom(OpMacroDef {
+    Ok(Box::new(OpMacroDef {
         macro_decl: Arc::new(MacroOpDecl {
             data: Arc::new(MacroDeclData {
                 name_interned: sess_opts.string_store.intern_cloned(&name),

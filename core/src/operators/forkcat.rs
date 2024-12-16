@@ -1238,7 +1238,7 @@ pub fn create_op_forkcat_with_spans(
             sc.push((create_op_nop(), Span::Generated));
         }
     }
-    OperatorData::from_custom(OpForkCat {
+    Box::new(OpForkCat {
         subchains,
         subchains_start: SubchainIndex::MAX_VALUE,
         subchains_end: SubchainIndex::MAX_VALUE,

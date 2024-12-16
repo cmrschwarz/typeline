@@ -398,7 +398,7 @@ impl Operator for OpFork {
 pub fn create_op_fork_with_spans(
     subchains: Vec<Vec<(OperatorData, Span)>>,
 ) -> Result<OperatorData, OperatorCreationError> {
-    Ok(OperatorData::from_custom(OpFork {
+    Ok(Box::new(OpFork {
         subchains_start: SubchainIndex::MAX_VALUE,
         subchains_end: SubchainIndex::MAX_VALUE,
         accessed_fields_per_subchain: IndexVec::new(),
@@ -435,7 +435,7 @@ pub fn parse_op_fork(mut arg: Argument) -> Result<OperatorData, ScrError> {
     }
 
     subchains.push(curr_subchain);
-    Ok(OperatorData::from_custom(OpFork {
+    Ok(Box::new(OpFork {
         subchains_start: SubchainIndex::MAX_VALUE,
         subchains_end: SubchainIndex::MAX_VALUE,
         accessed_fields_per_subchain: IndexVec::new(),

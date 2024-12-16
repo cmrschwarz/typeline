@@ -647,13 +647,13 @@ pub fn create_op_csv(
     header: bool,
     disable_quotes: bool,
 ) -> OperatorData {
-    OperatorData::Custom(smallbox!(OpCsv {
+    Box::new(OpCsv {
         input,
         header,
         unused_fields: Vec::new(),
         var_names: Vec::new(),
         disable_quotes,
-    }))
+    })
 }
 
 pub fn create_op_csv_from_file(

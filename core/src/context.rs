@@ -24,8 +24,12 @@ use crate::{
     extension::ExtensionRegistry,
     job::{Job, JobData},
     liveness_analysis::{self, LivenessData},
-    operators::operator::{
-        OffsetInChain, OperatorBase, OperatorData, OperatorDataId, OperatorId,
+    operators::{
+        nop::OpNop,
+        operator::{
+            OffsetInChain, OperatorBase, OperatorData, OperatorDataId,
+            OperatorId,
+        },
     },
     options::{
         chain_settings::chain_settings_list,
@@ -128,7 +132,10 @@ impl SessionData {
         f: impl FnOnce(&mut Self, &mut OperatorData) -> R,
     ) -> R {
         let op_data_id = self.op_data_id(op_id);
-        let mut op_data = std::mem::take(&mut self.operator_data[op_data_id]);
+        let mut op_data = std::mem::replace(
+            &mut self.operator_data[op_data_id],
+            Box::new(OpNop::default()),
+        );
         let res = f(self, &mut op_data);
         self.operator_data[op_data_id] = op_data;
         res

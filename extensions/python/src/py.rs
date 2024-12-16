@@ -753,15 +753,15 @@ else:
             .unwrap()
             .unbind();
 
-        Ok(OperatorData::Custom(smallbox!(OpPy {
+        Ok(Box::new(OpPy {
             free_vars_str,
             free_vars_py_str,
             free_vars_sse: Vec::new(),
             statements,
             final_expr,
             globals: pyo3::Py::from_borrowed_ptr(py, module_dict),
-            py_types
-        })))
+            py_types,
+        }) as Box<dyn Operator>)
     })
 }
 

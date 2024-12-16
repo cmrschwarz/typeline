@@ -355,7 +355,7 @@ pub fn create_op_foreach_unique_with_spans(
     if subchain.is_empty() {
         subchain.push((create_op_nop(), Span::Generated));
     }
-    OperatorData::from_custom(OpForeachUnique {
+    Box::new(OpForeachUnique {
         subchain,
         subchain_idx: SubchainIndex::MAX_VALUE,
     })

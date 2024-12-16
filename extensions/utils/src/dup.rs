@@ -162,7 +162,7 @@ impl Transform<'_> for TfDup {
 }
 
 pub fn create_op_dup(count: usize) -> OperatorData {
-    OperatorData::Custom(smallbox!(OpDup { count }))
+    Box::new(OpDup { count })
 }
 
 pub fn parse_op_dup(expr: &CallExpr) -> Result<OperatorData, ScrError> {

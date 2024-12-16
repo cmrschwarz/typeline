@@ -10,6 +10,7 @@ use crate::{
     liveness_analysis::OpOutputIdx,
     operators::{
         file_reader::create_op_stdin,
+        nop::OpNop,
         operator::{
             OperatorBase, OperatorData, OperatorDataId, OperatorId,
             OperatorOffsetInChain,
@@ -508,7 +509,10 @@ impl SessionSetupData {
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
     ) -> Result<OperatorId, ScrError> {
-        let mut op_data = std::mem::take(&mut self.operator_data[op_data_id]);
+        let mut op_data = std::mem::replace(
+            &mut self.operator_data[op_data_id],
+            Box::new(OpNop::default()),
+        );
         op_data.setup(self, op_data_id, chain_id, offset_in_chain, span)?;
         let op_id = op_data.setup(
             self,
@@ -529,7 +533,7 @@ impl SessionSetupData {
         span: Span,
     ) -> Result<OperatorId, ScrError> {
         let op_data_id =
-            self.operator_data.push_get_id(OperatorData::default());
+            self.operator_data.push_get_id(Box::new(OpNop::default()));
         let op_id = op_data.setup(
             self,
             op_data_id,

@@ -16,7 +16,7 @@ use crate::{
     chain::{Chain, ChainId},
     context::SessionData,
     index_newtype,
-    operators::operator::{OffsetInChain, OperatorData, OperatorId},
+    operators::operator::{OffsetInChain, OperatorId},
     utils::{
         get_two_distinct_mut,
         identity_hasher::BuildIdentityHasher,
@@ -578,12 +578,8 @@ impl LivenessData {
         bb_id: BasicBlockId,
     ) -> bool {
         let op_base = &sess.operator_bases[op_id];
-        match &sess.operator_data[op_base.op_data_id] {
-            OperatorData::Custom(op) => {
-                return op
-                    .update_bb_for_op(sess, self, op_id, op_n, cn, bb_id);
-            }
-        }
+        sess.operator_data[op_base.op_data_id]
+            .update_bb_for_op(sess, self, op_id, op_n, cn, bb_id)
     }
     fn setup_bbs(&mut self, sess: &SessionData) {
         let var_count = self.vars.len();
@@ -826,7 +822,7 @@ impl LivenessData {
             let op_data_id = op_base.op_data_id;
             let mut output =
                 OperatorLivenessOutput::with_defaults(op_base.outputs_start);
-            sess.operator_data[op_data_id].update_liveness_for_op(
+            sess.operator_data[op_data_id].update_variable_liveness(
                 sess,
                 self,
                 op_offset_after_last_write,
@@ -1441,7 +1437,7 @@ impl LivenessData {
                     "op_output {op_output_idx:02}: chain {:02}, bb {:02}, op_id {op_id:02} `{}`",
                     op_base.chain_id,
                     self.operator_liveness_data[op_id].basic_block_id,
-                    sess.operator_data[op_data_id].default_op_name()
+                    sess.operator_data[op_data_id].default_name()
                 );
                 let oo = &self.op_outputs[op_output_idx];
                 if !oo.bound_vars.is_empty() {

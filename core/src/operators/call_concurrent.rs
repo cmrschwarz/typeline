@@ -93,7 +93,7 @@ pub fn parse_op_call_concurrent(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let target = expr.require_single_string_arg()?;
-    Ok(OperatorData::from_custom(OpCallConcurrent {
+    Ok(Box::new(OpCallConcurrent {
         target_name: target.to_owned(),
         target_resolved: None,
         target_accessed_fields: Vec::new(),
@@ -101,7 +101,7 @@ pub fn parse_op_call_concurrent(
 }
 
 pub fn create_op_callcc(name: String) -> OperatorData {
-    OperatorData::from_custom(OpCallConcurrent {
+    Box::new(OpCallConcurrent {
         target_name: name,
         target_resolved: None,
         target_accessed_fields: Vec::new(),

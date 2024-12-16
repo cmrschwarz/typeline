@@ -254,5 +254,5 @@ impl Transform<'_> for TfFromTyson {
 }
 
 pub fn create_op_from_tyson() -> OperatorData {
-    OperatorData::Custom(smallbox!(OpFromTyson {}))
+    Box::new(OpFromTyson {})
 }

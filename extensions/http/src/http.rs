@@ -719,9 +719,9 @@ impl Transform<'_> for TfHttpRequest {
 pub fn create_op_GET_with_opts(
     tls_settings: TlsSettings,
 ) -> Result<OperatorData, rustls::Error> {
-    Ok(OperatorData::Custom(smallbox![OpHttpRequest {
-        client_config: make_config(tls_settings)?
-    }]))
+    Ok(Box::new(OpHttpRequest {
+        client_config: make_config(tls_settings)?,
+    }))
 }
 
 #[allow(non_snake_case)]

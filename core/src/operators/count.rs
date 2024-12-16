@@ -157,9 +157,9 @@ pub fn parse_op_count(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     expr.reject_args()?;
-    Ok(OperatorData::from_custom(OpCount {}))
+    Ok(Box::new(OpCount {}))
 }
 
 pub fn create_op_count() -> OperatorData {
-    OperatorData::from_custom(OpCount {})
+    Box::new(OpCount {})
 }

@@ -226,21 +226,21 @@ impl Transform<'_> for TfTailAdditive {
 }
 
 pub fn create_op_tail(count: usize) -> OperatorData {
-    OperatorData::Custom(smallbox!(OpTail {
+    Box::new(OpTail {
         count,
         additive_mode: false,
         accessed_fields_after: Default::default(),
-        dyn_var_accessed: Default::default()
-    }))
+        dyn_var_accessed: Default::default(),
+    })
 }
 
 pub fn create_op_tail_add(count: usize) -> OperatorData {
-    OperatorData::Custom(smallbox!(OpTail {
+    Box::new(OpTail {
         count,
         additive_mode: true,
         accessed_fields_after: Default::default(),
-        dyn_var_accessed: Default::default()
-    }))
+        dyn_var_accessed: Default::default(),
+    })
 }
 
 pub fn parse_op_tail(

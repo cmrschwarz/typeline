@@ -345,5 +345,5 @@ pub fn parse_op_max(
 }
 
 pub fn create_op_max() -> OperatorData {
-    OperatorData::from_custom(OpMax {})
+    Box::new(OpMax {})
 }

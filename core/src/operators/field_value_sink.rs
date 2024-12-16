@@ -48,7 +48,7 @@ pub struct OpFieldValueSink {
 pub fn create_op_field_value_sink(
     handle: &'_ FieldValueSinkHandle,
 ) -> OperatorData {
-    OperatorData::from_custom(OpFieldValueSink {
+    Box::new(OpFieldValueSink {
         handle: handle.clone(),
     })
 }

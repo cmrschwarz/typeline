@@ -134,7 +134,7 @@ pub struct OpStringSink {
 }
 
 pub fn create_op_string_sink(handle: &'_ StringSinkHandle) -> OperatorData {
-    OperatorData::from_custom(OpStringSink {
+    Box::new(OpStringSink {
         handle: handle.clone(),
     })
 }

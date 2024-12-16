@@ -127,5 +127,5 @@ pub fn parse_op_success_updator(
     Ok(create_op_success_updator())
 }
 pub fn create_op_success_updator() -> OperatorData {
-    OperatorData::from_custom(OpSuccessUpdator::default())
+    Box::new(OpSuccessUpdator::default())
 }

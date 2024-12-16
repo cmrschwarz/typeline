@@ -128,5 +128,5 @@ pub fn parse_op_eliminate_errors(
 }
 
 pub fn create_op_eliminate_errors() -> OperatorData {
-    OperatorData::from_custom(OpEliminateErrors {})
+    Box::new(OpEliminateErrors {})
 }

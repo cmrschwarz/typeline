@@ -232,7 +232,7 @@ pub fn parse_op_literal_zst(
     literal: Literal,
 ) -> Result<OperatorData, ScrError> {
     let insert_count = parse_insert_count_reject_value(expr)?;
-    Ok(OperatorData::from_custom(OpLiteral {
+    Ok(Box::new(OpLiteral {
         data: literal,
         insert_count,
     }))
@@ -245,7 +245,7 @@ pub fn parse_op_str(
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
     let value_owned = value.into_owned();
-    Ok(OperatorData::from_custom(OpLiteral {
+    Ok(Box::new(OpLiteral {
         data: if stream {
             Literal::StreamString(Arc::new(value_owned))
         } else {
@@ -263,7 +263,7 @@ pub fn parse_op_error(
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
     let value_owned = value.into_owned();
-    Ok(OperatorData::from_custom(OpLiteral {
+    Ok(Box::new(OpLiteral {
         data: if stream {
             Literal::StreamError(value_owned)
         } else {
@@ -372,7 +372,7 @@ pub fn parse_op_int(
         };
         Literal::BigInt(big_int)
     };
-    Ok(OperatorData::from_custom(OpLiteral { data, insert_count }))
+    Ok(Box::new(OpLiteral { data, insert_count }))
 }
 pub fn parse_op_bytes(
     sess: &mut SessionSetupData,
@@ -382,7 +382,7 @@ pub fn parse_op_bytes(
     let call_expr = CallExpr::from_argument_mut(arg)?;
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args(sess, &call_expr)?;
-    Ok(OperatorData::from_custom(OpLiteral {
+    Ok(Box::new(OpLiteral {
         data: if stream {
             Literal::StreamBytes(Arc::new(value.into_owned()))
         } else {
@@ -437,7 +437,7 @@ pub fn parse_op_tyson(
         )
     })?;
     let lit = field_value_to_literal(value);
-    Ok(OperatorData::from_custom(OpLiteral {
+    Ok(Box::new(OpLiteral {
         data: lit,
         insert_count,
     }))
@@ -468,7 +468,7 @@ pub fn build_op_tyson_value(
         OperatorCreationError::new_s(format!("invalid tyson: {e}"), value_span)
     })?;
     let lit = field_value_to_literal(value);
-    Ok(OperatorData::from_custom(OpLiteral {
+    Ok(Box::new(OpLiteral {
         data: lit,
         insert_count,
     }))
@@ -487,7 +487,7 @@ pub fn create_op_literal_with_insert_count(
     data: Literal,
     insert_count: Option<usize>,
 ) -> OperatorData {
-    OperatorData::from_custom(OpLiteral { data, insert_count })
+    Box::new(OpLiteral { data, insert_count })
 }
 
 pub fn create_op_literal(data: Literal) -> OperatorData {

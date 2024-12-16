@@ -169,6 +169,6 @@ impl<T: BasicGenerator + 'static> BasicGeneratorWrapper<T> {
         Self { base }
     }
     pub fn new_operator(base: T) -> OperatorData {
-        OperatorData::Custom(smallbox!(Self::new(base)))
+        Box::new(Self::new(base))
     }
 }

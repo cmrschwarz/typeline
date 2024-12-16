@@ -25,14 +25,14 @@ pub fn parse_op_select(
     expr: &CallExpr,
 ) -> Result<OperatorData, OperatorCreationError> {
     let val = expr.require_single_string_arg()?;
-    Ok(OperatorData::from_custom(OpSelect {
+    Ok(Box::new(OpSelect {
         key: val.to_owned(),
         key_interned: None,
     }))
 }
 
 pub fn create_op_select(key: impl Into<String>) -> OperatorData {
-    OperatorData::from_custom(OpSelect {
+    Box::new(OpSelect {
         key: key.into(),
         key_interned: None,
     })
@@ -129,7 +129,6 @@ impl Operator for OpSelect {
     fn as_any(&self) -> Option<&dyn std::any::Any> {
         Some(self)
     }
-
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         Some(self)
     }

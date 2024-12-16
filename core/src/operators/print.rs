@@ -110,14 +110,14 @@ pub fn parse_op_print(
             }
         }
     }
-    Ok(OperatorData::from_custom(OpPrint {
+    Ok(Box::new(OpPrint {
         target: WritableTarget::Stdout,
         opts,
     }))
 }
 
 pub fn create_op_print() -> OperatorData {
-    OperatorData::from_custom(OpPrint {
+    Box::new(OpPrint {
         target: WritableTarget::Stdout,
         opts: PrintOptions {
             ignore_nulls: false,
@@ -129,7 +129,7 @@ pub fn create_op_print_with_opts(
     target: WritableTarget,
     opts: PrintOptions,
 ) -> OperatorData {
-    OperatorData::from_custom(OpPrint { target, opts })
+    Box::new(OpPrint { target, opts })
 }
 
 pub fn typed_slice_zst_str(ts: &FieldValueSlice) -> &'static str {

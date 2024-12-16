@@ -268,5 +268,5 @@ pub fn parse_op_sum(
 }
 
 pub fn create_op_sum() -> OperatorData {
-    OperatorData::Custom(smallbox!(OpSum {}))
+    Box::new(OpSum {})
 }

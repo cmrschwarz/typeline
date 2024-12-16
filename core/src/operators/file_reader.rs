@@ -377,7 +377,7 @@ pub fn create_op_file_reader(
     file_kind: ReadableFileKind,
     insert_count: usize,
 ) -> OperatorData {
-    OperatorData::from_custom(OpFileReader {
+    Box::new(OpFileReader {
         file_kind,
         insert_count: if insert_count == 0 {
             None

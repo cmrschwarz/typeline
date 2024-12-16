@@ -238,7 +238,7 @@ fn contextualize_op_id(
             "in op {} '{}' of chain {}: {}",
             // TODO: better message for aggregation members
             op_base.offset_in_chain.base_chain_offset(sess),
-            op_data.default_op_name(),
+            op_data.default_name(),
             op_base.chain_id,
             msg
         )

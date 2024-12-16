@@ -83,7 +83,7 @@ impl Operator for OpMultiOp {
             let mut sub_output = OperatorLivenessOutput::with_defaults(
                 OpOutputIdx::from_usize(op_outputs_start + outputs_offset),
             );
-            op.update_liveness_for_op(
+            op.update_variable_liveness(
                 sess,
                 ld,
                 op_offset_after_last_write,
@@ -232,7 +232,7 @@ impl Operator for OpMultiOp {
 pub fn create_multi_op_with_span(
     ops: impl IntoIterator<Item = (OperatorData, Span)>,
 ) -> OperatorData {
-    OperatorData::from_custom(OpMultiOp {
+    Box::new(OpMultiOp {
         operations: ops.into_iter().collect(),
         sub_op_ids: IndexVec::new(),
     })

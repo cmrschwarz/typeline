@@ -153,7 +153,7 @@ pub fn assign_atom(atom: &OpAtom, jd: &mut JobData, scope: ScopeId) {
 }
 
 pub fn create_op_atom(key: String, value: FieldValue) -> OperatorData {
-    OperatorData::from_custom(OpAtom {
+    Box::new(OpAtom {
         key,
         key_interned: None,
         value,

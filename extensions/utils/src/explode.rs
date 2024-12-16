@@ -69,7 +69,7 @@ pub fn parse_op_explode(expr: &CallExpr) -> Result<OperatorData, ScrError> {
 }
 
 pub fn create_op_explode() -> OperatorData {
-    OperatorData::Custom(smallbox!(OpExplode::default()))
+    Box::new(OpExplode::default())
 }
 
 impl Operator for OpExplode {

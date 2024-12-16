@@ -30,7 +30,7 @@ pub fn parse_op_nop(
     }
 }
 pub fn create_op_nop() -> OperatorData {
-    OperatorData::from_custom(OpNop::default())
+    Box::new(OpNop::default())
 }
 
 pub fn setup_op_nop(

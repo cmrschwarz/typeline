@@ -235,7 +235,7 @@ impl Transform<'_> for TfCollect {
 }
 
 pub fn create_op_collect() -> OperatorData {
-    OperatorData::Custom(smallbox!(OpCollect {}))
+    Box::new(OpCollect {})
 }
 
 pub fn parse_op_collect(

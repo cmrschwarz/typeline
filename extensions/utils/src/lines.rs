@@ -52,7 +52,7 @@ pub fn parse_op_flatten(expr: &CallExpr) -> Result<OperatorData, ScrError> {
 }
 
 pub fn create_op_flatten() -> OperatorData {
-    OperatorData::from_custom(OpLines::default())
+    Box::new(OpLines::default())
 }
 
 impl Operator for OpLines {

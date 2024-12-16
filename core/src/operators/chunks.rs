@@ -184,7 +184,7 @@ pub fn create_op_chunks_with_spans(
     if subchain.is_empty() {
         subchain.push((create_op_nop(), Span::Generated));
     }
-    Ok(OperatorData::from_custom(OpChunks {
+    Ok(Box::new(OpChunks {
         subchain,
         subchain_idx: SubchainIndex::MAX_VALUE,
         stride,

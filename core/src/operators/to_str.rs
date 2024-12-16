@@ -79,7 +79,7 @@ pub fn create_op_to_str(
     invalid_unicode_handler: Option<InvalidUnicodeHandler>,
     convert_errors: bool,
 ) -> OperatorData {
-    OperatorData::from_custom(OpToStr {
+    Box::new(OpToStr {
         invalid_unicode_handler,
         convert_errors,
     })
