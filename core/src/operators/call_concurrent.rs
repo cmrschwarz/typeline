@@ -276,7 +276,7 @@ pub fn setup_callee_concurrent(
         &mut job.job_data,
         &mut job.transform_data,
         tf_state,
-        TransformData::CalleeConcurrent(callee),
+        TransformData::from_custom(callee),
     );
     let mut instantiation = job.setup_transforms_from_op(
         ms_id,
@@ -288,51 +288,6 @@ pub fn setup_callee_concurrent(
     );
     instantiation.tfs_begin = tf_id;
     instantiation
-}
-
-pub fn handle_tf_callee_concurrent(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    tfc: &mut TfCalleeConcurrent,
-) {
-    jd.tf_mgr.prepare_for_output(
-        &mut jd.field_mgr,
-        &mut jd.match_set_mgr,
-        tf_id,
-        tfc.target_fields.iter().filter_map(|f| *f),
-    );
-    let mut buf_data = tfc.buffer.fields.lock().unwrap();
-    while buf_data.available_batch_size == 0 && !buf_data.input_done {
-        buf_data = tfc.buffer.updates.wait(buf_data).unwrap();
-    }
-    let input_done = buf_data.input_done;
-    let available_batch_size = buf_data.available_batch_size;
-    buf_data.available_batch_size = 0;
-    for i in 0..tfc.target_fields.len() {
-        if let Some(field_id) = tfc.target_fields[i] {
-            let mut field_tgt = jd.field_mgr.fields[field_id].borrow_mut();
-            let field_src = &mut buf_data.fields
-                [RecordBufferFieldId::new(i as u32).unwrap()];
-            std::mem::swap(field_src.get_data_mut(), unsafe {
-                field_tgt.iter_hall.raw()
-            });
-            if input_done || field_tgt.ref_count == 1 {
-                field_src.refcount -= 1;
-                drop(field_tgt);
-                jd.field_mgr
-                    .drop_field_refcount(field_id, &mut jd.match_set_mgr);
-                tfc.target_fields[i] = None;
-            }
-        }
-    }
-    drop(buf_data);
-    tfc.buffer.updates.notify_one();
-    if !input_done {
-        // trigger a condvar wait if no further input is present
-        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-    }
-    jd.tf_mgr
-        .submit_batch(tf_id, available_batch_size, None, input_done);
 }
 
 impl Operator for OpCallConcurrent {
@@ -604,5 +559,55 @@ impl<'a> Transform<'a> for TfCallConcurrent {
     }
     fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
         Some(self)
+    }
+}
+
+impl<'a> Transform<'a> for TfCalleeConcurrent {
+    fn display_name(
+        &self,
+        _jd: &JobData,
+        _tf_id: TransformId,
+    ) -> super::transform::DefaultTransformName {
+        "callcc_callee".into()
+    }
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        jd.tf_mgr.prepare_for_output(
+            &mut jd.field_mgr,
+            &mut jd.match_set_mgr,
+            tf_id,
+            self.target_fields.iter().filter_map(|f| *f),
+        );
+        let mut buf_data = self.buffer.fields.lock().unwrap();
+        while buf_data.available_batch_size == 0 && !buf_data.input_done {
+            buf_data = self.buffer.updates.wait(buf_data).unwrap();
+        }
+        let input_done = buf_data.input_done;
+        let available_batch_size = buf_data.available_batch_size;
+        buf_data.available_batch_size = 0;
+        for i in 0..self.target_fields.len() {
+            if let Some(field_id) = self.target_fields[i] {
+                let mut field_tgt = jd.field_mgr.fields[field_id].borrow_mut();
+                let field_src = &mut buf_data.fields
+                    [RecordBufferFieldId::new(i as u32).unwrap()];
+                std::mem::swap(field_src.get_data_mut(), unsafe {
+                    field_tgt.iter_hall.raw()
+                });
+                if input_done || field_tgt.ref_count == 1 {
+                    field_src.refcount -= 1;
+                    drop(field_tgt);
+                    jd.field_mgr
+                        .drop_field_refcount(field_id, &mut jd.match_set_mgr);
+                    self.target_fields[i] = None;
+                }
+            }
+        }
+        drop(buf_data);
+        self.buffer.updates.notify_one();
+        if !input_done {
+            // trigger a condvar wait if no further input is present
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+        }
+        jd.tf_mgr
+            .submit_batch(tf_id, available_batch_size, None, input_done);
     }
 }
