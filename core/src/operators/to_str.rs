@@ -32,7 +32,7 @@ use crate::{
 use super::{
     errors::OperatorApplicationError,
     operator::{Operator, TransformInstatiation},
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 #[derive(Clone)]
@@ -205,7 +205,7 @@ impl Operator for OpToStr {
         let stream_buffer_size =
             jd.get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
 
-        TransformInstatiation::Single(TransformData::from_custom(TfToStr {
+        TransformInstatiation::Single(Box::new(TfToStr {
             batch_iter: jd.claim_iter_for_tf_state(tf_state),
             pending_streams: 0,
             invalid_unicode_handler: replacement_fn,

@@ -7,7 +7,7 @@ use scr_core::{
         operator::{
             Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformState},
+        transform::{Transform, TransformState},
         utils::any_number::AnyNumberRef,
     },
     record_data::{
@@ -61,7 +61,7 @@ impl Operator for OpMax {
         _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        TransformInstatiation::Single(TransformData::from_custom(TfMax {
+        TransformInstatiation::Single(Box::new(TfMax {
             actor_id: job.job_data.add_actor_for_tf_state(tf_state),
             group_track_iter: job
                 .job_data

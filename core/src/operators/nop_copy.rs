@@ -12,7 +12,7 @@ use super::{
     errors::OperatorCreationError,
     nop::create_op_nop,
     operator::{Operator, OperatorId},
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
     utils::basic_transform_update::{basic_transform_update, BasicUpdateData},
 };
 
@@ -86,9 +86,7 @@ impl Operator for OpNopCopy {
             input_field_ref_offset,
         };
 
-        super::operator::TransformInstatiation::Single(
-            TransformData::from_custom(tfc),
-        )
+        super::operator::TransformInstatiation::Single(Box::new(tfc))
     }
 
     fn update_variable_liveness(

@@ -7,7 +7,7 @@ use scr_core::{
         operator::{
             Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformState},
+        transform::{Transform, TransformState},
         utils::basic_transform_update::{
             basic_transform_update_claim_all, BasicUpdateData,
         },
@@ -30,7 +30,6 @@ use scr_core::{
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
-    smallbox,
 };
 
 #[derive(Clone, Default)]
@@ -81,16 +80,14 @@ impl Operator for OpCollect {
         let group_track_iter =
             jd.claim_group_track_iter_for_tf_state(tf_state);
 
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(
-            TfCollect {
-                group_track_iter,
-                input_iter_id,
-                aggregate: Array::default(),
-                actor_id,
-                floating_point_math,
-                pending_field: false
-            }
-        )))
+        TransformInstatiation::Single(Box::new(TfCollect {
+            group_track_iter,
+            input_iter_id,
+            aggregate: Array::default(),
+            actor_id,
+            floating_point_math,
+            pending_field: false,
+        }))
     }
 }
 

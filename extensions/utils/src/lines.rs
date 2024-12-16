@@ -8,7 +8,7 @@ use scr_core::{
             Operator, OperatorId, OperatorName, PreboundOutputsMap,
             TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{Transform, TransformId, TransformState},
         utils::basic_transform_update::{
             basic_transform_update, BasicUpdateData,
         },
@@ -108,7 +108,7 @@ impl Operator for OpLines {
             pending_streams: 0,
         };
 
-        TransformInstatiation::Single(TransformData::from_custom(tfe))
+        TransformInstatiation::Single(Box::new(tfe))
     }
 }
 

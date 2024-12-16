@@ -254,40 +254,37 @@ fn setup_transform_tf_envs(
     let tf_state = &jd.tf_mgr.transforms[tf_id];
     let succ = tf_state.successor;
 
-    match &tf_data[tf_id] {
-        TransformData::Custom(tf) => {
-            if let Some(fc) = tf.downcast_ref::<TfForkCatHeader>() {
-                let mut fc_mc =
-                    setup_forkcat_match_chain(jd, tf_data, fc, tf_id);
-                std::mem::swap(match_chain, &mut fc_mc);
-                match_chains.push(fc_mc);
-                return succ;
-            }
-            if let Some(agg) = tf.downcast_ref::<TfAggregatorHeader>() {
-                return Some(setup_aggregator_tf_envs(
-                    jd,
-                    tf_data,
-                    agg,
-                    tf_id,
-                    match_chains,
-                    match_chain,
-                ));
-            }
-            if let Some(fc) = tf.downcast_ref::<TfFork>() {
-                match_chain
-                    .tf_envs
-                    .push(setup_fork_tf_env(jd, tf_data, fc, tf_id));
-                return succ;
-            }
-        }
+    let tf = &tf_data[tf_id];
+    if let Some(fc) = tf.downcast_ref::<TfForkCatHeader>() {
+        let mut fc_mc = setup_forkcat_match_chain(jd, tf_data, fc, tf_id);
+        std::mem::swap(match_chain, &mut fc_mc);
+        match_chains.push(fc_mc);
+        return succ;
     }
+    if let Some(agg) = tf.downcast_ref::<TfAggregatorHeader>() {
+        return Some(setup_aggregator_tf_envs(
+            jd,
+            tf_data,
+            agg,
+            tf_id,
+            match_chains,
+            match_chain,
+        ));
+    }
+    if let Some(fc) = tf.downcast_ref::<TfFork>() {
+        match_chain
+            .tf_envs
+            .push(setup_fork_tf_env(jd, tf_data, fc, tf_id));
+        return succ;
+    }
+
     let mut fields = Vec::new();
     let mut group_tracks = Vec::new();
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    if tf.output_group_track_id != tf.input_group_track_id {
-        group_tracks.push(tf.output_group_track_id);
+    let tf_state = &jd.tf_mgr.transforms[tf_id];
+    if tf_state.output_group_track_id != tf_state.input_group_track_id {
+        group_tracks.push(tf_state.output_group_track_id);
     }
-    tf_data[tf_id].get_out_fields(jd, tf, &mut fields);
+    tf.collect_out_fields(jd, tf_state, &mut fields);
     match_chain.tf_envs.push(TransformEnv {
         tf_id: Some(tf_id),
         group_tracks,

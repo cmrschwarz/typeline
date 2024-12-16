@@ -9,7 +9,7 @@ use super::{
         OffsetInChain, Operator, OperatorDataId, OperatorId,
         OperatorOffsetInChain, TransformInstatiation,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 use crate::{
     chain::ChainId,
@@ -1963,7 +1963,7 @@ impl Operator for OpFormat {
             rationals_print_mode: print_rationals_raw,
             stream_buffer_size,
         };
-        TransformInstatiation::Single(TransformData::from_custom(tf))
+        TransformInstatiation::Single(Box::new(tf))
     }
 }
 

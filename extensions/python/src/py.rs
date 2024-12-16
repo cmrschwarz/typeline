@@ -25,7 +25,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{Transform, TransformId, TransformState},
     },
     options::session_setup::SessionSetupData,
     record_data::{
@@ -39,7 +39,6 @@ use scr_core::{
         push_interface::PushInterface,
     },
     scr_error::ScrError,
-    smallbox,
     utils::{
         lazy_lock_guard::LazyRwLockGuard,
         phantom_slot::PhantomSlot,
@@ -219,13 +218,13 @@ impl Operator for OpPy {
             Py::from_owned_ptr(py, locals)
         });
 
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(TfPy {
+        TransformInstatiation::Single(Box::new(TfPy {
             op: self,
             input_field_refs: Vec::with_capacity(input_fields.len()),
             input_field_iters: Vec::with_capacity(input_fields.len()),
             input_fields,
-            locals
-        })))
+            locals,
+        }))
     }
 }
 

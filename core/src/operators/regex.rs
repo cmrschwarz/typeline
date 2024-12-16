@@ -55,7 +55,7 @@ use super::{
         Operator, OperatorDataId, OperatorId, OperatorName,
         OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
     utils::buffer_stream_values::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
@@ -975,7 +975,7 @@ impl Operator for OpRegex {
             capture_group_fields.push(field_id);
         }
 
-        TransformInstatiation::Single(TransformData::from_custom(TfRegex {
+        TransformInstatiation::Single(Box::new(TfRegex {
             regex: self.regex.clone(),
             text_only_regex: self
                 .text_only_regex

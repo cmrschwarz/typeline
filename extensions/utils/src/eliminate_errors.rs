@@ -8,7 +8,7 @@ use scr_core::{
             Operator, OperatorId, OutputFieldKind, PreboundOutputsMap,
             TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformState},
+        transform::{Transform, TransformState},
     },
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
@@ -57,14 +57,12 @@ impl Operator for OpEliminateErrors {
         _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        TransformInstatiation::Single(TransformData::from_custom(
-            TfEliminateErrors {
-                actor_id: job
-                    .job_data
-                    .add_actor_for_tf_state_ignore_output_field(tf_state),
-                input_iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
-            },
-        ))
+        TransformInstatiation::Single(Box::new(TfEliminateErrors {
+            actor_id: job
+                .job_data
+                .add_actor_for_tf_state_ignore_output_field(tf_state),
+            input_iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
+        }))
     }
 }
 

@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use super::{
     errors::OperatorApplicationError,
     operator::{Operator, TransformInstatiation},
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 pub type FieldValueSink = Vec<FieldValue>;
@@ -127,13 +127,11 @@ impl Operator for OpFieldValueSink {
         _op_id: super::operator::OperatorId,
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> super::operator::TransformInstatiation<'a> {
-        TransformInstatiation::Single(TransformData::from_custom(
-            TfFieldValueSink {
-                handle: &self.handle.data,
-                batch_iter: job.job_data.claim_iter_for_tf_state(tf_state),
-                stream_value_handles: CountedUniverse::default(),
-            },
-        ))
+        TransformInstatiation::Single(Box::new(TfFieldValueSink {
+            handle: &self.handle.data,
+            batch_iter: job.job_data.claim_iter_for_tf_state(tf_state),
+            stream_value_handles: CountedUniverse::default(),
+        }))
     }
 }
 

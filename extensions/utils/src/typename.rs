@@ -11,7 +11,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{Transform, TransformId, TransformState},
         utils::basic_transform_update::{
             basic_transform_update, BasicUpdateData,
         },
@@ -20,7 +20,6 @@ use scr_core::{
         field_value_ref::FieldValueSlice, iter_hall::FieldIterId,
         variable_sized_type_inserter::VariableSizeTypeInserter,
     },
-    smallbox,
 };
 
 #[derive(Default)]
@@ -79,7 +78,7 @@ impl Operator for OpTypename {
         let tfe = TfTypename {
             input_iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
         };
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(tfe)))
+        TransformInstatiation::Single(Box::new(tfe))
     }
 }
 

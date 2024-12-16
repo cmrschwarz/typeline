@@ -5,7 +5,7 @@ use metamatch::metamatch;
 use super::{
     errors::OperatorApplicationError,
     operator::{Operator, TransformInstatiation},
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
     utils::writable::{AnyWriter, WritableTarget},
 };
 use crate::{
@@ -449,7 +449,7 @@ impl Operator for OpPrint {
         _op_id: super::operator::OperatorId,
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> super::operator::TransformInstatiation<'a> {
-        TransformInstatiation::Single(TransformData::from_custom(TfPrint {
+        TransformInstatiation::Single(Box::new(TfPrint {
             // ENHANCE: should we config options for this stuff?
             flush_on_every_print: matches!(
                 self.target,

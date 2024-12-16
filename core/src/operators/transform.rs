@@ -12,14 +12,8 @@ use crate::{
         match_set::MatchSetId,
         stream_value::StreamValueUpdate,
     },
-    smallbox,
-    utils::{
-        debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
-        small_box::SmallBox,
-    },
+    utils::debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
 };
-
-use metamatch::metamatch;
 
 use super::{
     nop::TfNop,
@@ -33,48 +27,8 @@ index_newtype! {
     pub struct StreamProducerIndex(DebuggableNonMaxUsize);
 }
 
-pub enum TransformData<'a> {
-    Custom(SmallBox<dyn Transform<'a> + 'a, 32>),
-}
+pub type TransformData<'a> = Box<dyn Transform<'a> + 'a>;
 
-impl<'a> TransformData<'a> {
-    pub fn from_custom(tf: impl Transform<'a> + 'a) -> Self {
-        Self::Custom(smallbox!(tf))
-    }
-    pub fn display_name(
-        &self,
-        jd: &JobData,
-        tf_id: TransformId,
-    ) -> DefaultTransformName {
-        match self {
-            TransformData::Custom(tf) => tf.display_name(jd, tf_id),
-        }
-    }
-    pub fn get_out_fields(
-        &self,
-        jd: &JobData,
-        tf_state: &TransformState,
-        fields: &mut Vec<FieldId>,
-    ) {
-        match self {
-            TransformData::Custom(custom) => {
-                custom.collect_out_fields(jd, tf_state, fields)
-            }
-        }
-    }
-
-    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
-        metamatch!(match self {
-            TransformData::Custom(o) => o.downcast_ref(),
-        })
-    }
-
-    pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
-        metamatch!(match self {
-            TransformData::Custom(o) => o.downcast_mut(),
-        })
-    }
-}
 #[derive(Clone)]
 pub struct TransformState {
     pub successor: Option<TransformId>,
@@ -234,41 +188,28 @@ pub fn transform_pre_update(
     job: &mut Job,
     tf_id: TransformId,
 ) -> Result<(), VentureDescription> {
-    match &mut job.transform_data[tf_id] {
-        TransformData::Custom(tf) => {
-            if tf.pre_update_required() {
-                let mut tf = std::mem::replace(
-                    &mut job.transform_data[tf_id],
-                    TransformData::from_custom(TfNop::default()),
-                );
-                let TransformData::Custom(tf_custom) = &mut tf;
-                let res = tf_custom.pre_update(ctx, job, tf_id);
-                let _ = std::mem::replace(&mut job.transform_data[tf_id], tf);
-                return res;
-            }
-        }
+    if job.transform_data[tf_id].pre_update_required() {
+        let mut tf = std::mem::replace(
+            &mut job.transform_data[tf_id],
+            Box::new(TfNop::default()),
+        );
+        let res = tf.pre_update(ctx, job, tf_id);
+        let _ = std::mem::replace(&mut job.transform_data[tf_id], tf);
+        return res;
     }
     Ok(())
 }
 
 pub fn transform_update(job: &mut Job, tf_id: TransformId) {
     let jd = &mut job.job_data;
-    match &mut job.transform_data[tf_id] {
-        TransformData::Custom(tf) => tf.update(jd, tf_id),
-    }
+    job.transform_data[tf_id].update(jd, tf_id);
 }
 
 pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
-    match &mut job.transform_data[tf_id] {
-        TransformData::Custom(c) => {
-            c.stream_producer_update(&mut job.job_data, tf_id)
-        }
-    }
+    job.transform_data[tf_id].stream_producer_update(&mut job.job_data, tf_id)
 }
 
 pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
     let jd = &mut job.job_data;
-    match &mut job.transform_data[svu.tf_id] {
-        TransformData::Custom(tf) => tf.handle_stream_value_update(jd, svu),
-    }
+    job.transform_data[svu.tf_id].handle_stream_value_update(jd, svu)
 }

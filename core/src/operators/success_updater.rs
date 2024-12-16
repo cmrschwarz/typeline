@@ -17,7 +17,7 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     operator::{Operator, OperatorId, OutputFieldKind, TransformInstatiation},
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 impl Operator for OpSuccessUpdator {
@@ -74,7 +74,7 @@ impl Operator for OpSuccessUpdator {
             iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
             success: true,
         };
-        TransformInstatiation::Single(TransformData::from_custom(su))
+        TransformInstatiation::Single(Box::new(su))
     }
 }
 

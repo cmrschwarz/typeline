@@ -19,7 +19,7 @@ pub fn setup_tf_terminator<'a>(
     let mut ab = jd.match_set_mgr.match_sets[tf_state.match_set_id]
         .action_buffer
         .borrow_mut();
-    TransformData::from_custom(TfTerminator {
+    Box::new(TfTerminator {
         actor_id: ab.add_actor(),
         delayed_deletion_row_count: 0,
     })

@@ -26,7 +26,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{Operator, OperatorName, TransformInstatiation},
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
 
@@ -111,7 +111,7 @@ impl Operator for OpLiteral {
     ) -> super::operator::TransformInstatiation<'a> {
         let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
         let iter_id = job.job_data.claim_iter_for_tf_state(tf_state);
-        TransformInstatiation::Single(TransformData::from_custom(TfLiteral {
+        TransformInstatiation::Single(Box::new(TfLiteral {
             data: &self.data,
             explicit_count: self
                 .insert_count

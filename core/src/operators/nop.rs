@@ -51,7 +51,7 @@ pub fn build_tf_nop<'a>(
 }
 
 pub fn create_tf_nop<'a>() -> TransformData<'a> {
-    TransformData::from_custom(TfNop {})
+    Box::new(TfNop {})
 }
 
 impl Operator for OpNop {
@@ -91,7 +91,7 @@ impl Operator for OpNop {
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> super::operator::TransformInstatiation<'a> {
         super::operator::TransformInstatiation::Single(
-            TransformData::from_custom(TfNop {}),
+            Box::new(TfNop {}),
         )
     }
 

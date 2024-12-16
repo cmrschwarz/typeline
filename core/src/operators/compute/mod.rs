@@ -47,7 +47,7 @@ use super::{
         OffsetInChain, Operator, OperatorDataId, OperatorId,
         OperatorOffsetInChain, TransformInstatiation,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 pub struct OpCompute {
@@ -297,7 +297,7 @@ impl Operator for OpCompute {
             extern_field_temp_iters: Universe::default(),
             extern_fields: unbound_fields,
         };
-        TransformInstatiation::Single(TransformData::from_custom(tf))
+        TransformInstatiation::Single(Box::new(tf))
     }
 }
 impl<'a> Transform<'a> for TfCompute<'a> {

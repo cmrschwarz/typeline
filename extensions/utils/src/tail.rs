@@ -17,7 +17,6 @@ use scr_core::{
     options::session_setup::SessionSetupData,
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
     scr_error::ScrError,
-    smallbox,
     utils::{
         indexing_type::IndexingType,
         int_string_conversions::parse_int_with_units,
@@ -126,20 +125,20 @@ impl Operator for OpTail {
             job.job_data.claim_group_track_iter_for_tf_state(tf_state);
 
         let res = if !self.additive_mode {
-            smallbox!(TfTail {
+            Box::new(TfTail {
                 count: self.count,
                 actor_id,
                 group_track_iter,
-            })
+            }) as TransformData
         } else {
-            smallbox!(TfTailAdditive {
+            Box::new(TfTailAdditive {
                 skip_count: self.count,
                 skips_remaining: self.count,
                 actor_id,
                 group_track_iter,
-            })
+            }) as TransformData
         };
-        TransformInstatiation::Single(TransformData::Custom(res))
+        TransformInstatiation::Single(res)
     }
 }
 

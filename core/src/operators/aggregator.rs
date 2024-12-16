@@ -22,7 +22,7 @@ use super::{
         OperatorInstantiation, OperatorOffsetInChain, PreboundOutputsMap,
         TransformInstatiation,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 pub struct OpAggregator {
@@ -270,7 +270,7 @@ impl Operator for OpAggregator {
             &mut job.job_data,
             &mut job.transform_data,
             tf_state.clone(),
-            TransformData::from_custom(TfAggregatorHeader {
+            Box::new(TfAggregatorHeader {
                 sub_tfs: Vec::new(),
                 curr_sub_tf_idx: 0,
                 elem_buffered: false,
@@ -318,7 +318,7 @@ impl Operator for OpAggregator {
             &mut job.job_data,
             &mut job.transform_data,
             trailer_tf_state,
-            TransformData::from_custom(TfAggregatorTrailer { header_tf_id }),
+            Box::new(TfAggregatorTrailer { header_tf_id }),
         );
         for &sub_tf_id in &sub_tfs {
             job.job_data.tf_mgr.transforms[sub_tf_id].successor =

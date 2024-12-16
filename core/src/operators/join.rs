@@ -55,7 +55,7 @@ use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{Operator, OperatorName, TransformInstatiation},
     print::typed_slice_zst_str,
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 #[derive(Clone)]
@@ -791,7 +791,7 @@ impl Operator for OpJoin {
         let rationals_print_mode = jd
             .get_setting_from_tf_state::<SettingRationalsPrintMode>(tf_state);
         let actor_id = jd.add_actor_for_tf_state(tf_state);
-        TransformInstatiation::Single(TransformData::from_custom(TfJoin {
+        TransformInstatiation::Single(Box::new(TfJoin {
             separator: self.separator.as_ref().map(|s| s.as_ref()),
             group_capacity: self.join_count,
             drop_incomplete: self.drop_incomplete,

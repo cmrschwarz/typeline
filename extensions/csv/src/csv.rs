@@ -21,7 +21,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{Transform, TransformId, TransformState},
         utils::readable::{AnyBufReader, ReadableTarget},
     },
     options::session_setup::SessionSetupData,
@@ -35,7 +35,6 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     scr_error::ScrError,
-    smallbox,
     utils::{
         indexing_type::IndexingType,
         int_string_conversions::usize_to_str,
@@ -178,27 +177,25 @@ impl Operator for OpCsv {
             );
         }
 
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(
-            TfCsv {
-                op: self,
-                inserters: Default::default(),
-                output_fields,
-                input: Input::NotStarted,
-                lines_produced: 0,
-                actor_id,
-                additional_fields: StableVec::new(),
-                group_iter: job
-                    .job_data
-                    .group_track_manager
-                    .claim_group_track_iter_ref(
-                        tf_state.input_group_track_id,
-                        next_actor,
-                        IterKind::Transform(
-                            job.job_data.tf_mgr.transforms.peek_claim_id()
-                        )
+        TransformInstatiation::Single(Box::new(TfCsv {
+            op: self,
+            inserters: Default::default(),
+            output_fields,
+            input: Input::NotStarted,
+            lines_produced: 0,
+            actor_id,
+            additional_fields: StableVec::new(),
+            group_iter: job
+                .job_data
+                .group_track_manager
+                .claim_group_track_iter_ref(
+                    tf_state.input_group_track_id,
+                    next_actor,
+                    IterKind::Transform(
+                        job.job_data.tf_mgr.transforms.peek_claim_id(),
                     ),
-            }
-        )))
+                ),
+        }))
     }
 }
 

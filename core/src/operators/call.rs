@@ -20,7 +20,7 @@ use super::{
         OffsetInChain, Operator, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain, TransformInstatiation,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 #[derive(Clone)]
@@ -129,7 +129,7 @@ impl Operator for OpCall {
         _op_id: OperatorId,
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        TransformInstatiation::Single(TransformData::from_custom(TfCall {
+        TransformInstatiation::Single(Box::new(TfCall {
             target: self.target_resolved.unwrap(),
         }))
     }

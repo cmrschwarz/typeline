@@ -22,7 +22,7 @@ use super::{
         Operator, OperatorDataId, OperatorId, OperatorInstantiation,
         OperatorOffsetInChain, PreboundOutputsMap,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 pub struct OpForeach {
@@ -154,7 +154,7 @@ impl Operator for OpForeach {
             &mut job.job_data,
             &mut job.transform_data,
             tf_state.clone(),
-            TransformData::from_custom(TfForeachHeader {
+            Box::new(TfForeachHeader {
                 parent_group_track_iter,
                 unrealized_group_skips: 0,
             }),
@@ -226,7 +226,7 @@ impl Operator for OpForeach {
             &mut job.job_data,
             &mut job.transform_data,
             trailer_tf_state,
-            TransformData::from_custom(TfForeachTrailer {}),
+            Box::new(TfForeachTrailer {}),
         );
         job.job_data.tf_mgr.transforms[out_tf_id].successor =
             Some(trailer_tf_id);

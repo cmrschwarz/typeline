@@ -22,7 +22,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorId, PreboundOutputsMap,
             TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{Transform, TransformId, TransformState},
         utils::basic_transform_update::{
             basic_transform_update, BasicUpdateData,
         },
@@ -39,7 +39,6 @@ use scr_core::{
         },
         varying_type_inserter::VaryingTypeInserter,
     },
-    smallbox,
     utils::universe::CountedUniverse,
 };
 use std::io::ErrorKind as IoErrorKind;
@@ -169,7 +168,7 @@ impl Operator for OpHttpRequest {
                     tf_state,
                 ),
         };
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(tf)))
+        TransformInstatiation::Single(Box::new(tf))
     }
 }
 

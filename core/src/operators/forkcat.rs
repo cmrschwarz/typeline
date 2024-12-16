@@ -58,7 +58,7 @@ use super::{
         OffsetInChain, Operator, OperatorBase, OperatorDataId, OperatorId,
         OperatorInstantiation, OperatorOffsetInChain,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 // Forkcat: split up pipeline into multiple subchains, concatenate the results
@@ -423,7 +423,7 @@ fn setup_subchain<'a>(
             None,
             instantiation.next_group_track,
         ),
-        TransformData::from_custom(trailer_tf),
+        Box::new(trailer_tf),
     );
     debug_assert_eq!(trailer_tf_id_peek, trailer_tf_id);
 
@@ -894,7 +894,7 @@ impl Operator for OpForkCat {
             cont_field_inserters: IndexVec::new(),
         }));
 
-        let tf_data = TransformData::from_custom(TfForkCatHeader {
+        let tf_data = Box::new(TfForkCatHeader {
             continuation_state: continuation_state.clone(),
             actor_id: job
                 .job_data
@@ -929,7 +929,7 @@ impl Operator for OpForkCat {
             subchains.push(sc_entry);
         }
 
-        let TransformData::Custom(fc) = &mut job.transform_data[fc_tf_id];
+        let fc = &mut job.transform_data[fc_tf_id];
         let fc: &TfForkCatHeader = fc.downcast_ref().unwrap();
 
         let mut cont = fc.continuation_state.lock().unwrap();

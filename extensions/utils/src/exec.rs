@@ -34,7 +34,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{Transform, TransformId, TransformState},
     },
     options::{
         chain_settings::{
@@ -74,7 +74,6 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     scr_error::ScrError,
-    smallbox,
     utils::{
         index_vec::IndexVec,
         indexing_type::IndexingType,
@@ -313,23 +312,21 @@ impl Operator for OpExec {
             None
         };
 
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(
-            TfExec {
-                op: self,
-                iters,
-                token_universe: Universe::default(),
-                stderr_field,
-                command_args: Vec::new(),
-                running_commands: CountedUniverse::default(),
-                input_iter,
-                exit_code_field,
-                stream_buffer_size,
-                stream_buffer_threshold,
-                poll: Poll::new().unwrap(),
-                events: Some(Events::with_capacity(64)),
-                commands_to_poll: Vec::new(),
-            }
-        )))
+        TransformInstatiation::Single(Box::new(TfExec {
+            op: self,
+            iters,
+            token_universe: Universe::default(),
+            stderr_field,
+            command_args: Vec::new(),
+            running_commands: CountedUniverse::default(),
+            input_iter,
+            exit_code_field,
+            stream_buffer_size,
+            stream_buffer_threshold,
+            poll: Poll::new().unwrap(),
+            events: Some(Events::with_capacity(64)),
+            commands_to_poll: Vec::new(),
+        }))
     }
 }
 

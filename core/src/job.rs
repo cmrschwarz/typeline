@@ -339,7 +339,7 @@ pub fn add_transform_to_job<'a>(
     let id = jd.tf_mgr.transforms.claim_with_value(state);
     if tf_data.len() < jd.tf_mgr.transforms.used_capacity() {
         tf_data.resize_with(jd.tf_mgr.transforms.used_capacity(), || {
-            TransformData::from_custom(TfNop::default())
+            Box::new(TfNop::default())
         });
     }
     tf_data[id] = data;
@@ -530,8 +530,7 @@ impl<'a> Job<'a> {
             .field_mgr
             .drop_field_refcount(tf_out_fid, &mut self.job_data.match_set_mgr);
         self.job_data.tf_mgr.transforms.release(tf_id);
-        self.transform_data[tf_id] =
-            TransformData::from_custom(TfNop::default());
+        self.transform_data[tf_id] = Box::new(TfNop::default());
     }
     pub fn setup_transforms_for_chain(
         &mut self,

@@ -43,7 +43,7 @@ use super::{
         OperatorInstantiation, OperatorOffsetInChain, OutputFieldKind,
         TransformInstatiation,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 #[derive(Clone)]
@@ -276,7 +276,7 @@ pub fn setup_callee_concurrent(
         &mut job.job_data,
         &mut job.transform_data,
         tf_state,
-        TransformData::from_custom(callee),
+        Box::new(callee),
     );
     let mut instantiation = job.setup_transforms_from_op(
         ms_id,
@@ -326,19 +326,17 @@ impl Operator for OpCallConcurrent {
             ..Default::default()
         });
 
-        TransformInstatiation::Single(TransformData::from_custom(
-            TfCallConcurrent {
-                expanded: false,
-                target_chain: self.target_resolved.unwrap(),
-                field_mappings: Vec::new(),
-                buffer,
-                actor_id: job.job_data.match_set_mgr.match_sets
-                    [tf_state.match_set_id]
-                    .action_buffer
-                    .borrow_mut()
-                    .add_actor(),
-            },
-        ))
+        TransformInstatiation::Single(Box::new(TfCallConcurrent {
+            expanded: false,
+            target_chain: self.target_resolved.unwrap(),
+            field_mappings: Vec::new(),
+            buffer,
+            actor_id: job.job_data.match_set_mgr.match_sets
+                [tf_state.match_set_id]
+                .action_buffer
+                .borrow_mut()
+                .add_actor(),
+        }))
     }
 
     fn update_bb_for_op(

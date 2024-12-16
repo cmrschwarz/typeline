@@ -10,7 +10,7 @@ use scr_core::{
             Operator, OperatorId, OperatorName, PreboundOutputsMap,
             TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{Transform, TransformId, TransformState},
         utils::basic_transform_update::{
             basic_transform_update, BasicUpdateData,
         },
@@ -29,7 +29,6 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     scr_error::ScrError,
-    smallbox,
     utils::{lazy_lock_guard::LazyRwLockGuard, string_store::StringStore},
 };
 
@@ -106,7 +105,7 @@ impl Operator for OpFlatten {
             input_field_ref_offset,
         };
 
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(tfe)))
+        TransformInstatiation::Single(Box::new(tfe))
     }
 }
 

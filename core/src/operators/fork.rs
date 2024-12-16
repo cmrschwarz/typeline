@@ -35,7 +35,7 @@ use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{Operator, OperatorDataId, OperatorId, OperatorOffsetInChain},
     terminator::add_terminator,
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 pub struct OpFork {
@@ -230,12 +230,10 @@ impl Operator for OpFork {
         _op_id: OperatorId,
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> super::operator::TransformInstatiation<'a> {
-        super::operator::TransformInstatiation::Single(
-            TransformData::from_custom(TfFork {
-                expanded: false,
-                targets: Vec::new(),
-            }),
-        )
+        super::operator::TransformInstatiation::Single(Box::new(TfFork {
+            expanded: false,
+            targets: Vec::new(),
+        }))
     }
 
     fn update_bb_for_op(

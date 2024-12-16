@@ -23,7 +23,7 @@ use super::{
         Operator, OperatorDataId, OperatorId, OperatorInstantiation,
         OperatorOffsetInChain, PreboundOutputsMap,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 pub struct OpChunks {
@@ -149,7 +149,7 @@ impl Operator for OpChunks {
             &mut job.job_data,
             &mut job.transform_data,
             tf_state.clone(),
-            TransformData::from_custom(TfChunksHeader {
+            Box::new(TfChunksHeader {
                 parent_group_track_iter,
                 stride: self.stride,
                 curr_stride_rem: self.stride,
@@ -221,7 +221,7 @@ impl Operator for OpChunks {
             &mut job.job_data,
             &mut job.transform_data,
             trailer_tf_state,
-            TransformData::from_custom(TfChunksTrailer {}),
+            Box::new(TfChunksTrailer {}),
         );
         job.job_data.tf_mgr.transforms[out_tf_id].successor =
             Some(trailer_tf_id);

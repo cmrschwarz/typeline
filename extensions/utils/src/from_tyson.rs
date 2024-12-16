@@ -9,7 +9,7 @@ use scr_core::{
         operator::{
             Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformState},
+        transform::{Transform, TransformState},
         utils::basic_transform_update::{
             basic_transform_update, BasicUpdateData,
         },
@@ -34,7 +34,6 @@ use scr_core::{
         },
         varying_type_inserter::VaryingTypeInserter,
     },
-    smallbox,
     tyson::parse_tyson,
     utils::indexing_type::IndexingType,
 };
@@ -79,12 +78,10 @@ impl Operator for OpFromTyson {
                 tf_state,
             );
 
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(
-            TfFromTyson {
-                input_iter_id: jd.claim_iter_for_tf_state(tf_state),
-                use_floating_point_math
-            }
-        )))
+        TransformInstatiation::Single(Box::new(TfFromTyson {
+            input_iter_id: jd.claim_iter_for_tf_state(tf_state),
+            use_floating_point_math,
+        }))
     }
 }
 

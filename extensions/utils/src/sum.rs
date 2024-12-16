@@ -7,7 +7,7 @@ use scr_core::{
         operator::{
             Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformState},
+        transform::{Transform, TransformState},
         utils::basic_transform_update::{
             basic_transform_update_claim_all, BasicUpdateData,
         },
@@ -27,7 +27,6 @@ use scr_core::{
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
-    smallbox,
 };
 
 use metamatch::metamatch;
@@ -80,18 +79,15 @@ impl Operator for OpSum {
         let actor_id = jd.add_actor_for_tf_state(tf_state);
         let iter_id = jd.claim_iter_for_tf_state(tf_state);
 
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(
-            TfSum {
-                group_track_iter: jd
-                    .claim_group_track_iter_for_tf_state(tf_state),
-                input_iter_id: iter_id,
-                aggregate: AnyNumber::Int(0),
-                actor_id,
-                current_group_error_type: None,
-                floating_point_math,
-                pending_field: false
-            }
-        )))
+        TransformInstatiation::Single(Box::new(TfSum {
+            group_track_iter: jd.claim_group_track_iter_for_tf_state(tf_state),
+            input_iter_id: iter_id,
+            aggregate: AnyNumber::Int(0),
+            actor_id,
+            current_group_error_type: None,
+            floating_point_math,
+            pending_field: false,
+        }))
     }
 }
 

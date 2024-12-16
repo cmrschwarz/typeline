@@ -8,7 +8,7 @@ use crate::{
 use super::{
     errors::OperatorCreationError,
     operator::{Operator, TransformInstatiation},
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 #[derive(Clone)]
@@ -47,7 +47,7 @@ impl Operator for OpCount {
         _op_id: super::operator::OperatorId,
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        TransformInstatiation::Single(TransformData::from_custom(TfCount {
+        TransformInstatiation::Single(Box::new(TfCount {
             count: 0,
             actor: job.job_data.add_actor_for_tf_state(tf_state),
             iter: job.job_data.claim_group_track_iter_for_tf_state(tf_state),

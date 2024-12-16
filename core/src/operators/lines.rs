@@ -2,7 +2,7 @@ use crate::record_data::{action_buffer::ActorId, iter_hall::FieldIterId};
 
 use super::{
     operator::{Operator, TransformInstatiation},
-    transform::{Transform, TransformData},
+    transform::Transform,
 };
 
 pub struct OpLines {}
@@ -40,7 +40,7 @@ impl Operator for OpLines {
         _op_id: super::operator::OperatorId,
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        TransformInstatiation::Single(TransformData::from_custom(TfLines {
+        TransformInstatiation::Single(Box::new(TfLines {
             iter: job.job_data.claim_iter_for_tf_state(tf_state),
             actor: job.job_data.add_actor_for_tf_state(tf_state),
             _line_offset: 0,

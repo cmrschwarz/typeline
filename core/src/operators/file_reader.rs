@@ -40,7 +40,7 @@ use super::{
         OperatorOffsetInChain, TransformInstatiation,
     },
     regex::{create_op_regex_lines, create_op_regex_trim_trailing_newline},
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
 
@@ -549,21 +549,19 @@ impl Operator for OpFileReader {
             .job_data
             .get_setting_from_tf_state::<SettingStreamBufferSize>(tf_state);
 
-        TransformInstatiation::Single(TransformData::from_custom(
-            TfFileReader {
-                file: Some(file),
-                stream_value: None,
-                line_buffered,
-                stream_size_threshold,
-                stream_buffer_size,
-                explicit_count: self.insert_count.map(|count| ExplicitCount {
-                    count,
-                    actor_id: job.job_data.add_actor_for_tf_state(tf_state),
-                }),
-                iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
-                value_committed: false,
-            },
-        ))
+        TransformInstatiation::Single(Box::new(TfFileReader {
+            file: Some(file),
+            stream_value: None,
+            line_buffered,
+            stream_size_threshold,
+            stream_buffer_size,
+            explicit_count: self.insert_count.map(|count| ExplicitCount {
+                count,
+                actor_id: job.job_data.add_actor_for_tf_state(tf_state),
+            }),
+            iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
+            value_committed: false,
+        }))
     }
 }
 

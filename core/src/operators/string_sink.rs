@@ -51,7 +51,7 @@ use super::{
     operator::{
         Operator, OperatorId, PreboundOutputsMap, TransformInstatiation,
     },
-    transform::{Transform, TransformData, TransformId, TransformState},
+    transform::{Transform, TransformId, TransformState},
 };
 
 #[derive(Default)]
@@ -300,18 +300,16 @@ impl Operator for OpStringSink {
         _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        TransformInstatiation::Single(TransformData::from_custom(
-            TfStringSink {
-                handle: &self.handle.data,
-                iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
-                stream_value_handles: CountedUniverse::default(),
-                rationals_print_mode: job
-                    .job_data
-                    .get_setting_from_tf_state::<SettingRationalsPrintMode>(
-                        tf_state,
-                    ),
-            },
-        ))
+        TransformInstatiation::Single(Box::new(TfStringSink {
+            handle: &self.handle.data,
+            iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
+            stream_value_handles: CountedUniverse::default(),
+            rationals_print_mode: job
+                .job_data
+                .get_setting_from_tf_state::<SettingRationalsPrintMode>(
+                    tf_state,
+                ),
+        }))
     }
 }
 

@@ -14,7 +14,7 @@ use scr_core::{
             OffsetInChain, Operator, OperatorId, OperatorName,
             PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{Transform, TransformId, TransformState},
     },
     record_data::{
         field::{FieldId, FieldManager, FieldRefOffset},
@@ -29,7 +29,6 @@ use scr_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     scr_error::ScrError,
-    smallbox,
     utils::{
         stable_vec::StableVec, string_store::StringStoreEntry,
         temp_vec::BorrowedContainer,
@@ -140,7 +139,7 @@ impl Operator for OpExplode {
             input_iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
             input_field_field_ref_offset,
         };
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(tfe)))
+        TransformInstatiation::Single(Box::new(tfe))
     }
 }
 

@@ -15,7 +15,6 @@ use scr_core::{
     },
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
     scr_error::ScrError,
-    smallbox,
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
 
@@ -114,21 +113,21 @@ impl Operator for OpHead {
 
         let res = if self.count < 0 {
             let drop_count = (-self.count) as usize;
-            smallbox!(TfHeadSubtractive {
+            Box::new(TfHeadSubtractive {
                 drop_count,
                 actor_id,
                 group_track_iter,
-            })
+            }) as TransformData
         } else {
             let retain_count = self.count as usize;
-            smallbox!(TfHead {
+            Box::new(TfHead {
                 retain_total: retain_count,
                 remaining: retain_count,
                 actor_id,
                 group_track_iter,
-            })
+            }) as TransformData
         };
-        TransformInstatiation::Single(TransformData::Custom(res))
+        TransformInstatiation::Single(res)
     }
 }
 

@@ -10,14 +10,13 @@ use scr_core::{
             OffsetInChain, Operator, OperatorId, OutputFieldKind,
             PreboundOutputsMap, TransformInstatiation,
         },
-        transform::{Transform, TransformData, TransformId, TransformState},
+        transform::{Transform, TransformId, TransformState},
     },
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
         group_track::GroupTrackIterRef,
     },
     scr_error::ScrError,
-    smallbox,
 };
 
 #[derive(Default)]
@@ -90,13 +89,11 @@ impl Operator for OpDup {
         tf_state.output_field = tf_state.input_field;
         let record_group_track_iter =
             job.job_data.claim_group_track_iter_for_tf_state(tf_state);
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(
-            TfDup {
-                count: self.count,
-                actor_id,
-                record_group_track_iter
-            }
-        )))
+        TransformInstatiation::Single(Box::new(TfDup {
+            count: self.count,
+            actor_id,
+            record_group_track_iter,
+        }))
     }
 }
 

@@ -3,13 +3,12 @@ use crate::{
     liveness_analysis::OperatorLivenessOutput,
     operators::{
         operator::{Operator, OperatorName, TransformInstatiation},
-        transform::{Transform, TransformData, TransformId},
+        transform::{Transform, TransformId},
     },
     record_data::{
         action_buffer::ActorId, group_track::GroupTrackIterRef,
         iter_hall::FieldIterId,
     },
-    smallbox,
 };
 
 use super::generator_transform_update::{
@@ -112,15 +111,13 @@ impl<T: BasicGenerator> Operator for BasicGeneratorWrapper<T> {
         let input_iter = jd.claim_iter_for_tf_state(tf_state);
         let group_track_iter =
             jd.claim_group_track_iter_for_tf_state(tf_state);
-        TransformInstatiation::Single(TransformData::Custom(smallbox!(
-            BasicGeneratorTransform {
-                op: self,
-                input_iter,
-                group_track_iter,
-                actor_id,
-                generator: self.base.create_generator()
-            }
-        )))
+        TransformInstatiation::Single(Box::new(BasicGeneratorTransform {
+            op: self,
+            input_iter,
+            group_track_iter,
+            actor_id,
+            generator: self.base.create_generator(),
+        }))
     }
 
     fn output_field_kind(
