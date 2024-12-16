@@ -10,6 +10,7 @@ use crate::{
         atom::{assign_atom, OpAtom},
         call::{handle_eager_call_expansion, OpCall},
         call_concurrent::setup_callee_concurrent,
+        key::OpKey,
         operator::{
             OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
             OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
@@ -627,28 +628,28 @@ impl<'a> Job<'a> {
                     }
                     continue;
                 }
-                OperatorData::Key(k) => {
-                    let Some(NestedOp::SetUp(nested_op_id)) = k.nested_op
-                    else {
-                        debug_assert!(k.nested_op.is_none());
-                        let output_field =
-                            self.job_data.match_set_mgr.add_field_alias(
-                                &mut self.job_data.field_mgr,
-                                &mut self.job_data.scope_mgr,
-                                input_field,
-                                k.key_interned.unwrap(),
-                            );
-                        input_field = output_field;
-                        continue;
-                    };
-                    op_id = nested_op_id;
-                    op_base = &self.job_data.session_data.operator_bases
-                        [nested_op_id];
-                    op_data = &self.job_data.session_data.operator_data
-                        [op_base.op_data_id];
-                    label = k.key_interned;
-                }
                 OperatorData::Custom(op) => {
+                    if let Some(k) = op.downcast_ref::<OpKey>() {
+                        let Some(NestedOp::SetUp(nested_op_id)) = k.nested_op
+                        else {
+                            debug_assert!(k.nested_op.is_none());
+                            let output_field =
+                                self.job_data.match_set_mgr.add_field_alias(
+                                    &mut self.job_data.field_mgr,
+                                    &mut self.job_data.scope_mgr,
+                                    input_field,
+                                    k.key_interned.unwrap(),
+                                );
+                            input_field = output_field;
+                            continue;
+                        };
+                        op_id = nested_op_id;
+                        op_base = &self.job_data.session_data.operator_bases
+                            [nested_op_id];
+                        op_data = &self.job_data.session_data.operator_data
+                            [op_base.op_data_id];
+                        label = k.key_interned;
+                    }
                     if let Some(op) = op.downcast_ref::<OpCall>() {
                         if !op.lazy {
                             let mut instantiation =

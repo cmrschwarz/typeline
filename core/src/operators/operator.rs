@@ -25,11 +25,9 @@ use crate::{
 };
 
 use super::{
-    key::{setup_op_key, OpKey},
     nop::OpNop,
     select::{setup_op_select, OpSelect},
     transform::{TransformData, TransformId, TransformState},
-    utils::nested_op::{setup_op_outputs_for_nested_op, NestedOp},
 };
 
 index_newtype! {
@@ -44,7 +42,6 @@ pub type PreboundOutputsMap =
     HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>;
 
 pub enum OperatorData {
-    Key(OpKey),
     Select(OpSelect),
     Custom(SmallBox<dyn Operator, 96>),
 }
@@ -142,14 +139,6 @@ impl OperatorData {
         span: Span,
     ) -> Result<OperatorId, ScrError> {
         match self {
-            OperatorData::Key(op) => setup_op_key(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::Select(op) => setup_op_select(
                 op,
                 sess,
@@ -175,15 +164,6 @@ impl OperatorData {
     ) -> bool {
         match self {
             OperatorData::Select(_) => false,
-            OperatorData::Key(op) => {
-                let Some(nested) = &op.nested_op else {
-                    return false;
-                };
-                let &NestedOp::SetUp(op_id) = nested else {
-                    unreachable!()
-                };
-                self.has_dynamic_outputs(sess, op_id)
-            }
             OperatorData::Custom(op) => {
                 Operator::has_dynamic_outputs(&**op, sess, op_id)
             }
@@ -196,16 +176,6 @@ impl OperatorData {
     ) -> usize {
         #[allow(clippy::match_same_arms)]
         match &self {
-            OperatorData::Key(op) => {
-                let Some(nested) = &op.nested_op else {
-                    return 0;
-                };
-                let &NestedOp::SetUp(op_id) = nested else {
-                    unreachable!()
-                };
-                sess.operator_data[sess.op_data_id(op_id)]
-                    .output_count(sess, op_id)
-            }
             OperatorData::Select(_) => 0,
             OperatorData::Custom(op) => {
                 Operator::output_count(&**op, sess, op_id)
@@ -221,21 +191,6 @@ impl OperatorData {
         output_count: &mut OpOutputIdx,
     ) {
         match self {
-            OperatorData::Key(op) => {
-                if let Some(nested_op) = &op.nested_op {
-                    setup_op_outputs_for_nested_op(
-                        nested_op,
-                        sess,
-                        ld,
-                        op_id,
-                        output_count,
-                    );
-                    return;
-                }
-                let op_base = &mut sess.operator_bases[op_id];
-                op_base.outputs_start = *output_count;
-                op_base.outputs_end = op_base.outputs_start;
-            }
             OperatorData::Select(_) => {
                 let op_base = &mut sess.operator_bases[op_id];
                 op_base.outputs_start = *output_count;
@@ -249,31 +204,12 @@ impl OperatorData {
 
     pub fn default_op_name(&self) -> OperatorName {
         match self {
-            OperatorData::Key(_) => "key".into(),
             OperatorData::Select(_) => "select".into(),
             OperatorData::Custom(op) => op.default_name(),
         }
     }
     pub fn debug_op_name(&self) -> OperatorName {
         match self {
-            OperatorData::Key(op) => {
-                let Some(nested) = &op.nested_op else {
-                    return self.default_op_name();
-                };
-                match nested {
-                    NestedOp::Operator(nested_op) => {
-                        format!(
-                            "[ key '{}' {} ]",
-                            op.key,
-                            nested_op.0.debug_op_name()
-                        )
-                    }
-                    NestedOp::SetUp(op_id) => {
-                        format!("[ key '{}' <op {op_id:02}> ]", op.key)
-                    }
-                }
-                .into()
-            }
             OperatorData::Select(_) => self.default_op_name(),
             OperatorData::Custom(op) => op.debug_op_name(),
         }
@@ -285,16 +221,6 @@ impl OperatorData {
     ) -> OutputFieldKind {
         match self {
             OperatorData::Select(_) => OutputFieldKind::Unconfigured,
-            OperatorData::Key(op) => {
-                let Some(nested) = &op.nested_op else {
-                    return OutputFieldKind::SameAsInput;
-                };
-                let &NestedOp::SetUp(op_id) = nested else {
-                    unreachable!()
-                };
-                sess.operator_data[sess.op_data_id(op_id)]
-                    .output_field_kind(sess, op_id)
-            }
             OperatorData::Custom(op) => {
                 Operator::output_field_kind(&**op, sess, op_id)
             }
@@ -307,13 +233,6 @@ impl OperatorData {
         op_id: OperatorId,
     ) {
         match &self {
-            OperatorData::Key(k) => {
-                ld.add_var_name(k.key_interned.unwrap());
-                if let Some(NestedOp::SetUp(op_id)) = k.nested_op {
-                    sess.operator_data[sess.op_data_id(op_id)]
-                        .register_output_var_names(ld, sess, op_id);
-                }
-            }
             OperatorData::Select(s) => {
                 ld.add_var_name(s.key_interned.unwrap());
             }
@@ -333,33 +252,6 @@ impl OperatorData {
         output: &mut OperatorLivenessOutput,
     ) {
         match &self {
-            OperatorData::Key(key) => {
-                if let Some(NestedOp::SetUp(nested_op_id)) = key.nested_op {
-                    sess.operator_data[sess.op_data_id(nested_op_id)]
-                        .update_liveness_for_op(
-                            sess,
-                            ld,
-                            op_offset_after_last_write,
-                            nested_op_id,
-                            bb_id,
-                            input_field,
-                            output,
-                        );
-                }
-
-                let var_id = ld.var_names[&key.key_interned.unwrap()];
-                ld.vars_to_op_outputs_map[var_id] = output.primary_output;
-                ld.op_outputs[output.primary_output]
-                    .field_references
-                    .push(input_field);
-                if let Some(prev_tgt) =
-                    ld.key_aliases_map.insert(var_id, input_field)
-                {
-                    ld.apply_var_remapping(var_id, prev_tgt);
-                }
-                output.primary_output = input_field;
-                output.call_effect = OperatorCallEffect::NoCall;
-            }
             OperatorData::Select(select) => {
                 let mut var = ld.var_names[&select.key_interned.unwrap()];
                 // resolve rebinds
@@ -401,15 +293,7 @@ impl OperatorData {
             OperatorData::Custom(op) => {
                 op.on_liveness_computed(sess, ld, op_id)
             }
-            OperatorData::Key(op) => {
-                if let Some(NestedOp::SetUp(op_id)) = op.nested_op {
-                    let op_data_id = sess.op_data_id(op_id);
-                    let mut op_data =
-                        std::mem::take(&mut sess.operator_data[op_data_id]);
-                    op_data.on_liveness_computed(sess, ld, op_id);
-                    sess.operator_data[op_data_id] = op_data;
-                }
-            }
+
             OperatorData::Select(_) => (),
         }
     }
@@ -423,7 +307,7 @@ impl OperatorData {
     ) -> Option<OperatorInstantiation> {
         let tfs = &mut tf_state;
         let data: TransformData<'a> = match self {
-            OperatorData::Key(_) | OperatorData::Select(_) => unreachable!(),
+            OperatorData::Select(_) => unreachable!(),
             OperatorData::Custom(op) => {
                 match Operator::build_transforms(
                     &**op,
@@ -464,12 +348,6 @@ impl OperatorData {
         agg_offset: OffsetInAggregation,
     ) -> Option<OperatorId> {
         match self {
-            OperatorData::Key(op) => {
-                if let Some(NestedOp::SetUp(op_id)) = op.nested_op {
-                    return Some(op_id);
-                }
-                None
-            }
             OperatorData::Custom(op) => op.aggregation_member(agg_offset),
             OperatorData::Select(_) => None,
         }

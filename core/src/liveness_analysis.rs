@@ -16,10 +16,7 @@ use crate::{
     chain::{Chain, ChainId},
     context::SessionData,
     index_newtype,
-    operators::{
-        operator::{OffsetInChain, OperatorData, OperatorId},
-        utils::nested_op::NestedOp,
-    },
+    operators::operator::{OffsetInChain, OperatorData, OperatorId},
     utils::{
         get_two_distinct_mut,
         identity_hasher::BuildIdentityHasher,
@@ -582,16 +579,6 @@ impl LivenessData {
     ) -> bool {
         let op_base = &sess.operator_bases[op_id];
         match &sess.operator_data[op_base.op_data_id] {
-            OperatorData::Key(op) => {
-                let Some(nested_op) = &op.nested_op else {
-                    return false;
-                };
-                let &NestedOp::SetUp(sub_op_id) = nested_op else {
-                    unreachable!()
-                };
-                return self
-                    .update_bb_for_op(sess, sub_op_id, op_n, cn, bb_id);
-            }
             OperatorData::Select(_) => (),
             OperatorData::Custom(op) => {
                 return op
