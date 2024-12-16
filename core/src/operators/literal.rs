@@ -26,7 +26,7 @@ use crate::{
 use super::{
     errors::{OperatorApplicationError, OperatorCreationError},
     operator::{Operator, OperatorName, TransformInstatiation},
-    transform::{TransformData, TransformId, TransformState},
+    transform::{Transform, TransformData, TransformId, TransformState},
     utils::maintain_single_value::{maintain_single_value, ExplicitCount},
 };
 
@@ -111,7 +111,7 @@ impl Operator for OpLiteral {
     ) -> super::operator::TransformInstatiation<'a> {
         let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
         let iter_id = job.job_data.claim_iter_for_tf_state(tf_state);
-        TransformInstatiation::Single(TransformData::Literal(TfLiteral {
+        TransformInstatiation::Single(TransformData::from_custom(TfLiteral {
             data: &self.data,
             explicit_count: self
                 .insert_count
@@ -137,96 +137,6 @@ impl Operator for OpLiteral {
     }
 }
 
-pub fn insert_value(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    lit: &mut TfLiteral,
-) {
-    let tf = &jd.tf_mgr.transforms[tf_id];
-    let op_id = tf.op_id.unwrap();
-    let of_id = jd.tf_mgr.prepare_output_field(
-        &mut jd.field_mgr,
-        &mut jd.match_set_mgr,
-        tf_id,
-    );
-    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
-    metamatch!(match lit.data {
-        #[expand(REP in [Null, Undefined])]
-        Literal::REP => {
-            output_field
-                .iter_hall
-                .push_zst(FieldValueRepr::REP, 1, true)
-        }
-
-        #[expand((REP, PUSH_FN, VAL) in [
-            (Int, push_int, *v),
-            (Float, push_float, *v),
-            (Bytes, push_bytes, v),
-            (Text, push_str, v),
-            (Object, push_object, v.clone()),
-            (Array, push_array, v.clone()),
-            (BigInt, push_big_int, v.clone()),
-            (BigRational, push_big_rational, v.clone()),
-            (Custom, push_custom, v.clone()),
-            (Argument, push_fixed_size_type, v.clone()),
-        ])]
-        Literal::REP(v) => {
-            output_field.iter_hall.PUSH_FN(VAL, 1, true, true)
-        }
-
-        #[expand((LIT, DATA) in [(StreamString, Text), (StreamBytes, Bytes)])]
-        Literal::LIT(ss) => {
-            let sv_id = jd.sv_mgr.claim_stream_value(
-                StreamValue::from_data_done(StreamValueData::DATA {
-                    data: ss.clone(),
-                    range: 0..ss.len(),
-                }),
-            );
-            output_field
-                .iter_hall
-                .push_stream_value_id(sv_id, 1, true, false);
-        }
-
-        Literal::Error(e) => output_field.iter_hall.push_error(
-            OperatorApplicationError::new_s(e.clone(), op_id),
-            1,
-            true,
-            false,
-        ),
-
-        Literal::StreamError(ss) => {
-            let sv_id = jd.sv_mgr.claim_stream_value(StreamValue {
-                error: Some(Arc::new(OperatorApplicationError::new_s(
-                    ss.clone(),
-                    op_id,
-                ))),
-                done: true,
-                ..Default::default()
-            });
-            output_field
-                .iter_hall
-                .push_stream_value_id(sv_id, 1, true, false);
-        }
-    })
-}
-
-pub fn handle_tf_literal(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    lit: &mut TfLiteral,
-) {
-    if !lit.value_inserted {
-        lit.value_inserted = true;
-        insert_value(jd, tf_id, lit);
-    }
-    let (batch_size, ps) = maintain_single_value(
-        jd,
-        tf_id,
-        lit.explicit_count.as_ref(),
-        lit.iter_id,
-    );
-    jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
-}
 pub fn parse_op_literal_zst(
     expr: &CallExpr,
     literal: Literal,
@@ -586,4 +496,93 @@ pub fn create_op_v_n(
         Span::Generated,
         Some(insert_count),
     )
+}
+
+pub fn insert_value(
+    jd: &mut JobData,
+    tf_id: TransformId,
+    lit: &mut TfLiteral,
+) {
+    let tf = &jd.tf_mgr.transforms[tf_id];
+    let op_id = tf.op_id.unwrap();
+    let of_id = jd.tf_mgr.prepare_output_field(
+        &mut jd.field_mgr,
+        &mut jd.match_set_mgr,
+        tf_id,
+    );
+    let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
+    metamatch!(match lit.data {
+        #[expand(REP in [Null, Undefined])]
+        Literal::REP => {
+            output_field
+                .iter_hall
+                .push_zst(FieldValueRepr::REP, 1, true)
+        }
+
+        #[expand((REP, PUSH_FN, VAL) in [
+            (Int, push_int, *v),
+            (Float, push_float, *v),
+            (Bytes, push_bytes, v),
+            (Text, push_str, v),
+            (Object, push_object, v.clone()),
+            (Array, push_array, v.clone()),
+            (BigInt, push_big_int, v.clone()),
+            (BigRational, push_big_rational, v.clone()),
+            (Custom, push_custom, v.clone()),
+            (Argument, push_fixed_size_type, v.clone()),
+        ])]
+        Literal::REP(v) => {
+            output_field.iter_hall.PUSH_FN(VAL, 1, true, true)
+        }
+
+        #[expand((LIT, DATA) in [(StreamString, Text), (StreamBytes, Bytes)])]
+        Literal::LIT(ss) => {
+            let sv_id = jd.sv_mgr.claim_stream_value(
+                StreamValue::from_data_done(StreamValueData::DATA {
+                    data: ss.clone(),
+                    range: 0..ss.len(),
+                }),
+            );
+            output_field
+                .iter_hall
+                .push_stream_value_id(sv_id, 1, true, false);
+        }
+
+        Literal::Error(e) => output_field.iter_hall.push_error(
+            OperatorApplicationError::new_s(e.clone(), op_id),
+            1,
+            true,
+            false,
+        ),
+
+        Literal::StreamError(ss) => {
+            let sv_id = jd.sv_mgr.claim_stream_value(StreamValue {
+                error: Some(Arc::new(OperatorApplicationError::new_s(
+                    ss.clone(),
+                    op_id,
+                ))),
+                done: true,
+                ..Default::default()
+            });
+            output_field
+                .iter_hall
+                .push_stream_value_id(sv_id, 1, true, false);
+        }
+    })
+}
+
+impl<'a> Transform<'a> for TfLiteral<'a> {
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        if !self.value_inserted {
+            self.value_inserted = true;
+            insert_value(jd, tf_id, self);
+        }
+        let (batch_size, ps) = maintain_single_value(
+            jd,
+            tf_id,
+            self.explicit_count.as_ref(),
+            self.iter_id,
+        );
+        jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+    }
 }

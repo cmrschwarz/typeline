@@ -21,10 +21,7 @@ use crate::{
 
 use metamatch::metamatch;
 
-use super::{
-    literal::{handle_tf_literal, TfLiteral},
-    operator::{OperatorId, OutputFieldKind},
-};
+use super::operator::{OperatorId, OutputFieldKind};
 
 pub type DefaultTransformName = SmallString<[u8; 32]>;
 
@@ -35,7 +32,6 @@ index_newtype! {
 
 pub enum TransformData<'a> {
     Disabled,
-    Literal(TfLiteral<'a>),
     Custom(SmallBox<dyn Transform<'a> + 'a, 32>),
 }
 
@@ -56,7 +52,6 @@ impl<'a> TransformData<'a> {
     ) -> DefaultTransformName {
         match self {
             TransformData::Disabled => "disabled",
-            TransformData::Literal(_) => "literal",
             TransformData::Custom(tf) => return tf.display_name(jd, tf_id),
         }
         .into()
@@ -68,8 +63,6 @@ impl<'a> TransformData<'a> {
         fields: &mut Vec<FieldId>,
     ) {
         match self {
-            TransformData::Literal(_) => fields.push(tf_state.output_field),
-
             // TODO: fix this
             TransformData::Disabled => (),
 
@@ -81,7 +74,7 @@ impl<'a> TransformData<'a> {
 
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
         metamatch!(match self {
-            TransformData::Disabled | TransformData::Literal(_) => None,
+            TransformData::Disabled => None,
 
             TransformData::Custom(o) => o.downcast_ref(),
         })
@@ -89,7 +82,7 @@ impl<'a> TransformData<'a> {
 
     pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
         metamatch!(match self {
-            TransformData::Disabled | TransformData::Literal(_) => None,
+            TransformData::Disabled => None,
 
             TransformData::Custom(o) => o.downcast_mut(),
         })
@@ -255,7 +248,7 @@ pub fn transform_pre_update(
     tf_id: TransformId,
 ) -> Result<(), VentureDescription> {
     match &mut job.transform_data[tf_id] {
-        TransformData::Disabled | TransformData::Literal(_) => (),
+        TransformData::Disabled => (),
         TransformData::Custom(tf) => {
             if tf.pre_update_required() {
                 let mut tf = std::mem::replace(
@@ -277,7 +270,6 @@ pub fn transform_pre_update(
 pub fn transform_update(job: &mut Job, tf_id: TransformId) {
     let jd = &mut job.job_data;
     match &mut job.transform_data[tf_id] {
-        TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
         TransformData::Custom(tf) => tf.update(jd, tf_id),
         TransformData::Disabled => unreachable!(),
     }
@@ -285,7 +277,7 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
 
 pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
     match &mut job.transform_data[tf_id] {
-        TransformData::Disabled | TransformData::Literal(_) => unreachable!(),
+        TransformData::Disabled => unreachable!(),
         TransformData::Custom(c) => {
             c.stream_producer_update(&mut job.job_data, tf_id)
         }
@@ -295,7 +287,7 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
 pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
     let jd = &mut job.job_data;
     match &mut job.transform_data[svu.tf_id] {
-        TransformData::Disabled | TransformData::Literal(_) => unreachable!(),
+        TransformData::Disabled => unreachable!(),
         TransformData::Custom(tf) => tf.handle_stream_value_update(jd, svu),
     }
 }
