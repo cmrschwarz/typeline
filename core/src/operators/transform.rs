@@ -26,10 +26,6 @@ use super::{
         handle_tf_aggregator_header, handle_tf_aggregator_trailer,
         TfAggregatorHeader, TfAggregatorTrailer,
     },
-    chunks::{
-        handle_tf_chunks_header, handle_tf_chunks_trailer, TfChunksHeader,
-        TfChunksTrailer,
-    },
     fork::{handle_fork_expansion, handle_tf_fork, TfFork},
     literal::{handle_tf_literal, TfLiteral},
     operator::{OperatorId, OutputFieldKind},
@@ -48,8 +44,6 @@ pub enum TransformData<'a> {
     Literal(TfLiteral<'a>),
     AggregatorHeader(TfAggregatorHeader),
     AggregatorTrailer(TfAggregatorTrailer),
-    ChunksHeader(TfChunksHeader),
-    ChunksTrailer(TfChunksTrailer),
     Custom(SmallBox<dyn Transform<'a> + 'a, 32>),
 }
 
@@ -74,8 +68,6 @@ impl<'a> TransformData<'a> {
             TransformData::Literal(_) => "literal",
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
-            TransformData::ChunksHeader(_) => "chunks_header",
-            TransformData::ChunksTrailer(_) => "chunks_trailer",
             TransformData::Custom(tf) => return tf.display_name(jd, tf_id),
         }
         .into()
@@ -95,9 +87,7 @@ impl<'a> TransformData<'a> {
             // TODO: fix this
             TransformData::Disabled
             | TransformData::Fork(_)
-            | TransformData::AggregatorHeader(_)
-            | TransformData::ChunksHeader(_)
-            | TransformData::ChunksTrailer(_) => (),
+            | TransformData::AggregatorHeader(_) => (),
 
             TransformData::Custom(custom) => {
                 custom.collect_out_fields(jd, tf_state, fields)
@@ -114,8 +104,6 @@ impl<'a> TransformData<'a> {
             #[expand(T in [
                 AggregatorHeader,
                 AggregatorTrailer,
-                ChunksHeader,
-                ChunksTrailer,
             ])]
             TransformData::T(o) => {
                 let a: &dyn Any = o;
@@ -135,8 +123,6 @@ impl<'a> TransformData<'a> {
             #[expand(T in [
                 AggregatorHeader,
                 AggregatorTrailer,
-                ChunksHeader,
-                ChunksTrailer,
             ])]
             TransformData::T(o) => {
                 let a: &mut dyn Any = o;
@@ -313,8 +299,6 @@ pub fn transform_pre_update(
             }
         }
         TransformData::Disabled
-        | TransformData::ChunksHeader(_)
-        | TransformData::ChunksTrailer(_)
         | TransformData::Literal(_)
         | TransformData::AggregatorHeader(_)
         | TransformData::AggregatorTrailer(_) => (),
@@ -350,12 +334,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::AggregatorTrailer(_) => {
             handle_tf_aggregator_trailer(job, tf_id)
         }
-        TransformData::ChunksHeader(eh) => {
-            handle_tf_chunks_header(jd, tf_id, eh)
-        }
-        TransformData::ChunksTrailer(et) => {
-            handle_tf_chunks_trailer(jd, tf_id, et)
-        }
         TransformData::Disabled => unreachable!(),
     }
 }
@@ -367,9 +345,7 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
             | TransformData::Literal(_)
             //these go straight to the sub transforms
             | TransformData::AggregatorHeader(_)
-            | TransformData::AggregatorTrailer(_)
-            | TransformData::ChunksHeader(_)
-            | TransformData::ChunksTrailer(_) => unreachable!(),
+            | TransformData::AggregatorTrailer(_)=> unreachable!(),
             TransformData::Custom(c) => {
                 c.stream_producer_update(&mut job.job_data, tf_id)
             }
@@ -380,8 +356,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
     let jd = &mut job.job_data;
     match &mut job.transform_data[svu.tf_id] {
         TransformData::Fork(_) |
-        TransformData::ChunksHeader(_) |
-        TransformData::ChunksTrailer(_) |
         TransformData::Disabled |
         TransformData::Literal(_) |
         // these go to the individual transforms

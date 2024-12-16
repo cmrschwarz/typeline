@@ -23,7 +23,7 @@ use super::{
         Operator, OperatorDataId, OperatorId, OperatorInstantiation,
         OperatorOffsetInChain, PreboundOutputsMap,
     },
-    transform::{TransformData, TransformId, TransformState},
+    transform::{Transform, TransformData, TransformId, TransformState},
 };
 
 pub struct OpChunks {
@@ -38,135 +38,6 @@ pub struct TfChunksHeader {
     starting_new_group: bool,
 }
 pub struct TfChunksTrailer {}
-
-pub fn handle_tf_chunks_header(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    ch: &mut TfChunksHeader,
-) {
-    let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
-    if batch_size == 0 {
-        jd.tf_mgr.submit_batch(
-            tf_id,
-            batch_size,
-            ps.group_to_truncate,
-            ps.input_done,
-        );
-        return;
-    }
-    let tf = &jd.tf_mgr.transforms[tf_id];
-
-    let in_group_track_id = tf.input_group_track_id;
-    let out_group_track_id = tf.output_group_track_id;
-
-    let mut group_track = jd
-        .group_track_manager
-        .borrow_group_track_mut(out_group_track_id);
-
-    group_track.apply_field_actions(&jd.match_set_mgr);
-    let mut parent_record_group_iter =
-        jd.group_track_manager.lookup_group_track_iter(
-            GroupTrackIterRef {
-                track_id: in_group_track_id,
-                iter_id: ch.parent_group_track_iter,
-            },
-            &jd.match_set_mgr,
-        );
-
-    let stride = ch.stride;
-
-    let mut size_rem = batch_size;
-
-    let gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
-
-    let append_prev = ch.curr_stride_rem != stride;
-
-    let appendable = ch.curr_stride_rem.min(gs_rem);
-
-    if append_prev {
-        let idx = group_track.group_lengths.len() - 1;
-        group_track.group_lengths.add_value(idx, appendable);
-        parent_record_group_iter.next_n_fields(appendable);
-        ch.curr_stride_rem -= appendable;
-        size_rem -= appendable;
-        let eog = parent_record_group_iter.is_end_of_group(ps.input_done);
-        if eog && parent_record_group_iter.try_next_group() {
-            ch.curr_stride_rem = stride;
-        }
-        if (!eog && ch.curr_stride_rem > 0) || size_rem == 0 {
-            parent_record_group_iter.store_iter(ch.parent_group_track_iter);
-            jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
-            return;
-        }
-    }
-
-    group_track
-        .group_lengths
-        .promote_to_size_class_of_value(ch.stride);
-
-    loop {
-        let gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
-        parent_record_group_iter.next_n_fields(gs_rem);
-
-        let (full_groups, partial_group) = gs_rem.div_rem(&stride);
-        let have_partial_group = partial_group != 0;
-        let group_count = full_groups + usize::from(have_partial_group);
-        // FIXME: this is wrong. count skipped zero groups
-        group_track
-            .parent_group_advancement
-            .push_back_truncated(usize::from(ch.starting_new_group));
-        ch.starting_new_group = false;
-
-        group_track
-            .parent_group_advancement
-            .extend_truncated(iter::repeat(0).take(group_count - 1));
-        group_track
-            .group_lengths
-            .extend_truncated(iter::repeat(stride).take(full_groups));
-        if have_partial_group {
-            group_track.group_lengths.push_back_truncated(partial_group);
-        }
-        size_rem -= gs_rem;
-
-        if size_rem == 0 {
-            ch.curr_stride_rem = stride - partial_group;
-            break;
-        }
-        parent_record_group_iter.next_group();
-        ch.starting_new_group = true;
-    }
-    parent_record_group_iter.store_iter(ch.parent_group_track_iter);
-
-    jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
-}
-
-pub fn handle_tf_chunks_trailer(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    _fet: &TfChunksTrailer,
-) {
-    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
-
-    let tf = &jd.tf_mgr.transforms[tf_id];
-
-    let in_group_track_id = tf.input_group_track_id;
-    let out_group_track_id = tf.output_group_track_id;
-
-    jd.group_track_manager.pass_on_leading_groups_to_parent(
-        &jd.match_set_mgr,
-        in_group_track_id,
-        batch_size,
-        ps.input_done,
-        out_group_track_id,
-    );
-
-    jd.tf_mgr.submit_batch(
-        tf_id,
-        batch_size,
-        ps.group_to_truncate,
-        ps.input_done,
-    );
-}
 
 pub fn create_op_chunks_with_spans(
     stride: usize,
@@ -278,7 +149,7 @@ impl Operator for OpChunks {
             &mut job.job_data,
             &mut job.transform_data,
             tf_state.clone(),
-            TransformData::ChunksHeader(TfChunksHeader {
+            TransformData::from_custom(TfChunksHeader {
                 parent_group_track_iter,
                 stride: self.stride,
                 curr_stride_rem: self.stride,
@@ -350,7 +221,7 @@ impl Operator for OpChunks {
             &mut job.job_data,
             &mut job.transform_data,
             trailer_tf_state,
-            TransformData::ChunksTrailer(TfChunksTrailer {}),
+            TransformData::from_custom(TfChunksTrailer {}),
         );
         job.job_data.tf_mgr.transforms[out_tf_id].successor =
             Some(trailer_tf_id);
@@ -413,4 +284,144 @@ pub fn parse_op_chunks(
     }
 
     Ok(create_op_chunks_with_spans(stride, stride_span, subchain)?)
+}
+
+impl<'a> Transform<'a> for TfChunksHeader {
+    fn display_name(
+        &self,
+        _jd: &JobData,
+        _tf_id: TransformId,
+    ) -> super::transform::DefaultTransformName {
+        "chunks_header".into()
+    }
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
+        if batch_size == 0 {
+            jd.tf_mgr.submit_batch(
+                tf_id,
+                batch_size,
+                ps.group_to_truncate,
+                ps.input_done,
+            );
+            return;
+        }
+        let tf = &jd.tf_mgr.transforms[tf_id];
+
+        let in_group_track_id = tf.input_group_track_id;
+        let out_group_track_id = tf.output_group_track_id;
+
+        let mut group_track = jd
+            .group_track_manager
+            .borrow_group_track_mut(out_group_track_id);
+
+        group_track.apply_field_actions(&jd.match_set_mgr);
+        let mut parent_record_group_iter =
+            jd.group_track_manager.lookup_group_track_iter(
+                GroupTrackIterRef {
+                    track_id: in_group_track_id,
+                    iter_id: self.parent_group_track_iter,
+                },
+                &jd.match_set_mgr,
+            );
+
+        let stride = self.stride;
+
+        let mut size_rem = batch_size;
+
+        let gs_rem = parent_record_group_iter.group_len_rem().min(size_rem);
+
+        let append_prev = self.curr_stride_rem != stride;
+
+        let appendable = self.curr_stride_rem.min(gs_rem);
+
+        if append_prev {
+            let idx = group_track.group_lengths.len() - 1;
+            group_track.group_lengths.add_value(idx, appendable);
+            parent_record_group_iter.next_n_fields(appendable);
+            self.curr_stride_rem -= appendable;
+            size_rem -= appendable;
+            let eog = parent_record_group_iter.is_end_of_group(ps.input_done);
+            if eog && parent_record_group_iter.try_next_group() {
+                self.curr_stride_rem = stride;
+            }
+            if (!eog && self.curr_stride_rem > 0) || size_rem == 0 {
+                parent_record_group_iter
+                    .store_iter(self.parent_group_track_iter);
+                jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+                return;
+            }
+        }
+
+        group_track
+            .group_lengths
+            .promote_to_size_class_of_value(self.stride);
+
+        loop {
+            let gs_rem =
+                parent_record_group_iter.group_len_rem().min(size_rem);
+            parent_record_group_iter.next_n_fields(gs_rem);
+
+            let (full_groups, partial_group) = gs_rem.div_rem(&stride);
+            let have_partial_group = partial_group != 0;
+            let group_count = full_groups + usize::from(have_partial_group);
+            // FIXME: this is wrong. count skipped zero groups
+            group_track
+                .parent_group_advancement
+                .push_back_truncated(usize::from(self.starting_new_group));
+            self.starting_new_group = false;
+
+            group_track
+                .parent_group_advancement
+                .extend_truncated(iter::repeat(0).take(group_count - 1));
+            group_track
+                .group_lengths
+                .extend_truncated(iter::repeat(stride).take(full_groups));
+            if have_partial_group {
+                group_track.group_lengths.push_back_truncated(partial_group);
+            }
+            size_rem -= gs_rem;
+
+            if size_rem == 0 {
+                self.curr_stride_rem = stride - partial_group;
+                break;
+            }
+            parent_record_group_iter.next_group();
+            self.starting_new_group = true;
+        }
+        parent_record_group_iter.store_iter(self.parent_group_track_iter);
+
+        jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
+    }
+}
+impl<'a> Transform<'a> for TfChunksTrailer {
+    fn display_name(
+        &self,
+        _jd: &JobData,
+        _tf_id: TransformId,
+    ) -> super::transform::DefaultTransformName {
+        "chunks_trailer".into()
+    }
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+
+        let tf = &jd.tf_mgr.transforms[tf_id];
+
+        let in_group_track_id = tf.input_group_track_id;
+        let out_group_track_id = tf.output_group_track_id;
+
+        jd.group_track_manager.pass_on_leading_groups_to_parent(
+            &jd.match_set_mgr,
+            in_group_track_id,
+            batch_size,
+            ps.input_done,
+            out_group_track_id,
+        );
+
+        jd.tf_mgr.submit_batch(
+            tf_id,
+            batch_size,
+            ps.group_to_truncate,
+            ps.input_done,
+        );
+    }
 }
