@@ -26,10 +26,7 @@ use super::{
         handle_tf_aggregator_header, handle_tf_aggregator_trailer,
         TfAggregatorHeader, TfAggregatorTrailer,
     },
-    call_concurrent::{
-        handle_call_concurrent_expansion, handle_tf_call_concurrent,
-        handle_tf_callee_concurrent, TfCallConcurrent, TfCalleeConcurrent,
-    },
+    call_concurrent::{handle_tf_callee_concurrent, TfCalleeConcurrent},
     chunks::{
         handle_tf_chunks_header, handle_tf_chunks_trailer, TfChunksHeader,
         TfChunksTrailer,
@@ -48,7 +45,6 @@ index_newtype! {
 
 pub enum TransformData<'a> {
     Disabled,
-    CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
     Fork(TfFork<'a>),
     Literal(TfLiteral<'a>),
@@ -76,7 +72,6 @@ impl<'a> TransformData<'a> {
     ) -> DefaultTransformName {
         match self {
             TransformData::Disabled => "disabled",
-            TransformData::CallConcurrent(_) => "callcc",
             TransformData::CalleeConcurrent(_) => "callcc_callee",
             TransformData::Fork(_) => "fork",
             TransformData::Literal(_) => "literal",
@@ -106,7 +101,6 @@ impl<'a> TransformData<'a> {
             | TransformData::AggregatorHeader(_)
             | TransformData::ChunksHeader(_)
             | TransformData::ChunksTrailer(_)
-            | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_) => (),
 
             TransformData::Custom(custom) => {
@@ -118,7 +112,6 @@ impl<'a> TransformData<'a> {
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
         metamatch!(match self {
             TransformData::Disabled
-            | TransformData::CallConcurrent(_)
             | TransformData::Literal(_)
             | TransformData::Fork(_) => None,
 
@@ -137,6 +130,28 @@ impl<'a> TransformData<'a> {
             TransformData::Custom(o) => o.downcast_ref(),
         })
     }
+
+    pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
+        metamatch!(match self {
+            TransformData::Disabled
+            | TransformData::Literal(_)
+            | TransformData::Fork(_) => None,
+
+            #[expand(T in [
+                CalleeConcurrent,
+                AggregatorHeader,
+                AggregatorTrailer,
+                ChunksHeader,
+                ChunksTrailer,
+            ])]
+            TransformData::T(o) => {
+                let a: &mut dyn Any = o;
+                a.downcast_mut()
+            }
+
+            TransformData::Custom(o) => o.downcast_mut(),
+        })
+    }
 }
 #[derive(Clone)]
 pub struct TransformState {
@@ -148,8 +163,10 @@ pub struct TransformState {
     pub available_batch_size: usize,
     pub desired_batch_size: usize,
     pub match_set_id: MatchSetId,
+
     // This might be None for special transforms like the subchain terminator
     pub op_id: Option<OperatorId>,
+
     pub is_stream_producer: bool,
     pub is_ready: bool,
     // means that the a transform that has us as it's successor indicated to
@@ -244,7 +261,14 @@ pub trait Transform<'a>: Send + 'a {
     fn pre_update_required(&self) -> bool {
         false
     }
-    fn pre_update(&mut self, _sess: &mut Job<'a>, _tf_id: TransformId) {}
+    fn pre_update(
+        &mut self,
+        _ctx: Option<&Arc<ContextData>>,
+        _job: &mut Job<'a>,
+        _tf_id: TransformId,
+    ) -> Result<(), VentureDescription> {
+        Ok(())
+    }
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId);
     fn collect_out_fields(
         &self,
@@ -284,19 +308,14 @@ impl<'a> dyn Transform<'a> {
 }
 
 pub fn transform_pre_update(
+    ctx: Option<&Arc<ContextData>>,
     job: &mut Job,
     tf_id: TransformId,
-    ctx: Option<&Arc<ContextData>>,
 ) -> Result<(), VentureDescription> {
     match &mut job.transform_data[tf_id] {
         TransformData::Fork(fork) => {
             if !fork.expanded {
                 handle_fork_expansion(job, tf_id, ctx);
-            }
-        }
-        TransformData::CallConcurrent(callcc) => {
-            if !callcc.expanded {
-                handle_call_concurrent_expansion(job, tf_id, ctx)?;
             }
         }
         TransformData::Disabled
@@ -315,8 +334,9 @@ pub fn transform_pre_update(
                 let TransformData::Custom(tf_custom) = &mut tf else {
                     unreachable!()
                 };
-                tf_custom.pre_update(job, tf_id);
+                let res = tf_custom.pre_update(ctx, job, tf_id);
                 let _ = std::mem::replace(&mut job.transform_data[tf_id], tf);
+                return res;
             }
         }
     }
@@ -330,9 +350,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
             handle_tf_fork(jd, tf_id, tf);
         }
         TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
-        TransformData::CallConcurrent(tf) => {
-            handle_tf_call_concurrent(jd, tf_id, tf)
-        }
         TransformData::CalleeConcurrent(tf) => {
             handle_tf_callee_concurrent(jd, tf_id, tf)
         }
@@ -356,7 +373,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
 pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
     match &mut job.transform_data[tf_id] {
             TransformData::Disabled
-            | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_)
             | TransformData::Fork(_)
             | TransformData::Literal(_)
@@ -374,7 +390,6 @@ pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
 pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
     let jd = &mut job.job_data;
     match &mut job.transform_data[svu.tf_id] {
-        TransformData::CallConcurrent(_) |
         TransformData::Fork(_) |
         TransformData::ChunksHeader(_) |
         TransformData::ChunksTrailer(_) |

@@ -1,8 +1,9 @@
-use std::{any::Any, collections::HashMap};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
+    context::{ContextData, VentureDescription},
     job::{Job, JobData},
     liveness_analysis::OperatorCallEffect,
     options::session_setup::SessionSetupData,
@@ -168,30 +169,35 @@ impl<'a> Transform<'a> for TfCall {
     fn pre_update_required(&self) -> bool {
         true
     }
-    fn pre_update(&mut self, sess: &mut Job<'a>, tf_id: TransformId) {
-        let tf = &mut sess.job_data.tf_mgr.transforms[tf_id];
+    fn pre_update(
+        &mut self,
+        _ctx: Option<&Arc<ContextData>>,
+        job: &mut Job<'a>,
+        tf_id: TransformId,
+    ) -> Result<(), VentureDescription> {
+        let tf = &mut job.job_data.tf_mgr.transforms[tf_id];
         let old_successor = tf.successor;
         let input_field = tf.input_field;
         let input_group_track = tf.input_group_track_id;
         let ms_id = tf.match_set_id;
-        let call =
-            sess.transform_data[tf_id].downcast_ref::<TfCall>().unwrap();
+        let call = job.transform_data[tf_id].downcast_ref::<TfCall>().unwrap();
         // TODO: do we need a prebound output so succesor can keep it's input
         // field?
-        let instantiation = sess.setup_transforms_from_op(
+        let instantiation = job.setup_transforms_from_op(
             ms_id,
-            sess.job_data.session_data.chains[call.target].operators
+            job.job_data.session_data.chains[call.target].operators
                 [OffsetInChain::zero()],
             input_field,
             input_group_track,
             Some(tf_id),
             &HashMap::default(),
         );
-        sess.job_data.tf_mgr.transforms[instantiation.tfs_end].successor =
+        job.job_data.tf_mgr.transforms[instantiation.tfs_end].successor =
             old_successor;
-        let (batch_size, _input_done) = sess.job_data.tf_mgr.claim_all(tf_id);
+        let (batch_size, _input_done) = job.job_data.tf_mgr.claim_all(tf_id);
         // TODO: is this fine considering e.g. forkcat with no predecessors?
-        sess.job_data.unlink_transform(tf_id, batch_size);
+        job.job_data.unlink_transform(tf_id, batch_size);
+        Ok(())
     }
     fn as_any(&self) -> Option<&dyn Any> {
         Some(self)

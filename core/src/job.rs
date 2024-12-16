@@ -881,7 +881,7 @@ impl<'a> Job<'a> {
             );
         }
 
-        transform_pre_update(self, tf_id, ctx)?;
+        transform_pre_update(ctx, self, tf_id)?;
         transform_update(self, tf_id);
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
             if tf.mark_for_removal && !tf.is_stream_producer {
