@@ -263,22 +263,22 @@ fn setup_transform_tf_envs(
                 match_chains.push(fc_mc);
                 return succ;
             }
+            if let Some(agg) = tf.downcast_ref::<TfAggregatorHeader>() {
+                return Some(setup_aggregator_tf_envs(
+                    jd,
+                    tf_data,
+                    agg,
+                    tf_id,
+                    match_chains,
+                    match_chain,
+                ));
+            }
         }
         TransformData::Fork(fc) => {
             match_chain
                 .tf_envs
                 .push(setup_fork_tf_env(jd, tf_data, fc, tf_id));
             return succ;
-        }
-        TransformData::AggregatorHeader(agg) => {
-            return Some(setup_aggregator_tf_envs(
-                jd,
-                tf_data,
-                agg,
-                tf_id,
-                match_chains,
-                match_chain,
-            ));
         }
         _ => (),
     }

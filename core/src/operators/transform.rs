@@ -22,10 +22,6 @@ use crate::{
 use metamatch::metamatch;
 
 use super::{
-    aggregator::{
-        handle_tf_aggregator_header, handle_tf_aggregator_trailer,
-        TfAggregatorHeader, TfAggregatorTrailer,
-    },
     fork::{handle_fork_expansion, handle_tf_fork, TfFork},
     literal::{handle_tf_literal, TfLiteral},
     operator::{OperatorId, OutputFieldKind},
@@ -42,8 +38,6 @@ pub enum TransformData<'a> {
     Disabled,
     Fork(TfFork<'a>),
     Literal(TfLiteral<'a>),
-    AggregatorHeader(TfAggregatorHeader),
-    AggregatorTrailer(TfAggregatorTrailer),
     Custom(SmallBox<dyn Transform<'a> + 'a, 32>),
 }
 
@@ -66,8 +60,6 @@ impl<'a> TransformData<'a> {
             TransformData::Disabled => "disabled",
             TransformData::Fork(_) => "fork",
             TransformData::Literal(_) => "literal",
-            TransformData::AggregatorHeader(_) => "aggregator_header",
-            TransformData::AggregatorTrailer(_) => "aggregator_trailer",
             TransformData::Custom(tf) => return tf.display_name(jd, tf_id),
         }
         .into()
@@ -79,15 +71,10 @@ impl<'a> TransformData<'a> {
         fields: &mut Vec<FieldId>,
     ) {
         match self {
-            TransformData::Literal(_)
-            | TransformData::AggregatorTrailer(_) => {
-                fields.push(tf_state.output_field)
-            }
+            TransformData::Literal(_) => fields.push(tf_state.output_field),
 
             // TODO: fix this
-            TransformData::Disabled
-            | TransformData::Fork(_)
-            | TransformData::AggregatorHeader(_) => (),
+            TransformData::Disabled | TransformData::Fork(_) => (),
 
             TransformData::Custom(custom) => {
                 custom.collect_out_fields(jd, tf_state, fields)
@@ -101,15 +88,6 @@ impl<'a> TransformData<'a> {
             | TransformData::Literal(_)
             | TransformData::Fork(_) => None,
 
-            #[expand(T in [
-                AggregatorHeader,
-                AggregatorTrailer,
-            ])]
-            TransformData::T(o) => {
-                let a: &dyn Any = o;
-                a.downcast_ref()
-            }
-
             TransformData::Custom(o) => o.downcast_ref(),
         })
     }
@@ -119,15 +97,6 @@ impl<'a> TransformData<'a> {
             TransformData::Disabled
             | TransformData::Literal(_)
             | TransformData::Fork(_) => None,
-
-            #[expand(T in [
-                AggregatorHeader,
-                AggregatorTrailer,
-            ])]
-            TransformData::T(o) => {
-                let a: &mut dyn Any = o;
-                a.downcast_mut()
-            }
 
             TransformData::Custom(o) => o.downcast_mut(),
         })
@@ -298,10 +267,7 @@ pub fn transform_pre_update(
                 handle_fork_expansion(job, tf_id, ctx);
             }
         }
-        TransformData::Disabled
-        | TransformData::Literal(_)
-        | TransformData::AggregatorHeader(_)
-        | TransformData::AggregatorTrailer(_) => (),
+        TransformData::Disabled | TransformData::Literal(_) => (),
         TransformData::Custom(tf) => {
             if tf.pre_update_required() {
                 let mut tf = std::mem::replace(
@@ -328,42 +294,27 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         }
         TransformData::Literal(tf) => handle_tf_literal(jd, tf_id, tf),
         TransformData::Custom(tf) => tf.update(jd, tf_id),
-        TransformData::AggregatorHeader(agg_header) => {
-            handle_tf_aggregator_header(jd, tf_id, agg_header);
-        }
-        TransformData::AggregatorTrailer(_) => {
-            handle_tf_aggregator_trailer(job, tf_id)
-        }
         TransformData::Disabled => unreachable!(),
     }
 }
 
 pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
     match &mut job.transform_data[tf_id] {
-            TransformData::Disabled
-            | TransformData::Fork(_)
-            | TransformData::Literal(_)
-            //these go straight to the sub transforms
-            | TransformData::AggregatorHeader(_)
-            | TransformData::AggregatorTrailer(_)=> unreachable!(),
-            TransformData::Custom(c) => {
-                c.stream_producer_update(&mut job.job_data, tf_id)
-            }
+        TransformData::Disabled
+        | TransformData::Fork(_)
+        | TransformData::Literal(_) => unreachable!(),
+        TransformData::Custom(c) => {
+            c.stream_producer_update(&mut job.job_data, tf_id)
         }
+    }
 }
 
 pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
     let jd = &mut job.job_data;
     match &mut job.transform_data[svu.tf_id] {
-        TransformData::Fork(_) |
-        TransformData::Disabled |
-        TransformData::Literal(_) |
-        // these go to the individual transforms
-        TransformData::AggregatorHeader(_) |
-        TransformData::AggregatorTrailer(_) => unreachable!(),
-        TransformData::Custom(tf) => tf.handle_stream_value_update(
-            jd,
-            svu
-        ),
+        TransformData::Fork(_)
+        | TransformData::Disabled
+        | TransformData::Literal(_) => unreachable!(),
+        TransformData::Custom(tf) => tf.handle_stream_value_update(jd, svu),
     }
 }
