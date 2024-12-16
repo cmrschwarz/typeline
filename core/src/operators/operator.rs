@@ -9,8 +9,7 @@ use crate::{
     index_newtype,
     job::{add_transform_to_job, Job},
     liveness_analysis::{
-        BasicBlockId, LivenessData, OpOutputIdx, OperatorCallEffect,
-        OperatorLivenessOutput, VarId,
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
     },
     options::session_setup::SessionSetupData,
     record_data::{
@@ -26,7 +25,6 @@ use crate::{
 
 use super::{
     nop::OpNop,
-    select::{setup_op_select, OpSelect},
     transform::{TransformData, TransformId, TransformState},
 };
 
@@ -42,7 +40,6 @@ pub type PreboundOutputsMap =
     HashMap<OpOutputIdx, FieldId, BuildIdentityHasher>;
 
 pub enum OperatorData {
-    Select(OpSelect),
     Custom(SmallBox<dyn Operator, 96>),
 }
 
@@ -139,14 +136,6 @@ impl OperatorData {
         span: Span,
     ) -> Result<OperatorId, ScrError> {
         match self {
-            OperatorData::Select(op) => setup_op_select(
-                op,
-                sess,
-                op_data_id,
-                chain_id,
-                offset_in_chain,
-                span,
-            ),
             OperatorData::Custom(op) => Operator::setup(
                 &mut **op,
                 sess,
@@ -163,7 +152,6 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> bool {
         match self {
-            OperatorData::Select(_) => false,
             OperatorData::Custom(op) => {
                 Operator::has_dynamic_outputs(&**op, sess, op_id)
             }
@@ -176,7 +164,6 @@ impl OperatorData {
     ) -> usize {
         #[allow(clippy::match_same_arms)]
         match &self {
-            OperatorData::Select(_) => 0,
             OperatorData::Custom(op) => {
                 Operator::output_count(&**op, sess, op_id)
             }
@@ -191,11 +178,6 @@ impl OperatorData {
         output_count: &mut OpOutputIdx,
     ) {
         match self {
-            OperatorData::Select(_) => {
-                let op_base = &mut sess.operator_bases[op_id];
-                op_base.outputs_start = *output_count;
-                op_base.outputs_end = op_base.outputs_start;
-            }
             OperatorData::Custom(op) => {
                 op.assign_op_outputs(sess, ld, op_id, output_count)
             }
@@ -204,13 +186,11 @@ impl OperatorData {
 
     pub fn default_op_name(&self) -> OperatorName {
         match self {
-            OperatorData::Select(_) => "select".into(),
             OperatorData::Custom(op) => op.default_name(),
         }
     }
     pub fn debug_op_name(&self) -> OperatorName {
         match self {
-            OperatorData::Select(_) => self.default_op_name(),
             OperatorData::Custom(op) => op.debug_op_name(),
         }
     }
@@ -220,7 +200,6 @@ impl OperatorData {
         op_id: OperatorId,
     ) -> OutputFieldKind {
         match self {
-            OperatorData::Select(_) => OutputFieldKind::Unconfigured,
             OperatorData::Custom(op) => {
                 Operator::output_field_kind(&**op, sess, op_id)
             }
@@ -233,9 +212,6 @@ impl OperatorData {
         op_id: OperatorId,
     ) {
         match &self {
-            OperatorData::Select(s) => {
-                ld.add_var_name(s.key_interned.unwrap());
-            }
             OperatorData::Custom(op) => {
                 op.register_output_var_names(ld, sess, op_id)
             }
@@ -252,25 +228,6 @@ impl OperatorData {
         output: &mut OperatorLivenessOutput,
     ) {
         match &self {
-            OperatorData::Select(select) => {
-                let mut var = ld.var_names[&select.key_interned.unwrap()];
-                // resolve rebinds
-                loop {
-                    let field = ld.vars_to_op_outputs_map[var];
-                    if field.into_usize() >= ld.vars.len() {
-                        break;
-                    }
-                    // var points to itself
-                    if field.into_usize() == var.into_usize() {
-                        break;
-                    }
-                    // OpOutput indices below vars.len() are the vars
-                    var = VarId::from_usize(field.into_usize());
-                }
-                output.primary_output = var.natural_output_idx();
-                output.call_effect = OperatorCallEffect::NoCall;
-            }
-
             OperatorData::Custom(op) => Operator::update_variable_liveness(
                 &**op,
                 sess,
@@ -293,8 +250,6 @@ impl OperatorData {
             OperatorData::Custom(op) => {
                 op.on_liveness_computed(sess, ld, op_id)
             }
-
-            OperatorData::Select(_) => (),
         }
     }
 
@@ -307,7 +262,6 @@ impl OperatorData {
     ) -> Option<OperatorInstantiation> {
         let tfs = &mut tf_state;
         let data: TransformData<'a> = match self {
-            OperatorData::Select(_) => unreachable!(),
             OperatorData::Custom(op) => {
                 match Operator::build_transforms(
                     &**op,
@@ -349,7 +303,6 @@ impl OperatorData {
     ) -> Option<OperatorId> {
         match self {
             OperatorData::Custom(op) => op.aggregation_member(agg_offset),
-            OperatorData::Select(_) => None,
         }
     }
 }

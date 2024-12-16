@@ -579,13 +579,11 @@ impl LivenessData {
     ) -> bool {
         let op_base = &sess.operator_bases[op_id];
         match &sess.operator_data[op_base.op_data_id] {
-            OperatorData::Select(_) => (),
             OperatorData::Custom(op) => {
                 return op
                     .update_bb_for_op(sess, self, op_id, op_n, cn, bb_id);
             }
-        };
-        false
+        }
     }
     fn setup_bbs(&mut self, sess: &SessionData) {
         let var_count = self.vars.len();

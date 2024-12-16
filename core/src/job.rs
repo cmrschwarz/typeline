@@ -15,6 +15,7 @@ use crate::{
             OperatorBase, OperatorData, OperatorId, OperatorInstantiation,
             OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
         },
+        select::OpSelect,
         terminator::add_terminator,
         transform::{
             stream_producer_update, transform_pre_update,
@@ -600,35 +601,35 @@ impl<'a> Job<'a> {
         for (mut op_id, mut op_base, mut op_data) in ops {
             let mut label = None;
             match op_data {
-                OperatorData::Select(op) => {
-                    if let Some(field_id) =
-                        self.job_data.scope_mgr.lookup_field(
-                            self.job_data.match_set_mgr.match_sets[ms_id]
-                                .active_scope,
-                            op.key_interned.unwrap(),
-                        )
-                    {
-                        input_field = field_id;
-                    } else {
-                        let ms =
-                            &self.job_data.match_set_mgr.match_sets[ms_id];
-                        let actor = ActorRef::Unconfirmed(
-                            ms.action_buffer.borrow().peek_next_actor_id(),
-                        );
-                        input_field = self.job_data.field_mgr.add_field(
-                            &self.job_data.match_set_mgr,
-                            ms_id,
-                            actor,
-                        );
-                        self.job_data.scope_mgr.insert_field_name(
-                            ms.active_scope,
-                            op.key_interned.unwrap(),
-                            input_field,
-                        );
-                    }
-                    continue;
-                }
                 OperatorData::Custom(op) => {
+                    if let Some(op) = op.downcast_ref::<OpSelect>() {
+                        if let Some(field_id) =
+                            self.job_data.scope_mgr.lookup_field(
+                                self.job_data.match_set_mgr.match_sets[ms_id]
+                                    .active_scope,
+                                op.key_interned.unwrap(),
+                            )
+                        {
+                            input_field = field_id;
+                        } else {
+                            let ms =
+                                &self.job_data.match_set_mgr.match_sets[ms_id];
+                            let actor = ActorRef::Unconfirmed(
+                                ms.action_buffer.borrow().peek_next_actor_id(),
+                            );
+                            input_field = self.job_data.field_mgr.add_field(
+                                &self.job_data.match_set_mgr,
+                                ms_id,
+                                actor,
+                            );
+                            self.job_data.scope_mgr.insert_field_name(
+                                ms.active_scope,
+                                op.key_interned.unwrap(),
+                                input_field,
+                            );
+                        }
+                        continue;
+                    }
                     if let Some(k) = op.downcast_ref::<OpKey>() {
                         let Some(NestedOp::SetUp(nested_op_id)) = k.nested_op
                         else {
