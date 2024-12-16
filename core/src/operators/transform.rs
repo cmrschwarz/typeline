@@ -37,7 +37,6 @@ use super::{
     fork::{handle_fork_expansion, handle_tf_fork, TfFork},
     literal::{handle_tf_literal, TfLiteral},
     operator::{OperatorId, OutputFieldKind},
-    terminator::{handle_tf_terminator, TfTerminator},
 };
 
 pub type DefaultTransformName = SmallString<[u8; 32]>;
@@ -49,7 +48,6 @@ index_newtype! {
 
 pub enum TransformData<'a> {
     Disabled,
-    Terminator(TfTerminator),
     CallConcurrent(TfCallConcurrent<'a>),
     CalleeConcurrent(TfCalleeConcurrent),
     Fork(TfFork<'a>),
@@ -82,7 +80,6 @@ impl<'a> TransformData<'a> {
             TransformData::CalleeConcurrent(_) => "callcc_callee",
             TransformData::Fork(_) => "fork",
             TransformData::Literal(_) => "literal",
-            TransformData::Terminator(_) => "terminator",
             TransformData::AggregatorHeader(_) => "aggregator_header",
             TransformData::AggregatorTrailer(_) => "aggregator_trailer",
             TransformData::ChunksHeader(_) => "chunks_header",
@@ -105,7 +102,6 @@ impl<'a> TransformData<'a> {
 
             // TODO: fix this
             TransformData::Disabled
-            | TransformData::Terminator(_)
             | TransformData::Fork(_)
             | TransformData::AggregatorHeader(_)
             | TransformData::ChunksHeader(_)
@@ -127,7 +123,6 @@ impl<'a> TransformData<'a> {
             | TransformData::Fork(_) => None,
 
             #[expand(T in [
-                Terminator,
                 CalleeConcurrent,
                 AggregatorHeader,
                 AggregatorTrailer,
@@ -309,7 +304,6 @@ pub fn transform_pre_update(
         | TransformData::ChunksTrailer(_)
         | TransformData::CalleeConcurrent(_)
         | TransformData::Literal(_)
-        | TransformData::Terminator(_)
         | TransformData::AggregatorHeader(_)
         | TransformData::AggregatorTrailer(_) => (),
         TransformData::Custom(tf) => {
@@ -342,7 +336,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
         TransformData::CalleeConcurrent(tf) => {
             handle_tf_callee_concurrent(jd, tf_id, tf)
         }
-        TransformData::Terminator(tf) => handle_tf_terminator(jd, tf_id, tf),
         TransformData::Custom(tf) => tf.update(jd, tf_id),
         TransformData::AggregatorHeader(agg_header) => {
             handle_tf_aggregator_header(jd, tf_id, agg_header);
@@ -363,7 +356,6 @@ pub fn transform_update(job: &mut Job, tf_id: TransformId) {
 pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
     match &mut job.transform_data[tf_id] {
             TransformData::Disabled
-            | TransformData::Terminator(_)
             | TransformData::CallConcurrent(_)
             | TransformData::CalleeConcurrent(_)
             | TransformData::Fork(_)
@@ -386,7 +378,6 @@ pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
         TransformData::Fork(_) |
         TransformData::ChunksHeader(_) |
         TransformData::ChunksTrailer(_) |
-        TransformData::Terminator(_) |
         TransformData::Disabled |
         TransformData::Literal(_) |
         TransformData::CalleeConcurrent(_) |
