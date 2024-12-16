@@ -273,12 +273,12 @@ fn setup_transform_tf_envs(
                     match_chain,
                 ));
             }
-        }
-        TransformData::Fork(fc) => {
-            match_chain
-                .tf_envs
-                .push(setup_fork_tf_env(jd, tf_data, fc, tf_id));
-            return succ;
+            if let Some(fc) = tf.downcast_ref::<TfFork>() {
+                match_chain
+                    .tf_envs
+                    .push(setup_fork_tf_env(jd, tf_data, fc, tf_id));
+                return succ;
+            }
         }
         _ => (),
     }

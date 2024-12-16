@@ -35,7 +35,7 @@ use super::{
     errors::{OperatorCreationError, OperatorSetupError},
     operator::{Operator, OperatorDataId, OperatorId, OperatorOffsetInChain},
     terminator::add_terminator,
-    transform::{TransformData, TransformId, TransformState},
+    transform::{Transform, TransformData, TransformId, TransformState},
 };
 
 pub struct OpFork {
@@ -60,197 +60,62 @@ pub struct ForkTarget {
     pub gt_id: GroupTrackId,
 }
 
-pub struct TfFork<'a> {
+pub struct TfFork {
     pub expanded: bool,
     pub targets: Vec<ForkTarget>,
-    pub accessed_fields_per_subchain:
-        &'a IndexVec<SubchainIndex, HashSet<Option<StringStoreEntry>>>,
 }
 
-pub fn handle_tf_fork(jd: &mut JobData, tf_id: TransformId, sp: &mut TfFork) {
-    let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
-    if ps.input_done {
-        jd.tf_mgr.declare_transform_done(tf_id);
-    }
-    if ps.next_batch_ready {
-        jd.tf_mgr.push_tf_in_ready_stack(tf_id);
-    }
-
-    let tf = &jd.tf_mgr.transforms[tf_id];
-
-    jd.group_track_manager.propagate_leading_groups_to_aliases(
-        &jd.match_set_mgr,
-        tf.input_group_track_id,
-        batch_size,
-        ps.input_done,
-        true,
-        sp.targets.iter().map(|tgt| tgt.gt_id),
-    );
-
-    // we reverse to make sure that the first subchain ends up
-    // on top of the stack and gets executed first
-    for tgt in sp.targets.iter().rev() {
-        jd.match_set_mgr.advance_cross_ms_cow_targets(
-            &jd.field_mgr,
-            None,
-            jd.tf_mgr.transforms[tgt.tf_id].match_set_id,
-            batch_size,
-        );
-        jd.tf_mgr.inform_transform_batch_available(
-            tgt.tf_id,
-            batch_size,
-            ps.input_done,
-        );
-    }
+pub fn create_op_fork_with_spans(
+    subchains: Vec<Vec<(Box<dyn Operator>, Span)>>,
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
+    Ok(Box::new(OpFork {
+        subchains_start: SubchainIndex::MAX_VALUE,
+        subchains_end: SubchainIndex::MAX_VALUE,
+        accessed_fields_per_subchain: IndexVec::new(),
+        prebound_ops: subchains,
+        arguments: Vec::new(),
+    }))
 }
 
-pub(crate) fn handle_fork_expansion(
-    sess: &mut Job,
-    tf_id: TransformId,
-    _ctx: Option<&Arc<ContextData>>,
-) {
-    // we have to temporarily move the targets out of fork so we can modify
-    // sess while accessing them
-    let mut targets = Vec::new();
-
-    let tf = &sess.job_data.tf_mgr.transforms[tf_id];
-    let fork_input_field_id = tf.input_field;
-    let fork_ms_id = tf.match_set_id;
-    let fork_op_id = tf.op_id.unwrap();
-    let fork_chain_id =
-        sess.job_data.session_data.operator_bases[fork_op_id].chain_id;
-
-    for i in IndexingTypeRange::new(
-        SubchainIndex::zero()
-            ..sess.job_data.session_data.chains[fork_chain_id]
-                .subchains
-                .next_idx(),
-    ) {
-        let target = setup_fork_subchain(
-            sess,
-            fork_chain_id,
-            i,
-            tf_id,
-            fork_ms_id,
-            fork_input_field_id,
-        );
-        targets.push(target);
-    }
-
-    sess.log_state("expanded fork");
-    if let TransformData::Fork(ref mut fork) = sess.transform_data[tf_id] {
-        fork.targets = targets;
-        fork.expanded = true;
-    } else {
-        unreachable!();
-    }
+pub fn create_op_fork(
+    subchains: impl IntoIterator<
+        Item = impl IntoIterator<Item = Box<dyn Operator>>,
+    >,
+) -> Result<Box<dyn Operator>, OperatorCreationError> {
+    let subchains = subchains
+        .into_iter()
+        .map(|it| it.into_iter().map(|v| (v, Span::Generated)).collect())
+        .collect();
+    create_op_fork_with_spans(subchains)
 }
 
-fn setup_fork_subchain(
-    job: &mut Job,
-    fork_chain_id: ChainId,
-    subchain_index: SubchainIndex,
-    tf_id: TransformId,
-    fork_ms_id: MatchSetId,
-    fork_input_field_id: FieldId,
-) -> ForkTarget {
-    // actual chain id as opposed to the index to the nth subchain
-    let subchain_id = job.job_data.session_data.chains[fork_chain_id]
-        .subchains[subchain_index];
+pub fn parse_op_fork(
+    mut arg: Argument,
+) -> Result<Box<dyn Operator>, ScrError> {
+    let mut subchains = Vec::new();
+    let mut curr_subchain = Vec::new();
 
-    let fork_ms_scope =
-        job.job_data.match_set_mgr.match_sets[fork_ms_id].active_scope;
+    let sub_args = arg.expect_arg_array_mut()?;
 
-    let sc_scope_id = job.job_data.scope_mgr.add_scope(Some(fork_ms_scope));
-    let target_ms_id = job.job_data.match_set_mgr.add_match_set(
-        &mut job.job_data.field_mgr,
-        &mut job.job_data.scope_mgr,
-        sc_scope_id,
-    );
-
-    let fork_chain_dummy_field =
-        job.job_data.match_set_mgr.get_dummy_field(fork_ms_id);
-    let sc_dummy_field =
-        job.job_data.match_set_mgr.get_dummy_field(target_ms_id);
-
-    job.job_data.field_mgr.setup_cow_between_fields(
-        &mut job.job_data.match_set_mgr,
-        fork_chain_dummy_field,
-        sc_dummy_field,
-    );
-
-    let target_group_track = job.job_data.group_track_manager.add_group_track(
-        &job.job_data.match_set_mgr,
-        None,
-        target_ms_id,
-        ActorRef::Unconfirmed(ActorId::new(0)),
-    );
-
-    let field_access_mapping =
-        if let TransformData::Fork(f) = &job.transform_data[tf_id] {
-            &f.accessed_fields_per_subchain[subchain_index]
-        } else {
-            unreachable!();
+    for arg in sub_args.drain(1..) {
+        let expr = CallExpr::from_argument(&arg)?;
+        if expr.op_name == "next" {
+            expr.reject_args()?;
+            subchains.push(curr_subchain);
+            curr_subchain = Vec::new();
+            continue;
         };
-    let mut chain_input_field = None;
-    let fork_ms_scope =
-        job.job_data.match_set_mgr.match_sets[fork_ms_id].active_scope;
-    for &name in field_access_mapping {
-        let src_field_id;
-        if let Some(name) = name {
-            if let Some(field) =
-                job.job_data.scope_mgr.lookup_field(fork_ms_scope, name)
-            {
-                // the input field is always first in this iterator
-                debug_assert!(field != fork_input_field_id);
-                src_field_id = field;
-            } else {
-                continue;
-            };
-        } else {
-            debug_assert!(chain_input_field.is_none());
-            src_field_id = fork_input_field_id;
-        };
-
-        let mut src_field =
-            job.job_data.field_mgr.fields[src_field_id].borrow_mut();
-
-        drop(src_field);
-        let target_field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
-            &mut job.job_data.match_set_mgr,
-            target_ms_id,
-            src_field_id,
-        );
-        job.job_data.scope_mgr.insert_field_name_opt(
-            sc_scope_id,
-            name,
-            target_field_id,
-        );
-        src_field = job.job_data.field_mgr.fields[src_field_id].borrow_mut();
-
-        if name.is_none() {
-            chain_input_field = Some(target_field_id);
-        }
-        drop(src_field);
+        curr_subchain.push(arg);
     }
-    let input_field = chain_input_field.unwrap_or(sc_dummy_field);
-    let start_op_id = job.job_data.session_data.chains[subchain_id].operators
-        [OffsetInChain::zero()];
-    let instantiation = job.setup_transforms_from_op(
-        target_ms_id,
-        start_op_id,
-        input_field,
-        target_group_track,
-        None,
-        &HashMap::default(),
-    );
-    if !cfg!(feature = "debug_disable_terminator") {
-        add_terminator(job, instantiation.tfs_end);
-    }
-    ForkTarget {
-        tf_id: instantiation.tfs_begin,
-        gt_id: target_group_track,
-    }
+
+    subchains.push(curr_subchain);
+    Ok(Box::new(OpFork {
+        subchains_start: SubchainIndex::MAX_VALUE,
+        subchains_end: SubchainIndex::MAX_VALUE,
+        accessed_fields_per_subchain: IndexVec::new(),
+        prebound_ops: Vec::new(),
+        arguments: subchains,
+    }))
 }
 
 impl Operator for OpFork {
@@ -365,14 +230,12 @@ impl Operator for OpFork {
         _op_id: OperatorId,
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> super::operator::TransformInstatiation<'a> {
-        super::operator::TransformInstatiation::Single(TransformData::Fork(
-            TfFork {
+        super::operator::TransformInstatiation::Single(
+            TransformData::from_custom(TfFork {
                 expanded: false,
                 targets: Vec::new(),
-                accessed_fields_per_subchain: &self
-                    .accessed_fields_per_subchain,
-            },
-        ))
+            }),
+        )
     }
 
     fn update_bb_for_op(
@@ -390,57 +253,207 @@ impl Operator for OpFork {
         }
         true
     }
+
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }
 
-pub fn create_op_fork_with_spans(
-    subchains: Vec<Vec<(Box<dyn Operator>, Span)>>,
-) -> Result<Box<dyn Operator>, OperatorCreationError> {
-    Ok(Box::new(OpFork {
-        subchains_start: SubchainIndex::MAX_VALUE,
-        subchains_end: SubchainIndex::MAX_VALUE,
-        accessed_fields_per_subchain: IndexVec::new(),
-        prebound_ops: subchains,
-        arguments: Vec::new(),
-    }))
-}
+fn setup_fork_subchain(
+    job: &mut Job,
+    fork_chain_id: ChainId,
+    subchain_index: SubchainIndex,
+    tf_id: TransformId,
+    fork_ms_id: MatchSetId,
+    fork_input_field_id: FieldId,
+) -> ForkTarget {
+    // actual chain id as opposed to the index to the nth subchain
+    let subchain_id = job.job_data.session_data.chains[fork_chain_id]
+        .subchains[subchain_index];
 
-pub fn create_op_fork(
-    subchains: impl IntoIterator<
-        Item = impl IntoIterator<Item = Box<dyn Operator>>,
-    >,
-) -> Result<Box<dyn Operator>, OperatorCreationError> {
-    let subchains = subchains
-        .into_iter()
-        .map(|it| it.into_iter().map(|v| (v, Span::Generated)).collect())
-        .collect();
-    create_op_fork_with_spans(subchains)
-}
+    let fork_ms_scope =
+        job.job_data.match_set_mgr.match_sets[fork_ms_id].active_scope;
 
-pub fn parse_op_fork(
-    mut arg: Argument,
-) -> Result<Box<dyn Operator>, ScrError> {
-    let mut subchains = Vec::new();
-    let mut curr_subchain = Vec::new();
+    let sc_scope_id = job.job_data.scope_mgr.add_scope(Some(fork_ms_scope));
+    let target_ms_id = job.job_data.match_set_mgr.add_match_set(
+        &mut job.job_data.field_mgr,
+        &mut job.job_data.scope_mgr,
+        sc_scope_id,
+    );
 
-    let sub_args = arg.expect_arg_array_mut()?;
+    let fork_chain_dummy_field =
+        job.job_data.match_set_mgr.get_dummy_field(fork_ms_id);
+    let sc_dummy_field =
+        job.job_data.match_set_mgr.get_dummy_field(target_ms_id);
 
-    for arg in sub_args.drain(1..) {
-        let expr = CallExpr::from_argument(&arg)?;
-        if expr.op_name == "next" {
-            expr.reject_args()?;
-            subchains.push(curr_subchain);
-            curr_subchain = Vec::new();
-            continue;
+    job.job_data.field_mgr.setup_cow_between_fields(
+        &mut job.job_data.match_set_mgr,
+        fork_chain_dummy_field,
+        sc_dummy_field,
+    );
+
+    let target_group_track = job.job_data.group_track_manager.add_group_track(
+        &job.job_data.match_set_mgr,
+        None,
+        target_ms_id,
+        ActorRef::Unconfirmed(ActorId::new(0)),
+    );
+
+    let op_id = job.job_data.tf_mgr.transforms[tf_id].op_id.unwrap();
+    let op = job.job_data.session_data.operator_data
+        [job.job_data.session_data.op_data_id(op_id)]
+    .downcast_ref::<OpFork>()
+    .unwrap();
+    let field_access_mapping =
+        &op.accessed_fields_per_subchain[subchain_index];
+    let mut chain_input_field = None;
+    let fork_ms_scope =
+        job.job_data.match_set_mgr.match_sets[fork_ms_id].active_scope;
+    for &name in field_access_mapping {
+        let src_field_id;
+        if let Some(name) = name {
+            if let Some(field) =
+                job.job_data.scope_mgr.lookup_field(fork_ms_scope, name)
+            {
+                // the input field is always first in this iterator
+                debug_assert!(field != fork_input_field_id);
+                src_field_id = field;
+            } else {
+                continue;
+            };
+        } else {
+            debug_assert!(chain_input_field.is_none());
+            src_field_id = fork_input_field_id;
         };
-        curr_subchain.push(arg);
+
+        let mut src_field =
+            job.job_data.field_mgr.fields[src_field_id].borrow_mut();
+
+        drop(src_field);
+        let target_field_id = job.job_data.field_mgr.get_cross_ms_cow_field(
+            &mut job.job_data.match_set_mgr,
+            target_ms_id,
+            src_field_id,
+        );
+        job.job_data.scope_mgr.insert_field_name_opt(
+            sc_scope_id,
+            name,
+            target_field_id,
+        );
+        src_field = job.job_data.field_mgr.fields[src_field_id].borrow_mut();
+
+        if name.is_none() {
+            chain_input_field = Some(target_field_id);
+        }
+        drop(src_field);
+    }
+    let input_field = chain_input_field.unwrap_or(sc_dummy_field);
+    let start_op_id = job.job_data.session_data.chains[subchain_id].operators
+        [OffsetInChain::zero()];
+    let instantiation = job.setup_transforms_from_op(
+        target_ms_id,
+        start_op_id,
+        input_field,
+        target_group_track,
+        None,
+        &HashMap::default(),
+    );
+    if !cfg!(feature = "debug_disable_terminator") {
+        add_terminator(job, instantiation.tfs_end);
+    }
+    ForkTarget {
+        tf_id: instantiation.tfs_begin,
+        gt_id: target_group_track,
+    }
+}
+
+impl<'a> Transform<'a> for TfFork {
+    fn pre_update_required(&self) -> bool {
+        !self.expanded
+    }
+    fn pre_update(
+        &mut self,
+        _ctx: Option<&Arc<ContextData>>,
+        job: &mut Job<'a>,
+        tf_id: TransformId,
+    ) -> Result<(), crate::context::VentureDescription> {
+        // we have to temporarily move the targets out of fork so we can modify
+        // sess while accessing them
+        let mut targets = Vec::new();
+
+        let tf = &job.job_data.tf_mgr.transforms[tf_id];
+        let fork_input_field_id = tf.input_field;
+        let fork_ms_id = tf.match_set_id;
+        let fork_op_id = tf.op_id.unwrap();
+        let fork_chain_id =
+            job.job_data.session_data.operator_bases[fork_op_id].chain_id;
+
+        for i in IndexingTypeRange::new(
+            SubchainIndex::zero()
+                ..job.job_data.session_data.chains[fork_chain_id]
+                    .subchains
+                    .next_idx(),
+        ) {
+            let target = setup_fork_subchain(
+                job,
+                fork_chain_id,
+                i,
+                tf_id,
+                fork_ms_id,
+                fork_input_field_id,
+            );
+            targets.push(target);
+        }
+
+        job.log_state("expanded fork");
+        self.targets = targets;
+        self.expanded = true;
+        Ok(())
+    }
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
+        if ps.input_done {
+            jd.tf_mgr.declare_transform_done(tf_id);
+        }
+        if ps.next_batch_ready {
+            jd.tf_mgr.push_tf_in_ready_stack(tf_id);
+        }
+
+        let tf = &jd.tf_mgr.transforms[tf_id];
+
+        jd.group_track_manager.propagate_leading_groups_to_aliases(
+            &jd.match_set_mgr,
+            tf.input_group_track_id,
+            batch_size,
+            ps.input_done,
+            true,
+            self.targets.iter().map(|tgt| tgt.gt_id),
+        );
+
+        // we reverse to make sure that the first subchain ends up
+        // on top of the stack and gets executed first
+        for tgt in self.targets.iter().rev() {
+            jd.match_set_mgr.advance_cross_ms_cow_targets(
+                &jd.field_mgr,
+                None,
+                jd.tf_mgr.transforms[tgt.tf_id].match_set_id,
+                batch_size,
+            );
+            jd.tf_mgr.inform_transform_batch_available(
+                tgt.tf_id,
+                batch_size,
+                ps.input_done,
+            );
+        }
     }
 
-    subchains.push(curr_subchain);
-    Ok(Box::new(OpFork {
-        subchains_start: SubchainIndex::MAX_VALUE,
-        subchains_end: SubchainIndex::MAX_VALUE,
-        accessed_fields_per_subchain: IndexVec::new(),
-        prebound_ops: Vec::new(),
-        arguments: subchains,
-    }))
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
 }
