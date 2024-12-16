@@ -12,7 +12,7 @@ use super::{
     errors::OperatorCreationError,
     nop::create_op_nop,
     operator::{Operator, OperatorId},
-    transform::{TransformData, TransformId, TransformState},
+    transform::{Transform, TransformData, TransformId, TransformState},
     utils::basic_transform_update::{basic_transform_update, BasicUpdateData},
 };
 
@@ -41,24 +41,6 @@ pub fn parse_op_nop_copy(
 }
 pub fn create_op_nop_copy() -> Box<dyn Operator> {
     Box::new(OpNopCopy::default())
-}
-
-impl TfNopCopy {
-    fn basic_update(&self, bud: &mut BasicUpdateData) -> (usize, bool) {
-        let mut output_field =
-            bud.field_mgr.fields[bud.output_field_id].borrow_mut();
-        let mut inserter = output_field.iter_hall.varying_type_inserter();
-        while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
-            inserter.extend_from_ref_aware_range_smart_ref(
-                range,
-                true,
-                false,
-                true,
-                self.input_field_ref_offset,
-            );
-        }
-        (bud.batch_size, bud.ps.input_done)
-    }
 }
 
 impl Operator for OpNopCopy {
@@ -104,9 +86,9 @@ impl Operator for OpNopCopy {
             input_field_ref_offset,
         };
 
-        super::operator::TransformInstatiation::Single(TransformData::NopCopy(
-            tfc,
-        ))
+        super::operator::TransformInstatiation::Single(
+            TransformData::from_custom(tfc),
+        )
     }
 
     fn update_variable_liveness(
@@ -136,12 +118,32 @@ impl Operator for OpNopCopy {
     }
 }
 
-pub fn handle_tf_nop_copy(
-    jd: &mut JobData,
-    tf_id: TransformId,
-    nc: &TfNopCopy,
-) {
-    basic_transform_update(jd, tf_id, [], nc.input_iter_id, |mut bud| {
-        nc.basic_update(&mut bud)
-    });
+impl TfNopCopy {
+    fn basic_update(&self, bud: &mut BasicUpdateData) -> (usize, bool) {
+        let mut output_field =
+            bud.field_mgr.fields[bud.output_field_id].borrow_mut();
+        let mut inserter = output_field.iter_hall.varying_type_inserter();
+        while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
+            inserter.extend_from_ref_aware_range_smart_ref(
+                range,
+                true,
+                false,
+                true,
+                self.input_field_ref_offset,
+            );
+        }
+        (bud.batch_size, bud.ps.input_done)
+    }
+}
+
+impl<'a> Transform<'a> for TfNopCopy {
+    fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
+        basic_transform_update(
+            jd,
+            tf_id,
+            [],
+            self.input_iter_id,
+            |mut bud| self.basic_update(&mut bud),
+        );
+    }
 }
