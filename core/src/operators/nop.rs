@@ -90,9 +90,7 @@ impl Operator for OpNop {
         _op_id: OperatorId,
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> super::operator::TransformInstatiation<'a> {
-        super::operator::TransformInstatiation::Single(
-            Box::new(TfNop {}),
-        )
+        super::operator::TransformInstatiation::Single(Box::new(TfNop {}))
     }
 
     fn update_variable_liveness(

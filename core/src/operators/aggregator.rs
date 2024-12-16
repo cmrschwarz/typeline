@@ -455,8 +455,9 @@ impl<'a> Transform<'a> for TfAggregatorHeader {
             jd.field_mgr.store_iter(input_field_id, iter_id, iter);
             drop(ab);
             drop(input_field);
-            // this implicitly applies the dup so when we move we don't skip over
-            // the dup'ed field entirely, but just over one instance
+            // this implicitly applies the dup so when we move we don't skip
+            // over the dup'ed field entirely, but just over one
+            // instance
             jd.field_mgr.move_iter(
                 &mut jd.match_set_mgr,
                 input_field_id,
