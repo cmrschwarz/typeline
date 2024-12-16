@@ -15,10 +15,7 @@ use crate::{
     utils::debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
 };
 
-use super::{
-    nop::TfNop,
-    operator::{OperatorId, OutputFieldKind},
-};
+use super::operator::{OperatorId, OutputFieldKind};
 
 pub type DefaultTransformName = SmallString<[u8; 32]>;
 
@@ -181,35 +178,4 @@ impl<'a> dyn Transform<'a> {
     pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
         self.as_any_mut().and_then(|t| t.downcast_mut::<T>())
     }
-}
-
-pub fn transform_pre_update(
-    ctx: Option<&Arc<ContextData>>,
-    job: &mut Job,
-    tf_id: TransformId,
-) -> Result<(), VentureDescription> {
-    if job.transform_data[tf_id].pre_update_required() {
-        let mut tf = std::mem::replace(
-            &mut job.transform_data[tf_id],
-            Box::new(TfNop::default()),
-        );
-        let res = tf.pre_update(ctx, job, tf_id);
-        let _ = std::mem::replace(&mut job.transform_data[tf_id], tf);
-        return res;
-    }
-    Ok(())
-}
-
-pub fn transform_update(job: &mut Job, tf_id: TransformId) {
-    let jd = &mut job.job_data;
-    job.transform_data[tf_id].update(jd, tf_id);
-}
-
-pub fn stream_producer_update(job: &mut Job, tf_id: TransformId) {
-    job.transform_data[tf_id].stream_producer_update(&mut job.job_data, tf_id)
-}
-
-pub fn transform_stream_value_update(job: &mut Job, svu: StreamValueUpdate) {
-    let jd = &mut job.job_data;
-    job.transform_data[svu.tf_id].handle_stream_value_update(jd, svu)
 }

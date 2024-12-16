@@ -18,11 +18,7 @@ use crate::{
         },
         select::OpSelect,
         terminator::add_terminator,
-        transform::{
-            stream_producer_update, transform_pre_update,
-            transform_stream_value_update, transform_update, TransformData,
-            TransformId, TransformState,
-        },
+        transform::{TransformData, TransformId, TransformState},
         utils::nested_op::NestedOp,
     },
     options::chain_settings::ChainSetting,
@@ -832,7 +828,9 @@ impl<'a> Job<'a> {
                 eprintln!();
             }
         }
-        transform_stream_value_update(self, svu);
+        self.transform_data[svu.tf_id]
+            .handle_stream_value_update(&mut self.job_data, svu);
+
         #[cfg(feature = "debug_log")]
         if let (Some(f), Some(start_tf)) =
             (&mut self.debug_log, self.job_data.start_tf)
@@ -881,9 +879,18 @@ impl<'a> Job<'a> {
                 )
             );
         }
-
-        transform_pre_update(ctx, self, tf_id)?;
-        transform_update(self, tf_id);
+        if self.transform_data[tf_id].pre_update_required() {
+            let mut tf = std::mem::replace(
+                &mut self.transform_data[tf_id],
+                Box::new(TfNop::default()),
+            );
+            let res = tf.pre_update(ctx, self, tf_id);
+            let _ = std::mem::replace(&mut self.transform_data[tf_id], tf);
+            if res.is_err() {
+                return res;
+            }
+        }
+        self.transform_data[tf_id].update(&mut self.job_data, tf_id);
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {
             if tf.mark_for_removal && !tf.is_stream_producer {
                 self.remove_transform(tf_id);
@@ -955,7 +962,8 @@ impl<'a> Job<'a> {
         );
         let tf_state = &mut self.job_data.tf_mgr.transforms[tf_id];
         tf_state.is_stream_producer = false;
-        stream_producer_update(self, tf_id);
+        self.transform_data[tf_id]
+            .stream_producer_update(&mut self.job_data, tf_id);
 
         #[cfg(feature = "debug_log")]
         if let (Some(f), Some(start_tf)) =
