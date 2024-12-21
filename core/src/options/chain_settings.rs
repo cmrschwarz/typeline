@@ -512,7 +512,7 @@ pub struct SettingStreamBufferSize;
 impl ChainSetting for SettingStreamBufferSize {
     type Type = usize;
     const NAME: &'static str = "sbs";
-    const DEFAULT: usize = 1024;
+    const DEFAULT: usize = 8192;
     type Converter = SettingConverterUsize<Self, false>;
 }
 

@@ -609,16 +609,16 @@ impl Transform<'_> for TfFileReader {
         let mut done = drop_unused;
 
         if !drop_unused {
-            let res = sv
-                .data_inserter(sv_id, self.stream_buffer_size, true)
-                .with_bytes_buffer(|buf| {
-                    read_chunk(
-                        buf,
-                        file,
-                        self.stream_buffer_size,
-                        self.line_buffered,
-                    )
-                });
+            let res = {
+                let mut inserter =
+                    sv.data_inserter(sv_id, self.stream_buffer_size, true);
+
+                let budget = inserter.memory_budget_remaining();
+
+                inserter.with_bytes_buffer(|buf| {
+                    read_chunk(buf, file, budget, self.line_buffered)
+                })
+            };
 
             done = match res {
                 Ok((_size, eof)) => {

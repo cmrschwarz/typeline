@@ -240,13 +240,12 @@ mxbzgzg5three
 #[apply(scrbench)]
 #[cfg_attr(not(feature = "slow_tests"), ignore)]
 fn aoc2023_day1_part1_large() -> Result<(), ScrError> {
-    const COUNT: usize = 10000;
+    const COUNT: usize = 1000;
     let mut input = String::new();
     for _ in 0..COUNT {
         input.push_str(AOC_2023_PART_1_INPUT);
     }
     let res = ContextBuilder::without_exts()
-        .set_batch_size(64)?
         .add_ops([
             create_op_file_reader_custom(
                 Box::new(Cursor::new(input.into_bytes())),
