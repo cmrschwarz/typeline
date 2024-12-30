@@ -230,6 +230,8 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             Tok::MinusEquals => Op::SubtractAssign,
             Tok::Star => Op::Multiply,
             Tok::StarEquals => Op::MultiplyAssign,
+            Tok::DoubleStar => Op::PowerOf,
+            Tok::DoubleStarEquals => Op::PowerOfAssign,
             Tok::Slash => Op::Divide,
             Tok::SlashEquals => Op::DivideAssign,
             Tok::Percent => Op::Modulus,

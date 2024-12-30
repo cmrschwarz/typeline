@@ -53,6 +53,9 @@ pub enum BinaryOpKind {
     Multiply,
     MultiplyAssign,
 
+    PowerOf,
+    PowerOfAssign,
+
     Divide,
     DivideAssign,
 
@@ -159,6 +162,8 @@ impl BinaryOpKind {
         let v = match self {
             BinaryOpKind::Access => 16,
 
+            BinaryOpKind::PowerOf => 13,
+
             BinaryOpKind::Multiply => 12,
             BinaryOpKind::Divide => 12,
             BinaryOpKind::Modulus => 12,
@@ -190,6 +195,7 @@ impl BinaryOpKind {
             BinaryOpKind::SubtractAssign => 2,
             BinaryOpKind::MultiplyAssign => 2,
             BinaryOpKind::DivideAssign => 2,
+            BinaryOpKind::PowerOfAssign => 2,
             BinaryOpKind::ModulusAssign => 2,
             BinaryOpKind::LShiftAssign => 2,
             BinaryOpKind::RShiftAssign => 2,
@@ -207,6 +213,8 @@ impl BinaryOpKind {
     pub fn to_str(self) -> &'static str {
         match self {
             BinaryOpKind::Access => "[]",
+
+            BinaryOpKind::PowerOf => "**",
 
             BinaryOpKind::Multiply => "*",
             BinaryOpKind::Divide => "/",
@@ -238,6 +246,7 @@ impl BinaryOpKind {
             BinaryOpKind::AddAssign => "+=",
             BinaryOpKind::SubtractAssign => "-=",
             BinaryOpKind::MultiplyAssign => "*=",
+            BinaryOpKind::PowerOfAssign => "**=",
             BinaryOpKind::DivideAssign => "/=",
             BinaryOpKind::ModulusAssign => "%=",
             BinaryOpKind::LShiftAssign => "<<=",

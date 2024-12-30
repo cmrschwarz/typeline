@@ -264,7 +264,7 @@ impl ErroringBinOp for BinOpDiv {
 pub struct BinOpMul;
 impl BinOp for BinOpMul {
     fn try_calc_single(lhs: i64, rhs: i64) -> Option<i64> {
-        lhs.checked_div(rhs)
+        lhs.checked_mul(rhs)
     }
 
     #[cfg(target_feature = "avx2")]
@@ -303,5 +303,50 @@ impl BigIntCapableBinOp for BinOpMul {
         let mut bi = BigInt::from_i64(lhs).unwrap();
         bi *= rhs;
         bi
+    }
+}
+
+pub struct BinOpPowerOf;
+impl BinOp for BinOpPowerOf {
+    fn try_calc_single(lhs: i64, rhs: i64) -> Option<i64> {
+        lhs.checked_pow(rhs.try_into().ok()?)
+    }
+
+    #[cfg(target_feature = "avx2")]
+    fn calc_until_overflow_avx2(
+        lhs: &[i64],
+        rhs: &[i64],
+        res: &mut [MaybeUninit<i64>],
+    ) -> usize {
+        // TODO: implement properly
+        Self::calc_until_overflow_baseline(lhs, rhs, res)
+    }
+
+    #[cfg(target_feature = "avx2")]
+    fn calc_until_overflow_rhs_immediate_avx2(
+        lhs: &[i64],
+        rhs: i64,
+        res: &mut [MaybeUninit<i64>],
+    ) -> usize {
+        // TODO: implement properly
+        Self::calc_until_overflow_rhs_immediate_baseline(lhs, rhs, res)
+    }
+
+    #[cfg(target_feature = "avx2")]
+    fn calc_until_overflow_lhs_immediate_avx2(
+        lhs: i64,
+        rhs: &[i64],
+        res: &mut [MaybeUninit<i64>],
+    ) -> usize {
+        // TODO: implement properly
+        Self::calc_until_overflow_lhs_immediate_baseline(lhs, rhs, res)
+    }
+}
+
+impl BigIntCapableBinOp for BinOpPowerOf {
+    fn calc_into_bigint(lhs: i64, rhs: i64) -> BigInt {
+        let bi = BigInt::from_i64(lhs).unwrap();
+        //TODO: implement properly
+        bi.pow(rhs.try_into().unwrap())
     }
 }

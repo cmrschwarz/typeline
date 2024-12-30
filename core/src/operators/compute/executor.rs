@@ -4,7 +4,8 @@ use num::BigInt;
 use super::{
     ast::{AccessIdx, BinaryOpKind, BuiltinFunction, ExternIdentId},
     binary_ops::{
-        BigIntCapableBinOp, BinOpAdd, BinOpDiv, BinOpSub, ErroringBinOp,
+        BigIntCapableBinOp, BinOpAdd, BinOpDiv, BinOpMul, BinOpPowerOf,
+        BinOpSub, ErroringBinOp,
     },
     compiler::{
         Compilation, Instruction, InstructionId, TargetRef, TempFieldIdRaw,
@@ -527,8 +528,18 @@ fn execute_binary_op_double_int(
         }
         BinaryOpKind::AddAssign => todo!(),
         BinaryOpKind::SubtractAssign => todo!(),
-        BinaryOpKind::Multiply => todo!(),
+        BinaryOpKind::Multiply => {
+            execute_binary_op_double_int_overflowing::<BinOpMul>(
+                lhs_block, rhs_range, rhs_data, inserter,
+            )
+        }
+        BinaryOpKind::PowerOf => {
+            execute_binary_op_double_int_overflowing::<BinOpPowerOf>(
+                lhs_block, rhs_range, rhs_data, inserter,
+            )
+        }
         BinaryOpKind::MultiplyAssign => todo!(),
+        BinaryOpKind::PowerOfAssign => todo!(),
         BinaryOpKind::Divide => {
             execute_binary_op_double_int_erroring::<BinOpDiv>(
                 lhs_block, rhs_range, rhs_data, inserter, op_id,

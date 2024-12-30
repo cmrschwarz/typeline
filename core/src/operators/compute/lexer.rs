@@ -62,6 +62,8 @@ pub enum TokenKind<'a> {
     MinusEquals,
     Star,
     StarEquals,
+    DoubleStar,
+    DoubleStarEquals,
     Slash,
     SlashEquals,
     Percent,
@@ -249,8 +251,9 @@ impl<'a> ComputeExprLexer<'a> {
                 ('<', b'<', LAngleBracket, LessThanEquals, LShift, LShiftEquals),
                 ('>', b'>', RAngleBracket, GreaterThanEquals, RShift, RShiftEquals),
                 ('&', b'&', Ampersand, AmpersandEquals, DoubleAmpersand, DoubleAmpersandEquals),
-                ('|', b'|', Pipe, PipeEquals, DoublePipe,DoublePipeEquals),
-                ('^', b'^', Caret, CaretEquals, DoubleCaret, DoubleCaretEquals)
+                ('|', b'|', Pipe, PipeEquals, DoublePipe, DoublePipeEquals),
+                ('^', b'^', Caret, CaretEquals, DoubleCaret, DoubleCaretEquals),
+                ('*', b'*', Star, StarEquals, DoubleStar, DoubleStarEquals),
             ])]
             C => {
                 match &self.input[c_begin..(c_begin + 2).min(self.input.len())]
@@ -277,7 +280,6 @@ impl<'a> ComputeExprLexer<'a> {
             #[expand((C, CNEQ, CEQ) in [
                 ('+', Plus, PlusEquals),
                 ('-', Minus, MinusEquals),
-                ('*', Star, StarEquals),
                 ('/', Slash, SlashEquals),
                 ('~', Tilde, TildeEquals),
                 ('!', Exclamation, ExclamationEquals),
@@ -429,6 +431,8 @@ impl<'a> TokenKind<'a> {
             TokenKind::MinusEquals => "-=",
             TokenKind::Star => "*",
             TokenKind::StarEquals => "*=",
+            TokenKind::DoubleStar => "**",
+            TokenKind::DoubleStarEquals => "**=",
             TokenKind::Slash => "/",
             TokenKind::SlashEquals => "/=",
             TokenKind::Percent => "%",
