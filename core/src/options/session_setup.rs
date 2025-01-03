@@ -21,7 +21,9 @@ use crate::{
     },
     options::chain_settings::SettingTypeConverter,
     record_data::scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
-    scr_error::{ChainSetupError, ContextualizedScrError, ScrError},
+    typeline_error::{
+        ChainSetupError, ContextualizedTypelineError, TypelineError,
+    },
     utils::{
         identity_hasher::BuildIdentityHasher,
         index_vec::IndexVec,
@@ -49,7 +51,7 @@ use super::{
 };
 
 #[derive(Clone)]
-pub struct ScrSetupOptions {
+pub struct SetupOptions {
     pub extensions: Arc<ExtensionRegistry>,
 
     pub deny_threading: bool,
@@ -63,9 +65,9 @@ pub struct ScrSetupOptions {
     pub skip_first_cli_arg: bool,
 }
 
-impl ScrSetupOptions {
+impl SetupOptions {
     pub fn with_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
-        ScrSetupOptions {
+        SetupOptions {
             extensions,
             allow_repl: false,
             deny_threading: false,
@@ -76,9 +78,7 @@ impl ScrSetupOptions {
         }
     }
     pub fn without_extensions() -> Self {
-        ScrSetupOptions::with_extensions(
-            Arc::new(ExtensionRegistry::default()),
-        )
+        SetupOptions::with_extensions(Arc::new(ExtensionRegistry::default()))
     }
 }
 
@@ -136,7 +136,7 @@ macro_rules! ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY {
 }
 
 impl SessionSetupSettings {
-    pub fn new(opts: &ScrSetupOptions) -> Self {
+    pub fn new(opts: &SetupOptions) -> Self {
         Self {
             deny_threading: opts.deny_threading,
             allow_repl: opts.allow_repl,
@@ -151,7 +151,7 @@ impl SessionSetupSettings {
 }
 
 impl SessionSetupData {
-    pub fn new(opts: ScrSetupOptions) -> Self {
+    pub fn new(opts: SetupOptions) -> Self {
         let mut res = Self {
             setup_settings: SessionSetupSettings::new(&opts),
             scope_mgr: ScopeManager::default(),
@@ -194,9 +194,9 @@ impl SessionSetupData {
     }
 
     pub fn from_arguments(
-        opts: ScrSetupOptions,
+        opts: SetupOptions,
         args: Vec<Argument>,
-    ) -> Result<Self, ScrError> {
+    ) -> Result<Self, TypelineError> {
         let mut sess = Self::new(opts);
         sess.process_arguments(args)?;
         Ok(sess)
@@ -205,7 +205,7 @@ impl SessionSetupData {
     pub fn process_cli_args(
         &mut self,
         args: Vec<Vec<u8>>,
-    ) -> Result<(), ScrError> {
+    ) -> Result<(), TypelineError> {
         self.cli_args = Some(IndexVec::from(args));
         let arguments = parse_cli_raw(&mut cli_args_into_arguments_iter(
             self.cli_args.as_mut().unwrap().iter().map(|v| &**v),
@@ -216,7 +216,7 @@ impl SessionSetupData {
     pub fn process_arguments(
         &mut self,
         args: impl IntoIterator<Item = Argument>,
-    ) -> Result<(), ScrError> {
+    ) -> Result<(), TypelineError> {
         for arg in args {
             let span = arg.span;
             let op = parse_operator_data(self, arg)?;
@@ -355,11 +355,22 @@ impl SessionSetupData {
         })
     }
 
-    pub fn contextualize_error(&self, e: ScrError) -> ContextualizedScrError {
-        ContextualizedScrError::from_scr_error(e, None, None, Some(self), None)
+    pub fn contextualize_error(
+        &self,
+        e: TypelineError,
+    ) -> ContextualizedTypelineError {
+        ContextualizedTypelineError::from_scr_error(
+            e,
+            None,
+            None,
+            Some(self),
+            None,
+        )
     }
 
-    pub fn build_session_take(&mut self) -> Result<SessionData, ScrError> {
+    pub fn build_session_take(
+        &mut self,
+    ) -> Result<SessionData, TypelineError> {
         if self.setup_settings.print_output {
             let op_data = create_op_print_with_opts(
                 WritableTarget::Stdout,
@@ -511,7 +522,7 @@ impl SessionSetupData {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let mut op_data = std::mem::replace(
             &mut self.operator_data[op_data_id],
             Box::new(OpNop::default()),
@@ -534,7 +545,7 @@ impl SessionSetupData {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_data_id =
             self.operator_data.push_get_id(Box::new(OpNop::default()));
         let op_id = op_data.setup(
@@ -560,7 +571,7 @@ impl SessionSetupData {
     pub fn setup_op_generated(
         &mut self,
         op_data: Box<dyn Operator>,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let offset_in_chain = self.direct_chain_offset(self.curr_chain);
         self.setup_op_from_data(
             op_data,
@@ -573,7 +584,7 @@ impl SessionSetupData {
     pub fn setup_ops_with_spans(
         &mut self,
         operations: impl IntoIterator<Item = (Box<dyn Operator>, Span)>,
-    ) -> Result<(), ScrError> {
+    ) -> Result<(), TypelineError> {
         for (op_data, span) in operations {
             self.setup_op_from_data(
                 op_data,
@@ -616,7 +627,7 @@ impl SessionSetupData {
         &mut self,
         chain_id: ChainId,
         subchain_data: impl IntoIterator<Item = (Box<dyn Operator>, Span)>,
-    ) -> Result<ChainId, ScrError> {
+    ) -> Result<ChainId, TypelineError> {
         let subchain_id = self.add_subchain(chain_id, None);
         for (op, span) in subchain_data {
             self.setup_op_from_data(
@@ -635,7 +646,7 @@ impl SessionSetupData {
         &mut self,
         chain_id: ChainId,
         subchain_data: impl IntoIterator<Item = Box<dyn Operator>>,
-    ) -> Result<ChainId, ScrError> {
+    ) -> Result<ChainId, TypelineError> {
         self.setup_subchain(
             chain_id,
             subchain_data.into_iter().map(|op| (op, Span::Generated)),
@@ -645,7 +656,7 @@ impl SessionSetupData {
     pub fn parse_argument(
         &mut self,
         arg: Argument,
-    ) -> Result<Box<dyn Operator>, ScrError> {
+    ) -> Result<Box<dyn Operator>, TypelineError> {
         parse_operator_data(self, arg)
     }
 
@@ -653,7 +664,7 @@ impl SessionSetupData {
         &mut self,
         chain_id: ChainId,
         args: Vec<Argument>,
-    ) -> Result<ChainId, ScrError> {
+    ) -> Result<ChainId, TypelineError> {
         let sc_id = self.add_subchain(chain_id, None);
         for arg in args {
             let span = arg.span;

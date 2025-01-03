@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     record_data::{
         custom_data::{format_custom_data_padded, CustomData},
         formattable::RealizedFormatKey,
@@ -16,7 +16,9 @@ impl CustomData for UrlValueType {
         "url".into()
     }
 
-    fn clone_dyn(&self) -> scr_core::record_data::custom_data::CustomDataBox {
+    fn clone_dyn(
+        &self,
+    ) -> typeline_core::record_data::custom_data::CustomDataBox {
         Box::new(self.clone())
     }
 

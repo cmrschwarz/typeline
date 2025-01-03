@@ -12,7 +12,7 @@ use crate::{
         iter::dyn_ref_iter::RefAwareDynFieldValueRangeIter,
         iter_hall::{FieldIterId, IterKind},
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::indexing_type::IndexingType,
 };
 
@@ -43,7 +43,7 @@ impl Operator for OpForeachUnique {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
         self.subchain_idx = sess.chains[chain_id].subchains.next_idx();
         sess.setup_subchain(chain_id, std::mem::take(&mut self.subchain))?;
@@ -372,7 +372,7 @@ pub fn create_op_foreach_unique(
 pub fn parse_op_foreach_unique(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let mut subchain = Vec::new();
     assert!(CallExpr::from_argument(&arg)?.has_flags_arg(false));
     for arg in std::mem::take(arg.expect_arg_array_mut()?)

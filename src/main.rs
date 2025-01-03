@@ -1,19 +1,19 @@
 use ref_cast::RefCast;
-use scr::{
+use std::{process::ExitCode, sync::Arc};
+use typeline::{
     cli::{call_expr::Span, collect_env_args, parse_cli_args_form_vec},
     context::Context,
-    options::session_setup::{ScrSetupOptions, SessionSetupData},
+    options::session_setup::{SessionSetupData, SetupOptions},
     record_data::record_set::RecordSet,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::index_slice::IndexSlice,
     DEFAULT_EXTENSION_REGISTRY,
 };
-use std::{process::ExitCode, sync::Arc};
 
 fn run() -> Result<bool, String> {
     let repl = cfg!(feature = "repl");
 
-    let cli_opts = ScrSetupOptions {
+    let cli_opts = SetupOptions {
         allow_repl: repl,
         skip_first_cli_arg: true,
         print_output: true,
@@ -24,7 +24,7 @@ fn run() -> Result<bool, String> {
     };
 
     let args = collect_env_args().map_err(|e| {
-        ScrError::from(e).contextualize_message(
+        TypelineError::from(e).contextualize_message(
             None,
             Some(&cli_opts),
             None,
@@ -49,10 +49,10 @@ fn run() -> Result<bool, String> {
     match sess.process_arguments(arguments) {
         Ok(()) => (),
         Err(e) => match e {
-            ScrError::MissingArgumentsError(_) if repl => {
+            TypelineError::MissingArgumentsError(_) if repl => {
                 sess.setup_settings.repl.set(true, Span::Builtin).unwrap();
             }
-            ScrError::PrintInfoAndExitError(_) => {
+            TypelineError::PrintInfoAndExitError(_) => {
                 println!(
                     "{}",
                     sess.contextualize_error(e).contextualized_message

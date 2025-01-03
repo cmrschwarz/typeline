@@ -10,7 +10,9 @@ use mio::{event::Event, net::TcpStream, Events, Interest, Poll, Token};
 use once_cell::sync::Lazy;
 use pki_types::InvalidDnsNameError;
 use rustls::ClientConfig;
-use scr_core::{
+use std::io::ErrorKind as IoErrorKind;
+use thiserror::Error;
+use typeline_core::{
     context::SessionData,
     job::{Job, JobData, TransformManager},
     liveness_analysis::{
@@ -41,8 +43,6 @@ use scr_core::{
     },
     utils::universe::CountedUniverse,
 };
-use std::io::ErrorKind as IoErrorKind;
-use thiserror::Error;
 use url::{ParseError, Url};
 
 use crate::tls_client::{make_config, TlsSettings};
@@ -118,7 +118,9 @@ pub struct TfHttpRequest {
 }
 
 impl Operator for OpHttpRequest {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "http-get".into()
     }
 

@@ -346,7 +346,7 @@ impl BinOp for BinOpPowerOf {
 impl BigIntCapableBinOp for BinOpPowerOf {
     fn calc_into_bigint(lhs: i64, rhs: i64) -> BigInt {
         let bi = BigInt::from_i64(lhs).unwrap();
-        //TODO: implement properly
+        // TODO: implement properly
         bi.pow(rhs.try_into().unwrap())
     }
 }

@@ -1,5 +1,6 @@
 use metamatch::metamatch;
-use scr_core::{
+use std::io::BufRead;
+use typeline_core::{
     self,
     context::SessionData,
     extension::ExtensionRegistry,
@@ -37,7 +38,6 @@ use scr_core::{
     tyson::parse_tyson,
     utils::indexing_type::IndexingType,
 };
-use std::io::BufRead;
 
 #[derive(Clone, Default)]
 pub struct OpFromTyson {}
@@ -48,7 +48,9 @@ pub struct TfFromTyson {
 }
 
 impl Operator for OpFromTyson {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "from_tyson".into()
     }
 
@@ -241,7 +243,7 @@ impl Transform<'_> for TfFromTyson {
     fn update(
         &mut self,
         jd: &mut JobData,
-        tf_id: scr_core::operators::transform::TransformId,
+        tf_id: typeline_core::operators::transform::TransformId,
     ) {
         basic_transform_update(jd, tf_id, [], self.input_iter_id, |bud| {
             self.transform_update(bud)

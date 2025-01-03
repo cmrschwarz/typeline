@@ -7,7 +7,7 @@ use crate::{
     job::Job,
     operators::operator::TransformInstatiation,
     options::session_setup::SessionSetupData,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::indexing_type::IndexingType,
 };
 
@@ -42,7 +42,7 @@ pub fn create_op_transparent(op: Box<dyn Operator>) -> Box<dyn Operator> {
 pub fn parse_op_transparent(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let expr = CallExpr::from_argument_mut(&mut arg)?;
 
     if expr.args.len() != 1 {
@@ -107,7 +107,7 @@ impl Operator for OpTransparent {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
         let NestedOp::Operator(op_span) = &mut self.nested_op else {
             panic!("operator was already set up");

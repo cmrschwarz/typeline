@@ -1,7 +1,7 @@
 use std::sync::{Arc, LazyLock};
 
-use scr::extension::{Extension, ExtensionRegistry};
-use scr_ext_utils::UtilsExtension;
+use typeline::extension::{Extension, ExtensionRegistry};
+use typeline_ext_utils::UtilsExtension;
 
 mod basic;
 mod exec;

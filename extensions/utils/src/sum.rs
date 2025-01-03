@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
@@ -30,7 +30,7 @@ use scr_core::{
 };
 
 use metamatch::metamatch;
-use scr_core::operators::utils::any_number::AnyNumber;
+use typeline_core::operators::utils::any_number::AnyNumber;
 
 #[derive(Clone, Default)]
 pub struct OpSum {}
@@ -46,7 +46,9 @@ pub struct TfSum {
 }
 
 impl Operator for OpSum {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "sum".into()
     }
 
@@ -243,7 +245,7 @@ impl Transform<'_> for TfSum {
     fn update(
         &mut self,
         jd: &mut JobData,
-        tf_id: scr_core::operators::transform::TransformId,
+        tf_id: typeline_core::operators::transform::TransformId,
     ) {
         basic_transform_update_claim_all(
             jd,

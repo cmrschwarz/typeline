@@ -1,4 +1,4 @@
-use scr::{
+use typeline::{
     operators::{
         foreach::create_op_foreach,
         join::create_op_join,
@@ -6,12 +6,12 @@ use scr::{
         sequence::create_op_seq,
         utils::writable::MutexedWriteableTargetOwner,
     },
-    options::session_setup::ScrSetupOptions,
+    options::session_setup::SetupOptions,
 };
-use scr_core::{
-    options::context_builder::ContextBuilder, scr_error::ScrError,
+use typeline_core::{
+    options::context_builder::ContextBuilder, typeline_error::TypelineError,
 };
-use scr_ext_utils::{
+use typeline_ext_utils::{
     exec::create_op_exec_from_strings,
     string_utils::{create_op_lines, create_op_trim},
 };
@@ -19,9 +19,9 @@ use scr_ext_utils::{
 use crate::integration::UTILS_EXTENSION_REGISTRY;
 
 #[test]
-fn parse_exec() -> Result<(), ScrError> {
+fn parse_exec() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
+        SetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["[", "exec", "sh", "-c", "sleep 0.1; echo foo", "]"],
     )?
     .run_collect_stringified()?;
@@ -30,9 +30,9 @@ fn parse_exec() -> Result<(), ScrError> {
 }
 
 #[test]
-fn parse_exec_stdin() -> Result<(), ScrError> {
+fn parse_exec_stdin() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
+        SetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["str=foo", "[", "exec", "{", "-i", "}", "cat", "]"],
     )?
     .run_collect_stringified()?;
@@ -41,9 +41,9 @@ fn parse_exec_stdin() -> Result<(), ScrError> {
 }
 
 #[test]
-fn parse_exec_2() -> Result<(), ScrError> {
+fn parse_exec_2() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
+        SetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["seq=3", "[", "exec", "echo", "{}", "]"],
     )?
     .run_collect_stringified()?;
@@ -52,7 +52,7 @@ fn parse_exec_2() -> Result<(), ScrError> {
 }
 
 #[test]
-fn run_multi_exec() -> Result<(), ScrError> {
+fn run_multi_exec() -> Result<(), TypelineError> {
     let target = MutexedWriteableTargetOwner::<Vec<u8>>::default();
 
     ContextBuilder::without_exts()
@@ -68,7 +68,7 @@ fn run_multi_exec() -> Result<(), ScrError> {
 }
 
 #[test]
-fn run_sleep() -> Result<(), ScrError> {
+fn run_sleep() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 6, 2).unwrap())
         .add_op(create_op_foreach([
@@ -87,7 +87,7 @@ fn run_sleep() -> Result<(), ScrError> {
 }
 
 #[test]
-fn run_exec_into_join() -> Result<(), ScrError> {
+fn run_exec_into_join() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_foreach([

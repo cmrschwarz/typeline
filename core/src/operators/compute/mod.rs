@@ -28,7 +28,7 @@ use crate::{
         scope_manager::{Atom, ScopeValue},
         stream_value::StreamValueUpdate,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         index_slice::IndexSlice, index_vec::IndexVec,
         indexing_type::IndexingType, phantom_slot::PhantomSlot,
@@ -136,7 +136,7 @@ impl Operator for OpCompute {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         for r in &mut self.unbound_refs {
             r.name_interned = sess.string_store.intern_cloned(&r.name);
         }

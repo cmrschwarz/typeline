@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
@@ -14,7 +14,7 @@ use scr_core::{
         transform::{Transform, TransformData, TransformId, TransformState},
     },
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
 
@@ -39,7 +39,9 @@ pub struct TfHeadSubtractive {
 }
 
 impl Operator for OpHead {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         format!("head={}", self.count).into()
     }
 
@@ -47,7 +49,7 @@ impl Operator for OpHead {
         &self,
         _sess: &SessionData,
         _op_id: OperatorId,
-    ) -> scr_core::operators::operator::OutputFieldKind {
+    ) -> typeline_core::operators::operator::OutputFieldKind {
         OutputFieldKind::SameAsInput
     }
 
@@ -245,7 +247,9 @@ pub fn create_op_head(count: isize) -> Box<dyn Operator> {
     })
 }
 
-pub fn parse_op_head(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
+pub fn parse_op_head(
+    expr: &CallExpr,
+) -> Result<Box<dyn Operator>, TypelineError> {
     let count = expr.require_at_most_one_number_arg(false)?.unwrap_or(1);
     Ok(create_op_head(count))
 }

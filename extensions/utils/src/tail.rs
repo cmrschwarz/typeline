@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
@@ -16,7 +16,7 @@ use scr_core::{
     },
     options::session_setup::SessionSetupData,
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         indexing_type::IndexingType,
         int_string_conversions::parse_int_with_units,
@@ -46,7 +46,9 @@ pub struct TfTailAdditive {
 }
 
 impl Operator for OpTail {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         format!(
             "tail={}{}",
             if self.additive_mode { "+" } else { "" },
@@ -59,7 +61,7 @@ impl Operator for OpTail {
         &self,
         _sess: &SessionData,
         _op_id: OperatorId,
-    ) -> scr_core::operators::operator::OutputFieldKind {
+    ) -> typeline_core::operators::operator::OutputFieldKind {
         OutputFieldKind::SameAsInput
     }
 
@@ -245,7 +247,7 @@ pub fn create_op_tail_add(count: usize) -> Box<dyn Operator> {
 pub fn parse_op_tail(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let arg = expr.require_at_most_one_arg()?;
     let Some(arg) = arg else {
         return Ok(create_op_tail(1));

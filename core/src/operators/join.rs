@@ -40,7 +40,7 @@ use crate::{
         },
         varying_type_inserter::VaryingTypeInserter,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         int_string_conversions::{f64_to_str, i64_to_str, usize_to_str},
@@ -133,7 +133,9 @@ pub fn argument_matches_op_join(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)
 }
 
-pub fn parse_op_join(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
+pub fn parse_op_join(
+    expr: &CallExpr,
+) -> Result<Box<dyn Operator>, TypelineError> {
     let mut count = None;
     let mut drop_incomplete = false;
     let mut drop_incomplete_span = Span::Generated;

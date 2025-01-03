@@ -15,7 +15,7 @@ use crate::{
     record_data::{
         field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
     },
@@ -193,7 +193,7 @@ pub trait Operator: Send + Sync {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
     }
     fn on_liveness_computed(

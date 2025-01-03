@@ -3,7 +3,7 @@ use crate::{
     cli::call_expr::{CallExpr, Span},
     job::JobData,
     options::session_setup::SessionSetupData,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
 
 use super::{
@@ -39,7 +39,7 @@ pub fn setup_op_nop(
     chain_id: ChainId,
     offset_in_chain: OperatorOffsetInChain,
     span: Span,
-) -> Result<OperatorId, ScrError> {
+) -> Result<OperatorId, TypelineError> {
     Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
 }
 

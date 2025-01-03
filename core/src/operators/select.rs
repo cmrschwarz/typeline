@@ -3,7 +3,7 @@ use crate::{
     cli::call_expr::{CallExpr, Span},
     liveness_analysis::{OperatorCallEffect, VarId},
     options::session_setup::SessionSetupData,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
 
@@ -46,7 +46,7 @@ impl Operator for OpSelect {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         self.key_interned = Some(
             sess.string_store
                 .intern_moved(std::mem::take(&mut self.key)),

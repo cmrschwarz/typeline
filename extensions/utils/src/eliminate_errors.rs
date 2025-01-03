@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
@@ -26,7 +26,9 @@ pub struct TfEliminateErrors {
 }
 
 impl Operator for OpEliminateErrors {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "eliminate_errors".into()
     }
 
@@ -70,7 +72,7 @@ impl Transform<'_> for TfEliminateErrors {
     fn update(
         &mut self,
         jd: &mut JobData,
-        tf_id: scr_core::operators::transform::TransformId,
+        tf_id: typeline_core::operators::transform::TransformId,
     ) {
         let tf = &jd.tf_mgr.transforms[tf_id];
         let ms_id = jd.tf_mgr.transforms[tf_id].match_set_id;

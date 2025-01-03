@@ -1,4 +1,6 @@
-use crate::{operators::errors::OperatorCreationError, scr_error::ScrError};
+use crate::{
+    operators::errors::OperatorCreationError, typeline_error::TypelineError,
+};
 
 use super::call_expr::Span;
 
@@ -11,7 +13,7 @@ macro_rules! help_page {
 pub fn get_help_page(
     page: Option<(&[u8], Span)>,
     start_span: Span,
-) -> Result<&'static str, ScrError> {
+) -> Result<&'static str, TypelineError> {
     const MAIN_HELP_PAGE: &str = help_page!("main.txt");
     let section = if let Some((help_section_arg, span)) = page {
         let section_name = String::from_utf8_lossy(help_section_arg);

@@ -32,14 +32,14 @@ use crate::{
     },
     options::{
         chain_settings::chain_settings_list,
-        session_setup::{ScrSetupOptions, SessionSetupData},
+        session_setup::{SessionSetupData, SetupOptions},
         setting::CliArgIdx,
     },
     record_data::{
         record_buffer::RecordBuffer, record_set::RecordSet,
         scope_manager::ScopeManager,
     },
-    scr_error::ContextualizedScrError,
+    typeline_error::ContextualizedTypelineError,
     utils::{
         identity_hasher::BuildIdentityHasher,
         index_vec::IndexVec,
@@ -463,8 +463,8 @@ impl Context {
         self.run_job(self.session.construct_main_chain_job(input_data));
     }
     #[cfg(feature = "repl")]
-    pub fn run_repl(&mut self, mut setup_opts: ScrSetupOptions) {
-        use crate::{repl_prompt::ScrPrompt, scr_error::ScrError};
+    pub fn run_repl(&mut self, mut setup_opts: SetupOptions) {
+        use crate::{repl_prompt::ScrPrompt, typeline_error::TypelineError};
         debug_assert!(setup_opts.allow_repl);
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
@@ -533,11 +533,11 @@ impl Context {
                         ) {
                             Ok(sess) => Ok(sess),
                             Err(e) => match e.err {
-                                ScrError::PrintInfoAndExitError(e) => {
+                                TypelineError::PrintInfoAndExitError(e) => {
                                     println!("{}", e.get_message());
                                     continue;
                                 }
-                                ScrError::MissingArgumentsError(_) => {
+                                TypelineError::MissingArgumentsError(_) => {
                                     continue;
                                 }
                                 _ => Err(e.contextualized_message),
@@ -578,10 +578,10 @@ impl Context {
 }
 
 pub fn build_repl_session(
-    setup_opts: &ScrSetupOptions,
+    setup_opts: &SetupOptions,
     args: Vec<Vec<u8>>,
     exit_repl: &mut bool,
-) -> Result<SessionData, ContextualizedScrError> {
+) -> Result<SessionData, ContextualizedTypelineError> {
     let mut sess = SessionSetupData::new(setup_opts.clone());
 
     sess.process_cli_args(args)

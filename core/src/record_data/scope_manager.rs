@@ -8,7 +8,7 @@ use crate::{
     index_newtype,
     operators::operator::Operator,
     options::session_setup::SessionSetupData,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         debuggable_nonmax::DebuggableNonMaxU32,
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
@@ -49,7 +49,7 @@ pub trait OperatorDeclaration: Send + Sync {
         &self,
         sess: &mut SessionSetupData,
         arg: Argument,
-    ) -> Result<Box<dyn Operator>, ScrError>;
+    ) -> Result<Box<dyn Operator>, TypelineError>;
     fn format<'a, 'b>(
         &self,
         _ctx: &mut FormattingContext,

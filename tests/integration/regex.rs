@@ -1,6 +1,6 @@
 use rstest::rstest;
-use scr::operators::transparent::create_op_transparent;
-use scr_core::{
+use typeline::operators::transparent::create_op_transparent;
+use typeline_core::{
     operators::{
         file_reader::create_op_file_reader_custom,
         format::create_op_format,
@@ -14,13 +14,13 @@ use scr_core::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{int_string_conversions::i64_to_str, test_utils::SliceReader},
 };
-use scr_ext_utils::{dup::create_op_dup, string_utils::create_op_lines};
+use typeline_ext_utils::{dup::create_op_dup, string_utils::create_op_lines};
 
 #[test]
-fn lines_regex() -> Result<(), ScrError> {
+fn lines_regex() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("foo\nbar\nbaz", 1)
         .add_op(create_op_regex_lines())
@@ -30,7 +30,7 @@ fn lines_regex() -> Result<(), ScrError> {
 }
 
 #[test]
-fn index_capture_group() -> Result<(), ScrError> {
+fn index_capture_group() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("123", 1)
         .add_op(create_op_regex("(.)(.)(.)")?)
@@ -41,7 +41,7 @@ fn index_capture_group() -> Result<(), ScrError> {
 }
 
 #[test]
-fn regex_drop() -> Result<(), ScrError> {
+fn regex_drop() -> Result<(), TypelineError> {
     let ss1 = StringSinkHandle::default();
     let ss2 = StringSinkHandle::default();
     ContextBuilder::without_exts()
@@ -56,7 +56,7 @@ fn regex_drop() -> Result<(), ScrError> {
     Ok(())
 }
 #[test]
-fn chained_multimatch_regex() -> Result<(), ScrError> {
+fn chained_multimatch_regex() -> Result<(), TypelineError> {
     const COUNT: usize = 20;
     const PASS: usize = 7;
     let number_string_list: Vec<_> =
@@ -79,7 +79,7 @@ fn chained_multimatch_regex() -> Result<(), ScrError> {
 }
 
 #[test]
-fn chained_regex_over_input() -> Result<(), ScrError> {
+fn chained_regex_over_input() -> Result<(), TypelineError> {
     let mut cb = ContextBuilder::without_exts();
     for i in 0..3 {
         cb = cb.push_int(i, 1);
@@ -94,7 +94,7 @@ fn chained_regex_over_input() -> Result<(), ScrError> {
 }
 
 #[test]
-fn large_batch() -> Result<(), ScrError> {
+fn large_batch() -> Result<(), TypelineError> {
     const COUNT: usize = 10000;
     const PASS: usize = 1000;
     let number_string_list: Vec<_> =
@@ -121,7 +121,7 @@ fn large_batch() -> Result<(), ScrError> {
 fn large_batch_seq(
     #[case] count: i64,
     #[case] batch_size: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let re = regex::Regex::new(r"\d{1,3}").unwrap();
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
@@ -143,7 +143,7 @@ fn large_batch_seq(
 }
 
 #[test]
-fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
+fn multi_batch_seq_with_regex() -> Result<(), TypelineError> {
     const COUNT: usize = 6;
     let res = ContextBuilder::without_exts()
         .set_batch_size(COUNT / 2)
@@ -156,7 +156,7 @@ fn multi_batch_seq_with_regex() -> Result<(), ScrError> {
 }
 
 #[test]
-fn large_seq_with_regex() -> Result<(), ScrError> {
+fn large_seq_with_regex() -> Result<(), TypelineError> {
     const COUNT: usize = 10000;
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, COUNT as i64, 1).unwrap())
@@ -168,7 +168,7 @@ fn large_seq_with_regex() -> Result<(), ScrError> {
 }
 
 #[test]
-fn stream_into_regex() -> Result<(), ScrError> {
+fn stream_into_regex() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(1)?
         .add_op(create_op_file_reader_custom(
@@ -184,7 +184,7 @@ fn stream_into_regex() -> Result<(), ScrError> {
 }
 
 #[test]
-fn optional_regex() -> Result<(), ScrError> {
+fn optional_regex() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op_aggregate([
             create_op_seq(9, 12, 1).unwrap(),
@@ -219,7 +219,7 @@ fn optional_regex() -> Result<(), ScrError> {
 }
 
 #[test]
-fn zero_length_regex_match() -> Result<(), ScrError> {
+fn zero_length_regex_match() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("babab"))
         .add_op(
@@ -244,7 +244,7 @@ fn regex_match_overlapping(
     #[case] re: &str,
     #[case] input: &str,
     #[case] outputs: &[&'static str],
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str(input))
         .add_op(
@@ -269,7 +269,7 @@ fn regex_match_overlapping(
 fn seq_into_regex_drop_unless_seven(
     #[case] batch_size: usize,
     #[case] count: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let expected: Vec<String> = (0..count)
         .filter_map(|v| {
             let v = v.to_string();
@@ -291,7 +291,7 @@ fn seq_into_regex_drop_unless_seven(
 }
 
 #[test]
-fn double_regex() -> Result<(), ScrError> {
+fn double_regex() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 20, 1).unwrap())
         .add_op(create_op_regex(".*2.*").unwrap())
@@ -302,7 +302,7 @@ fn double_regex() -> Result<(), ScrError> {
 }
 
 #[test]
-fn full_match() -> Result<(), ScrError> {
+fn full_match() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("foo\nbar", 1)
         .add_op(create_op_lines())
@@ -322,7 +322,7 @@ fn full_match() -> Result<(), ScrError> {
 }
 
 #[test]
-fn multimatch_after_dup() -> Result<(), ScrError> {
+fn multimatch_after_dup() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_dup(2))

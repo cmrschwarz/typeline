@@ -1,5 +1,5 @@
 [package]
-name = "scr_ext_http"
+name = "typeline_ext_http"
 version.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -8,12 +8,12 @@ edition.workspace = true
 rust-version.workspace = true
 
 [lib]
-name = "scr_ext_http"
+name = "typeline_ext_http"
 test = false
 doctest = false
 
 [dependencies]
-scr_core = { path = "../../core" }
+typeline_core = { path = "../../core" }
 rustls = { version = "0.23.17", features = ["logging", "ring"] }
 rustls-pemfile = "2.2.0"
 mio = { version = "1.0.2", features = ["net", "os-poll"] }

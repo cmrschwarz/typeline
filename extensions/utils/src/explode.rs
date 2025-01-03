@@ -2,7 +2,7 @@ use std::cell::{RefCell, RefMut};
 
 use indexmap::{indexmap, IndexMap};
 
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
@@ -28,7 +28,7 @@ use scr_core::{
         scope_manager::ScopeManager,
         varying_type_inserter::VaryingTypeInserter,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         stable_vec::StableVec, string_store::StringStoreEntry,
         temp_vec::BorrowedContainer,
@@ -64,7 +64,7 @@ unsafe impl Send for TfExplode {}
 
 pub fn parse_op_explode(
     expr: &CallExpr,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     expr.reject_args()?;
     Ok(create_op_explode())
 }

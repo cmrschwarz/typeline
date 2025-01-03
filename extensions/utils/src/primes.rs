@@ -1,5 +1,5 @@
 use primes::{PrimeSet, Sieve};
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     operators::{
         errors::OperatorCreationError,
@@ -61,7 +61,9 @@ impl GeneratorSequence for PrimesGenerator {
 impl BasicGenerator for OpPrimes {
     type Gen = PrimesGenerator;
 
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "primes".into()
     }
 

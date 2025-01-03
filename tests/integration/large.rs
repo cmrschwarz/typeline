@@ -1,14 +1,14 @@
-use scr::{
+use typeline::{
     operators::{
         count::create_op_count, regex::create_op_regex,
         sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
 
 #[test]
-fn multibatch_count() -> Result<(), ScrError> {
+fn multibatch_count() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 10000, 1)?)
         .set_batch_size(100)?

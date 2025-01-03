@@ -1,8 +1,8 @@
 use rstest::rstest;
-use scr::{
+use typeline::{
     operators::nop_copy::create_op_nop_copy, utils::maybe_text::MaybeText,
 };
-use scr_core::{
+use typeline_core::{
     operators::{
         forkcat::create_op_forkcat,
         format::create_op_format,
@@ -14,12 +14,12 @@ use scr_core::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
-use scr_ext_utils::dup::create_op_dup;
+use typeline_ext_utils::dup::create_op_dup;
 
 #[test]
-fn empty_forkcat() -> Result<(), ScrError> {
+fn empty_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_forkcat([[]]))
         .run_collect_stringified()?;
@@ -28,7 +28,7 @@ fn empty_forkcat() -> Result<(), ScrError> {
 }
 
 #[test]
-fn nop_forkcat() -> Result<(), ScrError> {
+fn nop_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([[]]))
@@ -38,7 +38,7 @@ fn nop_forkcat() -> Result<(), ScrError> {
 }
 
 #[test]
-fn basic_forkcat() -> Result<(), ScrError> {
+fn basic_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_forkcat([
             [create_op_str("foo")],
@@ -50,7 +50,7 @@ fn basic_forkcat() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_with_input() -> Result<(), ScrError> {
+fn forkcat_with_input() -> Result<(), TypelineError> {
     let ss1 = StringSinkHandle::default();
     let ss2 = StringSinkHandle::default();
     ContextBuilder::without_exts()
@@ -67,7 +67,7 @@ fn forkcat_with_input() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_dup() -> Result<(), ScrError> {
+fn forkcat_dup() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]]))
@@ -77,7 +77,7 @@ fn forkcat_dup() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_sandwiched_write() -> Result<(), ScrError> {
+fn forkcat_sandwiched_write() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([
@@ -91,7 +91,7 @@ fn forkcat_sandwiched_write() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_double_field_refs() -> Result<(), ScrError> {
+fn forkcat_double_field_refs() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([
@@ -105,7 +105,7 @@ fn forkcat_double_field_refs() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_into_join() -> Result<(), ScrError> {
+fn forkcat_into_join() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]]))
@@ -120,7 +120,7 @@ fn forkcat_into_join() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_build_sql_insert() -> Result<(), ScrError> {
+fn forkcat_build_sql_insert() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_ops([
             create_op_forkcat([
@@ -144,7 +144,7 @@ fn forkcat_build_sql_insert() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
+fn forkcat_input_equals_named_var() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op_with_key("a", create_op_str("a"))
         .add_op(create_op_forkcat([
@@ -157,7 +157,7 @@ fn forkcat_input_equals_named_var() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_surviving_vars() -> Result<(), ScrError> {
+fn forkcat_surviving_vars() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op_with_key("lbl", create_op_seq(0, 2, 1).unwrap())
         .add_op(create_op_forkcat([
@@ -172,7 +172,7 @@ fn forkcat_surviving_vars() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
+fn forkcat_with_drop_in_sc() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_forkcat([
@@ -186,7 +186,7 @@ fn forkcat_with_drop_in_sc() -> Result<(), ScrError> {
 }
 
 #[test]
-fn forkcat_with_batches() -> Result<(), ScrError> {
+fn forkcat_with_batches() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(3)
         .unwrap()
@@ -208,7 +208,7 @@ fn forkcat_with_batches() -> Result<(), ScrError> {
 #[case(5)]
 fn forkcat_with_batches_into_join(
     #[case] batch_size: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)?
         .add_op(create_op_seqn(1, 5, 1)?)
@@ -229,7 +229,7 @@ fn forkcat_with_batches_into_join(
 #[case(10)]
 fn forkcat_on_unapplied_commands(
     #[case] batch_size: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .unwrap()

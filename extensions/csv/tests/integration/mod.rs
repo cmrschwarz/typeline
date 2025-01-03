@@ -1,5 +1,10 @@
 use rstest::rstest;
-use scr_core::{
+use std::{
+    fmt::Write,
+    io::Cursor,
+    sync::{Arc, LazyLock},
+};
+use typeline_core::{
     extension::{Extension, ExtensionRegistry},
     operators::{
         count::create_op_count,
@@ -10,16 +15,11 @@ use scr_core::{
         utils::readable::MutexedReadableTargetOwner,
     },
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::test_utils::SliceReader,
 };
-use scr_ext_csv::{csv::create_op_csv, CsvExtension};
-use scr_ext_utils::{head::create_op_head, sum::create_op_sum};
-use std::{
-    fmt::Write,
-    io::Cursor,
-    sync::{Arc, LazyLock},
-};
+use typeline_ext_csv::{csv::create_op_csv, CsvExtension};
+use typeline_ext_utils::{head::create_op_head, sum::create_op_sum};
 
 pub static CSV_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
     LazyLock::new(|| {
@@ -29,7 +29,7 @@ pub static CSV_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
     });
 
 #[test]
-fn first_column_becomes_output() -> Result<(), ScrError> {
+fn first_column_becomes_output() -> Result<(), TypelineError> {
     let target = MutexedReadableTargetOwner::new(SliceReader::new(
         "a,b,c\n1,2\r\nx,y,z,w".as_bytes(),
     ));
@@ -41,7 +41,7 @@ fn first_column_becomes_output() -> Result<(), ScrError> {
 }
 
 #[test]
-fn end_correctly_truncates_first_column() -> Result<(), ScrError> {
+fn end_correctly_truncates_first_column() -> Result<(), TypelineError> {
     let target = MutexedReadableTargetOwner::new(SliceReader::new(
         "a,b,c\nb\nxyz".as_bytes(),
     ));
@@ -53,7 +53,7 @@ fn end_correctly_truncates_first_column() -> Result<(), ScrError> {
 }
 
 #[test]
-fn access_second_field() -> Result<(), ScrError> {
+fn access_second_field() -> Result<(), TypelineError> {
     let target = MutexedReadableTargetOwner::new(SliceReader::new(
         "a,b,c\r\nb\nx,y,".as_bytes(),
     ));
@@ -66,7 +66,7 @@ fn access_second_field() -> Result<(), ScrError> {
 }
 
 #[test]
-fn last_row_filled_up_with_nulls() -> Result<(), ScrError> {
+fn last_row_filled_up_with_nulls() -> Result<(), TypelineError> {
     let target = MutexedReadableTargetOwner::new(SliceReader::new(
         "1,\r\na,b\nx".as_bytes(),
     ));
@@ -79,7 +79,7 @@ fn last_row_filled_up_with_nulls() -> Result<(), ScrError> {
 }
 
 #[test]
-fn csv_parses_integers() -> Result<(), ScrError> {
+fn csv_parses_integers() -> Result<(), TypelineError> {
     let target = MutexedReadableTargetOwner::new(SliceReader::new(
         "1,2,3\r\na,b,c\nx".as_bytes(),
     ));
@@ -97,7 +97,7 @@ fn csv_parses_integers() -> Result<(), ScrError> {
 fn multibatch(
     #[case] batch_size: usize,
     #[case] count: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let mut input = String::new();
 
     for i in 0..count {
@@ -117,7 +117,7 @@ fn multibatch(
 }
 
 #[test]
-fn head() -> Result<(), ScrError> {
+fn head() -> Result<(), TypelineError> {
     let mut input = String::new();
 
     for i in 0..10 {
@@ -162,7 +162,7 @@ nm0000019,Federico Fellini,1920,1993,writer;director;actor,tt0056801;tt0050783;t
 #[rstest]
 #[case(7)]
 #[case(2)]
-fn imdb_actor_count(#[case] batch_size: usize) -> Result<(), ScrError> {
+fn imdb_actor_count(#[case] batch_size: usize) -> Result<(), TypelineError> {
     let target =
         MutexedReadableTargetOwner::new(Cursor::new(IMDB_CSV_EXAMPLE));
 

@@ -40,7 +40,7 @@ use crate::{
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         index_slice::IndexSlice,
         index_vec::IndexVec,
@@ -1029,7 +1029,7 @@ impl Operator for OpForkCat {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
         let OperatorOffsetInChain::Direct(direct_offset_in_chain) =
@@ -1264,7 +1264,7 @@ pub fn create_op_forkcat(
 pub fn parse_op_forkcat(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
     for arg in std::mem::take(arg.expect_arg_array_mut()?)

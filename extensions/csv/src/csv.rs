@@ -7,7 +7,7 @@ use std::{
 };
 
 use memchr::memchr2;
-use scr_core::{
+use typeline_core::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
     context::SessionData,
@@ -34,7 +34,7 @@ use scr_core::{
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         indexing_type::IndexingType,
         int_string_conversions::usize_to_str,
@@ -76,7 +76,9 @@ pub struct TfCsv<'a> {
 const INITIAL_OUTPUT_COUNT: usize = 6;
 
 impl Operator for OpCsv {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "csv".into()
     }
 
@@ -91,7 +93,7 @@ impl Operator for OpCsv {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         for i in 0..INITIAL_OUTPUT_COUNT {
             let var_name = sess.string_store.intern_cloned(&format!("_{i}"));
             self.var_names.push(var_name);
@@ -668,7 +670,7 @@ pub fn create_op_csv_from_file(
 pub fn parse_op_csv(
     sess: &mut SessionSetupData,
     expr: CallExpr,
-) -> Result<Option<Box<dyn Operator>>, ScrError> {
+) -> Result<Option<Box<dyn Operator>>, TypelineError> {
     let (flags, args) = expr.split_flags_arg(false);
     if args.len() != 1 {
         return Err(expr.error_require_exact_positional_count(1).into());

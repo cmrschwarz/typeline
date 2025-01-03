@@ -47,7 +47,7 @@ pub mod operators;
 pub mod options;
 pub mod record_data;
 pub mod repl_prompt;
-pub mod scr_error;
+pub mod typeline_error;
 pub mod tyson;
 
 pub const UNDEFINED_STR: &str = "undefined";

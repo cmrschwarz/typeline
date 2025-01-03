@@ -1,5 +1,5 @@
 [package]
-name = "scr_core"
+name = "typeline_core"
 
 version.workspace = true
 license.workspace = true
@@ -9,7 +9,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [lib]
-name = "scr_core"
+name = "typeline_core"
 
 [target.'cfg(miri)'.dependencies.bitvec_miri]
 package = "bitvec"

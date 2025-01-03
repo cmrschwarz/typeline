@@ -75,7 +75,10 @@ impl Operator for OpCount {
         chain_id: crate::chain::ChainId,
         offset_in_chain: super::operator::OperatorOffsetInChain,
         span: crate::cli::call_expr::Span,
-    ) -> Result<super::operator::OperatorId, crate::scr_error::ScrError> {
+    ) -> Result<
+        super::operator::OperatorId,
+        crate::typeline_error::TypelineError,
+    > {
         Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
     }
 

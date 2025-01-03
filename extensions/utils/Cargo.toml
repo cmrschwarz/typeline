@@ -1,5 +1,5 @@
 [package]
-name = "scr_ext_utils"
+name = "typeline_ext_utils"
 version.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -8,14 +8,14 @@ edition.workspace = true
 rust-version.workspace = true
 
 [lib]
-name = "scr_ext_utils"
+name = "typeline_ext_utils"
 test = false
 doctest = false
 
 
 [dependencies]
 bstr = { version = "1.11.0", features = ["std"], default-features = false }
-scr_core = { path = "../../core" }
+typeline_core = { path = "../../core" }
 primes = "0.4.0"
 num = "0.4.3"
 indexmap = "2.6.0"
@@ -25,7 +25,7 @@ mio = { version = "1.0.2", features = ["os-ext", "os-poll"] }
 num-order = { version = "1.2", features = ["num-rational", "num-bigint"] }
 
 [dev-dependencies]
-scr = { path = "../../", features = ["utils"] }
+typeline = { path = "../../", features = ["utils"] }
 rstest = "0.23.0"
 
 [features]

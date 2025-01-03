@@ -23,7 +23,7 @@ use crate::{
         iter_hall::FieldIterId,
         match_set::MatchSetId,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         index_vec::IndexVec,
         indexing_type::{IndexingType, IndexingTypeRange},
@@ -91,7 +91,7 @@ pub fn create_op_fork(
 
 pub fn parse_op_fork(
     mut arg: Argument,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
 
@@ -154,7 +154,7 @@ impl Operator for OpFork {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
         if !matches!(offset_in_chain, OperatorOffsetInChain::Direct(_)) {

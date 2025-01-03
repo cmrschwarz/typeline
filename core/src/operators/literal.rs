@@ -18,7 +18,7 @@ use crate::{
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueData},
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     tyson::{parse_tyson, TysonParseError},
     utils::{cow_to_small_str, cow_to_str},
 };
@@ -140,7 +140,7 @@ impl Operator for OpLiteral {
 pub fn parse_op_literal_zst(
     expr: &CallExpr,
     literal: Literal,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let insert_count = parse_insert_count_reject_value(expr)?;
     Ok(Box::new(OpLiteral {
         data: literal,
@@ -151,7 +151,7 @@ pub fn parse_op_str(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
     stream: bool,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
     let value_owned = value.into_owned();
@@ -169,7 +169,7 @@ pub fn parse_op_error(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
     stream: bool,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
     let value_owned = value.into_owned();
@@ -185,7 +185,7 @@ pub fn parse_op_error(
 
 pub fn parse_insert_count_reject_value(
     expr: &CallExpr,
-) -> Result<Option<usize>, ScrError> {
+) -> Result<Option<usize>, TypelineError> {
     let mut insert_count = None;
     for arg in expr.parsed_args_iter() {
         match arg.value {
@@ -219,7 +219,7 @@ pub fn parse_insert_count_reject_value(
 pub fn parse_insert_count_and_value_args<'a>(
     sess: &mut SessionSetupData,
     expr: &'a CallExpr<'a>,
-) -> Result<(Option<usize>, Cow<'a, [u8]>, Span), ScrError> {
+) -> Result<(Option<usize>, Cow<'a, [u8]>, Span), TypelineError> {
     let mut insert_count = None;
     let mut value = None;
     for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
@@ -256,7 +256,7 @@ pub fn parse_insert_count_and_value_args<'a>(
 pub fn parse_insert_count_and_value_args_str<'a>(
     sess: &mut SessionSetupData,
     expr: &'a CallExpr<'a>,
-) -> Result<(Option<usize>, Cow<'a, str>, Span), ScrError> {
+) -> Result<(Option<usize>, Cow<'a, str>, Span), TypelineError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(sess, expr)?;
     let value_str = cow_to_str(value)
@@ -268,7 +268,7 @@ pub fn parse_insert_count_and_value_args_str<'a>(
 pub fn parse_op_int(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args_str(sess, expr)?;
 
@@ -288,7 +288,7 @@ pub fn parse_op_bytes(
     sess: &mut SessionSetupData,
     arg: &mut Argument,
     stream: bool,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let call_expr = CallExpr::from_argument_mut(arg)?;
     let (insert_count, value, _value_span) =
         parse_insert_count_and_value_args(sess, &call_expr)?;
@@ -324,7 +324,7 @@ pub fn parse_op_tyson(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
     affinity: FieldValueKind,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(sess, expr)?;
     let value = parse_tyson(
@@ -368,7 +368,7 @@ pub fn build_op_tyson_value(
     value: &[u8],
     value_span: Span,
     insert_count: Option<usize>,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let value = parse_tyson(
         value,
         use_fpm(&mut sess),
@@ -387,7 +387,7 @@ pub fn build_op_tyson_value(
 pub fn parse_op_tyson_value(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let (insert_count, value, value_span) =
         parse_insert_count_and_value_args(sess, expr)?;
     build_op_tyson_value(Some(sess), &value, value_span, insert_count)
@@ -440,7 +440,7 @@ pub fn create_op_null() -> Box<dyn Operator> {
 pub fn create_op_undefined() -> Box<dyn Operator> {
     create_op_literal(Literal::Undefined)
 }
-pub fn create_op_v(str: &str) -> Result<Box<dyn Operator>, ScrError> {
+pub fn create_op_v(str: &str) -> Result<Box<dyn Operator>, TypelineError> {
     build_op_tyson_value(None, str.as_bytes(), Span::Generated, None)
 }
 
@@ -489,7 +489,7 @@ pub fn create_op_success_n(insert_count: usize) -> Box<dyn Operator> {
 pub fn create_op_v_n(
     str: &str,
     insert_count: usize,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     build_op_tyson_value(
         None,
         str.as_bytes(),

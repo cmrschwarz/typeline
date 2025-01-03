@@ -29,7 +29,7 @@ use crate::{
             RecordBufferFieldId,
         },
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
         string_store::StringStoreEntry,
@@ -382,7 +382,7 @@ impl Operator for OpCallConcurrent {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
         if let Some(target) = sess

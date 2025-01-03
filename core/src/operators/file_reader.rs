@@ -29,7 +29,7 @@ use crate::{
             StreamValueDataType, StreamValueId,
         },
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
 
 use super::{
@@ -294,7 +294,7 @@ fn parse_file_reader_flags(
 pub fn parse_op_file_reader(
     sess: &SessionSetupData,
     mut expr: CallExpr,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     expr.split_flags_arg_normalized(&sess.string_store, true);
     let (flags, args) = expr.split_flags_arg(true);
 
@@ -327,7 +327,7 @@ fn build_op_file(
     value: &[u8],
     opts: FileReaderOptions,
     #[cfg_attr(unix, allow(unused))] span: Span,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let path = {
         #[cfg(unix)]
         {
@@ -441,7 +441,7 @@ impl Operator for OpFileReader {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let buffering_mode =
             sess.get_chain_setting::<SettingBufferingMode>(chain_id);
         self.line_buffered = match buffering_mode {

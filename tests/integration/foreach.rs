@@ -1,22 +1,22 @@
-use scr::operators::{
+use typeline::operators::{
     chunks::create_op_chunks,
     count::create_op_count,
     regex::{create_op_regex_with_opts, RegexOptions},
     sequence::create_op_seq,
 };
-use scr_core::{
+use typeline_core::{
     operators::{
         foreach::create_op_foreach, join::create_op_join,
         literal::create_op_str_n, sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
     record_data::field_value::FieldValue,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
-use scr_ext_utils::{dup::create_op_dup, sum::create_op_sum};
+use typeline_ext_utils::{dup::create_op_dup, sum::create_op_sum};
 
 #[test]
-fn empty_foreach() -> Result<(), ScrError> {
+fn empty_foreach() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str_n("foo", 2))
         .add_op(create_op_foreach([]))
@@ -26,7 +26,7 @@ fn empty_foreach() -> Result<(), ScrError> {
 }
 
 #[test]
-fn foreach_sum() -> Result<(), ScrError> {
+fn foreach_sum() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([create_op_sum()]))
@@ -39,7 +39,7 @@ fn foreach_sum() -> Result<(), ScrError> {
 }
 
 #[test]
-fn foreach_sum_nested() -> Result<(), ScrError> {
+fn foreach_sum_nested() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([
@@ -55,7 +55,7 @@ fn foreach_sum_nested() -> Result<(), ScrError> {
 }
 
 #[test]
-fn foreach_dup_sum() -> Result<(), ScrError> {
+fn foreach_dup_sum() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([create_op_dup(2), create_op_sum()]))
@@ -68,7 +68,7 @@ fn foreach_dup_sum() -> Result<(), ScrError> {
 }
 
 #[test]
-fn foreach_dup_join() -> Result<(), ScrError> {
+fn foreach_dup_join() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_foreach([
@@ -81,7 +81,7 @@ fn foreach_dup_join() -> Result<(), ScrError> {
 }
 
 #[test]
-fn foreach_seq_seq() -> Result<(), ScrError> {
+fn foreach_seq_seq() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_foreach([
@@ -99,7 +99,7 @@ fn chunk_size_zero_fails() {
 }
 
 #[test]
-fn chunks() -> Result<(), ScrError> {
+fn chunks() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 10, 1)?)
         .add_op(create_op_chunks(3, [create_op_sum()])?)
@@ -109,7 +109,7 @@ fn chunks() -> Result<(), ScrError> {
 }
 
 #[test]
-fn batched_chunks() -> Result<(), ScrError> {
+fn batched_chunks() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 10, 1)?)
         .set_batch_size(2)?
@@ -120,7 +120,7 @@ fn batched_chunks() -> Result<(), ScrError> {
 }
 
 #[test]
-fn chunks_empty() -> Result<(), ScrError> {
+fn chunks_empty() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 10, 1).unwrap())
         .add_op(create_op_chunks(
@@ -133,7 +133,7 @@ fn chunks_empty() -> Result<(), ScrError> {
 }
 
 #[test]
-fn chunks_counted() -> Result<(), ScrError> {
+fn chunks_counted() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 10, 1).unwrap())
         .add_op(create_op_chunks(3, [create_op_count()])?)
@@ -143,7 +143,7 @@ fn chunks_counted() -> Result<(), ScrError> {
 }
 
 #[test]
-fn foreach_empty_group_skip() -> Result<(), ScrError> {
+fn foreach_empty_group_skip() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(15, 25, 1)?)
         .add_op(create_op_foreach([

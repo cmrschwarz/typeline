@@ -1,5 +1,5 @@
 use rstest::rstest;
-use scr::{
+use typeline::{
     operators::{
         aggregator::{create_op_aggregate, create_op_aggregate_appending},
         compute::create_op_compute,
@@ -15,7 +15,7 @@ use scr::{
     },
     utils::test_utils::int_sequence_strings,
 };
-use scr_core::{
+use typeline_core::{
     operators::{
         file_reader::create_op_file_reader_custom,
         fork::create_op_fork,
@@ -36,16 +36,16 @@ use scr_core::{
         chain_settings::{ChainSetting, SettingBatchSize},
         context_builder::ContextBuilder,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::test_utils::{ErroringStream, SliceReader, TricklingStream},
 };
-use scr_ext_utils::{
+use typeline_ext_utils::{
     dup::create_op_dup, string_utils::create_op_chars, sum::create_op_sum,
     tail::create_op_tail,
 };
 
 #[test]
-fn string_sink() -> Result<(), ScrError> {
+fn string_sink() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("foo", 1)
         .run_collect_stringified()?;
@@ -54,7 +54,7 @@ fn string_sink() -> Result<(), ScrError> {
 }
 
 #[test]
-fn tf_literal() -> Result<(), ScrError> {
+fn tf_literal() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_literal(Literal::Text("foo".to_owned())))
         .run_collect_stringified()?;
@@ -63,7 +63,7 @@ fn tf_literal() -> Result<(), ScrError> {
 }
 
 #[test]
-fn counted_tf_literal() -> Result<(), ScrError> {
+fn counted_tf_literal() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_literal_n(Literal::Text("x".to_owned()), 3))
         .run_collect_stringified()?;
@@ -72,7 +72,7 @@ fn counted_tf_literal() -> Result<(), ScrError> {
 }
 
 #[test]
-fn multi_doc() -> Result<(), ScrError> {
+fn multi_doc() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("foo", 1)
         .push_str("bar", 1)
@@ -82,7 +82,7 @@ fn multi_doc() -> Result<(), ScrError> {
 }
 
 #[test]
-fn trickling_stream() -> Result<(), ScrError> {
+fn trickling_stream() -> Result<(), TypelineError> {
     const SIZE: usize = 4096;
 
     let res = ContextBuilder::without_exts()
@@ -102,7 +102,7 @@ fn trickling_stream() -> Result<(), ScrError> {
 #[case(2)]
 #[case(3)]
 #[case(4)]
-fn sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
+fn sequence(#[case] batch_size: usize) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .unwrap()
@@ -122,7 +122,7 @@ fn sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
 fn double_sequence(
     #[case] batch_size_1: usize,
     #[case] batch_size_2: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size_1)
         .unwrap()
@@ -140,7 +140,7 @@ fn double_sequence(
 #[case(2)]
 #[case(3)]
 #[case(100)]
-fn triple_sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
+fn triple_sequence(#[case] batch_size: usize) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .unwrap()
@@ -154,7 +154,7 @@ fn triple_sequence(#[case] batch_size: usize) -> Result<(), ScrError> {
 }
 
 #[test]
-fn in_between_drop() -> Result<(), ScrError> {
+fn in_between_drop() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("a", 1)
         .push_str("b", 1)
@@ -166,7 +166,7 @@ fn in_between_drop() -> Result<(), ScrError> {
 }
 
 #[test]
-fn drops_surrounding_single_val() -> Result<(), ScrError> {
+fn drops_surrounding_single_val() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_regex("[1]").unwrap())
@@ -175,7 +175,7 @@ fn drops_surrounding_single_val() -> Result<(), ScrError> {
     Ok(())
 }
 #[test]
-fn drops_surrounding_range() -> Result<(), ScrError> {
+fn drops_surrounding_range() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 8, 1).unwrap())
         .add_op(create_op_regex("[2-5]").unwrap())
@@ -185,7 +185,7 @@ fn drops_surrounding_range() -> Result<(), ScrError> {
 }
 
 #[test]
-fn basic_key_cow() -> Result<(), ScrError> {
+fn basic_key_cow() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(1)
         .unwrap()
@@ -198,7 +198,7 @@ fn basic_key_cow() -> Result<(), ScrError> {
 }
 
 #[test]
-fn batched_use_after_key() -> Result<(), ScrError> {
+fn batched_use_after_key() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(1)
         .unwrap()
@@ -210,7 +210,7 @@ fn batched_use_after_key() -> Result<(), ScrError> {
 }
 
 #[test]
-fn double_key() -> Result<(), ScrError> {
+fn double_key() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_literal(Literal::Int(42)))
         .add_op(create_op_key("foo".to_owned()))
@@ -222,7 +222,7 @@ fn double_key() -> Result<(), ScrError> {
 }
 
 #[test]
-fn chained_seq() -> Result<(), ScrError> {
+fn chained_seq() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_aggregate([
             create_op_seq(0, 6, 1).unwrap(),
@@ -234,7 +234,7 @@ fn chained_seq() -> Result<(), ScrError> {
 }
 
 #[test]
-fn chained_seq_with_input_data() -> Result<(), ScrError> {
+fn chained_seq_with_input_data() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_int(0, 1)
         .add_op(create_op_aggregate_appending([
@@ -247,7 +247,7 @@ fn chained_seq_with_input_data() -> Result<(), ScrError> {
 }
 
 #[test]
-fn unset_field_value() -> Result<(), ScrError> {
+fn unset_field_value() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .push_str("x", 1)
@@ -268,7 +268,7 @@ fn unset_field_value() -> Result<(), ScrError> {
 }
 
 #[test]
-fn unbounded_enum_backoff() -> Result<(), ScrError> {
+fn unbounded_enum_backoff() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
@@ -283,7 +283,7 @@ fn unbounded_enum_backoff() -> Result<(), ScrError> {
 }
 
 #[test]
-fn unset_field_value_in_forkeach() -> Result<(), ScrError> {
+fn unset_field_value_in_forkeach() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .add_op_with_key("foo", create_op_seq(0, 2, 1).unwrap())
@@ -301,7 +301,7 @@ fn unset_field_value_in_forkeach() -> Result<(), ScrError> {
 }
 
 #[test]
-fn unset_field_value_debug_repr_is_undefined() -> Result<(), ScrError> {
+fn unset_field_value_debug_repr_is_undefined() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
@@ -313,7 +313,8 @@ fn unset_field_value_debug_repr_is_undefined() -> Result<(), ScrError> {
 }
 
 #[test]
-fn unset_field_value_does_not_trigger_underflow() -> Result<(), ScrError> {
+fn unset_field_value_does_not_trigger_underflow() -> Result<(), TypelineError>
+{
     let res = ContextBuilder::without_exts()
         .push_str("x", 1)
         .add_op(create_op_key("x".to_owned()))
@@ -327,7 +328,7 @@ fn unset_field_value_does_not_trigger_underflow() -> Result<(), ScrError> {
 }
 
 #[test]
-fn seq_enum() -> Result<(), ScrError> {
+fn seq_enum() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("x", 3)
         .add_op(create_op_key("foo".to_owned()))
@@ -339,7 +340,7 @@ fn seq_enum() -> Result<(), ScrError> {
 }
 
 #[test]
-fn double_drop() -> Result<(), ScrError> {
+fn double_drop() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(5)
         .unwrap()
@@ -354,7 +355,7 @@ fn double_drop() -> Result<(), ScrError> {
 }
 
 #[test]
-fn select() -> Result<(), ScrError> {
+fn select() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(5)
         .unwrap()
@@ -370,7 +371,7 @@ fn select() -> Result<(), ScrError> {
 }
 
 #[test]
-fn select_after_key() -> Result<(), ScrError> {
+fn select_after_key() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(5)
         .unwrap()
@@ -384,7 +385,7 @@ fn select_after_key() -> Result<(), ScrError> {
 }
 
 #[test]
-fn basic_cow() -> Result<(), ScrError> {
+fn basic_cow() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .push_str("123", 1)
@@ -410,7 +411,7 @@ fn basic_cow() -> Result<(), ScrError> {
 #[case(<SettingBatchSize as ChainSetting>::DEFAULT)]
 fn cow_not_affecting_original(
     #[case] batch_size: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let ss1 = StringSinkHandle::default();
     let ss2 = StringSinkHandle::default();
     ContextBuilder::without_exts()
@@ -437,7 +438,7 @@ fn cow_not_affecting_original(
 }
 
 #[test]
-fn chained_streams() -> Result<(), ScrError> {
+fn chained_streams() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(2)?
         .set_batch_size(2)?
@@ -456,7 +457,7 @@ fn chained_streams() -> Result<(), ScrError> {
     Ok(())
 }
 #[test]
-fn tf_literal_yields_to_cont() -> Result<(), ScrError> {
+fn tf_literal_yields_to_cont() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_int_n(1, 3))
         .add_op(create_op_aggregate([
@@ -475,7 +476,7 @@ fn tf_literal_yields_to_cont() -> Result<(), ScrError> {
 #[case(4)]
 fn tf_file_yields_to_cont(
     #[case] stream_buffer_size: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(stream_buffer_size)?
         .add_op(create_op_int_n(1, 3))
@@ -507,7 +508,7 @@ fn error_on_sbs_0() {
     );
 }
 #[test]
-fn negative_seq() -> Result<(), ScrError> {
+fn negative_seq() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(-1, -5, -2)?)
         .run_collect_as::<i64>()?;
@@ -518,7 +519,7 @@ fn negative_seq() -> Result<(), ScrError> {
 #[test]
 // regression test against 49544e93b2d6ae40b61a2e2794063e9b9112cdee
 // (inserter reservation issue on non fast step sequences)
-fn negative_seq_stringified() -> Result<(), ScrError> {
+fn negative_seq_stringified() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(-1, -5, -2)?)
         .run_collect_stringified()?;
@@ -527,7 +528,7 @@ fn negative_seq_stringified() -> Result<(), ScrError> {
 }
 
 #[test]
-fn stream_error_after_regular_error() -> Result<(), ScrError> {
+fn stream_error_after_regular_error() -> Result<(), TypelineError> {
     // TODO: this test used to test for a stream value error as output of
     // the format. that is no longer observed since join outputs a stream
     // so format receives an incomplete stream. We should make a test to
@@ -558,7 +559,7 @@ fn stream_error_after_regular_error() -> Result<(), ScrError> {
 }
 
 #[test]
-fn single_operator() -> Result<(), ScrError> {
+fn single_operator() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 1000, 1).unwrap())
         .run_collect_stringified()?;
@@ -567,7 +568,7 @@ fn single_operator() -> Result<(), ScrError> {
 }
 
 #[test]
-fn big_sum() -> Result<(), ScrError> {
+fn big_sum() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3000, 1).unwrap())
         .add_op(create_op_sum())
@@ -578,7 +579,7 @@ fn big_sum() -> Result<(), ScrError> {
 }
 
 #[test]
-fn seq_with_changing_str_length() -> Result<(), ScrError> {
+fn seq_with_changing_str_length() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(1, 11, 1).unwrap())
         .run_collect_stringified()?;
@@ -587,7 +588,7 @@ fn seq_with_changing_str_length() -> Result<(), ScrError> {
 }
 
 #[test]
-fn basic_input_feeder() -> Result<(), ScrError> {
+fn basic_input_feeder() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("123", 1)
         .add_op(
@@ -607,7 +608,7 @@ fn basic_input_feeder() -> Result<(), ScrError> {
 }
 
 #[test]
-fn field_refs_in_nopc() -> Result<(), ScrError> {
+fn field_refs_in_nopc() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("123", 1)
         .add_op(
@@ -628,7 +629,7 @@ fn field_refs_in_nopc() -> Result<(), ScrError> {
 }
 
 #[test]
-fn basic_batching() -> Result<(), ScrError> {
+fn basic_batching() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("1234"))
         .set_batch_size(2)
@@ -640,7 +641,7 @@ fn basic_batching() -> Result<(), ScrError> {
 }
 
 #[test]
-fn basic_batched_head() -> Result<(), ScrError> {
+fn basic_batched_head() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("1234"))
         .add_op(create_op_chars())
@@ -658,7 +659,7 @@ fn basic_batched_head() -> Result<(), ScrError> {
 fn dup_into_sum(
     #[case] batch_size: usize,
     #[case] seq_len: i64,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .unwrap()
@@ -671,7 +672,7 @@ fn dup_into_sum(
 }
 
 #[test]
-fn stream_error_into_print() -> Result<(), ScrError> {
+fn stream_error_into_print() -> Result<(), TypelineError> {
     // TODO: this should work with a non zero offset too.
     // we have to make print take two streams. stdout and stderr respectively
     // it should then have options about where / if to report errors
@@ -704,7 +705,7 @@ fn stream_error_into_print() -> Result<(), ScrError> {
 }
 
 #[test]
-fn regular_errors_into_print() -> Result<(), ScrError> {
+fn regular_errors_into_print() -> Result<(), TypelineError> {
     let print_target = MutexedWriteableTargetOwner::<Vec<u8>>::default();
     let res = ContextBuilder::without_exts()
         .add_op(create_op_compute("1/0").unwrap())
@@ -726,7 +727,7 @@ fn regular_errors_into_print() -> Result<(), ScrError> {
 }
 
 #[test]
-fn print_error_propagation() -> Result<(), ScrError> {
+fn print_error_propagation() -> Result<(), TypelineError> {
     let print_target = MutexedWriteableTargetOwner::<Vec<u8>>::default();
     let res = ContextBuilder::without_exts()
         .with_record_set(|r, s| {

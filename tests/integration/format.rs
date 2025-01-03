@@ -1,5 +1,5 @@
 use rstest::rstest;
-use scr::{
+use typeline::{
     operators::{
         operator::OperatorId,
         sequence::create_op_enum,
@@ -7,7 +7,7 @@ use scr::{
     },
     utils::indexing_type::IndexingType,
 };
-use scr_core::{
+use typeline_core::{
     operators::{
         errors::OperatorApplicationError,
         file_reader::create_op_file_reader_custom,
@@ -21,12 +21,12 @@ use scr_core::{
         sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{int_string_conversions::i64_to_str, test_utils::SliceReader},
 };
 
 #[test]
-fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
+fn debug_format_surrounds_with_quotes() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op_aggregate_appending([
@@ -40,7 +40,7 @@ fn debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
 }
 
 #[test]
-fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
+fn more_debug_format_surrounds_with_quotes() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
         .add_op_aggregate_appending([
@@ -59,7 +59,7 @@ fn more_debug_format_surrounds_with_quotes() -> Result<(), ScrError> {
 fn error_formatting(
     #[case] fmt_string: &str,
     #[case] result: &str,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_error("A"))
         .add_op(create_op_format(fmt_string).unwrap())
@@ -74,7 +74,7 @@ fn error_formatting(
 fn stream_error_formatting(
     #[case] fmt_string: &str,
     #[case] result: &str,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_stream_error("A"))
         .add_op(create_op_format(fmt_string).unwrap())
@@ -84,7 +84,7 @@ fn stream_error_formatting(
 }
 
 #[test]
-fn format_width_spec() -> Result<(), ScrError> {
+fn format_width_spec() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_str("x", 1)
         .add_op(create_op_key("foo".to_owned()))
@@ -97,7 +97,7 @@ fn format_width_spec() -> Result<(), ScrError> {
 }
 
 #[test]
-fn format_width_spec_over_stream() -> Result<(), ScrError> {
+fn format_width_spec_over_stream() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(1)?
         .add_op(create_op_file_reader_custom(
@@ -116,7 +116,7 @@ fn format_width_spec_over_stream() -> Result<(), ScrError> {
 }
 
 #[test]
-fn nonexisting_key() -> Result<(), ScrError> {
+fn nonexisting_key() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .push_str("x", 3)
@@ -131,7 +131,7 @@ fn nonexisting_key() -> Result<(), ScrError> {
     Ok(())
 }
 #[test]
-fn nonexisting_format_width_key() -> Result<(), ScrError> {
+fn nonexisting_format_width_key() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .push_str("x", 3)
@@ -149,7 +149,7 @@ fn nonexisting_format_width_key() -> Result<(), ScrError> {
 }
 
 #[test]
-fn format_after_surrounding_drop() -> Result<(), ScrError> {
+fn format_after_surrounding_drop() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 10, 1).unwrap())
         .add_op(create_op_regex("[3-5]").unwrap())
@@ -161,7 +161,7 @@ fn format_after_surrounding_drop() -> Result<(), ScrError> {
 }
 
 #[test]
-fn batched_format_after_drop() -> Result<(), ScrError> {
+fn batched_format_after_drop() -> Result<(), TypelineError> {
     const COUNT: i64 = 20;
     let res = ContextBuilder::without_exts()
         .set_batch_size(3)
@@ -188,7 +188,7 @@ fn batched_format_after_drop() -> Result<(), ScrError> {
 }
 
 #[test]
-fn stream_into_format() -> Result<(), ScrError> {
+fn stream_into_format() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_stream_buffer_size(1)?
         .add_op(create_op_file_reader_custom(
@@ -209,7 +209,7 @@ fn stream_into_format() -> Result<(), ScrError> {
 #[case(3)]
 fn stream_into_multiple_different_formats(
     #[case] batch_size: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .unwrap()
@@ -229,7 +229,7 @@ fn stream_into_multiple_different_formats(
 }
 
 #[test]
-fn dup_between_format_and_key() -> Result<(), ScrError> {
+fn dup_between_format_and_key() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
@@ -252,7 +252,7 @@ fn dup_between_format_and_key() -> Result<(), ScrError> {
 }
 
 #[test]
-fn debug_string_escapes() -> Result<(), ScrError> {
+fn debug_string_escapes() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
@@ -264,7 +264,7 @@ fn debug_string_escapes() -> Result<(), ScrError> {
 }
 
 #[test]
-fn debug_bytes_escapes() -> Result<(), ScrError> {
+fn debug_bytes_escapes() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
@@ -276,7 +276,7 @@ fn debug_bytes_escapes() -> Result<(), ScrError> {
 }
 
 #[test]
-fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
+fn debug_bytes_escapes_in_stream() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
@@ -294,7 +294,7 @@ fn debug_bytes_escapes_in_stream() -> Result<(), ScrError> {
 }
 
 #[test]
-fn sandwiched_format() -> Result<(), ScrError> {
+fn sandwiched_format() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 3, 1).unwrap())
         .add_op(create_op_regex(".*").unwrap())
@@ -316,7 +316,7 @@ fn sandwiched_format() -> Result<(), ScrError> {
 }
 
 #[test]
-fn binary_string_formatting() -> Result<(), ScrError> {
+fn binary_string_formatting() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_v("b'\\xFF'").unwrap())
         .add_op(create_op_format("{:?}").unwrap())
@@ -326,7 +326,7 @@ fn binary_string_formatting() -> Result<(), ScrError> {
 }
 
 #[test]
-fn debug_format_stream_value() -> Result<(), ScrError> {
+fn debug_format_stream_value() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_stream_str("foo"))
         .add_op(create_op_format("{:??}").unwrap())
@@ -336,7 +336,7 @@ fn debug_format_stream_value() -> Result<(), ScrError> {
 }
 
 #[test]
-fn null_format_error() -> Result<(), ScrError> {
+fn null_format_error() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_null())
         .add_op(create_op_format("{}").unwrap())
@@ -344,10 +344,12 @@ fn null_format_error() -> Result<(), ScrError> {
     let Err(res) = res else { panic!() };
     assert_eq!(
         res.err,
-        ScrError::OperationApplicationError(OperatorApplicationError::new(
-            "unexpected type `null` in format key #1",
-            OperatorId::one(),
-        ))
+        TypelineError::OperationApplicationError(
+            OperatorApplicationError::new(
+                "unexpected type `null` in format key #1",
+                OperatorId::one(),
+            )
+        )
     );
     Ok(())
 }

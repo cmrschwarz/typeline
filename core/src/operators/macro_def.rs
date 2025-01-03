@@ -9,7 +9,7 @@ use crate::{
         formattable::Formattable,
         scope_manager::{OpDeclRef, OperatorDeclaration},
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         escaped_writer::EscapedWriter, string_store::StringStoreEntry,
         text_write::TextWrite,
@@ -53,7 +53,7 @@ impl OperatorDeclaration for MacroOpDecl {
         &self,
         _sess: &mut SessionSetupData,
         arg: Argument,
-    ) -> Result<Box<dyn Operator>, ScrError> {
+    ) -> Result<Box<dyn Operator>, TypelineError> {
         Ok(Box::new(OpMacroCall {
             decl: self.data.clone(),
             arg,
@@ -128,7 +128,7 @@ impl Operator for OpMacroDef {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
         let current_chain = sess.get_current_chain();
@@ -153,7 +153,7 @@ impl Operator for OpMacroDef {
 pub fn parse_op_macro_def(
     sess_opts: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let span = arg.span;
 
     let mut args = std::mem::take(arg.expect_arg_array_mut()?).into_iter();

@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
@@ -45,7 +45,9 @@ pub struct TfCollect {
 }
 
 impl Operator for OpCollect {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "collect".into()
     }
 
@@ -218,7 +220,7 @@ impl Transform<'_> for TfCollect {
     fn update(
         &mut self,
         jd: &mut JobData,
-        tf_id: scr_core::operators::transform::TransformId,
+        tf_id: typeline_core::operators::transform::TransformId,
     ) {
         basic_transform_update_claim_all(
             jd,

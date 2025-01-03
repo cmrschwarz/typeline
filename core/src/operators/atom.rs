@@ -9,7 +9,7 @@ use crate::{
         field_value::FieldValue,
         scope_manager::{Atom, ScopeId},
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::string_store::StringStoreEntry,
 };
 
@@ -27,7 +27,7 @@ pub struct OpAtom {
 pub fn parse_op_atom(
     _sess: &mut SessionSetupData,
     expr: &mut CallExpr,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let op_name = expr.op_name;
 
     if expr.args.len() < 2 {
@@ -94,7 +94,7 @@ impl Operator for OpAtom {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let key_interned = sess.string_store.intern_cloned(&self.key);
         self.key_interned = Some(key_interned);
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);

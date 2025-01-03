@@ -1,5 +1,5 @@
 use rstest::rstest;
-use scr_core::{
+use typeline_core::{
     operators::{
         call_concurrent::create_op_callcc,
         literal::create_op_int,
@@ -8,11 +8,11 @@ use scr_core::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
-    scr_error::{ContextualizedScrError, ScrError},
+    typeline_error::{ContextualizedTypelineError, TypelineError},
 };
 
 #[test]
-fn callcc_needs_threads() -> Result<(), ScrError> {
+fn callcc_needs_threads() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     let err_msg =
         "callcc cannot be used with a max thread count of 1, see `h=j`";
@@ -24,7 +24,7 @@ fn callcc_needs_threads() -> Result<(), ScrError> {
             .add_label("foo".to_string())
             .add_op(create_op_string_sink(&ss))
             .run(),
-        Err(ContextualizedScrError {
+        Err(ContextualizedTypelineError {
             contextualized_message,
             ..
         }) if contextualized_message == err_msg
@@ -34,7 +34,7 @@ fn callcc_needs_threads() -> Result<(), ScrError> {
 }
 
 #[test]
-fn basic_callcc() -> Result<(), ScrError> {
+fn basic_callcc() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_max_thread_count(2)
@@ -49,7 +49,7 @@ fn basic_callcc() -> Result<(), ScrError> {
 }
 
 #[test]
-fn callcc_after_drop() -> Result<(), ScrError> {
+fn callcc_after_drop() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_max_thread_count(2)
@@ -68,7 +68,7 @@ fn callcc_after_drop() -> Result<(), ScrError> {
 #[case(1)]
 #[case(2)]
 #[case(3)]
-fn appending_callcc(#[case] batch_size: usize) -> Result<(), ScrError> {
+fn appending_callcc(#[case] batch_size: usize) -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_max_thread_count(2)

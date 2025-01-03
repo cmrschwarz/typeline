@@ -5,12 +5,12 @@ use crate::{
     cli::call_expr::{Argument, CallExprEndKind, MetaInfo, Span},
     options::{
         context_builder::ContextBuilder,
-        session_setup::{ScrSetupOptions, SessionSetupData},
+        session_setup::{SessionSetupData, SetupOptions},
     },
     record_data::{
         array::Array, field_data::FieldValueRepr, field_value::FieldValue,
     },
-    scr_error::{ContextualizedScrError, ScrError},
+    typeline_error::{ContextualizedTypelineError, TypelineError},
 };
 
 use super::{
@@ -139,12 +139,12 @@ impl Operator for OpMacroCall {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let parent_scope_id = sess.chains[chain_id].scope_id;
 
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
-        let map_error = |e: ContextualizedScrError| {
+        let map_error = |e: ContextualizedTypelineError| {
             OperatorSetupError::new_s(
                 format!(
                     "error during macro instantiation '{}': {}",
@@ -155,7 +155,7 @@ impl Operator for OpMacroCall {
         };
 
         let result_args = ContextBuilder::from_arguments(
-            ScrSetupOptions {
+            SetupOptions {
                 extensions: sess.extensions.clone(),
                 deny_threading: true,
                 allow_repl: false,

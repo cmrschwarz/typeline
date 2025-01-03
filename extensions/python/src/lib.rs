@@ -1,10 +1,10 @@
 use py::build_op_py;
-use scr_core::{
+use typeline_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
     operators::operator::Operator,
     options::session_setup::SessionSetupData,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
 
 pub mod py;
@@ -14,13 +14,13 @@ pub struct PythonExtension {}
 
 impl Extension for PythonExtension {
     fn name(&self) -> std::borrow::Cow<'static, str> {
-        "scr_ext_python".into()
+        "typeline_ext_python".into()
     }
     fn parse_call_expr(
         &self,
         _ctx_opts: &mut SessionSetupData,
         arg: &mut Argument,
-    ) -> Result<Option<Box<dyn Operator>>, ScrError> {
+    ) -> Result<Option<Box<dyn Operator>>, TypelineError> {
         let expr = CallExpr::from_argument(arg)?;
         if expr.op_name == "py" {
             let val = expr.require_single_string_arg()?;

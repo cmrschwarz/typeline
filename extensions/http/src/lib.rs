@@ -3,12 +3,12 @@ pub mod tls_client;
 pub mod url;
 
 use http::create_op_GET;
-use scr_core::{
+use typeline_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
     operators::operator::Operator,
     options::session_setup::SessionSetupData,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
 
 #[derive(Default)]
@@ -19,7 +19,7 @@ impl Extension for HttpExtension {
         &self,
         _ctx_opts: &mut SessionSetupData,
         arg: &mut Argument,
-    ) -> Result<Option<Box<dyn Operator>>, ScrError> {
+    ) -> Result<Option<Box<dyn Operator>>, TypelineError> {
         let expr = CallExpr::from_argument(arg)?;
         if expr.op_name == "GET" || expr.op_name == "http-get" {
             expr.reject_args()?;
@@ -30,11 +30,11 @@ impl Extension for HttpExtension {
 
     fn setup(
         &mut self,
-        _registry: &mut scr_core::extension::ExtensionRegistry,
+        _registry: &mut typeline_core::extension::ExtensionRegistry,
     ) {
     }
 
     fn name(&self) -> std::borrow::Cow<'static, str> {
-        "scr_ext_http".into()
+        "typeline_ext_http".into()
     }
 }

@@ -12,7 +12,7 @@ use mio::{
     unix::pipe::{Receiver, Sender},
     Events, Poll,
 };
-use scr_core::{
+use typeline_core::{
     chain::ChainId,
     cli::{
         call_expr::{CallExpr, ParsedArgValue, Span},
@@ -73,7 +73,7 @@ use scr_core::{
         },
         varying_type_inserter::VaryingTypeInserter,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         index_vec::IndexVec,
         indexing_type::IndexingType,
@@ -173,7 +173,9 @@ impl CommandStreamIdx {
 }
 
 impl Operator for OpExec {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "exec".into()
     }
 
@@ -188,7 +190,7 @@ impl Operator for OpExec {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         for r in &mut self.refs {
             r.name_interned =
                 r.name.as_ref().map(|n| sess.string_store.intern_cloned(n));
@@ -656,7 +658,7 @@ impl<'a> TfExec<'a> {
         use std::io::ErrorKind;
 
         use mio::{Interest, Token};
-        use scr_core::record_data::stream_value::StreamValueDataOffset;
+        use typeline_core::record_data::stream_value::StreamValueDataOffset;
 
         let sbt = self.stream_buffer_threshold as u64;
 
@@ -1050,7 +1052,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
     fn update(
         &mut self,
         jd: &mut JobData,
-        tf_id: scr_core::operators::transform::TransformId,
+        tf_id: typeline_core::operators::transform::TransformId,
     ) {
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];
@@ -1185,7 +1187,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
     ) {
         use std::time::Duration;
 
-        use scr_core::record_data::{
+        use typeline_core::record_data::{
             field_value::FieldValue, stream_value::StreamValueData,
         };
 
@@ -1506,7 +1508,9 @@ fn append_exec_arg(
     Ok(())
 }
 
-pub fn parse_op_exec(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
+pub fn parse_op_exec(
+    expr: &CallExpr,
+) -> Result<Box<dyn Operator>, TypelineError> {
     let mut parts = IndexVec::new();
     let mut refs = IndexVec::new();
     let mut fmt_arg_part_ends = IndexVec::new();

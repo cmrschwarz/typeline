@@ -37,7 +37,7 @@ use crate::{
         stream_value::StorageAgnosticStreamValueDataRef,
         varying_type_inserter::VaryingTypeInserter,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         escaped_writer::EscapedFmtWriter,
         indexing_type::IndexingType,
@@ -246,7 +246,7 @@ pub fn build_op_regex(
     regex_text: &str,
     opts: RegexOptions,
     span: Span,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let mut output_group_id = 0;
 
     let (re, empty_group_replacement) =
@@ -384,7 +384,7 @@ pub fn parse_regex_opts(
 pub fn parse_op_regex(
     sess: &mut SessionSetupData,
     mut expr: CallExpr,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     expr.split_flags_arg_normalized(&sess.string_store, true);
     let (flags, regex) = expr.split_flags_arg(true);
     if regex.len() != 1 {
@@ -403,10 +403,12 @@ pub fn parse_op_regex(
 pub fn create_op_regex_with_opts(
     regex: &str,
     opts: RegexOptions,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     build_op_regex(regex, opts, Span::Generated)
 }
-pub fn create_op_regex(regex: &str) -> Result<Box<dyn Operator>, ScrError> {
+pub fn create_op_regex(
+    regex: &str,
+) -> Result<Box<dyn Operator>, TypelineError> {
     build_op_regex(regex, RegexOptions::default(), Span::Generated)
 }
 
@@ -805,7 +807,7 @@ impl Operator for OpRegex {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let mut unnamed_capture_groups: usize = 0;
 
         for (i, name_str) in self.regex.capture_names().enumerate() {

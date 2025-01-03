@@ -1,17 +1,15 @@
-use scr::{
+use typeline::{
     cli::{call_expr::Span, CliArgumentError},
-    options::{
-        context_builder::ContextBuilder, session_setup::ScrSetupOptions,
-    },
-    scr_error::{ContextualizedScrError, ScrError},
+    options::{context_builder::ContextBuilder, session_setup::SetupOptions},
+    typeline_error::{ContextualizedTypelineError, TypelineError},
     utils::test_utils::int_sequence_strings,
     CliOptionsWithDefaultExtensions,
 };
 
 #[test]
-fn seq_sum() -> Result<(), ContextualizedScrError> {
+fn seq_sum() -> Result<(), ContextualizedTypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["seq=10", "sum"],
     )?
     .run_collect_stringified()?;
@@ -20,9 +18,9 @@ fn seq_sum() -> Result<(), ContextualizedScrError> {
 }
 
 #[test]
-fn empty_foreach_block() -> Result<(), ContextualizedScrError> {
+fn empty_foreach_block() -> Result<(), ContextualizedTypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["seq=10", "fe:", "end", "sum"],
     )?
     .run_collect_stringified()?;
@@ -31,14 +29,14 @@ fn empty_foreach_block() -> Result<(), ContextualizedScrError> {
 }
 
 #[test]
-fn foreach_block_no_colon() -> Result<(), ContextualizedScrError> {
+fn foreach_block_no_colon() -> Result<(), ContextualizedTypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["seq=10", "fe", "end", "sum"],
     );
     assert_eq!(
         res.err().map(|e| e.err),
-        Some(ScrError::CliArgumentError(CliArgumentError::new(
+        Some(TypelineError::CliArgumentError(CliArgumentError::new(
             "unknown operator 'end'",
             Span::from_cli_arg(2, 3, 0, 3)
         )))
@@ -47,10 +45,10 @@ fn foreach_block_no_colon() -> Result<(), ContextualizedScrError> {
 }
 
 #[test]
-fn foreach_no_block() -> Result<(), ContextualizedScrError> {
+fn foreach_no_block() -> Result<(), ContextualizedTypelineError> {
     // TODO: probably emit an error for this
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["seq=3", "fe", "sum"],
     )?
     .run_collect_stringified()?;
@@ -59,9 +57,9 @@ fn foreach_no_block() -> Result<(), ContextualizedScrError> {
 }
 
 #[test]
-fn simple_forkcat_block() -> Result<(), ContextualizedScrError> {
+fn simple_forkcat_block() -> Result<(), ContextualizedTypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["str@foo=foo", "fc:", "nop", "next", "nop", "end"],
     )?
     .run_collect_stringified()?;
@@ -70,9 +68,9 @@ fn simple_forkcat_block() -> Result<(), ContextualizedScrError> {
 }
 
 #[test]
-fn parse_forkcat() -> Result<(), ScrError> {
+fn parse_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["scr", "seqn=10", "forkcat:", "r=.*", "next", "drop", "end"],
     )?
     .run_collect_stringified()?;
@@ -81,9 +79,9 @@ fn parse_forkcat() -> Result<(), ScrError> {
 }
 
 #[test]
-fn parse_forkcat_2() -> Result<(), ScrError> {
+fn parse_forkcat_2() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         [
             "seq=3", "fe:", "forkcat:", "seq=2", "next", "nop", "end", "end",
         ],
@@ -95,9 +93,9 @@ fn parse_forkcat_2() -> Result<(), ScrError> {
 }
 
 #[test]
-fn parse_regex_flag() -> Result<(), ScrError> {
+fn parse_regex_flag() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["str=abc", "r-m=."],
     )?
     .run_collect_stringified()?;
@@ -107,9 +105,9 @@ fn parse_regex_flag() -> Result<(), ScrError> {
 }
 
 #[test]
-fn parse_setting_assignment() -> Result<(), ScrError> {
+fn parse_setting_assignment() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["%bs=42", "f={%bs}"],
     )?
     .run_collect_stringified()?;
@@ -121,15 +119,15 @@ fn parse_setting_assignment() -> Result<(), ScrError> {
 #[cfg(not(miri))]
 mod py {
     use rstest::rstest;
-    use scr::{
+    use std::sync::Arc;
+    use typeline::{
         extension::ExtensionRegistry,
         options::{
-            context_builder::ContextBuilder, session_setup::ScrSetupOptions,
+            context_builder::ContextBuilder, session_setup::SetupOptions,
         },
-        scr_error::ScrError,
+        typeline_error::TypelineError,
     };
-    use scr_ext_python::PythonExtension;
-    use std::sync::Arc;
+    use typeline_ext_python::PythonExtension;
 
     #[rstest]
     #[case(1, 3, "1/3")]
@@ -140,13 +138,13 @@ mod py {
         #[case] num: i32,
         #[case] denom: i32,
         #[case] output: &str,
-    ) -> Result<(), ScrError> {
+    ) -> Result<(), TypelineError> {
         let mut exts = ExtensionRegistry::default();
         exts.extensions.push(Box::new(PythonExtension::default()));
         exts.setup();
         let exts = Arc::new(exts);
         let res = ContextBuilder::from_cli_arg_strings(
-            ScrSetupOptions::with_extensions(exts),
+            SetupOptions::with_extensions(exts),
             [
                 "%rpm=dynamic",
                 &format!(

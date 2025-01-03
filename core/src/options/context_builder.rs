@@ -18,7 +18,9 @@ use crate::{
         field_value::FieldValue, push_interface::PushInterface,
         record_set::RecordSet,
     },
-    scr_error::{CollectTypeMissmatch, ContextualizedScrError, ScrError},
+    typeline_error::{
+        CollectTypeMissmatch, ContextualizedTypelineError, TypelineError,
+    },
     utils::index_vec::IndexVec,
 };
 
@@ -28,7 +30,7 @@ use super::{
         SettingDebugLog, SettingMaxThreads, SettingStreamBufferSize,
         SettingStreamSizeThreshold,
     },
-    session_setup::{ScrSetupOptions, SessionSetupData},
+    session_setup::{SessionSetupData, SetupOptions},
 };
 
 pub struct ContextBuilder {
@@ -44,9 +46,9 @@ impl ContextBuilder {
         Self::with_exts(EMPTY_EXTENSION_REGISTRY.clone())
     }
     pub fn with_exts(extensions: Arc<ExtensionRegistry>) -> Self {
-        Self::with_opts(ScrSetupOptions::with_extensions(extensions))
+        Self::with_opts(SetupOptions::with_extensions(extensions))
     }
-    pub fn with_opts(opts: ScrSetupOptions) -> Self {
+    pub fn with_opts(opts: SetupOptions) -> Self {
         Self {
             setup_data: SessionSetupData::new(opts),
             input_data: RecordSet::default(),
@@ -54,10 +56,10 @@ impl ContextBuilder {
     }
 
     pub fn from_arguments(
-        opts: ScrSetupOptions,
+        opts: SetupOptions,
         cli_args: Option<Vec<Vec<u8>>>,
         args: Vec<Argument>,
-    ) -> Result<Self, ContextualizedScrError> {
+    ) -> Result<Self, ContextualizedTypelineError> {
         let mut sess = SessionSetupData::new(opts);
         sess.cli_args = cli_args.map(IndexVec::from);
         sess.process_arguments(args)
@@ -70,9 +72,9 @@ impl ContextBuilder {
     }
 
     pub fn from_cli_args(
-        opts: ScrSetupOptions,
+        opts: SetupOptions,
         args: Vec<Vec<u8>>,
-    ) -> Result<Self, ContextualizedScrError> {
+    ) -> Result<Self, ContextualizedTypelineError> {
         let mut sess = SessionSetupData::new(opts);
         sess.process_cli_args(args)
             .map_err(|e| sess.contextualize_error(e))?;
@@ -82,9 +84,9 @@ impl ContextBuilder {
         })
     }
     pub fn from_cli_arg_strings<'a>(
-        opts: ScrSetupOptions,
+        opts: SetupOptions,
         args: impl IntoIterator<Item = impl Into<&'a str>>,
-    ) -> Result<Self, ContextualizedScrError> {
+    ) -> Result<Self, ContextualizedTypelineError> {
         let args = args
             .into_iter()
             .map(|v| v.into().as_bytes().to_vec())
@@ -92,7 +94,7 @@ impl ContextBuilder {
         Self::from_cli_args(opts, args)
     }
 
-    pub fn error_to_string(&self, err: &ScrError) -> String {
+    pub fn error_to_string(&self, err: &TypelineError) -> String {
         err.contextualize_message(
             self.setup_data.cli_args.as_deref(),
             None,
@@ -179,9 +181,9 @@ impl ContextBuilder {
     }
     pub fn build_session(
         mut self,
-    ) -> Result<SessionData, ContextualizedScrError> {
+    ) -> Result<SessionData, ContextualizedTypelineError> {
         self.setup_data.build_session_take().map_err(|e| {
-            ContextualizedScrError::from_scr_error(
+            ContextualizedTypelineError::from_scr_error(
                 e,
                 None,
                 None,
@@ -190,12 +192,12 @@ impl ContextBuilder {
             )
         })
     }
-    pub fn build(self) -> Result<Context, ContextualizedScrError> {
+    pub fn build(self) -> Result<Context, ContextualizedTypelineError> {
         Ok(Context::new(Arc::new(self.build_session()?)))
     }
     pub fn run_collect_stringified(
         mut self,
-    ) -> Result<Vec<String>, ContextualizedScrError> {
+    ) -> Result<Vec<String>, ContextualizedTypelineError> {
         let sink = StringSinkHandle::default();
         self.setup_data
             .setup_op_generated(create_op_string_sink(&sink))
@@ -206,7 +208,7 @@ impl ContextBuilder {
         let mut val = if sess.settings.max_threads == 1 {
             sess.run_job_unthreaded(job);
             sink.get_data().map_err(|e| {
-                ContextualizedScrError::from_scr_error(
+                ContextualizedTypelineError::from_scr_error(
                     (*e).clone().into(),
                     None,
                     None,
@@ -218,7 +220,7 @@ impl ContextBuilder {
             let sess_arc = Arc::new(sess);
             Context::new(sess_arc.clone()).run_job(job);
             sink.get_data().map_err(|e| {
-                ContextualizedScrError::from_scr_error(
+                ContextualizedTypelineError::from_scr_error(
                     (*e).clone().into(),
                     None,
                     None,
@@ -233,7 +235,7 @@ impl ContextBuilder {
     // TODO: add a run function that allows consuming an iterator
     pub fn run_collect(
         mut self,
-    ) -> Result<Vec<FieldValue>, ContextualizedScrError> {
+    ) -> Result<Vec<FieldValue>, ContextualizedTypelineError> {
         let sink = FieldValueSinkHandle::default();
         self.setup_data
             .setup_op_generated(create_op_field_value_sink(&sink))
@@ -244,7 +246,7 @@ impl ContextBuilder {
     }
     pub fn run_collect_as<T: FixedSizeFieldValueType>(
         self,
-    ) -> Result<Vec<T>, ContextualizedScrError> {
+    ) -> Result<Vec<T>, ContextualizedTypelineError> {
         let mut res = Vec::new();
         for (i, fv) in self.run_collect()?.into_iter().enumerate() {
             // cannot use if let Some(fv) = fv.downcast() because of lifetime
@@ -253,7 +255,7 @@ impl ContextBuilder {
                 res.push(fv.downcast_allowing_text_as_bytes().unwrap());
                 continue;
             }
-            return Err(ContextualizedScrError::from_scr_error(
+            return Err(ContextualizedTypelineError::from_scr_error(
                 CollectTypeMissmatch {
                     index: i,
                     expected: T::REPR,
@@ -268,7 +270,7 @@ impl ContextBuilder {
         }
         Ok(res)
     }
-    pub fn run(mut self) -> Result<(), ContextualizedScrError> {
+    pub fn run(mut self) -> Result<(), ContextualizedTypelineError> {
         let input_data = std::mem::take(&mut self.input_data);
         let sess = self.build_session()?;
         let job = sess.construct_main_chain_job(input_data);
@@ -277,7 +279,7 @@ impl ContextBuilder {
     }
     pub fn run_collect_output(
         self,
-    ) -> Result<RecordSet, ContextualizedScrError> {
+    ) -> Result<RecordSet, ContextualizedTypelineError> {
         // add operation to collect output into record set
         // similar to string sink
         todo!();

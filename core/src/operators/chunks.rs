@@ -12,7 +12,7 @@ use crate::{
         group_track::{GroupTrackIterId, GroupTrackIterRef},
         iter_hall::IterKind,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::indexing_type::IndexingType,
 };
 
@@ -98,7 +98,7 @@ impl Operator for OpChunks {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
         self.subchain_idx = sess.chains[chain_id].subchains.next_idx();
         sess.setup_subchain(chain_id, std::mem::take(&mut self.subchain))?;
@@ -266,7 +266,7 @@ pub fn create_op_chunks(
 pub fn parse_op_chunks(
     sess: &mut SessionSetupData,
     arg: &mut Argument,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let expr = CallExpr::from_argument_mut(arg)?;
 
     let stride_arg = expr.require_nth_arg(0, "stride")?;

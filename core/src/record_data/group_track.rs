@@ -2375,7 +2375,7 @@ mod test_action_lists {
 
     #[test]
     fn test_iter_adjustment_on_dup() {
-        // reduced from scr_ext_csv/integration::imdb_actor_count
+        // reduced from typeline_ext_csv/integration::imdb_actor_count
         test_apply_field_actions(
             1,
             [1, 4, 3],

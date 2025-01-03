@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     index_newtype,
@@ -29,7 +29,7 @@ use scr_core::{
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueDataOffset, StreamValueId},
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize, indexing_type::IndexingType,
         universe::Universe,
@@ -48,8 +48,8 @@ index_newtype! {
 }
 
 struct LineStream {
-    output_stream_value: StreamValueId,
-    line_start_offset: StreamValueDataOffset,
+    _output_stream_value: StreamValueId,
+    _line_start_offset: StreamValueDataOffset,
 }
 
 pub struct TfLines {
@@ -60,7 +60,9 @@ pub struct TfLines {
     line_streams: Universe<LineStreamIdx, LineStream>,
 }
 
-pub fn parse_op_lines(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
+pub fn parse_op_lines(
+    expr: &CallExpr,
+) -> Result<Box<dyn Operator>, TypelineError> {
     expr.reject_args()?;
     Ok(create_op_lines())
 }
@@ -87,12 +89,12 @@ impl Operator for OpLines {
     fn update_variable_liveness(
         &self,
         _sess: &SessionData,
-        _ld: &mut scr_core::liveness_analysis::LivenessData,
-        _op_offset_after_last_write: scr_core::operators::operator::OffsetInChain,
+        _ld: &mut typeline_core::liveness_analysis::LivenessData,
+        _op_offset_after_last_write: typeline_core::operators::operator::OffsetInChain,
         _op_id: OperatorId,
-        _bb_id: scr_core::liveness_analysis::BasicBlockId,
-        _input_field: scr_core::liveness_analysis::OpOutputIdx,
-        output: &mut scr_core::liveness_analysis::OperatorLivenessOutput,
+        _bb_id: typeline_core::liveness_analysis::BasicBlockId,
+        _input_field: typeline_core::liveness_analysis::OpOutputIdx,
+        output: &mut typeline_core::liveness_analysis::OperatorLivenessOutput,
     ) {
         output.flags.non_stringified_input_access = false
     }
@@ -228,8 +230,8 @@ impl TfLines {
                             .claim_stream_value(StreamValue::default());
                         let lsi =
                             self.line_streams.claim_with_value(LineStream {
-                                output_stream_value: output,
-                                line_start_offset: offset,
+                                _output_stream_value: output,
+                                _line_start_offset: offset,
                             });
                         bud.sv_mgr.subscribe_to_stream_value(
                             sv_id,
@@ -263,7 +265,7 @@ impl Transform<'_> for TfLines {
     fn handle_stream_value_update(
         &mut self,
         _jd: &mut JobData<'_>,
-        _svu: scr_core::record_data::stream_value::StreamValueUpdate,
+        _svu: typeline_core::record_data::stream_value::StreamValueUpdate,
     ) {
         todo!()
     }

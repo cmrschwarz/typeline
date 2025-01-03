@@ -2220,137 +2220,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "scr"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "criterion-macro",
- "inventory",
- "macro_rules_attribute",
- "paste",
- "ref-cast",
- "regex",
- "rstest",
- "scr_core",
- "scr_ext_csv",
- "scr_ext_http",
- "scr_ext_python",
- "scr_ext_sqlite",
- "scr_ext_utils",
-]
-
-[[package]]
-name = "scr_core"
-version = "0.1.0"
-dependencies = [
- "arrayvec",
- "bitbybit",
- "bitvec 1.0.1",
- "bitvec 1.1.0",
- "bstr",
- "derive_more",
- "encoding_rs",
- "handlebars",
- "indexmap",
- "lexical-core",
- "memchr",
- "metamatch",
- "num",
- "num-order",
- "once_cell",
- "parking_lot",
- "reedline",
- "ref-cast",
- "regex",
- "regex-syntax",
- "rstest",
- "serde_derive",
- "serde_json",
- "shlex",
- "smallstr",
- "smallvec",
- "static_assertions",
- "subenum",
- "thin-vec",
- "thiserror 2.0.3",
- "unicode-ident",
-]
-
-[[package]]
-name = "scr_ext_csv"
-version = "0.1.0"
-dependencies = [
- "lexical-core",
- "memchr",
- "rstest",
- "scr_core",
- "scr_ext_utils",
-]
-
-[[package]]
-name = "scr_ext_http"
-version = "0.1.0"
-dependencies = [
- "bstr",
- "derive_more",
- "futures",
- "http",
- "http-body-util",
- "hyper",
- "hyper-tls",
- "hyper-util",
- "memchr",
- "mio",
- "mockito",
- "once_cell",
- "regex",
- "reqwest",
- "rustls",
- "rustls-pemfile",
- "rustls-pki-types",
- "scr_core",
- "thiserror 2.0.3",
- "tokio",
- "tokio-rustls",
- "url",
- "webpki-roots",
-]
-
-[[package]]
-name = "scr_ext_python"
-version = "0.1.0"
-dependencies = [
- "num",
- "pyo3",
- "rstest",
- "scr_core",
- "scr_ext_utils",
-]
-
-[[package]]
-name = "scr_ext_sqlite"
-version = "0.1.0"
-dependencies = [
- "scr_core",
-]
-
-[[package]]
-name = "scr_ext_utils"
-version = "0.1.0"
-dependencies = [
- "bstr",
- "indexmap",
- "metamatch",
- "mio",
- "num",
- "num-order",
- "primes",
- "rstest",
- "scr",
- "scr_core",
-]
-
-[[package]]
 name = "security-framework"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2836,6 +2705,137 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "typeline"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "criterion-macro",
+ "inventory",
+ "macro_rules_attribute",
+ "paste",
+ "ref-cast",
+ "regex",
+ "rstest",
+ "typeline_core",
+ "typeline_ext_csv",
+ "typeline_ext_http",
+ "typeline_ext_python",
+ "typeline_ext_sqlite",
+ "typeline_ext_utils",
+]
+
+[[package]]
+name = "typeline_core"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "bitbybit",
+ "bitvec 1.0.1",
+ "bitvec 1.1.0",
+ "bstr",
+ "derive_more",
+ "encoding_rs",
+ "handlebars",
+ "indexmap",
+ "lexical-core",
+ "memchr",
+ "metamatch",
+ "num",
+ "num-order",
+ "once_cell",
+ "parking_lot",
+ "reedline",
+ "ref-cast",
+ "regex",
+ "regex-syntax",
+ "rstest",
+ "serde_derive",
+ "serde_json",
+ "shlex",
+ "smallstr",
+ "smallvec",
+ "static_assertions",
+ "subenum",
+ "thin-vec",
+ "thiserror 2.0.3",
+ "unicode-ident",
+]
+
+[[package]]
+name = "typeline_ext_csv"
+version = "0.1.0"
+dependencies = [
+ "lexical-core",
+ "memchr",
+ "rstest",
+ "typeline_core",
+ "typeline_ext_utils",
+]
+
+[[package]]
+name = "typeline_ext_http"
+version = "0.1.0"
+dependencies = [
+ "bstr",
+ "derive_more",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-tls",
+ "hyper-util",
+ "memchr",
+ "mio",
+ "mockito",
+ "once_cell",
+ "regex",
+ "reqwest",
+ "rustls",
+ "rustls-pemfile",
+ "rustls-pki-types",
+ "thiserror 2.0.3",
+ "tokio",
+ "tokio-rustls",
+ "typeline_core",
+ "url",
+ "webpki-roots",
+]
+
+[[package]]
+name = "typeline_ext_python"
+version = "0.1.0"
+dependencies = [
+ "num",
+ "pyo3",
+ "rstest",
+ "typeline_core",
+ "typeline_ext_utils",
+]
+
+[[package]]
+name = "typeline_ext_sqlite"
+version = "0.1.0"
+dependencies = [
+ "typeline_core",
+]
+
+[[package]]
+name = "typeline_ext_utils"
+version = "0.1.0"
+dependencies = [
+ "bstr",
+ "indexmap",
+ "metamatch",
+ "mio",
+ "num",
+ "num-order",
+ "primes",
+ "rstest",
+ "typeline",
+ "typeline_core",
+]
 
 [[package]]
 name = "typenum"

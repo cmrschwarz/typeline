@@ -1,7 +1,7 @@
 #![cfg(not(miri))] // miri does not support FFI, which we need for pyo3
 
 use num::BigRational;
-use scr_core::{
+use typeline_core::{
     cli::call_expr::Span,
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
@@ -14,13 +14,13 @@ use scr_core::{
         array::Array,
         field_value::{FieldValue, Object},
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::indexing_type::IndexingType,
 };
-use scr_ext_python::py::create_op_py;
+use typeline_ext_python::py::create_op_py;
 
 #[test]
-fn python_basic() -> Result<(), ScrError> {
+fn python_basic() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_py("2**10").unwrap())
         .run_collect_stringified()?;
@@ -29,7 +29,7 @@ fn python_basic() -> Result<(), ScrError> {
 }
 
 #[test]
-fn python_last_statement_expr() -> Result<(), ScrError> {
+fn python_last_statement_expr() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_py("a=42; a").unwrap())
         .run_collect_stringified()?;
@@ -38,7 +38,7 @@ fn python_last_statement_expr() -> Result<(), ScrError> {
 }
 
 #[test]
-fn python_multiline() -> Result<(), ScrError> {
+fn python_multiline() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_py("a=42\na").unwrap())
         .run_collect_stringified()?;
@@ -58,7 +58,7 @@ fn python_multiline_indentation_error() {
 }
 
 #[test]
-fn python_input_vars() -> Result<(), ScrError> {
+fn python_input_vars() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op_with_key("foo", create_op_int(7))
         .add_op(create_op_py("foo * 2").unwrap())
@@ -68,7 +68,7 @@ fn python_input_vars() -> Result<(), ScrError> {
 }
 
 #[test]
-fn python_undefined_var() -> Result<(), ScrError> {
+fn python_undefined_var() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_py("foo").unwrap())
         .run_collect_as::<OperatorApplicationError>()?;
@@ -83,7 +83,7 @@ fn python_undefined_var() -> Result<(), ScrError> {
 }
 
 #[test]
-fn python_multi_invocation() -> Result<(), ScrError> {
+fn python_multi_invocation() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op_with_key("foo", create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_py("foo * 2").unwrap())
@@ -93,7 +93,7 @@ fn python_multi_invocation() -> Result<(), ScrError> {
 }
 
 #[test]
-fn python_array() -> Result<(), ScrError> {
+fn python_array() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_py("[1, 2, \"foo\"]").unwrap())
         .run_collect()?;
@@ -109,7 +109,7 @@ fn python_array() -> Result<(), ScrError> {
 }
 
 #[test]
-fn python_dict() -> Result<(), ScrError> {
+fn python_dict() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_py("{'asdf': 3}").unwrap())
         .run_collect()?;
@@ -124,7 +124,7 @@ fn python_dict() -> Result<(), ScrError> {
 }
 
 #[test]
-fn python_rational() -> Result<(), ScrError> {
+fn python_rational() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(
             create_op_py("import fractions; fractions.Fraction(1, 3)")

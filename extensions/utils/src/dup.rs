@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
@@ -16,7 +16,7 @@ use scr_core::{
         action_buffer::ActorId, field_action::FieldActionKind,
         group_track::GroupTrackIterRef,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
 
 #[derive(Default)]
@@ -33,7 +33,9 @@ pub struct TfDup {
 }
 
 impl Operator for OpDup {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         if self.count == 0 { "drop" } else { "dup" }.into()
     }
 
@@ -162,12 +164,16 @@ pub fn create_op_dup(count: usize) -> Box<dyn Operator> {
     Box::new(OpDup { count })
 }
 
-pub fn parse_op_dup(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
+pub fn parse_op_dup(
+    expr: &CallExpr,
+) -> Result<Box<dyn Operator>, TypelineError> {
     let count = expr.require_at_most_one_number_arg(false)?.unwrap_or(2);
     Ok(create_op_dup(count))
 }
 
-pub fn parse_op_drop(expr: &CallExpr) -> Result<Box<dyn Operator>, ScrError> {
+pub fn parse_op_drop(
+    expr: &CallExpr,
+) -> Result<Box<dyn Operator>, TypelineError> {
     expr.reject_args()?;
     Ok(create_op_dup(0))
 }

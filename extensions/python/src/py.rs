@@ -11,7 +11,7 @@ use pyo3::{
     },
     Bound, IntoPyObject, Py, PyAny, Python,
 };
-use scr_core::{
+use typeline_core::{
     chain::ChainId,
     cli::call_expr::Span,
     context::SessionData,
@@ -38,7 +38,7 @@ use scr_core::{
         iter_hall::IterKind,
         push_interface::PushInterface,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         lazy_lock_guard::LazyRwLockGuard,
         phantom_slot::PhantomSlot,
@@ -88,7 +88,9 @@ pub struct TfPy<'a> {
 unsafe impl<'a> Send for TfPy<'a> {}
 
 impl Operator for OpPy {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "py".into()
     }
 
@@ -114,7 +116,7 @@ impl Operator for OpPy {
         chain_id: ChainId,
         operator_offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         for fvs in &self.free_vars_str {
             if fvs == "_" {
                 self.free_vars_sse.push(None);

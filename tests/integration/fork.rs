@@ -1,6 +1,6 @@
 use rstest::rstest;
-use scr::operators::aggregator::create_op_aggregate_appending;
-use scr_core::{
+use typeline::operators::aggregator::create_op_aggregate_appending;
+use typeline_core::{
     operators::{
         fork::create_op_fork,
         literal::{create_op_int, create_op_str},
@@ -9,7 +9,7 @@ use scr_core::{
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
 
 #[rstest]
@@ -17,7 +17,7 @@ use scr_core::{
 #[case(2)]
 #[case(3)]
 #[case(4)]
-fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), ScrError> {
+fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
@@ -44,7 +44,7 @@ fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), ScrError> {
 #[case(3)]
 fn unlink_without_append_after_fork(
     #[case] batch_size: usize,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)
@@ -70,7 +70,7 @@ fn unlink_without_append_after_fork(
 }
 
 #[test]
-fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
+fn ref_iter_reading_form_cow() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .add_op(create_op_seq(1, 11, 1).unwrap())
@@ -88,7 +88,7 @@ fn ref_iter_reading_form_cow() -> Result<(), ScrError> {
 }
 
 #[test]
-fn fork_without_input() -> Result<(), ScrError> {
+fn fork_without_input() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .add_op(create_op_fork([

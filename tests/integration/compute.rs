@@ -1,14 +1,14 @@
-use scr::{
+use typeline::{
     operators::{
         compute::create_op_compute, format::create_op_format,
         key::create_op_key, literal::create_op_int, sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
 
 #[test]
-fn compute_add() -> Result<(), ScrError> {
+fn compute_add() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_int(42, 1)
         .add_op(create_op_key("foo".to_owned()))
@@ -21,7 +21,7 @@ fn compute_add() -> Result<(), ScrError> {
 }
 
 #[test]
-fn seq_non_stringified() -> Result<(), ScrError> {
+fn seq_non_stringified() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(1, 4, 1)?)
         .add_op(create_op_key("foo".to_owned()))
@@ -34,7 +34,7 @@ fn seq_non_stringified() -> Result<(), ScrError> {
 }
 
 #[test]
-fn seq_batched() -> Result<(), ScrError> {
+fn seq_batched() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(3)?
         .add_op(create_op_seq(0, 7, 1)?)
@@ -48,7 +48,7 @@ fn seq_batched() -> Result<(), ScrError> {
 }
 
 #[test]
-fn cast_to_int() -> Result<(), ScrError> {
+fn cast_to_int() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seq(0, 7, 1)?)
         .add_op(create_op_format("{}")?)

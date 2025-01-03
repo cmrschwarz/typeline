@@ -1,5 +1,5 @@
 use rstest::rstest;
-use scr::{
+use typeline::{
     operators::{
         chunks::create_op_chunks,
         compute::{create_op_compute, create_op_to_int},
@@ -7,25 +7,18 @@ use scr::{
         foreach::create_op_foreach,
         forkcat::create_op_forkcat,
         join::create_op_join,
-        literal::{create_op_literal, Literal},
+        literal::{create_op_literal, create_op_v, Literal},
         regex::{create_op_regex_with_opts, RegexOptions},
-        sequence::{create_op_enum, create_op_seq},
+        select::create_op_select,
+        sequence::{create_op_enum, create_op_seq, create_op_seqn},
     },
-    options::session_setup::ScrSetupOptions,
-    record_data::array::Array,
+    options::{context_builder::ContextBuilder, session_setup::SetupOptions},
+    record_data::{array::Array, field_value::FieldValue},
+    typeline_error::TypelineError,
     utils::test_utils::SliceReader,
     CliOptionsWithDefaultExtensions,
 };
-use scr_core::{
-    operators::{
-        literal::create_op_v, select::create_op_select,
-        sequence::create_op_seqn,
-    },
-    options::context_builder::ContextBuilder,
-    record_data::field_value::FieldValue,
-    scr_error::ScrError,
-};
-use scr_ext_utils::{
+use typeline_ext_utils::{
     collect::create_op_collect,
     dup::create_op_dup,
     eliminate_errors::create_op_eliminate_errors,
@@ -40,7 +33,7 @@ use scr_ext_utils::{
 };
 
 #[test]
-fn primes() -> Result<(), ScrError> {
+fn primes() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op_with_key("p", create_op_primes())
         .add_op(create_op_enum(0, 3, 1).unwrap())
@@ -51,7 +44,7 @@ fn primes() -> Result<(), ScrError> {
 }
 
 #[test]
-fn primes_head() -> Result<(), ScrError> {
+fn primes_head() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_primes())
         .add_op(create_op_head(3))
@@ -61,7 +54,7 @@ fn primes_head() -> Result<(), ScrError> {
 }
 
 #[test]
-fn primes_head_multi() -> Result<(), ScrError> {
+fn primes_head_multi() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(10)?
         .add_op(create_op_seq(0, 3, 1)?)
@@ -72,7 +65,7 @@ fn primes_head_multi() -> Result<(), ScrError> {
 }
 
 #[test]
-fn primes_head_multi_joined() -> Result<(), ScrError> {
+fn primes_head_multi_joined() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(10)?
         .add_op(create_op_seq(0, 3, 1)?)
@@ -87,7 +80,7 @@ fn primes_head_multi_joined() -> Result<(), ScrError> {
 }
 
 #[test]
-fn seq_tail_add() -> Result<(), ScrError> {
+fn seq_tail_add() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 10, 1).unwrap())
         .add_op(create_op_tail_add(7))
@@ -97,7 +90,7 @@ fn seq_tail_add() -> Result<(), ScrError> {
 }
 
 #[test]
-fn primes_head_tail_add() -> Result<(), ScrError> {
+fn primes_head_tail_add() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_primes())
         .add_op(create_op_tail_add(3))
@@ -108,9 +101,9 @@ fn primes_head_tail_add() -> Result<(), ScrError> {
 }
 
 #[test]
-fn head_tail_cli() -> Result<(), ScrError> {
+fn head_tail_cli() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["scr", "%bs=10", "primes", "tail=+3", "head=5"],
     )?
     .run_collect_as::<i64>()?;
@@ -119,7 +112,7 @@ fn head_tail_cli() -> Result<(), ScrError> {
 }
 
 #[test]
-fn subtractive_head_multibatch() -> Result<(), ScrError> {
+fn subtractive_head_multibatch() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
@@ -131,7 +124,7 @@ fn subtractive_head_multibatch() -> Result<(), ScrError> {
 }
 
 #[test]
-fn tail_multibatch() -> Result<(), ScrError> {
+fn tail_multibatch() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
@@ -143,7 +136,7 @@ fn tail_multibatch() -> Result<(), ScrError> {
 }
 
 #[test]
-fn multigroup_tail_multibatch() -> Result<(), ScrError> {
+fn multigroup_tail_multibatch() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)?
         .add_op(create_op_seq(1, 11, 1)?)
@@ -163,7 +156,7 @@ fn multigroup_tail_multibatch() -> Result<(), ScrError> {
 fn explode_output_col(
     #[case] input: &str,
     #[case] output: &str,
-) -> Result<(), ScrError> {
+) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_v(input).unwrap())
         .add_op(create_op_explode())
@@ -173,7 +166,7 @@ fn explode_output_col(
 }
 
 #[test]
-fn explode_into_select() -> Result<(), ScrError> {
+fn explode_into_select() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_v("{'foo': 3}").unwrap())
         .add_op(create_op_explode())
@@ -184,7 +177,7 @@ fn explode_into_select() -> Result<(), ScrError> {
 }
 
 #[test]
-fn flatten() -> Result<(), ScrError> {
+fn flatten() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_v("[1,2,3]").unwrap())
         .add_op(create_op_flatten())
@@ -194,7 +187,7 @@ fn flatten() -> Result<(), ScrError> {
 }
 
 #[test]
-fn object_flatten() -> Result<(), ScrError> {
+fn object_flatten() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_v("{a: 3, b: '5'}").unwrap())
         .add_op(create_op_flatten())
@@ -204,7 +197,7 @@ fn object_flatten() -> Result<(), ScrError> {
 }
 
 #[test]
-fn flatten_duped_objects() -> Result<(), ScrError> {
+fn flatten_duped_objects() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
         .add_op(create_op_v("{a:3}").unwrap())
@@ -222,7 +215,7 @@ fn flatten_duped_objects() -> Result<(), ScrError> {
 }
 
 #[test]
-fn chunked_tail() -> Result<(), ScrError> {
+fn chunked_tail() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 10, 1).unwrap())
         .add_op(create_op_chunks(3, [create_op_tail(1)]).unwrap())
@@ -232,7 +225,7 @@ fn chunked_tail() -> Result<(), ScrError> {
 }
 
 #[test]
-fn chunked_max() -> Result<(), ScrError> {
+fn chunked_max() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 10, 1).unwrap())
         .add_op(create_op_chunks(3, [create_op_max()]).unwrap())
@@ -242,7 +235,7 @@ fn chunked_max() -> Result<(), ScrError> {
 }
 
 #[test]
-fn empty_max() -> Result<(), ScrError> {
+fn empty_max() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 10, 1).unwrap())
         .add_op(
@@ -254,7 +247,7 @@ fn empty_max() -> Result<(), ScrError> {
 }
 
 #[test]
-fn batched_ee() -> Result<(), ScrError> {
+fn batched_ee() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)?
         .add_op(create_op_literal(Literal::Array(Array::Mixed(vec![
@@ -273,7 +266,7 @@ fn batched_ee() -> Result<(), ScrError> {
 }
 
 #[test]
-fn batched_max_2() -> Result<(), ScrError> {
+fn batched_max_2() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(3)?
         .add_op(create_op_literal(Literal::Array(Array::Mixed(vec![
@@ -297,7 +290,7 @@ fn batched_max_2() -> Result<(), ScrError> {
 }
 
 #[test]
-fn multi_batch_primes_head() -> Result<(), ScrError> {
+fn multi_batch_primes_head() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(7)?
         .add_op(create_op_primes())
@@ -323,7 +316,7 @@ mxbzgzg5three
 #[rstest]
 #[case(1024)]
 #[case(3)]
-fn aoc2023_day1_part1(#[case] batch_size: usize) -> Result<(), ScrError> {
+fn aoc2023_day1_part1(#[case] batch_size: usize) -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)?
         .add_ops([

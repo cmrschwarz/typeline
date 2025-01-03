@@ -1,20 +1,20 @@
-use scr::operators::{
+use typeline::operators::{
     aggregator::create_op_aggregate_appending,
     fork::create_op_fork,
     string_sink::{create_op_string_sink, StringSinkHandle},
 };
-use scr_core::{
+use typeline_core::{
     operators::{
         literal::{create_op_int, create_op_str},
         sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::test_utils::int_sequence_strings,
 };
 
 #[test]
-fn simple_aggregate() -> Result<(), ScrError> {
+fn simple_aggregate() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op_aggregate([create_op_str("foo"), create_op_str("bar")])
         .run_collect_stringified()?;
@@ -23,7 +23,7 @@ fn simple_aggregate() -> Result<(), ScrError> {
 }
 
 #[test]
-fn batched_aggregate() -> Result<(), ScrError> {
+fn batched_aggregate() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .set_batch_size(2)
         .unwrap()
@@ -37,7 +37,7 @@ fn batched_aggregate() -> Result<(), ScrError> {
 }
 
 #[test]
-fn append_after_fork() -> Result<(), ScrError> {
+fn append_after_fork() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         //.set_batch_size(2)
@@ -59,7 +59,7 @@ fn append_after_fork() -> Result<(), ScrError> {
 
 // TODO: this feature is insane. figure out something better
 // #[test]
-// fn parse_aggregation_across_fork() -> Result<(), ScrError> {
+// fn parse_aggregation_across_fork() -> Result<(), TypelineError> {
 // let sess_opts = parse_cli_from_strings([
 // "scr", "seqn=10", "forkcat", "+int=11", "r=.*",
 // ])?;

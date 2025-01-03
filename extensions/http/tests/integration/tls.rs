@@ -3,12 +3,14 @@ use super::https_mock_server::{
     IpSupport, TEST_CA_CERT,
 };
 use reqwest::{Certificate, ClientBuilder};
-use scr_core::{
+use typeline_core::{
     operators::{format::create_op_format, sequence::create_op_seqn},
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
-use scr_ext_http::{http::create_op_GET_with_opts, tls_client::TlsSettings};
+use typeline_ext_http::{
+    http::create_op_GET_with_opts, tls_client::TlsSettings,
+};
 
 // silence warning generated bv the proc macro. annoying.
 // MSRV(1.81): use `#[expect]` instead
@@ -47,7 +49,7 @@ async fn tls_server_sanity_check() {
 // MSRV(1.81): use `#[expect]` instead
 #[allow(clippy::needless_return)]
 #[tokio::test(flavor = "multi_thread")]
-async fn multi_get_https() -> Result<(), ScrError> {
+async fn multi_get_https() -> Result<(), TypelineError> {
     for ip_support in
         [IpSupport::Both, IpSupport::IpV4Only, IpSupport::IpV6Only]
     {

@@ -22,7 +22,7 @@ use crate::{
     },
     options::{
         chain_settings::SettingConversionError,
-        session_setup::{ScrSetupOptions, SessionSetupData},
+        session_setup::{SessionSetupData, SetupOptions},
         setting::{
             CliArgIdx, SettingReassignmentError,
             SETTING_REASSIGNMENT_ERROR_MESSAGE,
@@ -73,7 +73,7 @@ impl Display for CollectTypeMissmatch {
 }
 
 #[derive(Error, Debug, Clone, PartialEq)]
-pub enum ScrError {
+pub enum TypelineError {
     #[error(transparent)]
     PrintInfoAndExitError(#[from] PrintInfoAndExitError),
 
@@ -109,16 +109,16 @@ pub enum ScrError {
 }
 #[derive(Error, Debug, Clone)]
 #[error("{contextualized_message}")]
-pub struct ContextualizedScrError {
+pub struct ContextualizedTypelineError {
     pub contextualized_message: String,
-    pub err: ScrError,
+    pub err: TypelineError,
 }
 
-impl ContextualizedScrError {
+impl ContextualizedTypelineError {
     pub fn from_scr_error(
-        err: ScrError,
+        err: TypelineError,
         args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-        cli_opts: Option<&ScrSetupOptions>,
+        cli_opts: Option<&SetupOptions>,
         setup_data: Option<&SessionSetupData>,
         sess: Option<&SessionData>,
     ) -> Self {
@@ -130,15 +130,17 @@ impl ContextualizedScrError {
     }
 }
 
-impl From<ContextualizedScrError> for ScrError {
-    fn from(value: ContextualizedScrError) -> Self {
+impl From<ContextualizedTypelineError> for TypelineError {
+    fn from(value: ContextualizedTypelineError) -> Self {
         value.err
     }
 }
 
-impl From<Arc<OperatorApplicationError>> for ScrError {
+impl From<Arc<OperatorApplicationError>> for TypelineError {
     fn from(value: Arc<OperatorApplicationError>) -> Self {
-        ScrError::from(Arc::try_unwrap(value).unwrap_or_else(|v| (*v).clone()))
+        TypelineError::from(
+            Arc::try_unwrap(value).unwrap_or_else(|v| (*v).clone()),
+        )
     }
 }
 
@@ -203,7 +205,7 @@ fn contextualize_span(
 }
 
 fn was_first_cli_arg_skipped(
-    cli_opts: Option<&ScrSetupOptions>,
+    cli_opts: Option<&SetupOptions>,
     setup_data: Option<&SessionSetupData>,
     sess: Option<&SessionData>,
 ) -> bool {
@@ -221,7 +223,7 @@ fn contextualize_op_id(
     msg: &str,
     op_id: OperatorId,
     args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-    cli_opts: Option<&ScrSetupOptions>,
+    cli_opts: Option<&SetupOptions>,
     setup_data: Option<&SessionSetupData>,
     sess: Option<&SessionData>,
 ) -> String {
@@ -247,12 +249,12 @@ fn contextualize_op_id(
     }
 }
 
-impl ScrError {
+impl TypelineError {
     // PERF: could avoid allocations by taking a &impl Write
     pub fn contextualize_message(
         &self,
         args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-        cli_opts: Option<&ScrSetupOptions>,
+        cli_opts: Option<&SetupOptions>,
         setup_data: Option<&SessionSetupData>,
         sess: Option<&SessionData>,
     ) -> String {
@@ -262,28 +264,28 @@ impl ScrError {
             .or_else(|| setup_data.and_then(|o| o.cli_args.as_deref()))
             .or_else(|| sess.and_then(|sess| sess.cli_args.as_deref()));
         match self {
-            ScrError::CliArgumentError(e) => contextualize_span(
+            TypelineError::CliArgumentError(e) => contextualize_span(
                 &e.message,
                 args_gathered,
                 e.span,
                 first_arg_skipped,
             ),
-            ScrError::ArgumentReassignmentError(e) => contextualize_span(
+            TypelineError::ArgumentReassignmentError(e) => contextualize_span(
                 SETTING_REASSIGNMENT_ERROR_MESSAGE,
                 args_gathered,
                 e.reassignment_span,
                 first_arg_skipped,
             ),
-            ScrError::ReplDisabledError(e) => contextualize_span(
+            TypelineError::ReplDisabledError(e) => contextualize_span(
                 e.message,
                 args_gathered,
                 e.span,
                 first_arg_skipped,
             ),
-            ScrError::ChainSetupError(e) => e.to_string(),
-            ScrError::OperationCreationError(e) => e.message.to_string(),
-            ScrError::SettingConversionError(e) => e.message.to_string(),
-            ScrError::OperationSetupError(e) => contextualize_op_id(
+            TypelineError::ChainSetupError(e) => e.to_string(),
+            TypelineError::OperationCreationError(e) => e.message.to_string(),
+            TypelineError::SettingConversionError(e) => e.message.to_string(),
+            TypelineError::OperationSetupError(e) => contextualize_op_id(
                 &e.message,
                 e.op_id,
                 args_gathered,
@@ -291,17 +293,19 @@ impl ScrError {
                 setup_data,
                 sess,
             ),
-            ScrError::OperationApplicationError(e) => contextualize_op_id(
-                e.message(),
-                e.op_id(),
-                args_gathered,
-                cli_opts,
-                setup_data,
-                sess,
-            ),
-            ScrError::PrintInfoAndExitError(e) => e.to_string(),
-            ScrError::MissingArgumentsError(e) => e.to_string(),
-            ScrError::CollectTypeMissmatch(e) => e.to_string(),
+            TypelineError::OperationApplicationError(e) => {
+                contextualize_op_id(
+                    e.message(),
+                    e.op_id(),
+                    args_gathered,
+                    cli_opts,
+                    setup_data,
+                    sess,
+                )
+            }
+            TypelineError::PrintInfoAndExitError(e) => e.to_string(),
+            TypelineError::MissingArgumentsError(e) => e.to_string(),
+            TypelineError::CollectTypeMissmatch(e) => e.to_string(),
         }
     }
 }

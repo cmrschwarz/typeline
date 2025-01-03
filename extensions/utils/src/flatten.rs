@@ -1,6 +1,6 @@
 use std::{cell::RefMut, ops::ControlFlow};
 
-use scr_core::{
+use typeline_core::{
     cli::call_expr::{Argument, CallExpr},
     context::SessionData,
     job::{Job, JobData},
@@ -28,7 +28,7 @@ use scr_core::{
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{lazy_lock_guard::LazyRwLockGuard, string_store::StringStore},
 };
 
@@ -49,7 +49,7 @@ pub struct TfFlatten {
 
 pub fn parse_op_flatten(
     expr: &CallExpr,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     expr.reject_args()?;
     Ok(create_op_flatten())
 }

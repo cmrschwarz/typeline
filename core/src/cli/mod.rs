@@ -36,7 +36,7 @@ use crate::{
         formattable::{FormattingContext, RealizedFormatKey},
         scope_manager::{ScopeId, DEFAULT_SCOPE_ID},
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     tyson::TysonParser,
     utils::{maybe_text::MaybeText, text_write::ByteComparingStream},
 };
@@ -147,7 +147,7 @@ fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 
 fn try_parse_as_special_op<'a>(
     src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
-) -> Result<bool, ScrError> {
+) -> Result<bool, TypelineError> {
     let Some((arg, _start_span)) = src.peek() else {
         return Ok(false);
     };
@@ -166,7 +166,7 @@ fn try_parse_as_special_op<'a>(
 pub fn parse_operator_data(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let mut expr = CallExpr::from_argument_mut(&mut arg)?;
 
     let scope_id = sess.chains[sess.curr_chain].scope_id;
@@ -1127,7 +1127,7 @@ pub fn parse_call_expr<'a>(
 
 pub fn parse_cli_raw<'a>(
     src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
-) -> Result<Vec<Argument>, ScrError> {
+) -> Result<Vec<Argument>, TypelineError> {
     let mut args = Vec::new();
 
     let mut aggregation_start = None;
@@ -1174,7 +1174,7 @@ pub fn parse_cli_raw<'a>(
 pub fn parse_cli_args<'a>(
     src: impl IntoIterator<Item = &'a [u8]>,
     skip_first: bool,
-) -> Result<Vec<Argument>, ScrError> {
+) -> Result<Vec<Argument>, TypelineError> {
     parse_cli_raw(
         &mut src
             .into_iter()
@@ -1188,7 +1188,7 @@ pub fn parse_cli_args<'a>(
 pub fn parse_cli_args_form_vec<'a>(
     src: impl IntoIterator<Item = &'a Vec<u8>>,
     skip_first: bool,
-) -> Result<Vec<Argument>, ScrError> {
+) -> Result<Vec<Argument>, TypelineError> {
     parse_cli_raw(
         &mut src
             .into_iter()

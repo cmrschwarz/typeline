@@ -10,7 +10,7 @@ use crate::{
     record_data::{
         field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::indexing_type::IndexingType,
 };
 
@@ -41,7 +41,7 @@ impl Operator for OpCall {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
         if self.target_resolved.is_some() {

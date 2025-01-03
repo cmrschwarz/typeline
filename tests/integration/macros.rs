@@ -1,13 +1,14 @@
-use scr::{
-    options::session_setup::ScrSetupOptions,
-    scr_error::ContextualizedScrError, CliOptionsWithDefaultExtensions,
+use typeline::{
+    options::session_setup::SetupOptions,
+    typeline_error::ContextualizedTypelineError,
+    CliOptionsWithDefaultExtensions,
 };
-use scr_core::options::context_builder::ContextBuilder;
+use typeline_core::options::context_builder::ContextBuilder;
 
 #[test]
-fn parsing_macro_decl() -> Result<(), ContextualizedScrError> {
+fn parsing_macro_decl() -> Result<(), ContextualizedTypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        ScrSetupOptions::with_default_extensions(),
+        SetupOptions::with_default_extensions(),
         ["macro:=foo", "v=[['seq', 10]]", "end", "foo", "sum"],
     )?
     .run_collect_stringified()?;

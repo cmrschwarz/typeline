@@ -1,30 +1,30 @@
 use macro_rules_attribute::apply;
 use paste::paste;
-use scr::operators::{
-    compute::create_op_to_int,
-    file_reader::create_op_file_reader_custom,
-    foreach::create_op_foreach,
-    forkcat::create_op_forkcat,
-    join::create_op_join,
-    regex::{create_op_regex_with_opts, RegexOptions},
-};
-use scr_core::{
+use std::{fmt::Write, io::Cursor, sync::LazyLock, time::Duration};
+use typeline::{
     operators::{
+        compute::create_op_to_int,
+        file_reader::create_op_file_reader_custom,
+        foreach::create_op_foreach,
+        forkcat::create_op_forkcat,
         format::create_op_format,
-        regex::{create_op_regex, create_op_regex_lines},
+        join::create_op_join,
+        regex::{
+            create_op_regex, create_op_regex_lines, create_op_regex_with_opts,
+            RegexOptions,
+        },
         sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
-    scr_error::{ContextualizedScrError, ScrError},
+    typeline_error::{ContextualizedTypelineError, TypelineError},
     utils::test_utils::{
         int_sequence_newline_separated, int_sequence_strings,
     },
 };
-use scr_ext_utils::{
+use typeline_ext_utils::{
     head::create_op_head, string_utils::create_op_lines, sum::create_op_sum,
     tail::create_op_tail,
 };
-use std::{fmt::Write, io::Cursor, sync::LazyLock, time::Duration};
 
 #[allow(unused)]
 struct Bench {
@@ -51,9 +51,9 @@ fn main() {
 }
 
 // generates a `#[test]` fn and a criterion bench for the annotated function
-macro_rules! scrbench {
+macro_rules! tlbench {
     ($(#[$attrs:meta])* fn $fn_name:ident () $body:block) => {
-        scrbench! {
+        tlbench! {
             $(#[$attrs])*
             fn $fn_name() -> () $body
         }
@@ -76,20 +76,20 @@ macro_rules! scrbench {
     };
 }
 
-#[apply(scrbench)]
+#[apply(tlbench)]
 fn empty_context() {
     let res = ContextBuilder::without_exts().push_str("foobar", 1).run();
 
     assert!(matches!(
         res,
-        Err(ContextualizedScrError {
-            err: ScrError::ChainSetupError(_),
+        Err(ContextualizedTypelineError {
+            err: TypelineError::ChainSetupError(_),
             contextualized_message: _
         })
     ));
 }
 
-#[apply(scrbench)]
+#[apply(tlbench)]
 fn plain_string_sink() {
     const LEN: usize = 2000;
     const EXPECTED: LazyLock<Vec<String>> =
@@ -102,7 +102,7 @@ fn plain_string_sink() {
     assert_eq!(&res, &**EXPECTED);
 }
 
-#[apply(scrbench)]
+#[apply(tlbench)]
 fn regex_lines() {
     const COUNT: usize = 1000;
     const INPUT: LazyLock<String> =
@@ -119,7 +119,7 @@ fn regex_lines() {
     assert_eq!(res, &**EXPECTED);
 }
 
-#[apply(scrbench)]
+#[apply(tlbench)]
 fn regex_lines_plus_drop_uneven() {
     const COUNT: usize = 1000;
     const INPUT: LazyLock<String> =
@@ -142,7 +142,7 @@ fn regex_lines_plus_drop_uneven() {
     assert_eq!(res, &**EXPECTED);
 }
 
-#[apply(scrbench)]
+#[apply(tlbench)]
 fn dummy_format() {
     const LEN: usize = 2000;
     const EXPECTED: LazyLock<Vec<String>> =
@@ -156,7 +156,7 @@ fn dummy_format() {
     assert_eq!(res, &**EXPECTED);
 }
 
-#[apply(scrbench)]
+#[apply(tlbench)]
 fn format_twice() {
     const LEN: usize = 2000;
     const EXPECTED: LazyLock<Vec<String>> = LazyLock::new(|| {
@@ -176,7 +176,7 @@ fn format_twice() {
     assert_eq!(res, &**EXPECTED);
 }
 
-#[apply(scrbench)]
+#[apply(tlbench)]
 fn regex_drop_uneven_into_format_twice() {
     const COUNT: usize = 1000;
     const INPUT: LazyLock<String> = LazyLock::new(|| {
@@ -207,7 +207,7 @@ fn regex_drop_uneven_into_format_twice() {
     assert_eq!(res, &**EXPECTED);
 }
 
-#[apply(scrbench)]
+#[apply(tlbench)]
 fn seq_into_regex_drop_unless_seven() {
     const COUNT: usize = 10000;
     const EXPECTED: LazyLock<Vec<&str>> = LazyLock::new(|| {
@@ -237,9 +237,9 @@ msixonexch1twokjbdlhchqk1
 mxbzgzg5three
 "#;
 
-#[apply(scrbench)]
+#[apply(tlbench)]
 #[cfg_attr(not(feature = "slow_tests"), ignore)]
-fn aoc2023_day1_part1_large() -> Result<(), ScrError> {
+fn aoc2023_day1_part1_large() -> Result<(), TypelineError> {
     const COUNT: usize = 1000;
     let mut input = String::new();
     for _ in 0..COUNT {

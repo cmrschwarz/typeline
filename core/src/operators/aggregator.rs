@@ -11,7 +11,7 @@ use crate::{
         action_buffer::ActorId, field_action::FieldActionKind,
         iter::field_iterator::FieldIterator, iter_hall::FieldIterId,
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{index_vec::IndexVec, indexing_type::IndexingType},
 };
 
@@ -215,7 +215,7 @@ impl Operator for OpAggregator {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
 
         for (op_data, span) in std::mem::take(&mut self.sub_ops_from_user) {

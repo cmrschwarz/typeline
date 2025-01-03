@@ -1,12 +1,12 @@
 use std::borrow::Cow;
 
-use scr::record_data::{
+use typeline::record_data::{
     custom_data::CustomData, formattable::RealizedFormatKey,
 };
-use scr_core::{
+use typeline_core::{
     operators::string_sink::{create_op_string_sink, StringSinkHandle},
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ impl CustomData for DummyCustomType {
 
     fn format(
         &self,
-        w: &mut dyn scr::utils::text_write::TextWrite,
+        w: &mut dyn typeline::utils::text_write::TextWrite,
         _format: &RealizedFormatKey,
     ) -> std::io::Result<()> {
         w.write_all_text("dummy")?;
@@ -43,7 +43,7 @@ impl CustomData for DummyCustomTypeNoStringify {
     }
     fn format(
         &self,
-        _w: &mut dyn scr::utils::text_write::TextWrite,
+        _w: &mut dyn typeline::utils::text_write::TextWrite,
         _format: &RealizedFormatKey,
     ) -> std::io::Result<()> {
         Err(std::io::ErrorKind::Unsupported.into())
@@ -51,7 +51,7 @@ impl CustomData for DummyCustomTypeNoStringify {
 }
 
 #[test]
-fn custom_type_stringify() -> Result<(), ScrError> {
+fn custom_type_stringify() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .push_custom(Box::new(DummyCustomType), 1)
         .run_collect_stringified()?;
@@ -60,7 +60,7 @@ fn custom_type_stringify() -> Result<(), ScrError> {
 }
 
 #[test]
-fn custom_type_that_cannot_stringify() -> Result<(), ScrError> {
+fn custom_type_that_cannot_stringify() -> Result<(), TypelineError> {
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .push_custom(Box::new(DummyCustomTypeNoStringify), 1)

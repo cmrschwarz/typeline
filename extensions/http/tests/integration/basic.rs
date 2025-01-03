@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     operators::{
         format::create_op_format,
         print::{create_op_print_with_opts, PrintOptions},
@@ -7,9 +7,9 @@ use scr_core::{
         utils::writable::MutexedWriteableTargetOwner,
     },
     options::context_builder::ContextBuilder,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
 };
-use scr_ext_http::http::create_op_GET;
+use typeline_ext_http::http::create_op_GET;
 
 pub fn setup_mockito_test_server() -> mockito::ServerGuard {
     let mut server = mockito::Server::new();
@@ -35,7 +35,7 @@ pub fn setup_mockito_test_server() -> mockito::ServerGuard {
 }
 
 #[test]
-fn multi_get_http() -> Result<(), ScrError> {
+fn multi_get_http() -> Result<(), TypelineError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/echo/{{}}", server.url());
     let res = ContextBuilder::without_exts()
@@ -48,7 +48,7 @@ fn multi_get_http() -> Result<(), ScrError> {
 }
 
 #[test]
-fn multi_get_http_regex() -> Result<(), ScrError> {
+fn multi_get_http_regex() -> Result<(), TypelineError> {
     // regex used to have an issue where it did not
     // keep stream values alive for long enough
     // this is sort of a regression test against this
@@ -69,7 +69,7 @@ fn multi_get_http_regex() -> Result<(), ScrError> {
 }
 
 #[test]
-fn multi_get_into_print() -> Result<(), ScrError> {
+fn multi_get_into_print() -> Result<(), TypelineError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/echo/{{}}", server.url());
     let target = MutexedWriteableTargetOwner::<Vec<u8>>::default();
@@ -87,7 +87,7 @@ fn multi_get_into_print() -> Result<(), ScrError> {
 }
 
 #[test]
-fn get_delay() -> Result<(), ScrError> {
+fn get_delay() -> Result<(), TypelineError> {
     let server = setup_mockito_test_server();
     let fmt = format!("{}/delay/0.0{{}}", server.url());
     let res = ContextBuilder::without_exts()
@@ -102,7 +102,7 @@ fn get_delay() -> Result<(), ScrError> {
 }
 
 #[test]
-fn localhost_not_parsed_as_scheme() -> Result<(), ScrError> {
+fn localhost_not_parsed_as_scheme() -> Result<(), TypelineError> {
     let server = setup_mockito_test_server();
     let fmt = format!(
         "localhost:{}/echo/{{}}",

@@ -1,4 +1,4 @@
-use scr_core::{
+use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
     job::{Job, JobData},
@@ -24,7 +24,7 @@ use scr_core::{
     utils::max_index::{max_index_f64, max_index_i64},
 };
 
-use scr_core::operators::utils::any_number::AnyNumber;
+use typeline_core::operators::utils::any_number::AnyNumber;
 
 #[derive(Clone, Default)]
 pub struct OpMax {}
@@ -38,7 +38,9 @@ pub struct TfMax {
 }
 
 impl Operator for OpMax {
-    fn default_name(&self) -> scr_core::operators::operator::OperatorName {
+    fn default_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
         "max".into()
     }
 
@@ -89,7 +91,7 @@ impl Transform<'_> for TfMax {
     fn update(
         &mut self,
         jd: &mut JobData,
-        tf_id: scr_core::operators::transform::TransformId,
+        tf_id: typeline_core::operators::transform::TransformId,
     ) {
         jd.tf_mgr.prepare_output_field(
             &mut jd.field_mgr,

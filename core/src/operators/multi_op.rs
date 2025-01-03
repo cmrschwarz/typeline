@@ -8,7 +8,7 @@ use crate::{
         OperatorLivenessOutput,
     },
     options::session_setup::SessionSetupData,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{index_vec::IndexVec, indexing_type::IndexingType},
 };
 
@@ -160,7 +160,7 @@ impl Operator for OpMultiOp {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
         for (op_data, span) in std::mem::take(&mut self.operations) {
             self.sub_op_ids.push(sess.setup_op_from_data(

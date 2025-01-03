@@ -6,7 +6,7 @@ use crate::{
     },
     liveness_analysis::OperatorCallEffect,
     options::session_setup::SessionSetupData,
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
 };
 
@@ -29,7 +29,7 @@ pub struct OpKey {
 pub fn parse_op_key(
     sess: &mut SessionSetupData,
     mut arg: Argument,
-) -> Result<Box<dyn Operator>, ScrError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let expr = CallExpr::from_argument_mut(&mut arg)?;
     let op_name = expr.op_name;
 
@@ -100,7 +100,7 @@ impl Operator for OpKey {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         self.key_interned = Some(sess.string_store.intern_cloned(&self.key));
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
         let Some(nested_op) = &mut self.nested_op else {

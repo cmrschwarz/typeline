@@ -57,7 +57,7 @@ use crate::{
             StreamValueUpdate,
         },
     },
-    scr_error::ScrError,
+    typeline_error::TypelineError,
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         divide_by_char_len,
@@ -1812,7 +1812,7 @@ impl Operator for OpFormat {
         chain_id: ChainId,
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
-    ) -> Result<OperatorId, ScrError> {
+    ) -> Result<OperatorId, TypelineError> {
         for r in &mut self.refs {
             if let Some(name) = r.name.take() {
                 r.name_interned = Some(sess.string_store.intern_moved(name));
