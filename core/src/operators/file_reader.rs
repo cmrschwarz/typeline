@@ -20,9 +20,9 @@ use crate::{
         session_setup::SessionSetupData,
     },
     record_data::{
+        field::FieldIterRef,
         field_data::INLINE_STR_MAX_LEN,
         field_value::ObjectKeysStored,
-        iter_hall::FieldIterId,
         push_interface::PushInterface,
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,
@@ -82,7 +82,7 @@ pub struct TfFileReader {
     stream_buffer_size: usize,
     stream_size_threshold: usize,
     explicit_count: Option<ExplicitCount>,
-    iter_id: FieldIterId,
+    iter_ref: FieldIterRef,
 }
 
 fn read_size_limited<F: Read>(
@@ -559,7 +559,7 @@ impl Operator for OpFileReader {
                 count,
                 actor_id: job.job_data.add_actor_for_tf_state(tf_state),
             }),
-            iter_id: job.job_data.claim_iter_for_tf_state(tf_state),
+            iter_ref: job.job_data.claim_iter_ref_for_tf_state(tf_state),
             value_committed: false,
         }))
     }
@@ -575,7 +575,7 @@ impl Transform<'_> for TfFileReader {
             jd,
             tf_id,
             self.explicit_count.as_ref(),
-            self.iter_id,
+            self.iter_ref,
         );
         jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
     }

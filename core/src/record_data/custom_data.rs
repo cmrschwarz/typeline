@@ -26,7 +26,7 @@ pub fn custom_data_reference_eq<T: CustomData + ?Sized>(
 #[derive(Debug)]
 pub enum CustomDataWritingError {}
 
-pub trait CustomData: Any + Send + Sync + Debug {
+pub trait CustomData: CustomDataAsAny + Any + Send + Sync + Debug {
     fn clone_dyn(&self) -> CustomDataBox;
     fn type_name(&self) -> Cow<'static, str>;
     fn cmp(&self, _rhs: &dyn CustomData) -> Option<Ordering> {
@@ -87,6 +87,30 @@ pub trait CustomData: Any + Send + Sync + Debug {
         let mut w = TextInfoWriter::default();
         self.format_raw(&mut *w, format)?;
         Ok(w.into_text_info())
+    }
+}
+
+pub trait CustomDataAsAny {
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl<T: CustomData> CustomDataAsAny for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+impl dyn CustomData {
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        self.as_any().downcast_ref()
+    }
+    pub fn downcast_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        self.as_any_mut().downcast_mut()
     }
 }
 

@@ -2,8 +2,8 @@ use crate::{
     job::{JobData, PipelineState},
     operators::transform::TransformId,
     record_data::{
-        action_buffer::ActorId, field_action::FieldActionKind,
-        iter::field_iterator::FieldIterator, iter_hall::FieldIterId,
+        action_buffer::ActorId, field::FieldIterRef,
+        field_action::FieldActionKind, iter::field_iterator::FieldIterator,
     },
 };
 
@@ -16,7 +16,7 @@ pub fn maintain_single_value(
     jd: &mut JobData,
     tf_id: TransformId,
     explicit_count: Option<&ExplicitCount>,
-    iter_id: FieldIterId,
+    iter_ref: FieldIterRef,
 ) -> (usize, PipelineState) {
     let (batch_size, mut ps) = jd.tf_mgr.claim_batch(tf_id);
     let tf = &jd.tf_mgr.transforms[tf_id];
@@ -26,10 +26,8 @@ pub fn maintain_single_value(
     if let Some(ec) = explicit_count {
         let input_field = jd
             .field_mgr
-            .get_cow_field_ref(&jd.match_set_mgr, tf.input_field);
-        let iter =
-            jd.field_mgr
-                .lookup_iter(tf.input_field, &input_field, iter_id);
+            .get_cow_field_ref(&jd.match_set_mgr, iter_ref.field_id);
+        let iter = jd.field_mgr.lookup_iter_from_ref(iter_ref, &input_field);
         let mut pos = iter.get_next_field_pos();
         let mut ab = jd.match_set_mgr.match_sets[tf.match_set_id]
             .action_buffer
@@ -40,7 +38,7 @@ pub fn maintain_single_value(
             pos += ec.count;
         }
         ab.end_action_group();
-        jd.field_mgr.store_iter(tf.input_field, iter_id, iter);
+        jd.field_mgr.store_iter_from_ref(iter_ref, iter);
         count *= ec.count;
     } else if tf.is_split && batch_size >= 1 {
         count = 1;

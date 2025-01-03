@@ -12,9 +12,9 @@ use crate::{
     record_data::{
         array::Array,
         custom_data::CustomDataBox,
+        field::FieldIterRef,
         field_data::FieldValueRepr,
         field_value::{FieldValue, FieldValueKind, Object},
-        iter_hall::FieldIterId,
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueData},
     },
@@ -60,7 +60,7 @@ pub struct TfLiteral<'a> {
     data: &'a Literal,
     explicit_count: Option<ExplicitCount>,
     value_inserted: bool,
-    iter_id: FieldIterId,
+    iter_ref: FieldIterRef,
 }
 
 impl Operator for OpLiteral {
@@ -110,14 +110,14 @@ impl Operator for OpLiteral {
         _prebound_outputs: &super::operator::PreboundOutputsMap,
     ) -> super::operator::TransformInstatiation<'a> {
         let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
-        let iter_id = job.job_data.claim_iter_for_tf_state(tf_state);
+        let iter_ref = job.job_data.claim_iter_ref_for_tf_state(tf_state);
         TransformInstatiation::Single(Box::new(TfLiteral {
             data: &self.data,
             explicit_count: self
                 .insert_count
                 .map(|count| ExplicitCount { count, actor_id }),
             value_inserted: false,
-            iter_id,
+            iter_ref,
         }))
     }
 
@@ -581,7 +581,7 @@ impl<'a> Transform<'a> for TfLiteral<'a> {
             jd,
             tf_id,
             self.explicit_count.as_ref(),
-            self.iter_id,
+            self.iter_ref,
         );
         jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);
     }

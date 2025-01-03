@@ -160,6 +160,12 @@ impl FieldReference {
     }
 }
 
+impl From<FieldRefOffset> for FieldReference {
+    fn from(field_ref_offset: FieldRefOffset) -> Self {
+        FieldReference { field_ref_offset }
+    }
+}
+
 impl Default for Object {
     fn default() -> Self {
         Object::KeysStored(IndexMap::default())

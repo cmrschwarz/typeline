@@ -12,7 +12,7 @@
 [msrv]: https://img.shields.io/crates/msrv/typeline?logo=rust
 [docs-rs]: https://img.shields.io/badge/docs.rs-typeline-66c2a5?logo=docs.rs
 
-An efficient, type-safe pipeline processing language.
+An efficient, type-safe pipeline processing system.
 
 
 ## Usage Examles

@@ -1,0 +1,27 @@
+[package]
+name = "typeline_ext_selenium"
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+keywords.workspace = true
+description = "selenium integration for typeline"
+
+[lib]
+name = "typeline_ext_selenium"
+test = false
+doctest = false
+
+[dependencies]
+typeline_core = { version = "0.1", path = "../../core" }
+thirtyfour = "0.35.0"
+geckodriver = "0.35.0"
+tokio = "1.42.0"
+derive_more = "1.0"
+reqwest= "0.12.12"
+
+[dev-dependencies]
+rstest = "0.24.0"
