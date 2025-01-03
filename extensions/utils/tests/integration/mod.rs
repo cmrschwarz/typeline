@@ -1,6 +1,6 @@
 use std::sync::{Arc, LazyLock};
 
-use typeline::extension::{Extension, ExtensionRegistry};
+use typeline_core::extension::{Extension, ExtensionRegistry};
 use typeline_ext_utils::UtilsExtension;
 
 mod basic;

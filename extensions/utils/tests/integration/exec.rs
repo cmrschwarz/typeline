@@ -1,4 +1,4 @@
-use typeline::{
+use typeline_core::{
     operators::{
         foreach::create_op_foreach,
         join::create_op_join,
@@ -6,10 +6,8 @@ use typeline::{
         sequence::create_op_seq,
         utils::writable::MutexedWriteableTargetOwner,
     },
-    options::session_setup::SetupOptions,
-};
-use typeline_core::{
-    options::context_builder::ContextBuilder, typeline_error::TypelineError,
+    options::{context_builder::ContextBuilder, session_setup::SetupOptions},
+    typeline_error::TypelineError,
 };
 use typeline_ext_utils::{
     exec::create_op_exec_from_strings,

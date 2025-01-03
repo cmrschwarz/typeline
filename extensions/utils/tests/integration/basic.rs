@@ -1,5 +1,5 @@
 use rstest::rstest;
-use typeline::{
+use typeline_core::{
     operators::{
         chunks::create_op_chunks,
         compute::{create_op_compute, create_op_to_int},
@@ -16,7 +16,6 @@ use typeline::{
     record_data::{array::Array, field_value::FieldValue},
     typeline_error::TypelineError,
     utils::test_utils::SliceReader,
-    CliOptionsWithDefaultExtensions,
 };
 use typeline_ext_utils::{
     collect::create_op_collect,
@@ -31,6 +30,8 @@ use typeline_ext_utils::{
     sum::create_op_sum,
     tail::{create_op_tail, create_op_tail_add},
 };
+
+use crate::integration::UTILS_EXTENSION_REGISTRY;
 
 #[test]
 fn primes() -> Result<(), TypelineError> {
@@ -103,7 +104,7 @@ fn primes_head_tail_add() -> Result<(), TypelineError> {
 #[test]
 fn head_tail_cli() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["tl", "%bs=10", "primes", "tail=+3", "head=5"],
     )?
     .run_collect_as::<i64>()?;

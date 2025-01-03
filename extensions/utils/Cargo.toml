@@ -29,8 +29,6 @@ mio = { version = "1.0.2", features = ["os-ext", "os-poll"] }
 num-order = { version = "1.2", features = ["num-rational", "num-bigint"] }
 
 [dev-dependencies]
-typeline = { version = "0.1", path = "../../", features = ["utils"] }
-
 rstest = "0.24.0"
 
 [features]
