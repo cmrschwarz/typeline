@@ -13,6 +13,7 @@ include = [
     "**/*.rs",
     "Cargo.toml"
 ]
+description = "core implementation of typeline"
 
 [lib]
 name = "typeline_core"

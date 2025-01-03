@@ -8,7 +8,7 @@ edition.workspace = true
 rust-version.workspace = true
 categories.workspace = true
 keywords.workspace = true
-
+description = "python integration for typeline"
 
 [lib]
 name = "typeline_ext_python"
