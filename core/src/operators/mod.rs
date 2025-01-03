@@ -15,7 +15,6 @@ pub mod forkcat;
 pub mod format;
 pub mod join;
 pub mod key;
-pub mod lines;
 pub mod literal;
 pub mod macro_call;
 pub mod macro_def;
