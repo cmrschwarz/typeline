@@ -6,7 +6,7 @@ use super::call_expr::Span;
 
 macro_rules! help_page {
     ($name: literal) => {
-        include_str!(concat!("../../../docs/operator_help_sections/", $name))
+        include_str!(concat!("help_sections/", $name))
     };
 }
 

@@ -181,20 +181,8 @@ dependencies = [
 
 [[package]]
 name = "bitvec"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bc2832c24239b0141d5674bb9174f9d68a8b5b3f2753311927c172ca46f7e9c"
-dependencies = [
- "funty",
- "radium",
- "tap",
- "wyz",
-]
-
-[[package]]
-name = "bitvec"
 version = "1.1.0"
-source = "git+https://github.com/djkoloski/bitvec.git?branch=fix_miri#426bdde5042004df84b1aa23a27c76d03832fe39"
+source = "git+https://github.com/djkoloski/bitvec?branch=fix_miri#426bdde5042004df84b1aa23a27c76d03832fe39"
 dependencies = [
  "funty",
  "radium",
@@ -1945,9 +1933,9 @@ dependencies = [
 
 [[package]]
 name = "reedline"
-version = "0.37.0"
+version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9834765acaa2deedf29197f2da3d309801683beb20e25775bc0249f97a7b9a74"
+checksum = "9bfa8cb0ad84c396c936d8abb814703d7042a433d2da75a0c7060cbdc89109f3"
 dependencies = [
  "chrono",
  "crossterm",
@@ -2084,7 +2072,19 @@ checksum = "0a2c585be59b6b5dd66a9d2084aa1d8bd52fbdb806eafdeffb52791147862035"
 dependencies = [
  "futures",
  "futures-timer",
- "rstest_macros",
+ "rstest_macros 0.23.0",
+ "rustc_version",
+]
+
+[[package]]
+name = "rstest"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03e905296805ab93e13c1ec3a03f4b6c4f35e9498a3d5fa96dc626d22c03cd89"
+dependencies = [
+ "futures-timer",
+ "futures-util",
+ "rstest_macros 0.24.0",
  "rustc_version",
 ]
 
@@ -2093,6 +2093,24 @@ name = "rstest_macros"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "825ea780781b15345a146be27eaefb05085e337e869bff01b4306a4fd4a9ad5a"
+dependencies = [
+ "cfg-if",
+ "glob",
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "relative-path",
+ "rustc_version",
+ "syn 2.0.87",
+ "unicode-ident",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef0053bbffce09062bee4bcc499b0fbe7a57b879f1efe088d6d8d4c7adcdef9b"
 dependencies = [
  "cfg-if",
  "glob",
@@ -2717,7 +2735,7 @@ dependencies = [
  "paste",
  "ref-cast",
  "regex",
- "rstest",
+ "rstest 0.23.0",
  "typeline_core",
  "typeline_ext_csv",
  "typeline_ext_http",
@@ -2732,8 +2750,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "bitbybit",
- "bitvec 1.0.1",
- "bitvec 1.1.0",
+ "bitvec",
  "bstr",
  "derive_more",
  "encoding_rs",
@@ -2750,7 +2767,7 @@ dependencies = [
  "ref-cast",
  "regex",
  "regex-syntax",
- "rstest",
+ "rstest 0.24.0",
  "serde_derive",
  "serde_json",
  "shlex",
@@ -2769,7 +2786,7 @@ version = "0.1.0"
 dependencies = [
  "lexical-core",
  "memchr",
- "rstest",
+ "rstest 0.23.0",
  "typeline_core",
  "typeline_ext_utils",
 ]
@@ -2809,7 +2826,7 @@ version = "0.1.0"
 dependencies = [
  "num",
  "pyo3",
- "rstest",
+ "rstest 0.23.0",
  "typeline_core",
  "typeline_ext_utils",
 ]
@@ -2832,7 +2849,7 @@ dependencies = [
  "num",
  "num-order",
  "primes",
- "rstest",
+ "rstest 0.23.0",
  "typeline",
  "typeline_core",
 ]

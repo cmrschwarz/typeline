@@ -1,28 +1,21 @@
 [package]
 name = "typeline_core"
-
 version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+categories.workspace = true
+keywords.workspace = true
+include = [
+    "src/cli/help_sections/*.txt",
+    "**/*.rs",
+    "Cargo.toml"
+]
 
 [lib]
 name = "typeline_core"
-
-[target.'cfg(miri)'.dependencies.bitvec_miri]
-package = "bitvec"
-git = "https://github.com/djkoloski/bitvec.git"
-branch = "fix_miri"
-features = ["std"]
-default-features = false
-
-[target.'cfg(not(miri))'.dependencies.bitvec_non_miri]
-package = "bitvec"
-version = "1.0.1"
-features = ["std"]
-default-features = false
 
 [dependencies]
 # currently just for MappedMutexGuard. can be removed once that becomes stable
@@ -66,9 +59,19 @@ handlebars = { version = "6.2.0", features = [
     "string_helpers",
 ], optional = true }
 
+
+[dependencies.bitvec]
+package = "bitvec"
+version = "1.0.1"
+features = ["std"]
+default-features = false
+# use version with fixed miri for local development
+git = "https://github.com/djkoloski/bitvec"
+branch = "fix_miri" 
+
 # deps for repl mode:
 [dependencies.reedline]
-version = "0.37.0"
+version = "0.38.0"
 features = ["bashisms"]
 default-features = false
 optional = true
@@ -80,7 +83,7 @@ optional = true
 
 
 [dev-dependencies]
-rstest = "0.23.0"
+rstest = "0.24.0"
 
 [features]
 default = []
