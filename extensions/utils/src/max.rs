@@ -122,7 +122,7 @@ impl Transform<'_> for TfMax {
         let mut field_idx = iter.get_next_field_pos();
         let mut group_start = field_idx;
         let mut fields_produced = 0;
-        let mut new_max_idx_found = None;
+        let mut new_max_idx_found: Option<usize> = None;
         let mut had_max_value = self.curr_max_value.is_some();
         loop {
             let mut gs_rem = group_track_iter.group_len_rem();
@@ -150,16 +150,17 @@ impl Transform<'_> for TfMax {
                     ab.push_action(
                         FieldActionKind::Drop,
                         new_max_id + 1 - leading_drop,
-                        ((field_idx - new_max_id) as usize).saturating_sub(1),
+                        (field_idx - new_max_id).saturating_sub(1),
                     );
-                    field_idx -= field_idx - group_start - (1 - hmv);
+                    field_idx =
+                        field_idx - (field_idx - group_start - (1 - hmv));
                 } else {
                     ab.push_action(
                         FieldActionKind::Drop,
                         group_start,
                         field_idx - group_start,
                     );
-                    field_idx -= field_idx - group_start;
+                    field_idx = field_idx - (field_idx - group_start);
                 }
                 new_max_idx_found = None;
             }
@@ -232,7 +233,7 @@ impl Transform<'_> for TfMax {
                     let range_start = field_idx;
                     field_idx += rl as usize;
                     if max_val_f64.is_nan() {
-                        while let Some((&v, rl)) = iter.next() {
+                        for (&v, rl) in &mut iter {
                             if !v.is_nan() {
                                 max_val_f64 = v;
                                 res_idx = field_idx;
@@ -273,7 +274,7 @@ impl Transform<'_> for TfMax {
                     let (v, rl) = iter.next().unwrap();
                     let mut max_val_ref_bi = v;
                     field_idx += rl as usize;
-                    while let Some((v, rl)) = iter.next() {
+                    for (v, rl) in iter {
                         if v > max_val_ref_bi {
                             max_val_ref_bi = v;
                             res_idx = field_idx;
@@ -288,7 +289,7 @@ impl Transform<'_> for TfMax {
                     let (v, rl) = iter.next().unwrap();
                     let mut max_val_ref_br = v;
                     field_idx += rl as usize;
-                    while let Some((v, rl)) = iter.next() {
+                    for (v, rl) in iter {
                         if v > max_val_ref_br {
                             max_val_ref_br = v;
                             res_idx = field_idx;

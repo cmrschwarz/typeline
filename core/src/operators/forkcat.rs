@@ -898,7 +898,7 @@ impl Operator for OpForkCat {
             continuation_state: continuation_state.clone(),
             actor_id: job
                 .job_data
-                .add_actor_for_tf_state_ignore_output_field(&tf_state),
+                .add_actor_for_tf_state_ignore_output_field(tf_state),
             relaunch_after_cow_advance: false,
         });
         let fc_tf_id = add_transform_to_job(

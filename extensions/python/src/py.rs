@@ -85,7 +85,7 @@ pub struct TfPy<'a> {
         >,
     >,
 }
-unsafe impl<'a> Send for TfPy<'a> {}
+unsafe impl Send for TfPy<'_> {}
 
 impl Operator for OpPy {
     fn default_name(
@@ -586,21 +586,20 @@ unsafe fn debug_print_py_object(
     object: *mut pyo3::ffi::PyObject,
 ) {
     unsafe {
-        let module =
-            pyo3::ffi::PyImport_AddModule("__dummy__\0".as_ptr().cast());
+        let module = pyo3::ffi::PyImport_AddModule(c"__dummy__".as_ptr());
         assert!(pyo3::PyErr::take(py).is_none());
         let globals = pyo3::ffi::PyModule_GetDict(module);
 
         pyo3::ffi::PyDict_SetItemString(
             globals,
-            "var_to_print__\0".as_ptr().cast(),
+            c"var_to_print__".as_ptr(),
             object,
         );
         assert!(pyo3::PyErr::take(py).is_none());
 
         let code_object = pyo3::ffi::Py_CompileString(
-            "print(var_to_print__)\0".as_ptr().cast(),
-            "<string>\0".as_ptr().cast(),
+            c"print(var_to_print__)".as_ptr(),
+            c"<string>".as_ptr(),
             pyo3::ffi::Py_file_input,
         );
         let code_object_2 =
@@ -668,8 +667,7 @@ pub fn build_op_py(
 
         let dunder_builtins_str = pyo3::intern!(py, "__builtins__").as_ptr();
 
-        let module =
-            pyo3::ffi::PyImport_AddModule("__main__\0".as_ptr().cast());
+        let module = pyo3::ffi::PyImport_AddModule(c"__main__".as_ptr());
         let module_dict = pyo3::ffi::PyModule_GetDict(module);
         let mut has_builtins =
             pyo3::ffi::PyDict_Contains(module_dict, dunder_builtins_str);
@@ -690,7 +688,7 @@ pub fn build_op_py(
 
         let code_object = pyo3::ffi::Py_CompileString(
             command.as_ptr().cast(),
-            "<cmd>\0".as_ptr().cast(),
+            c"<cmd>".as_ptr(),
             pyo3::ffi::Py_file_input,
         );
 
@@ -703,7 +701,7 @@ pub fn build_op_py(
 
         let co_names = pyo3::ffi::PyObject_GetAttrString(
             code_object,
-            "co_names\0".as_ptr().cast(),
+            c"co_names".as_ptr(),
         );
 
         let free_var_count = pyo3::ffi::PyObject_Length(co_names);

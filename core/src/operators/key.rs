@@ -141,7 +141,7 @@ impl Operator for OpKey {
         let &NestedOp::SetUp(sub_op_id) = nested_op else {
             unreachable!()
         };
-        return ld.update_bb_for_op(sess, sub_op_id, op_n, cn, bb_id);
+        ld.update_bb_for_op(sess, sub_op_id, op_n, cn, bb_id)
     }
 
     fn default_name(&self) -> super::operator::OperatorName {

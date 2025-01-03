@@ -449,8 +449,8 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                         }
                         self.void_byte_char();
                     }
-                    if self.read_char()?.to_ascii_lowercase() != 'n'
-                        || self.read_char()?.to_ascii_lowercase() != 'f'
+                    if !self.read_char()?.eq_ignore_ascii_case(&'n')
+                        || !self.read_char()?.eq_ignore_ascii_case(&'f')
                     {
                         return Err(TysonParseError::InvalidSyntax {
                             line: self.line,
@@ -475,8 +475,8 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                         }
                         self.void_byte_char();
                     }
-                    if self.read_char()?.to_ascii_lowercase() != 'a'
-                        || self.read_char()?.to_ascii_lowercase() != 'n'
+                    if !self.read_char()?.eq_ignore_ascii_case(&'a')
+                        || !self.read_char()?.eq_ignore_ascii_case(&'n')
                     {
                         return Err(TysonParseError::InvalidSyntax {
                             line: self.line,

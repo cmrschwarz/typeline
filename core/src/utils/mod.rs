@@ -53,7 +53,7 @@ pub const fn ilog2_usize(v: usize) -> usize {
 pub unsafe fn as_u8_slice<T: Sized>(p: &T) -> &[u8] {
     unsafe {
         std::slice::from_raw_parts(
-            (p as *const T).cast(),
+            std::ptr::from_ref(p).cast(),
             std::mem::size_of::<T>(),
         )
     }

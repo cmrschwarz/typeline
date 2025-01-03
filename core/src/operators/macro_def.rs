@@ -174,7 +174,7 @@ pub fn parse_op_macro_def(
             data: Arc::new(MacroDeclData {
                 name_interned: sess_opts.string_store.intern_cloned(&name),
                 name_stored: name,
-                args: Arc::from_iter(args),
+                args: args.collect::<Arc<[Argument]>>(),
                 span,
             }),
         }),

@@ -118,10 +118,10 @@ impl Default for AnyNumber {
 impl AnyNumber {
     pub fn as_ref(&self) -> AnyNumberRef {
         match self {
-            AnyNumber::Int(v) => AnyNumberRef::Int(&v),
-            AnyNumber::BigInt(v) => AnyNumberRef::BigInt(&v),
-            AnyNumber::Float(v) => AnyNumberRef::Float(&v),
-            AnyNumber::BigRational(v) => AnyNumberRef::BigRational(&v),
+            AnyNumber::Int(v) => AnyNumberRef::Int(v),
+            AnyNumber::BigInt(v) => AnyNumberRef::BigInt(v),
+            AnyNumber::Float(v) => AnyNumberRef::Float(v),
+            AnyNumber::BigRational(v) => AnyNumberRef::BigRational(v),
         }
     }
 }

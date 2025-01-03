@@ -453,7 +453,7 @@ impl Span {
 fn parse_call_expr_meta<'a>(
     span: Span,
     first_sub_arg: Option<&'a Argument>,
-    end_kind: &'a Option<MetaInfo>,
+    end_kind: Option<&'a MetaInfo>,
 ) -> Result<(&'a str, CallExprEndKind), CliArgumentError> {
     let Some(first_sub_arg) = first_sub_arg else {
         return Err(CliArgumentError::new(
@@ -491,8 +491,11 @@ impl<'a> CallExpr<'a, &'a [Argument]> {
             return Err(arg.error_expect_call_expr());
         };
 
-        let (op_name, end_kind) =
-            parse_call_expr_meta(arg.span, sub_args.first(), &arg.meta_info)?;
+        let (op_name, end_kind) = parse_call_expr_meta(
+            arg.span,
+            sub_args.first(),
+            arg.meta_info.as_ref(),
+        )?;
 
         Ok(CallExpr {
             op_name,
@@ -518,8 +521,11 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
 
         let (arg1, args_rest) = sub_args.split_at_mut(1);
 
-        let (op_name, end_kind) =
-            parse_call_expr_meta(arg.span, arg1.first(), &arg.meta_info)?;
+        let (op_name, end_kind) = parse_call_expr_meta(
+            arg.span,
+            arg1.first(),
+            arg.meta_info.as_ref(),
+        )?;
 
         Ok(CallExpr {
             op_name,

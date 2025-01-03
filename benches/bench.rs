@@ -43,7 +43,7 @@ fn main() {
             .noise_threshold(0.10)
             .configure_from_args();
     for b in inventory::iter::<Bench>() {
-        criterion.bench_function(&b.name, |c| c.iter(b.bench_fn));
+        criterion.bench_function(b.name, |c| c.iter(b.bench_fn));
     }
     criterion::Criterion::default()
         .configure_from_args()
@@ -92,7 +92,7 @@ fn empty_context() {
 #[apply(tlbench)]
 fn plain_string_sink() {
     const LEN: usize = 2000;
-    const EXPECTED: LazyLock<Vec<String>> =
+    static EXPECTED: LazyLock<Vec<String>> =
         LazyLock::new(|| int_sequence_strings(0..LEN));
 
     let res = ContextBuilder::without_exts()
@@ -105,10 +105,10 @@ fn plain_string_sink() {
 #[apply(tlbench)]
 fn regex_lines() {
     const COUNT: usize = 1000;
-    const INPUT: LazyLock<String> =
+    static INPUT: LazyLock<String> =
         LazyLock::new(|| int_sequence_newline_separated(0..COUNT));
 
-    const EXPECTED: LazyLock<Vec<String>> =
+    static EXPECTED: LazyLock<Vec<String>> =
         LazyLock::new(|| int_sequence_strings(0..COUNT));
 
     let res = ContextBuilder::without_exts()
@@ -122,10 +122,10 @@ fn regex_lines() {
 #[apply(tlbench)]
 fn regex_lines_plus_drop_uneven() {
     const COUNT: usize = 1000;
-    const INPUT: LazyLock<String> =
+    static INPUT: LazyLock<String> =
         LazyLock::new(|| int_sequence_newline_separated(0..COUNT));
 
-    const EXPECTED: LazyLock<Vec<String>> = LazyLock::new(|| {
+    static EXPECTED: LazyLock<Vec<String>> = LazyLock::new(|| {
         int_sequence_strings(0..COUNT)
             .into_iter()
             .enumerate()
@@ -145,7 +145,7 @@ fn regex_lines_plus_drop_uneven() {
 #[apply(tlbench)]
 fn dummy_format() {
     const LEN: usize = 2000;
-    const EXPECTED: LazyLock<Vec<String>> =
+    static EXPECTED: LazyLock<Vec<String>> =
         LazyLock::new(|| int_sequence_strings(0..LEN));
 
     let res = ContextBuilder::without_exts()
@@ -159,7 +159,7 @@ fn dummy_format() {
 #[apply(tlbench)]
 fn format_twice() {
     const LEN: usize = 2000;
-    const EXPECTED: LazyLock<Vec<String>> = LazyLock::new(|| {
+    static EXPECTED: LazyLock<Vec<String>> = LazyLock::new(|| {
         let mut expected = Vec::new();
         for i in 0..LEN {
             expected.push(format!("{i}{i}"));
@@ -179,7 +179,7 @@ fn format_twice() {
 #[apply(tlbench)]
 fn regex_drop_uneven_into_format_twice() {
     const COUNT: usize = 1000;
-    const INPUT: LazyLock<String> = LazyLock::new(|| {
+    static INPUT: LazyLock<String> = LazyLock::new(|| {
         let mut input = String::new();
         for i in 0..COUNT {
             input.write_fmt(format_args!("{i}\n")).unwrap();
@@ -187,7 +187,7 @@ fn regex_drop_uneven_into_format_twice() {
         input
     });
 
-    const EXPECTED: LazyLock<Vec<String>> = LazyLock::new(|| {
+    static EXPECTED: LazyLock<Vec<String>> = LazyLock::new(|| {
         let mut expected = Vec::new();
         for i in 0..COUNT {
             if i % 2 == 0 {
@@ -210,7 +210,7 @@ fn regex_drop_uneven_into_format_twice() {
 #[apply(tlbench)]
 fn seq_into_regex_drop_unless_seven() {
     const COUNT: usize = 10000;
-    const EXPECTED: LazyLock<Vec<&str>> = LazyLock::new(|| {
+    static EXPECTED: LazyLock<Vec<&str>> = LazyLock::new(|| {
         int_sequence_strings(0..COUNT)
             .into_iter()
             .filter_map(|v| if v.contains("7") { Some("7") } else { None })

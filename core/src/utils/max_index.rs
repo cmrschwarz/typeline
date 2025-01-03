@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 #[cfg(target_feature = "avx2")]
 const AVX2_MIN_LEN: usize = 8;
 
@@ -26,8 +28,9 @@ pub fn max_index_i64_avx2(arr: &[i64]) -> Option<usize> {
         let idx_stride = _mm256_set1_epi64x(4);
 
         while i + 4 <= len {
+            #[allow(clippy::cast_ptr_alignment)]
             let values =
-                _mm256_loadu_si256(arr.as_ptr().add(i) as *const __m256i);
+                _mm256_loadu_si256(arr.as_ptr().add(i).cast::<__m256i>());
 
             let cmp_mask = _mm256_cmpgt_epi64(values, max_vector);
 
@@ -39,9 +42,14 @@ pub fn max_index_i64_avx2(arr: &[i64]) -> Option<usize> {
             current_indices = _mm256_add_epi64(current_indices, idx_stride);
         }
 
-        _mm256_storeu_si256(max_vals.as_mut_ptr() as *mut __m256i, max_vector);
+        #[allow(clippy::cast_ptr_alignment)]
         _mm256_storeu_si256(
-            max_idxs.as_mut_ptr() as *mut __m256i,
+            max_vals.as_mut_ptr().cast::<__m256i>(),
+            max_vector,
+        );
+        #[allow(clippy::cast_ptr_alignment)]
+        _mm256_storeu_si256(
+            max_idxs.as_mut_ptr().cast::<__m256i>(),
             max_indices,
         );
     }
@@ -66,10 +74,11 @@ pub fn max_index_i64_avx2(arr: &[i64]) -> Option<usize> {
     let mut max_idx = max_idx as usize;
 
     // Handle remaining elements
-    for j in i..len {
-        if arr[j] > max_val {
-            max_val = arr[j];
-            max_idx = j;
+    for idx in i..len {
+        let v = arr[idx];
+        if v > max_val {
+            max_val = v;
+            max_idx = idx;
         }
     }
 
@@ -79,9 +88,10 @@ pub fn max_index_i64_avx2(arr: &[i64]) -> Option<usize> {
 #[cfg(target_feature = "avx2")]
 pub fn max_index_f64_avx2(arr: &[f64]) -> Option<usize> {
     use std::arch::x86_64::{
-        __m256i, _mm256_add_epi64, _mm256_blendv_epi8, _mm256_blendv_pd,
-        _mm256_cmp_pd, _mm256_loadu_pd, _mm256_set1_epi64x, _mm256_set1_pd,
-        _mm256_set_epi64x, _mm256_storeu_pd, _mm256_storeu_si256, _CMP_GT_OQ,
+        __m256d, __m256i, _mm256_add_epi64, _mm256_blendv_epi8,
+        _mm256_blendv_pd, _mm256_cmp_pd, _mm256_loadu_pd, _mm256_set1_epi64x,
+        _mm256_set1_pd, _mm256_set_epi64x, _mm256_storeu_pd,
+        _mm256_storeu_si256, _CMP_GT_OQ,
     };
     if arr.is_empty() {
         return None;
@@ -101,7 +111,7 @@ pub fn max_index_f64_avx2(arr: &[f64]) -> Option<usize> {
         let idx_stride = _mm256_set1_epi64x(4);
 
         while i + 4 <= len {
-            let values = _mm256_loadu_pd(arr.as_ptr().add(i) as *const _);
+            let values = _mm256_loadu_pd(arr.as_ptr().add(i).cast());
 
             let cmp_mask = _mm256_cmp_pd(values, max_vector, _CMP_GT_OQ);
 
@@ -109,7 +119,7 @@ pub fn max_index_f64_avx2(arr: &[f64]) -> Option<usize> {
             max_indices = _mm256_blendv_epi8(
                 max_indices,
                 current_indices,
-                std::mem::transmute(cmp_mask),
+                std::mem::transmute::<__m256d, __m256i>(cmp_mask),
             );
 
             i += 4;
@@ -117,10 +127,7 @@ pub fn max_index_f64_avx2(arr: &[f64]) -> Option<usize> {
         }
 
         _mm256_storeu_pd(max_vals.as_mut_ptr(), max_vector);
-        _mm256_storeu_si256(
-            max_idxs.as_mut_ptr() as *mut __m256i,
-            max_indices,
-        );
+        _mm256_storeu_si256(max_idxs.as_mut_ptr().cast(), max_indices);
     }
 
     let mut max_idx = max_idxs[0] as usize;
@@ -151,6 +158,7 @@ pub fn max_index_f64_avx2(arr: &[f64]) -> Option<usize> {
             if v < max_val {
                 continue;
             }
+            #[allow(clippy::float_cmp)]
             if v == max_val && max_idx < idx {
                 continue;
             }
@@ -287,10 +295,9 @@ mod test {
 
     #[test]
     fn f64_take_neg_inf_over_nan() {
-        let arr = Vec::from_iter(
-            std::iter::once(f64::NAN)
-                .chain(std::iter::repeat_n(f64::NEG_INFINITY, 7)),
-        );
+        let arr = std::iter::once(f64::NAN)
+            .chain(std::iter::repeat_n(f64::NEG_INFINITY, 7))
+            .collect::<Vec<_>>();
 
         assert_eq!(max_index_f64(&arr), Some(1));
     }
@@ -303,7 +310,7 @@ mod test {
 
     #[test]
     fn f64_return_zero_if_all_nan() {
-        let arr = Vec::from_iter(std::iter::repeat_n(f64::NAN, 10));
+        let arr = std::iter::repeat_n(f64::NAN, 10).collect::<Vec<_>>();
 
         assert_eq!(max_index_f64(&arr), Some(0));
     }

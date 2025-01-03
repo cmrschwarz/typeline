@@ -21,6 +21,9 @@
 #![allow(clippy::map_unwrap_or)]
 #![allow(clippy::inline_always)]
 #![allow(clippy::uninlined_format_args)]
+// TODO: fix these
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::extra_unused_lifetimes)]
 
 // crates using macros. having this here helps out rust_analyzer
 extern crate metamatch;

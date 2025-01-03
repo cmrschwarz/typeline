@@ -1,4 +1,4 @@
-use std::{mem::MaybeUninit, ops::DerefMut, usize};
+use std::{mem::MaybeUninit, ops::DerefMut};
 
 use crate::record_data::field_data::INLINE_STR_MAX_LEN;
 

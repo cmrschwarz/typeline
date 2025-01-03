@@ -165,7 +165,7 @@ impl Operator for OpMacroCall {
                 skip_first_cli_arg: false,
             },
             None,
-            Vec::from_iter(self.decl.args.iter().cloned()),
+            self.decl.args.iter().cloned().collect::<Vec<_>>(),
         )
         .map_err(map_error)?
         .push_fixed_size_type(self.arg.clone(), 1)
@@ -196,7 +196,7 @@ impl Operator for OpMacroCall {
                 .into());
                 }
             }
-            arg @ _ => {
+            arg => {
                 return Err(OperatorSetupError::new_s(
                 format!("error during macro instantiation: code block expected, macro returned {}", arg.kind()),
                 op_id,
@@ -233,7 +233,7 @@ impl Operator for OpMacroCall {
             if !arr.is_empty() && arr.repr() != Some(FieldValueRepr::Argument)
             {
                 let mut arr_argumentized = Vec::new();
-                for v in std::mem::take(arr).into_iter() {
+                for v in std::mem::take(arr) {
                     if let FieldValue::Argument(arg) = v {
                         arr_argumentized.push(*arg);
                     } else {

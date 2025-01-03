@@ -386,23 +386,6 @@ impl Array {
         }
     }
 
-    pub fn into_iter(self) -> ArrayIntoIter {
-        metamatch!(match self {
-            #[expand(T in [Null, Undefined])]
-            Array::T(count) =>
-                ArrayIntoIter::T(std::iter::repeat_n(FieldValue::T, count)),
-
-            #[expand(REP in [
-                Text, Bytes, Mixed,
-                Int, Error, Array, Object, OpDecl,
-                FieldReference, SlicedFieldReference, Custom, Float,
-                StreamValueId, BigInt, BigRational, Argument
-            ])]
-            Array::REP(arr) => {
-                ArrayIntoIter::REP(arr.into_iter())
-            }
-        })
-    }
     pub fn into_iter_unboxed(self) -> ArrayIntoIterUnboxed {
         metamatch!(match self {
             #[expand(T in [Null, Undefined])]
@@ -419,6 +402,28 @@ impl Array {
             ])]
             Array::REP(arr) => {
                 ArrayIntoIterUnboxed::REP(arr.into_iter())
+            }
+        })
+    }
+}
+
+impl IntoIterator for Array {
+    type IntoIter = ArrayIntoIter;
+    type Item = FieldValue;
+    fn into_iter(self) -> ArrayIntoIter {
+        metamatch!(match self {
+            #[expand(T in [Null, Undefined])]
+            Array::T(count) =>
+                ArrayIntoIter::T(std::iter::repeat_n(FieldValue::T, count)),
+
+            #[expand(REP in [
+                Text, Bytes, Mixed,
+                Int, Error, Array, Object, OpDecl,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            Array::REP(arr) => {
+                ArrayIntoIter::REP(arr.into_iter())
             }
         })
     }
@@ -465,7 +470,7 @@ impl Iterator for ArrayIntoIterUnboxed {
 
     fn next(&mut self) -> Option<Self::Item> {
         metamatch!(match self {
-            #[expand(T in [Null, Undefined])]
+            #[expand_pattern(T in [Null, Undefined])]
             ArrayIntoIterUnboxed::T(iter) => iter.next(),
 
             #[expand(REP in [
@@ -509,7 +514,7 @@ impl Iterator for ArrayIntoIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         metamatch!(match self {
-            #[expand(T in [Null, Undefined])]
+            #[expand_pattern(T in [Null, Undefined])]
             ArrayIntoIter::T(iter) => iter.next(),
 
             #[expand(REP in [

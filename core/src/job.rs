@@ -886,9 +886,7 @@ impl<'a> Job<'a> {
             );
             let res = tf.pre_update(ctx, self, tf_id);
             let _ = std::mem::replace(&mut self.transform_data[tf_id], tf);
-            if res.is_err() {
-                return res;
-            }
+            res?;
         }
         self.transform_data[tf_id].update(&mut self.job_data, tf_id);
         if let Some(tf) = self.job_data.tf_mgr.transforms.get(tf_id) {

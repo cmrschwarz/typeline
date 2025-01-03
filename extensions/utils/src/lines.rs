@@ -143,7 +143,7 @@ impl TfLines {
 
         if self.trailing_line_stream.is_some() {
             debug_assert!(bud.batch_size > 0);
-            let v = bud.iter.next_value(&bud.match_set_mgr, 1);
+            let v = bud.iter.next_value(bud.match_set_mgr, 1);
             debug_assert!(v.is_some());
             self.trailing_line_stream = None;
         }
@@ -223,7 +223,9 @@ impl TfLines {
                         RefAwareFieldValueRangeIter::from_range(&range, ids)
                     {
                         let sv = &bud.sv_mgr.stream_values[sv_id];
-                        if sv.done {}
+                        if sv.done {
+                            todo!()
+                        }
                         let offset = sv.data_consumed;
                         let output = bud
                             .sv_mgr

@@ -187,7 +187,7 @@ unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineStringInserter<'a> {
         }
     }
 }
-impl<'a> Drop for InlineStringInserter<'a> {
+impl Drop for InlineStringInserter<'_> {
     fn drop(&mut self) {
         self.commit();
     }
@@ -213,7 +213,7 @@ unsafe impl<'a> VariableSizeTypeInserter<'a> for InlineBytesInserter<'a> {
         }
     }
 }
-impl<'a> Drop for InlineBytesInserter<'a> {
+impl Drop for InlineBytesInserter<'_> {
     fn drop(&mut self) {
         self.commit();
     }
