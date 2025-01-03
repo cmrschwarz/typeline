@@ -1,10 +1,10 @@
-scr [FLAGS | SETTINGS | OPERATORS]...
+tl [FLAGS | SETTINGS | OPERATORS]...
 
 Flags:
     -h | --help           Print this help and exit
     -v | --version        Print version info and exit
 
-Settings (call `scr h=SETTING` for details):
+Settings (call `tl h=SETTING` for details):
     h=CMD                 Print help about a Setting or an Operator and exit
 
     bs=N                  Batch size
@@ -19,7 +19,7 @@ Settings (call `scr h=SETTING` for details):
     sel=DRIVER            Enable Selenium (see list of drivers in `h=sel`)
     sds=STRATEGY          Selenium Download Stragegy (list in `h=sds`)
 
-Operators (call `scr h=OPERATOR` for details):
+Operators (call `tl h=OPERATOR` for details):
     print                 Print previous results to stdout
     format=FSTR           Format text using Rust / Python format strings
     regex[-OPTS]=REGEX    Apply a regular expression to the input

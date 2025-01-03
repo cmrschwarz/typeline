@@ -111,27 +111,27 @@ pub struct SessionSetupData {
 
 macro_rules! ENV_VAR_DEBUG_LOG {
     () => {
-        "SCR_DEBUG_LOG_PATH"
+        "TYPELINE_DEBUG_LOG_PATH"
     };
 }
 macro_rules! ENV_VAR_DEBUG_LOG_NO_APPLY {
     () => {
-        "SCR_DEBUG_LOG_NO_APPLY"
+        "TYPELINE_DEBUG_LOG_NO_APPLY"
     };
 }
 macro_rules! ENV_VAR_DEBUG_LOG_STEP_MIN {
     () => {
-        "SCR_DEBUG_LOG_STEP_MIN"
+        "TYPELINE_DEBUG_LOG_STEP_MIN"
     };
 }
 macro_rules! ENV_VAR_DEBUG_BREAK_ON_STEP {
     () => {
-        "SCR_DEBUG_BREAK_ON_STEP"
+        "TYPELINE_DEBUG_BREAK_ON_STEP"
     };
 }
 macro_rules! ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY {
     () => {
-        "SCR_ACTION_LIST_CLEANUP_FREQUENCY"
+        "TYPELINE_ACTION_LIST_CLEANUP_FREQUENCY"
     };
 }
 
@@ -359,7 +359,7 @@ impl SessionSetupData {
         &self,
         e: TypelineError,
     ) -> ContextualizedTypelineError {
-        ContextualizedTypelineError::from_scr_error(
+        ContextualizedTypelineError::from_typeline_error(
             e,
             None,
             None,

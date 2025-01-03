@@ -183,7 +183,7 @@ impl ContextBuilder {
         mut self,
     ) -> Result<SessionData, ContextualizedTypelineError> {
         self.setup_data.build_session_take().map_err(|e| {
-            ContextualizedTypelineError::from_scr_error(
+            ContextualizedTypelineError::from_typeline_error(
                 e,
                 None,
                 None,
@@ -208,7 +208,7 @@ impl ContextBuilder {
         let mut val = if sess.settings.max_threads == 1 {
             sess.run_job_unthreaded(job);
             sink.get_data().map_err(|e| {
-                ContextualizedTypelineError::from_scr_error(
+                ContextualizedTypelineError::from_typeline_error(
                     (*e).clone().into(),
                     None,
                     None,
@@ -220,7 +220,7 @@ impl ContextBuilder {
             let sess_arc = Arc::new(sess);
             Context::new(sess_arc.clone()).run_job(job);
             sink.get_data().map_err(|e| {
-                ContextualizedTypelineError::from_scr_error(
+                ContextualizedTypelineError::from_typeline_error(
                     (*e).clone().into(),
                     None,
                     None,
@@ -255,7 +255,7 @@ impl ContextBuilder {
                 res.push(fv.downcast_allowing_text_as_bytes().unwrap());
                 continue;
             }
-            return Err(ContextualizedTypelineError::from_scr_error(
+            return Err(ContextualizedTypelineError::from_typeline_error(
                 CollectTypeMissmatch {
                     index: i,
                     expected: T::REPR,

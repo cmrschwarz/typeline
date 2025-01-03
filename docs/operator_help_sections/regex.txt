@@ -14,13 +14,13 @@ General:
     syntax '(?:...)' prevents the generation of an output column.
 
 Examples:
-    scr str=foobar regex="b.*" p                                # bar
-    scr seqn=5 regex="[1-3,5]" j=, p                            # 1,2,3,5
-    scr str="/foo/bar.pdf" regex=".*\.(?<ext>.*)" f=".{ext}" p  # .pdf
-    scr str="/foo/bar.pdf" regex=".*?(?<>[^/]+)$" p             # bar.pdf
-    scr str=abc regex="(.)(.)(.)" f="{3}{2}{1}" p               # "cba"
-    scr str=abc regex-m=. j=, p                                 # a,b,c
-    scr seqn=3 regex-nm=^2 f="{:?}" j=, p                       # null,"2",null
+    tl str=foobar regex="b.*" p                                # bar
+    tl seqn=5 regex="[1-3,5]" j=, p                            # 1,2,3,5
+    tl str="/foo/bar.pdf" regex=".*\.(?<ext>.*)" f=".{ext}" p  # .pdf
+    tl str="/foo/bar.pdf" regex=".*?(?<>[^/]+)$" p             # bar.pdf
+    tl str=abc regex="(.)(.)(.)" f="{3}{2}{1}" p               # "cba"
+    tl str=abc regex-m=. j=, p                                 # a,b,c
+    tl seqn=3 regex-nm=^2 f="{:?}" j=, p                       # null,"2",null
 
 Options:
     -a  Disable unicode for character classes making e.g. '.' or  '\w'

@@ -17,7 +17,7 @@ use super::{
 };
 
 // the main purpose of this op is as a helper operation for an aggregation
-// at the start of a chain, e.g  `scr seqn=10 fork +int=11 p`
+// at the start of a chain, e.g  `tl seqn=10 fork +int=11 p`
 
 #[derive(Clone, Default)]
 pub struct OpNopCopy {

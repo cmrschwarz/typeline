@@ -17,7 +17,7 @@ pub struct ScrPrompt {}
 
 impl Prompt for ScrPrompt {
     fn render_prompt_left(&self) -> Cow<str> {
-        Cow::Borrowed("scr")
+        Cow::Borrowed("tl")
     }
 
     fn render_prompt_right(&self) -> Cow<str> {

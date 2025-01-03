@@ -8,8 +8,8 @@ General:
     exit code 0, unless in REPL mode.
 
 Examples:
-    scr h=regex     # prints the help section of the `regex` operator
-    scr h=r         # shorthand versions of operators can be used aswell
-    scr h=types     # prints a summary of the data types used in scr
-    scr h=main      # print the main help text
-    scr h=h         # print this exact help section
+    tl h=regex     # prints the help section of the `regex` operator
+    tl h=r         # shorthand versions of operators can be used aswell
+    tl h=types     # prints a summary of the data types used in scr
+    tl h=main      # print the main help text
+    tl h=h         # print this exact help section

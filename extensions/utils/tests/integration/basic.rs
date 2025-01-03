@@ -104,7 +104,7 @@ fn primes_head_tail_add() -> Result<(), TypelineError> {
 fn head_tail_cli() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
         SetupOptions::with_default_extensions(),
-        ["scr", "%bs=10", "primes", "tail=+3", "head=5"],
+        ["tl", "%bs=10", "primes", "tail=+3", "head=5"],
     )?
     .run_collect_as::<i64>()?;
     assert_eq!(res, [7, 11, 13, 17, 19]);

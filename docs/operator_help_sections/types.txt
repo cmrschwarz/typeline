@@ -46,7 +46,7 @@ null:
 undefined:
     Values of this type occur when explicit output lengths lead to
     uninitialized fields in previous columns, like in this example:
-    `scr seqn@foo=2 seqn=3 f={foo:?} join=", " p` outputs "1, 2, undefined".
+    `tl seqn@foo=2 seqn=3 f={foo:?} join=", " p` outputs "1, 2, undefined".
     Most operators will output an error if they encounter this value.
 
 error:
@@ -60,7 +60,7 @@ error:
     `print` and `format={:?}`, which will output the error message.
 
 ~str, ~bytes and ~error:
-    Internally, scr handles large values split up into multiple chunks.
+    Internally, typeline handles large values split up into multiple chunks.
     This avoids allocating large buffers e.g. if a file or download is used
     as a single value. This behaviour can be configured
     using the stream buffer threshold (sbt) and stream buffer size (sbs)

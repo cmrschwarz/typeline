@@ -1,4 +1,4 @@
-# `TYPELINE`
+# `Typeline`
 
 [![github]](https://github.com/cmrschwarz/typeline)&ensp;
 [![github-build]](https://github.com/cmrschwarz/typeline/actions/workflows/ci.yml)&ensp;

@@ -5,10 +5,10 @@ Syntax:
 
 Genral:
     Attempts to convert the input value into the target type.
-    See `scr h=types` for a list of types.
+    See `tl h=types` for a list of types.
 
 Examples:
-    scr int@in=3 to_str f="{in:?} -> {:?}" p
+    tl int@in=3 to_str f="{in:?} -> {:?}" p
 
 Options:
     -l

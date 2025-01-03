@@ -71,7 +71,7 @@ fn simple_forkcat_block() -> Result<(), ContextualizedTypelineError> {
 fn parse_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
         SetupOptions::with_default_extensions(),
-        ["scr", "seqn=10", "forkcat:", "r=.*", "next", "drop", "end"],
+        ["tl", "seqn=10", "forkcat:", "r=.*", "next", "drop", "end"],
     )?
     .run_collect_stringified()?;
     assert_eq!(res, int_sequence_strings(1..11));

@@ -141,7 +141,7 @@ pub fn try_parse_bool(val: &[u8]) -> Option<bool> {
 
 fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     const VERSION: &str = env!("CARGO_PKG_VERSION");
-    write!(f, "scr {VERSION}")?;
+    write!(f, "tl {VERSION}")?;
     Ok(())
 }
 
@@ -213,7 +213,7 @@ pub fn parse_operator_data(
             parse_op_seq(sess, &expr, SequenceMode::EnumUnbounded, true)?
         }
         "count" => parse_op_count(&expr)?,
-        "nop" | "scr" => parse_op_nop(&expr)?,
+        "nop" | "tl" => parse_op_nop(&expr)?,
         "fork" => parse_op_fork(arg)?,
         "foreach" | "fe" => parse_op_foreach(sess, arg)?,
         "chunks" => parse_op_chunks(sess, &mut arg)?,

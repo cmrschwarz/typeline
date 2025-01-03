@@ -1108,7 +1108,7 @@ impl<'a> Transform<'a> for TfRegex<'a> {
         let mut hit_stream_val = false;
 
         // we have do this to preserve the output order for cases
-        // like `scr str=foo dup r-m=. p`
+        // like `tl str=foo dup r-m=. p`
         // PERF: there are better way to do this, e.g. copying the matches
         // from our own output instead of rematching
         let max_run_len = if rbs.multimatch { 1 } else { usize::MAX };

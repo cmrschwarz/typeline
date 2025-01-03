@@ -7,7 +7,7 @@ General:
     followed by a newline.
 
 Examples:
-    scr str=foo print                        # foo
-    scr int=42 print                         # 42
-    scr null print                           # null
-    scr null f="{nonexisting_label}" print   # ERROR: in op id 1: Format Error
+    tl str=foo print                        # foo
+    tl int=42 print                         # 42
+    tl null print                           # null
+    tl null f="{nonexisting_label}" print   # ERROR: in op id 1: Format Error

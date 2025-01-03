@@ -61,7 +61,7 @@ fn append_after_fork() -> Result<(), TypelineError> {
 // #[test]
 // fn parse_aggregation_across_fork() -> Result<(), TypelineError> {
 // let sess_opts = parse_cli_from_strings([
-// "scr", "seqn=10", "forkcat", "+int=11", "r=.*",
+// "tl", "seqn=10", "forkcat", "+int=11", "r=.*",
 // ])?;
 // let res = ContextBuilder::from_session_opts(sess_opts)
 // .run_collect_stringified()?;

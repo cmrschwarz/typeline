@@ -115,7 +115,7 @@ pub struct ContextualizedTypelineError {
 }
 
 impl ContextualizedTypelineError {
-    pub fn from_scr_error(
+    pub fn from_typeline_error(
         err: TypelineError,
         args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
         cli_opts: Option<&SetupOptions>,
