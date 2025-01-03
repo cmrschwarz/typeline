@@ -16,10 +16,12 @@ test = false
 doctest = false
 
 [dependencies]
+typeline_core = { version = "0.1", path = "../../core" }
+
 pyo3 = { version = "0.23.1", features = ["num-bigint"] }
-typeline_core = { path = "../../core" }
 num = "0.4.3"
 
 [dev-dependencies]
-typeline_ext_utils = { path = "../utils" }
-rstest = "0.23.0"
+typeline_ext_utils = { version = "0.1", path = "../utils" }
+
+rstest = "0.24.0"

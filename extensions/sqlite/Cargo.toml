@@ -16,4 +16,4 @@ test = false
 doctest = false
 
 [dependencies]
-typeline_core = { path = "../../core" }
+typeline_core = { version = "0.1", path = "../../core" }
