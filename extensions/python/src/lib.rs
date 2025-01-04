@@ -18,13 +18,13 @@ impl Extension for PythonExtension {
     }
     fn parse_call_expr(
         &self,
-        _ctx_opts: &mut SessionSetupData,
+        sess: &mut SessionSetupData,
         arg: &mut Argument,
     ) -> Result<Option<Box<dyn Operator>>, TypelineError> {
         let expr = CallExpr::from_argument(arg)?;
         if expr.op_name == "py" {
-            let val = expr.require_single_string_arg()?;
-            return Ok(Some(build_op_py(val.to_owned(), expr.span)?));
+            let val = expr.require_single_string_arg_autoconvert(sess)?;
+            return Ok(Some(build_op_py(val.to_string(), expr.span)?));
         }
         Ok(None)
     }
