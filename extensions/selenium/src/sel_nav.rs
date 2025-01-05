@@ -194,7 +194,7 @@ fn navigate(tgt: &str, c: &dyn CustomData) -> Result<(), String> {
             c.type_name()
         ));
     };
-    let win = &window.window;
+    let win = &window.window_handle;
     let inst = &mut ***window.instance.0.lock().unwrap();
     let driver = &mut inst.driver_data;
     let res: WebDriverResult<()> = inst.runtime.block_on(async {

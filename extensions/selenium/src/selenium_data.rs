@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     fmt::Debug,
     mem::ManuallyDrop,
+    net::TcpListener,
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     time::Duration,
@@ -37,7 +38,7 @@ pub struct SeleniumInstance(pub Arc<Mutex<SeleniumInstanceDataWrapper>>);
 #[derive(Clone)]
 pub struct SeleniumWindow {
     pub instance: SeleniumInstance,
-    pub window: WindowHandle,
+    pub window_handle: WindowHandle,
 }
 
 impl Drop for SeleniumInstanceDataWrapper {
@@ -84,32 +85,6 @@ fn start_driver(
     Ok((runtime, driver, window))
 }
 
-impl Debug for SeleniumInstance {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("SeleniumInstance{..}")
-    }
-}
-
-impl CustomData for SeleniumInstance {
-    fn clone_dyn(
-        &self,
-    ) -> typeline_core::record_data::custom_data::CustomDataBox {
-        Box::new(self.clone())
-    }
-
-    fn type_name(&self) -> std::borrow::Cow<'static, str> {
-        Cow::Borrowed("selenium_instance")
-    }
-
-    fn format(
-        &self,
-        w: &mut dyn typeline_core::utils::text_write::TextWrite,
-        _format: &typeline_core::record_data::formattable::RealizedFormatKey,
-    ) -> std::io::Result<()> {
-        w.write_all_text("<selenium instance>")
-    }
-}
-
 impl SeleniumDriverData {
     pub async fn switch_to_window(
         &mut self,
@@ -124,12 +99,24 @@ impl SeleniumDriverData {
     }
 }
 
+fn find_free_port() -> std::io::Result<u16> {
+    Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
+}
+
 impl SeleniumWindow {
     pub fn new() -> Result<Self, String> {
-        // TODO: find free port or let geckodriver choose and parse logs :/
-        let port = "5555";
+        // HACK: This is a TOCTOU bug, but selenium does the same,
+        // and there seems to be no other good way besides parsing the
+        // geckodriver log output which seems even worse
+        // https://github.com/SeleniumHQ/selenium/blob/1f1d6b9f18de4dfc5bc86f8b25ad88e5b214a217/py/selenium/webdriver/common/service.py#L74
+        let port = find_free_port()
+            .map_err(|e| {
+                format!("failed to find free port for geckodriver: `{e}`")
+            })?
+            .to_string();
+
         let mut process = Command::new("geckodriver")
-            .args(["--port", port])
+            .args(["--port", &port, "--log", "fatal"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -138,7 +125,7 @@ impl SeleniumWindow {
                 format!("failed to spawn geckodriver process: `{e}`")
             })?;
 
-        let (runtime, driver, window) = match start_driver(port) {
+        let (runtime, driver, window) = match start_driver(&port) {
             Ok(res) => res,
             Err(e) => {
                 _ = process.kill();
@@ -159,7 +146,10 @@ impl SeleniumWindow {
             SeleniumInstanceDataWrapper(ManuallyDrop::new(data)),
         )));
 
-        Ok(SeleniumWindow { instance, window })
+        Ok(SeleniumWindow {
+            instance,
+            window_handle: window,
+        })
     }
 }
 
