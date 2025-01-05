@@ -232,7 +232,7 @@ impl Argument {
         Err(err_v)
     }
 
-    pub fn stringify(&self, sess: &mut SessionSetupData) -> MaybeTextCow {
+    pub fn as_maybe_text(&self, sess: &mut SessionSetupData) -> MaybeTextCow {
         if let Some(MetaInfo::DenormalRepresentation(repr)) = &self.meta_info {
             return MaybeTextCow::TextRef(repr);
         };
@@ -240,7 +240,7 @@ impl Argument {
         match &self.value {
             FieldValue::Text(text) => return MaybeTextCow::TextRef(text),
             FieldValue::Bytes(bytes) => return MaybeTextCow::BytesRef(bytes),
-            FieldValue::Argument(arg) => return arg.stringify(sess),
+            FieldValue::Argument(arg) => return arg.as_maybe_text(sess),
             _ => (),
         }
         let mut ss = LazyRwLockGuard::NonRead(LazyRwLockWriteGuard::Plain(
@@ -260,12 +260,12 @@ impl Argument {
         MaybeTextCow::from(res)
     }
 
-    pub fn stringify_as_text(
+    pub fn try_into_text(
         &self,
         op_name: &str,
         sess: &mut SessionSetupData,
     ) -> Result<Cow<str>, OperatorCreationError> {
-        match self.stringify(sess) {
+        match self.as_maybe_text(sess) {
             MaybeTextCow::Text(text) => Ok(Cow::Owned(text)),
             MaybeTextCow::TextRef(text) => Ok(Cow::Borrowed(text)),
             MaybeTextCow::Bytes(_) | MaybeTextCow::BytesRef(_) => {
@@ -287,7 +287,7 @@ impl Argument {
         if let FieldValue::Text(t) = self.value {
             return Ok(t);
         }
-        Ok(self.stringify_as_text(op_name, sess)?.to_string())
+        Ok(self.try_into_text(op_name, sess)?.to_string())
     }
 
     pub fn expect_int<I>(
@@ -912,7 +912,7 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
         sess: &mut SessionSetupData,
     ) -> Result<Cow<str>, OperatorCreationError> {
         let arg = self.require_single_arg()?;
-        let res = arg.stringify(sess);
+        let res = arg.as_maybe_text(sess);
         match res {
             MaybeTextCow::TextRef(text) => Ok(Cow::Borrowed(text)),
             MaybeTextCow::Text(text) => Ok(Cow::Owned(text)),
@@ -933,7 +933,7 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
         sess: &mut SessionSetupData,
     ) -> Result<MaybeTextCow, OperatorCreationError> {
         let arg = self.require_single_arg()?;
-        Ok(arg.stringify(sess))
+        Ok(arg.as_maybe_text(sess))
     }
     pub fn require_single_string_arg(
         &self,

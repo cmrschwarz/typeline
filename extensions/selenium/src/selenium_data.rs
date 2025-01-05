@@ -55,6 +55,7 @@ impl Drop for SeleniumInstanceDataWrapper {
 
 fn start_driver(
     port: &str,
+    initial_url: Option<&str>,
 ) -> Result<(Runtime, WebDriver, WindowHandle), String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
@@ -79,6 +80,11 @@ fn start_driver(
         let window = driver.window().await.map_err(|e| {
             format!("failed to aquire webdriver window: `{e}`")
         })?;
+        if let Some(url) = initial_url {
+            driver.goto(url).await.map_err(|e| {
+                format!("failed to navigate to initial url: `{e}`")
+            })?;
+        }
         Ok::<(WebDriver, WindowHandle), String>((driver, window))
     })?;
 
@@ -104,10 +110,10 @@ fn find_free_port() -> std::io::Result<u16> {
 }
 
 impl SeleniumWindow {
-    pub fn new() -> Result<Self, String> {
+    pub fn new(initial_url: Option<&str>) -> Result<Self, String> {
         // HACK: This is a TOCTOU bug, but selenium does the same,
         // and there seems to be no other good way besides parsing the
-        // geckodriver log output which seems even worse
+        // geckodriver log output which seems even worse.
         // https://github.com/SeleniumHQ/selenium/blob/1f1d6b9f18de4dfc5bc86f8b25ad88e5b214a217/py/selenium/webdriver/common/service.py#L74
         let port = find_free_port()
             .map_err(|e| {
@@ -125,7 +131,8 @@ impl SeleniumWindow {
                 format!("failed to spawn geckodriver process: `{e}`")
             })?;
 
-        let (runtime, driver, window) = match start_driver(&port) {
+        let (runtime, driver, window) = match start_driver(&port, initial_url)
+        {
             Ok(res) => res,
             Err(e) => {
                 _ = process.kill();

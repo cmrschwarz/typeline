@@ -13,19 +13,27 @@ use typeline_core::{
 
 use crate::selenium_data::SeleniumWindow;
 
-pub fn parse_op_sel(
-    _sess: &mut SessionSetupData,
-    expr: CallExpr,
-) -> Result<Box<dyn Operator>, TypelineError> {
-    expr.reject_args()?;
-    Ok(Box::new(OpSel {}))
+struct OpSel {
+    initial_url: Option<String>,
 }
 
-struct OpSel {}
-
-struct TfSel {
+struct TfSel<'a> {
     instance_created: bool,
     iter_ref: FieldIterRef,
+    initial_url: Option<&'a str>,
+}
+
+pub fn parse_op_sel(
+    sess: &mut SessionSetupData,
+    expr: CallExpr,
+) -> Result<Box<dyn Operator>, TypelineError> {
+    expr.require_at_most_one_arg()?;
+    let initial_url = expr
+        .args
+        .get_mut(0)
+        .map(|arg| std::mem::take(arg).try_into_str("url", sess))
+        .transpose()?;
+    Ok(Box::new(OpSel { initial_url }))
 }
 
 impl Operator for OpSel {
@@ -67,11 +75,12 @@ impl Operator for OpSel {
             iter_ref: job
                 .job_data
                 .claim_iter_ref_for_tf_state_and_field(tf_state, dummy_field),
+            initial_url: self.initial_url.as_deref(),
         }))
     }
 }
 
-impl Transform<'_> for TfSel {
+impl<'a> Transform<'a> for TfSel<'a> {
     fn update(
         &mut self,
         jd: &mut typeline_core::job::JobData<'_>,
@@ -92,7 +101,7 @@ impl Transform<'_> for TfSel {
                 tf_id,
             );
             let mut field = jd.field_mgr.fields[output_field_id].borrow_mut();
-            match SeleniumWindow::new() {
+            match SeleniumWindow::new(self.initial_url) {
                 Ok(win) => {
                     field.iter_hall.push_custom(Box::new(win), 1, false, false)
                 }

@@ -245,7 +245,8 @@ pub fn parse_insert_count_and_value_args<'a>(
             }
             ParsedArgValue::PositionalArg { arg, .. } => {
                 // TODO: this is stupid
-                value = Some((arg.stringify(sess).into_bytes_cow(), arg.span));
+                value =
+                    Some((arg.as_maybe_text(sess).into_bytes_cow(), arg.span));
             }
         }
     }

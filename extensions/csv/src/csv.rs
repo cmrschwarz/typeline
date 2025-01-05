@@ -688,7 +688,7 @@ pub fn parse_op_csv(
         }
     }
     Ok(Some(create_op_csv_from_file(
-        args[0].stringify_as_text(expr.op_name, sess)?.to_string(),
+        args[0].try_into_text(expr.op_name, sess)?.to_string(),
         header,
         disable_quotes,
     )))

@@ -252,7 +252,7 @@ pub fn parse_op_tail(
     let Some(arg) = arg else {
         return Ok(create_op_tail(1));
     };
-    let arg = arg.stringify_as_text(expr.op_name, sess)?;
+    let arg = arg.try_into_text(expr.op_name, sess)?;
     let add_mode = arg.starts_with('+');
     let count = parse_int_with_units::<isize>(arg.trim())
         .map_err(|msg| {

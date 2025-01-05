@@ -395,7 +395,7 @@ pub fn parse_op_regex(
         .unwrap_or_else(|| Ok(RegexOptions::default()))?;
 
     regex[0].expect_simple(expr.op_name)?;
-    let regex = regex[0].stringify_as_text(expr.op_name, sess)?;
+    let regex = regex[0].try_into_text(expr.op_name, sess)?;
 
     build_op_regex(&regex, opts, expr.span)
 }
