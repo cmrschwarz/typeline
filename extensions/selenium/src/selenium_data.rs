@@ -9,47 +9,43 @@ use std::{
 };
 
 use thirtyfour::{
-    common::config::WebDriverConfig, error::WebDriverError, WebDriver,
-    WindowHandle,
+    common::config::WebDriverConfig, error::WebDriverError, ElementId,
+    WebDriver, WindowHandle,
 };
 use tokio::runtime::Runtime;
 use typeline_core::record_data::custom_data::CustomData;
 
 #[derive(derive_more::Deref, derive_more::DerefMut)]
-pub struct SeleniumDriverData {
+pub struct WindowAwareSeleniumDriver {
     #[deref]
     #[deref_mut]
     pub driver: thirtyfour::WebDriver,
     pub active_window: WindowHandle,
 }
 
-pub struct SeleniumInstanceData {
+pub struct SeleniumInstance {
+    pub window_aware_driver: ManuallyDrop<WindowAwareSeleniumDriver>,
     pub process: Child,
     pub runtime: tokio::runtime::Runtime,
-    pub driver_data: SeleniumDriverData,
 }
 
-#[derive(derive_more::Deref, derive_more::DerefMut)]
-pub struct SeleniumInstanceDataWrapper(ManuallyDrop<SeleniumInstanceData>);
-
-#[derive(Clone)]
-pub struct SeleniumInstance(pub Arc<Mutex<SeleniumInstanceDataWrapper>>);
+pub struct SeleniumWebElement {
+    pub instance: Arc<Mutex<SeleniumInstance>>,
+    pub window_handle: WindowHandle,
+    pub element_id: ElementId,
+}
 
 #[derive(Clone)]
 pub struct SeleniumWindow {
-    pub instance: SeleniumInstance,
+    pub instance: Arc<Mutex<SeleniumInstance>>,
     pub window_handle: WindowHandle,
 }
 
-impl Drop for SeleniumInstanceDataWrapper {
+impl Drop for SeleniumInstance {
     fn drop(&mut self) {
-        let SeleniumInstanceData {
-            mut process,
-            runtime,
-            driver_data,
-        } = unsafe { ManuallyDrop::take(&mut self.0) };
-        _ = runtime.block_on(async { driver_data.driver.quit().await });
-        _ = process.kill();
+        let wad = unsafe { ManuallyDrop::take(&mut self.window_aware_driver) };
+        _ = self.runtime.block_on(async { wad.driver.quit().await });
+        _ = self.process.kill();
     }
 }
 
@@ -91,7 +87,7 @@ fn start_driver(
     Ok((runtime, driver, window))
 }
 
-impl SeleniumDriverData {
+impl WindowAwareSeleniumDriver {
     pub async fn switch_to_window(
         &mut self,
         window: &WindowHandle,
@@ -140,18 +136,16 @@ impl SeleniumWindow {
             }
         };
 
-        let data = SeleniumInstanceData {
+        let instance = Arc::new(Mutex::new(SeleniumInstance {
             runtime,
             process,
-            driver_data: SeleniumDriverData {
-                driver,
-                active_window: window.clone(),
-            },
-        };
-
-        let instance = SeleniumInstance(Arc::new(Mutex::new(
-            SeleniumInstanceDataWrapper(ManuallyDrop::new(data)),
-        )));
+            window_aware_driver: ManuallyDrop::new(
+                WindowAwareSeleniumDriver {
+                    driver,
+                    active_window: window.clone(),
+                },
+            ),
+        }));
 
         Ok(SeleniumWindow {
             instance,

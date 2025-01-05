@@ -1,5 +1,6 @@
 use sel::parse_op_sel;
 use sel_nav::parse_op_sel_nav;
+use sel_xpath::parse_op_sel_xpath;
 use typeline_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
@@ -10,6 +11,7 @@ use typeline_core::{
 
 pub mod sel;
 pub mod sel_nav;
+pub mod sel_xpath;
 pub mod selenium_data;
 
 #[derive(Default)]
@@ -30,6 +32,9 @@ impl Extension for SeleniumExtension {
         }
         if expr.op_name == "sel_nav" {
             return Ok(Some(parse_op_sel_nav(sess, expr)?));
+        }
+        if expr.op_name == "sel_xpath" {
+            return Ok(Some(parse_op_sel_xpath(sess, expr)?));
         }
         Ok(None)
     }

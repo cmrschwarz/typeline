@@ -1,10 +1,17 @@
-use thirtyfour::error::WebDriverResult;
+use thirtyfour::{error::WebDriverResult, WebElement};
 use typeline_core::{
     cli::call_expr::CallExpr,
+    context::SessionData,
+    liveness_analysis::{
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
+    },
     operators::{
         errors::OperatorApplicationError,
-        operator::{Operator, TransformInstatiation},
-        transform::Transform,
+        operator::{
+            OffsetInChain, Operator, OperatorId, PreboundOutputsMap,
+            TransformInstatiation,
+        },
+        transform::{Transform, TransformId, TransformState},
     },
     options::session_setup::SessionSetupData,
     record_data::{
@@ -21,60 +28,56 @@ use typeline_core::{
     typeline_error::TypelineError,
 };
 
-use crate::selenium_data::SeleniumWindow;
+use crate::selenium_data::{SeleniumWebElement, SeleniumWindow};
 
-pub fn parse_op_sel_nav(
+pub fn parse_op_sel_xpath(
     sess: &mut SessionSetupData,
     expr: CallExpr,
 ) -> Result<Box<dyn Operator>, TypelineError> {
-    let target = expr.require_single_string_arg_autoconvert(sess)?;
-    Ok(Box::new(OpSelNav {
-        target: target.to_string(),
-    }))
+    let xpath = expr
+        .require_single_string_arg_autoconvert(sess)?
+        .to_string();
+    Ok(Box::new(OpSelXpath { xpath }))
 }
 
-struct OpSelNav {
-    target: String,
+struct OpSelXpath {
+    xpath: String,
 }
 
-struct TfSelNav<'a> {
-    tgt: &'a str,
+struct TfSelXpath<'a> {
+    xpath: &'a str,
     input_iter: FieldIterId,
     input_field_ref: FieldReference,
 }
 
-impl Operator for OpSelNav {
+impl Operator for OpSelXpath {
     fn default_name(
         &self,
     ) -> typeline_core::operators::operator::OperatorName {
-        "sel_nav".into()
+        "sel_xpath".into()
     }
 
-    fn output_count(
-        &self,
-        _sess: &typeline_core::context::SessionData,
-        _op_id: typeline_core::operators::operator::OperatorId,
-    ) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
 
     fn has_dynamic_outputs(
         &self,
-        _sess: &typeline_core::context::SessionData,
-        _op_id: typeline_core::operators::operator::OperatorId,
+        _sess: &SessionData,
+        _op_id: OperatorId,
     ) -> bool {
         false
     }
 
     fn update_variable_liveness(
         &self,
-        _sess: &typeline_core::context::SessionData,
-        ld: &mut typeline_core::liveness_analysis::LivenessData,
-        _op_offset_after_last_write: typeline_core::operators::operator::OffsetInChain,
-        _op_id: typeline_core::operators::operator::OperatorId,
-        _bb_id: typeline_core::liveness_analysis::BasicBlockId,
-        input_field: typeline_core::liveness_analysis::OpOutputIdx,
-        output: &mut typeline_core::liveness_analysis::OperatorLivenessOutput,
+        _sess: &SessionData,
+        ld: &mut LivenessData,
+        _op_offset_after_last_write: OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: BasicBlockId,
+        input_field: OpOutputIdx,
+        output: &mut OperatorLivenessOutput,
     ) {
         ld.op_outputs[output.primary_output]
             .field_references
@@ -85,16 +88,16 @@ impl Operator for OpSelNav {
     fn build_transforms<'a>(
         &'a self,
         job: &mut typeline_core::job::Job<'a>,
-        tf_state: &mut typeline_core::operators::transform::TransformState,
-        _op_id: typeline_core::operators::operator::OperatorId,
-        _prebound_outputs: &typeline_core::operators::operator::PreboundOutputsMap,
+        tf_state: &mut TransformState,
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        TransformInstatiation::Single(Box::new(TfSelNav {
+        TransformInstatiation::Single(Box::new(TfSelXpath {
             input_iter: job
                 .job_data
                 .claim_iter_ref_for_tf_state(tf_state)
                 .iter_id,
-            tgt: &self.target,
+            xpath: &self.xpath,
             input_field_ref: job
                 .job_data
                 .field_mgr
@@ -107,11 +110,11 @@ impl Operator for OpSelNav {
     }
 }
 
-impl<'a> Transform<'a> for TfSelNav<'a> {
+impl<'a> Transform<'a> for TfSelXpath<'a> {
     fn update(
         &mut self,
         jd: &mut typeline_core::job::JobData<'_>,
-        tf_id: typeline_core::operators::transform::TransformId,
+        tf_id: TransformId,
     ) {
         jd.tf_mgr.prepare_output_field(
             &mut jd.field_mgr,
@@ -139,7 +142,7 @@ impl<'a> Transform<'a> for TfSelNav<'a> {
                     for (c, rl) in
                         FieldValueRangeIter::from_range(&range, data)
                     {
-                        match navigate(self.tgt, &**c) {
+                        match find_all_by_xpath(self.xpath, &**c) {
                             Ok(_) => output.iter_hall.push_field_reference(
                                 self.input_field_ref,
                                 rl as usize,
@@ -187,20 +190,40 @@ impl<'a> Transform<'a> for TfSelNav<'a> {
     }
 }
 
-fn navigate(tgt: &str, c: &dyn CustomData) -> Result<(), String> {
-    let Some(window) = c.downcast_ref::<SeleniumWindow>() else {
-        return Err(format!(
-            "sel_nav expected selenium window, found {}",
-            c.type_name()
-        ));
-    };
-    let win = &window.window_handle;
-    let inst = &mut *window.instance.lock().unwrap();
-    let wad = &mut inst.window_aware_driver;
-    let res: WebDriverResult<()> = inst.runtime.block_on(async {
-        wad.switch_to_window(win).await?;
-        wad.driver.goto(tgt).await?;
-        Ok(())
-    });
-    res.map_err(|e| format!("failed to navigate: {e}"))
+fn find_all_by_xpath(
+    xpath: &str,
+    c: &dyn CustomData,
+) -> Result<Vec<WebElement>, String> {
+    if let Some(window) = c.downcast_ref::<SeleniumWindow>() {
+        let win = &window.window_handle;
+        let inst = &mut *window.instance.lock().unwrap();
+        let wad = &mut inst.window_aware_driver;
+        let res: WebDriverResult<Vec<WebElement>> =
+            inst.runtime.block_on(async {
+                wad.switch_to_window(win).await?;
+                wad.find_all(thirtyfour::By::XPath(xpath)).await
+            });
+        return res.map_err(|e| format!("failed to navigate: {e}"));
+    }
+
+    if let Some(elem) = c.downcast_ref::<SeleniumWebElement>() {
+        let win = &elem.window_handle;
+        let inst = &mut *elem.instance.lock().unwrap();
+        let wad = &mut inst.window_aware_driver;
+        let src_elem = WebElement {
+            element_id: elem.element_id.clone(),
+            handle: wad.driver.handle.clone(),
+        };
+        let res: WebDriverResult<Vec<WebElement>> =
+            inst.runtime.block_on(async {
+                wad.switch_to_window(win).await?;
+                src_elem.find_all(thirtyfour::By::XPath(xpath)).await
+            });
+        return res.map_err(|e| format!("failed to navigate: {e}"));
+    }
+
+    Err(format!(
+        "sel_xpath expected selenium element, found {}",
+        c.type_name()
+    ))
 }
