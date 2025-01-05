@@ -1121,7 +1121,7 @@ pub unsafe trait PushInterface {
 
     fn extend_from_iter(
         &mut self,
-        mut iter: impl FieldIterator,
+        iter: &mut impl FieldIterator,
         mut count: usize,
         try_header_rle: bool,
         try_data_rle: bool,

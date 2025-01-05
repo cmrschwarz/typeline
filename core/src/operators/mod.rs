@@ -22,6 +22,7 @@ pub mod multi_op;
 pub mod nop;
 pub mod nop_copy;
 pub mod operator;
+pub mod paste_pipeline;
 pub mod print;
 pub mod regex;
 pub mod select;

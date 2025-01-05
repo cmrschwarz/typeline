@@ -472,52 +472,6 @@ impl IterHall {
             )
         }
     }
-    pub fn iter_to_iter_state<R: FieldDataRef>(
-        &self,
-        mut iter: FieldIter<R>,
-        first_left_leaning_actor_id: ActorId,
-        #[cfg_attr(not(feature = "debug_state"), allow(unused_variables))]
-        kind: IterKind,
-    ) -> IterState {
-        let mut loc = iter.get_iter_location();
-        let mut state = IterState {
-            field_pos: loc.field_pos,
-            header_start_data_pos_pre_padding: loc
-                .header_start_data_pos_post_padding,
-            header_idx: loc.header_idx,
-            header_rl_offset: loc.header_rl_offset,
-            first_right_leaning_actor_id: first_left_leaning_actor_id,
-            #[cfg(feature = "debug_state")]
-            kind,
-        };
-        // we use the field count from the iter becase the field might be cow
-        if loc.header_rl_offset == 0
-            && loc.field_pos == iter.field_data_ref().field_count()
-        {
-            // Uphold the 'no `IterState` on the last header except 0'
-            // invariant.
-            if loc.field_pos == 0 {
-                // When our header index is already 0, resetting is a noop.
-                // The other case (header_idx > 0) happens if all fields before
-                // are deleted. Calling `prev_field`, like in
-                // the other branch, would fail here, but
-                // having the iterator sit at 0/0 works out.
-                state.header_start_data_pos_pre_padding = 0;
-                state.header_idx = 0;
-                return state;
-            }
-            iter.prev_field();
-            state.header_rl_offset = iter.field_run_length_bwd() + 1;
-            loc = iter.get_iter_location();
-        }
-        state.header_idx = loc.header_idx;
-
-        state.header_start_data_pos_pre_padding = loc
-            .header_start_data_pos_post_padding
-            - iter.field_data_ref().headers()[loc.header_idx]
-                .leading_padding();
-        state
-    }
 
     // SAFETY: caller must ensure that the iter uses the correct data source
     pub unsafe fn store_iter_unchecked<R: FieldDataRef>(
@@ -527,8 +481,7 @@ impl IterHall {
         iter: FieldIter<R>,
     ) {
         let mut state = self.iters[iter_id].get();
-        state = self.iter_to_iter_state(
-            iter,
+        state = iter.into_iter_state(
             state.first_right_leaning_actor_id,
             state.iter_kind(),
         );

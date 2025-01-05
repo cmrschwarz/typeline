@@ -964,7 +964,7 @@ impl<'a, 'b> Exectutor<'a, 'b> {
             }
             ValueAccess::TempField(tmp_in) => {
                 inserter.extend_from_iter(
-                    temp_handouts.claim(tmp_in.index).data.iter(),
+                    &mut temp_handouts.claim(tmp_in.index).data.iter(),
                     count,
                     true,
                     false,

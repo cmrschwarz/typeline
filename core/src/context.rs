@@ -468,13 +468,13 @@ impl Context {
         use crate::{repl_prompt::ScrPrompt, typeline_error::TypelineError};
         debug_assert!(setup_opts.allow_repl);
         if setup_opts.output_storage.is_none() {
-            setup_opts.output_storage = Some(FieldValueSinkHandle::default());
+            setup_opts.output_storage = Some(FieldValueSinkHandle::new_rle());
         }
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
             setup_opts.last_cli_output = setup_opts
                 .output_storage
-                .replace(FieldValueSinkHandle::default());
+                .replace(FieldValueSinkHandle::new_rle());
         }
         setup_opts.skip_first_cli_arg = false;
         let mut history = Box::<FileBackedHistory>::default();
@@ -558,7 +558,7 @@ impl Context {
                                 self.run_main_chain(RecordSet::default());
                                 setup_opts.last_cli_output = setup_opts
                                     .output_storage
-                                    .replace(FieldValueSinkHandle::default());
+                                    .replace(FieldValueSinkHandle::new_rle());
                             }
                         }
                         Err(e) => {

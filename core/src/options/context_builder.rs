@@ -236,7 +236,7 @@ impl ContextBuilder {
     pub fn run_collect(
         mut self,
     ) -> Result<Vec<FieldValue>, ContextualizedTypelineError> {
-        let sink = FieldValueSinkHandle::default();
+        let sink = FieldValueSinkHandle::new_flat();
         self.setup_data
             .setup_op_generated(create_op_field_value_sink(sink.clone()))
             .map_err(|e| self.setup_data.contextualize_error(e))?;

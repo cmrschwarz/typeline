@@ -32,12 +32,22 @@ pub enum FieldValueDataStorage {
     Flat(Vec<FieldValue>),
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct FieldValueSinkHandle {
     data: Arc<Mutex<FieldValueDataStorage>>,
 }
 
 impl FieldValueSinkHandle {
+    pub fn new_rle() -> Self {
+        Self {
+            data: Arc::new(Mutex::new(FieldValueDataStorage::new_rle())),
+        }
+    }
+    pub fn new_flat() -> Self {
+        Self {
+            data: Arc::new(Mutex::new(FieldValueDataStorage::new_flat())),
+        }
+    }
     pub fn get(&self) -> MutexGuard<FieldValueDataStorage> {
         self.data.lock().unwrap()
     }
@@ -72,6 +82,12 @@ impl Default for FieldValueDataStorage {
 }
 
 impl FieldValueDataStorage {
+    pub fn new_rle() -> Self {
+        FieldValueDataStorage::Rle(FieldData::default())
+    }
+    pub const fn new_flat() -> Self {
+        FieldValueDataStorage::Flat(Vec::new())
+    }
     pub fn flat(&self) -> Option<&Vec<FieldValue>> {
         match self {
             FieldValueDataStorage::Rle(_) => None,

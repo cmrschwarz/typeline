@@ -1,8 +1,9 @@
 use crate::record_data::{
+    action_buffer::ActorId,
     field_data::{
         FieldValueFormat, FieldValueHeader, FieldValueRepr, RunLength,
     },
-    iter_hall::IterLocation,
+    iter_hall::{FieldLocation, IterKind, IterLocation, IterState},
 };
 use std::marker::PhantomData;
 
@@ -62,6 +63,78 @@ impl<R: FieldDataRef> FieldIter<R> {
         };
         res.skip_dead_fields();
         res
+    }
+    pub unsafe fn from_field_location(fdr: R, loc: FieldLocation) -> Self {
+        let headers = fdr.headers();
+        debug_assert!(loc.header_idx <= headers.len());
+        if headers.len() == loc.header_idx {
+            return FieldIter::from_start(fdr);
+        }
+        let h = headers[loc.header_idx];
+        let data_pos = {
+            let mut h_dummy = h;
+            h_dummy.run_length = loc.header_rl_offset;
+            loc.data_pos - h_dummy.data_size_unique()
+        };
+        let mut res = FieldIter {
+            fdr,
+            field_pos: loc.field_pos,
+            data: data_pos,
+            header_idx: loc.header_idx,
+            header_rl_offset: loc.header_rl_offset,
+            header_rl_total: h.run_length,
+            header_fmt: h.fmt,
+            _phantom_data: PhantomData,
+        };
+        res.skip_dead_fields();
+        res
+    }
+    pub fn into_iter_state(
+        mut self,
+        first_left_leaning_actor_id: ActorId,
+        #[cfg_attr(not(feature = "debug_state"), allow(unused_variables))]
+        kind: IterKind,
+    ) -> IterState {
+        let mut loc = self.get_iter_location();
+        let mut state = IterState {
+            field_pos: loc.field_pos,
+            header_start_data_pos_pre_padding: loc
+                .header_start_data_pos_post_padding,
+            header_idx: loc.header_idx,
+            header_rl_offset: loc.header_rl_offset,
+            first_right_leaning_actor_id: first_left_leaning_actor_id,
+            #[cfg(feature = "debug_state")]
+            kind,
+        };
+        // we use the field count from the iter becase the field might be
+        // cow
+        if loc.header_rl_offset == 0
+            && loc.field_pos == self.field_data_ref().field_count()
+        {
+            // Uphold the 'no `IterState` on the last header except 0'
+            // invariant.
+            if loc.field_pos == 0 {
+                // When our header index is already 0, resetting is a noop.
+                // The other case (header_idx > 0) happens if all fields
+                // before are deleted. Calling
+                // `prev_field`, like in
+                // the other branch, would fail here, but
+                // having the iterator sit at 0/0 works out.
+                state.header_start_data_pos_pre_padding = 0;
+                state.header_idx = 0;
+                return state;
+            }
+            self.prev_field();
+            state.header_rl_offset = self.field_run_length_bwd() + 1;
+            loc = self.get_iter_location();
+        }
+        state.header_idx = loc.header_idx;
+
+        state.header_start_data_pos_pre_padding = loc
+            .header_start_data_pos_post_padding
+            - self.field_data_ref().headers()[loc.header_idx]
+                .leading_padding();
+        state
     }
     pub fn from_start_allow_dead(fdr: R) -> Self {
         let first_header = fdr.headers().front();

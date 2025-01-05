@@ -759,10 +759,7 @@ impl<'a> Job<'a> {
                             ms_id,
                         );
                 }
-                InputFieldKind::Unconfigured => {
-                    input_field =
-                        self.job_data.match_set_mgr.get_dummy_field(ms_id);
-                }
+                InputFieldKind::Unconfigured => (),
             };
 
             let tf_state = TransformState::new(

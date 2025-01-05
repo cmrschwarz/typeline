@@ -54,7 +54,7 @@ fn run() -> Result<bool, String> {
             TypelineError::MissingArgumentsError(_) if repl => {
                 sess.setup_settings.repl = Some(true);
                 setup_opts.output_storage =
-                    Some(FieldValueSinkHandle::default());
+                    Some(FieldValueSinkHandle::new_rle());
             }
             TypelineError::PrintInfoAndExitError(_) => {
                 println!(
