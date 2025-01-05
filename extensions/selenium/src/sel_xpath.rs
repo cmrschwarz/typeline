@@ -1,4 +1,6 @@
-use thirtyfour::{error::WebDriverResult, WebElement};
+use std::sync::{Arc, Mutex};
+
+use thirtyfour::{error::WebDriverResult, WebElement, WindowHandle};
 use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
@@ -15,12 +17,15 @@ use typeline_core::{
     },
     options::session_setup::SessionSetupData,
     record_data::{
+        action_buffer::ActorId,
         custom_data::CustomData,
+        field_action::FieldActionKind,
         field_value::FieldReference,
         field_value_ref::FieldValueSlice,
         iter::{
             field_iterator::FieldIterOpts,
             field_value_slice_iter::FieldValueRangeIter,
+            iter_adapters::UnfoldIterRunLength,
         },
         iter_hall::FieldIterId,
         push_interface::PushInterface,
@@ -28,7 +33,9 @@ use typeline_core::{
     typeline_error::TypelineError,
 };
 
-use crate::selenium_data::{SeleniumWebElement, SeleniumWindow};
+use crate::selenium_data::{
+    SeleniumInstance, SeleniumWebElement, SeleniumWindow,
+};
 
 pub fn parse_op_sel_xpath(
     sess: &mut SessionSetupData,
@@ -48,6 +55,7 @@ struct TfSelXpath<'a> {
     xpath: &'a str,
     input_iter: FieldIterId,
     input_field_ref: FieldReference,
+    actor_id: ActorId,
 }
 
 impl Operator for OpSelXpath {
@@ -93,6 +101,7 @@ impl Operator for OpSelXpath {
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         TransformInstatiation::Single(Box::new(TfSelXpath {
+            actor_id: job.job_data.add_actor_for_tf_state(tf_state),
             input_iter: job
                 .job_data
                 .claim_iter_ref_for_tf_state(tf_state)
@@ -128,9 +137,15 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
             tf.input_field,
             self.input_iter,
         );
+        let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id]
+            .action_buffer
+            .borrow_mut();
+        ab.begin_action_group(self.actor_id);
         let mut output = jd.field_mgr.fields[tf.output_field].borrow_mut();
         let (bs, ps) = jd.tf_mgr.claim_batch(tf_id);
         let mut bs_rem = bs;
+        let field_pos_start = input_iter.get_next_field_pos();
+        let mut field_pos = field_pos_start;
         while let Some(range) = input_iter.typed_range_fwd(
             &jd.match_set_mgr,
             bs_rem,
@@ -139,25 +154,53 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
             bs_rem -= range.base.field_count;
             match range.base.data {
                 FieldValueSlice::Custom(data) => {
-                    for (c, rl) in
-                        FieldValueRangeIter::from_range(&range, data)
+                    for c in FieldValueRangeIter::from_range(&range, data)
+                        .unfold_rl()
                     {
                         match find_all_by_xpath(self.xpath, &**c) {
-                            Ok(_) => output.iter_hall.push_field_reference(
-                                self.input_field_ref,
-                                rl as usize,
-                                true,
-                                true,
-                            ),
-                            Err(e) => output.iter_hall.push_error(
-                                OperatorApplicationError::new_s(
-                                    format!("failed to navigate: {e}"),
-                                    op_id,
-                                ),
-                                range.base.field_count,
-                                true,
-                                true,
-                            ),
+                            Ok(res) => {
+                                if res.elems.is_empty() {
+                                    ab.push_action(
+                                        FieldActionKind::Drop,
+                                        field_pos,
+                                        1,
+                                    );
+                                }
+                                if res.elems.len() > 1 {
+                                    ab.push_action(
+                                        FieldActionKind::Dup,
+                                        field_pos,
+                                        res.elems.len() - 1,
+                                    );
+                                }
+                                field_pos += res.elems.len();
+                                for elem in res.elems {
+                                    output.iter_hall.push_custom(
+                                        Box::new(SeleniumWebElement {
+                                            instance: res.instance.clone(),
+                                            window_handle: res
+                                                .window_handle
+                                                .clone(),
+                                            element_id: elem.element_id,
+                                        }),
+                                        1,
+                                        true,
+                                        false,
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                output.iter_hall.push_error(
+                                    OperatorApplicationError::new_s(
+                                        format!("failed to navigate: {e}"),
+                                        op_id,
+                                    ),
+                                    range.base.field_count,
+                                    true,
+                                    true,
+                                );
+                                field_pos += 1;
+                            }
                         }
                     }
                 }
@@ -167,7 +210,8 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
                         range.base.field_count,
                         true,
                         true,
-                    )
+                    );
+                    field_pos += range.base.field_count;
                 }
                 other => {
                     output.iter_hall.push_error(
@@ -182,27 +226,45 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
                         true,
                         true,
                     );
+                    field_pos += range.base.field_count;
                 }
             }
         }
-
-        jd.tf_mgr.submit_batch_ready_for_more(tf_id, bs, ps);
+        ab.end_action_group();
+        jd.tf_mgr.submit_batch_ready_for_more(
+            tf_id,
+            field_pos - field_pos_start,
+            ps,
+        );
     }
+}
+
+struct XPathMatchResult {
+    instance: Arc<Mutex<SeleniumInstance>>,
+    window_handle: WindowHandle,
+    elems: Vec<WebElement>,
 }
 
 fn find_all_by_xpath(
     xpath: &str,
     c: &dyn CustomData,
-) -> Result<Vec<WebElement>, String> {
+) -> Result<XPathMatchResult, String> {
     if let Some(window) = c.downcast_ref::<SeleniumWindow>() {
         let win = &window.window_handle;
         let inst = &mut *window.instance.lock().unwrap();
         let wad = &mut inst.window_aware_driver;
-        let res: WebDriverResult<Vec<WebElement>> =
-            inst.runtime.block_on(async {
+        let res: WebDriverResult<_> = inst
+            .runtime
+            .block_on(async {
                 wad.switch_to_window(win).await?;
                 wad.find_all(thirtyfour::By::XPath(xpath)).await
+            })
+            .map(|v| XPathMatchResult {
+                instance: window.instance.clone(),
+                window_handle: win.clone(),
+                elems: v,
             });
+
         return res.map_err(|e| format!("failed to navigate: {e}"));
     }
 
@@ -214,11 +276,18 @@ fn find_all_by_xpath(
             element_id: elem.element_id.clone(),
             handle: wad.driver.handle.clone(),
         };
-        let res: WebDriverResult<Vec<WebElement>> =
-            inst.runtime.block_on(async {
+        let res: WebDriverResult<_> = inst
+            .runtime
+            .block_on(async {
                 wad.switch_to_window(win).await?;
                 src_elem.find_all(thirtyfour::By::XPath(xpath)).await
+            })
+            .map(|v| XPathMatchResult {
+                instance: elem.instance.clone(),
+                window_handle: win.clone(),
+                elems: v,
             });
+
         return res.map_err(|e| format!("failed to navigate: {e}"));
     }
 

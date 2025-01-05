@@ -29,6 +29,7 @@ pub struct SeleniumInstance {
     pub runtime: tokio::runtime::Runtime,
 }
 
+#[derive(Clone)]
 pub struct SeleniumWebElement {
     pub instance: Arc<Mutex<SeleniumInstance>>,
     pub window_handle: WindowHandle,
@@ -177,6 +178,36 @@ impl CustomData for SeleniumWindow {
         _format: &typeline_core::record_data::formattable::RealizedFormatKey,
     ) -> std::io::Result<()> {
         w.write_all_text("<selenium window>")
+    }
+
+    fn cmp(&self, _rhs: &dyn CustomData) -> Option<std::cmp::Ordering> {
+        None
+    }
+}
+
+impl Debug for SeleniumWebElement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SeleniumWebElement{..}")
+    }
+}
+
+impl CustomData for SeleniumWebElement {
+    fn clone_dyn(
+        &self,
+    ) -> typeline_core::record_data::custom_data::CustomDataBox {
+        Box::new(self.clone())
+    }
+
+    fn type_name(&self) -> std::borrow::Cow<'static, str> {
+        Cow::Borrowed("selenium_web_element")
+    }
+
+    fn format(
+        &self,
+        w: &mut dyn typeline_core::utils::text_write::TextWrite,
+        _format: &typeline_core::record_data::formattable::RealizedFormatKey,
+    ) -> std::io::Result<()> {
+        w.write_all_text("<selenium_web_element>")
     }
 
     fn cmp(&self, _rhs: &dyn CustomData) -> Option<std::cmp::Ordering> {
