@@ -51,6 +51,12 @@ impl Operator for OpSel {
         1
     }
 
+    fn input_field_kind(
+        &self,
+    ) -> typeline_core::operators::operator::InputFieldKind {
+        typeline_core::operators::operator::InputFieldKind::Dummy
+    }
+
     fn has_dynamic_outputs(
         &self,
         _sess: &typeline_core::context::SessionData,
@@ -66,15 +72,9 @@ impl Operator for OpSel {
         _op_id: typeline_core::operators::operator::OperatorId,
         _prebound_outputs: &typeline_core::operators::operator::PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        let dummy_field = job
-            .job_data
-            .match_set_mgr
-            .get_dummy_field(tf_state.match_set_id);
         TransformInstatiation::Single(Box::new(TfSel {
             instance_created: false,
-            iter_ref: job
-                .job_data
-                .claim_iter_ref_for_tf_state_and_field(tf_state, dummy_field),
+            iter_ref: job.job_data.claim_iter_ref_for_tf_state(tf_state),
             initial_url: self.initial_url.as_deref(),
         }))
     }

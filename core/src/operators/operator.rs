@@ -74,6 +74,14 @@ pub enum OutputFieldKind {
     Unconfigured,
 }
 
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+pub enum InputFieldKind {
+    #[default]
+    LastOutput,
+    Dummy,
+    Unconfigured,
+}
+
 pub type OperatorName = SmallString<[u8; 32]>;
 
 impl OperatorBase {
@@ -125,6 +133,9 @@ pub trait Operator: Send + Sync {
         _op_id: OperatorId,
     ) -> OutputFieldKind {
         OutputFieldKind::Unique
+    }
+    fn input_field_kind(&self) -> InputFieldKind {
+        InputFieldKind::LastOutput
     }
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize;
     fn has_dynamic_outputs(
@@ -183,8 +194,15 @@ pub trait Operator: Send + Sync {
         _op_id: OperatorId,
         _bb_id: BasicBlockId,
         _input_field: OpOutputIdx,
-        _output: &mut OperatorLivenessOutput,
+        output: &mut OperatorLivenessOutput,
     ) {
+        match self.input_field_kind() {
+            InputFieldKind::LastOutput => (),
+            InputFieldKind::Dummy => output.flags.input_accessed = false,
+            InputFieldKind::Unconfigured => {
+                unimplemented!()
+            }
+        }
     }
     fn setup(
         &mut self,

@@ -13,8 +13,9 @@ use crate::{
         key::OpKey,
         nop::TfNop,
         operator::{
-            Operator, OperatorBase, OperatorId, OperatorInstantiation,
-            OperatorOffsetInChain, OutputFieldKind, PreboundOutputsMap,
+            InputFieldKind, Operator, OperatorBase, OperatorId,
+            OperatorInstantiation, OperatorOffsetInChain, OutputFieldKind,
+            PreboundOutputsMap,
         },
         select::OpSelect,
         terminator::add_terminator,
@@ -740,11 +741,29 @@ impl<'a> Job<'a> {
                     }
                 }
             }
-            self.job_data.field_mgr.setup_field_refs(
-                &mut self.job_data.match_set_mgr,
-                input_field,
-            );
-            self.job_data.field_mgr.bump_field_refcount(input_field);
+
+            match op_data.input_field_kind() {
+                InputFieldKind::LastOutput => {
+                    self.job_data.field_mgr.setup_field_refs(
+                        &mut self.job_data.match_set_mgr,
+                        input_field,
+                    );
+                    self.job_data.field_mgr.bump_field_refcount(input_field);
+                }
+                InputFieldKind::Dummy => {
+                    input_field = self
+                        .job_data
+                        .match_set_mgr
+                        .get_dummy_field_with_ref_count(
+                            &self.job_data.field_mgr,
+                            ms_id,
+                        );
+                }
+                InputFieldKind::Unconfigured => {
+                    input_field =
+                        self.job_data.match_set_mgr.get_dummy_field(ms_id);
+                }
+            };
 
             let tf_state = TransformState::new(
                 input_field,

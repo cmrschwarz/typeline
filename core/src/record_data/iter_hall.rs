@@ -83,8 +83,9 @@ pub struct IterHall {
     pub(super) cow_targets: ThinVec<FieldId>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IterKind {
+    #[default]
     Undefined, // used in release mode
     Transform(TransformId),
     CowField(FieldId),
@@ -93,7 +94,7 @@ pub enum IterKind {
 
 /// Position of an iterator inside of `FieldData` to be stored inside of an
 /// `IterHall`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IterState {
     pub field_pos: usize,
     // Will **not** include leading padding introduced by the current header.
