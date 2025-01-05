@@ -7,7 +7,6 @@ use crate::{
     operators::{errors::OperatorCreationError, operator::OperatorId},
     options::{
         chain_settings::RationalsPrintMode, session_setup::SessionSetupData,
-        setting::CliArgIdx,
     },
     record_data::{
         array::Array,
@@ -25,6 +24,8 @@ use crate::{
 };
 
 use super::{try_parse_bool, CliArgumentError};
+
+pub type CliArgIdx = DebuggableNonMaxU32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Span {

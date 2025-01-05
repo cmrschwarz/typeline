@@ -20,7 +20,7 @@ use {
 
 use crate::{
     chain::{Chain, ChainId},
-    cli::call_expr::Span,
+    cli::call_expr::CliArgIdx,
     extension::ExtensionRegistry,
     job::{Job, JobData},
     liveness_analysis::{self, LivenessData},
@@ -33,7 +33,6 @@ use crate::{
     options::{
         chain_settings::chain_settings_list,
         session_setup::{SessionSetupData, SetupOptions},
-        setting::CliArgIdx,
     },
     record_data::{
         record_buffer::RecordBuffer, record_set::RecordSet,
@@ -587,10 +586,10 @@ pub fn build_repl_session(
     sess.process_cli_args(args)
         .map_err(|e| sess.contextualize_error(e))?;
 
-    *exit_repl = sess.setup_settings.repl.get() == Some(false)
-        || sess.setup_settings.exit_repl.get() == Some(true);
+    *exit_repl = sess.setup_settings.repl == Some(false)
+        || sess.setup_settings.exit_repl == Some(true);
 
-    sess.setup_settings.repl.force_set(true, Span::Builtin);
+    sess.setup_settings.repl = Some(true);
     sess.build_session_take()
         .map_err(|e| sess.contextualize_error(e))
 }

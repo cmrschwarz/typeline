@@ -1,7 +1,7 @@
 use ref_cast::RefCast;
 use std::{process::ExitCode, sync::Arc};
 use typeline::{
-    cli::{call_expr::Span, collect_env_args, parse_cli_args_form_vec},
+    cli::{collect_env_args, parse_cli_args_form_vec},
     context::Context,
     options::session_setup::{SessionSetupData, SetupOptions},
     record_data::record_set::RecordSet,
@@ -50,7 +50,7 @@ fn run() -> Result<bool, String> {
         Ok(()) => (),
         Err(e) => match e {
             TypelineError::MissingArgumentsError(_) if repl => {
-                sess.setup_settings.repl.set(true, Span::Builtin).unwrap();
+                sess.setup_settings.repl = Some(true);
             }
             TypelineError::PrintInfoAndExitError(_) => {
                 println!(

@@ -1,9 +1,9 @@
 use crate::{
     chain::{Chain, ChainId},
     cli::{
-        call_expr::{Argument, Span},
+        call_expr::{Argument, CliArgIdx, Span},
         cli_args_into_arguments_iter, parse_cli_raw, parse_operator_data,
-        CliArgumentError,
+        CliArgumentError, MissingArgumentsError,
     },
     context::{SessionData, SessionSettings},
     extension::ExtensionRegistry,
@@ -40,14 +40,11 @@ use std::{
     sync::{atomic::AtomicBool, Arc, RwLock},
 };
 
-use super::{
-    chain_settings::{
-        chain_settings_list, ChainSetting, ChainSettingNames,
-        SettingActionListCleanupFrequency, SettingBatchSize,
-        SettingDebugBreakOnStep, SettingDebugLog, SettingDebugLogNoApply,
-        SettingDebugLogStepMin, SettingMaxThreads,
-    },
-    setting::{CliArgIdx, Setting},
+use super::chain_settings::{
+    chain_settings_list, ChainSetting, ChainSettingNames,
+    SettingActionListCleanupFrequency, SettingBatchSize,
+    SettingDebugBreakOnStep, SettingDebugLog, SettingDebugLogNoApply,
+    SettingDebugLogStepMin, SettingMaxThreads,
 };
 
 #[derive(Clone)]
@@ -90,9 +87,8 @@ pub struct SessionSetupSettings {
     pub print_output: bool,
     pub add_success_updator: bool,
     pub skipped_first_cli_arg: bool,
-
-    pub repl: Setting<bool>,
-    pub exit_repl: Setting<bool>,
+    pub repl: Option<bool>,
+    pub exit_repl: Option<bool>,
 }
 
 pub struct SessionSetupData {
@@ -144,8 +140,8 @@ impl SessionSetupSettings {
             print_output: opts.print_output,
             add_success_updator: opts.add_success_updator,
             skipped_first_cli_arg: opts.skip_first_cli_arg,
-            repl: Setting::default(),
-            exit_repl: Setting::default(),
+            repl: None,
+            exit_repl: None,
         }
     }
 }
@@ -213,6 +209,11 @@ impl SessionSetupData {
         self.process_arguments(arguments)
     }
 
+    pub fn has_no_commands(&self) -> bool {
+        self.operator_bases.len()
+            == usize::from(self.setup_settings.start_with_stdin)
+    }
+
     pub fn process_arguments(
         &mut self,
         args: impl IntoIterator<Item = Argument>,
@@ -226,6 +227,11 @@ impl SessionSetupData {
                 self.direct_chain_offset(self.curr_chain),
                 span,
             )?;
+        }
+        if self.has_no_commands() {
+            return Err(TypelineError::MissingArgumentsError(
+                MissingArgumentsError,
+            ));
         }
         Ok(())
     }
@@ -371,19 +377,21 @@ impl SessionSetupData {
     pub fn build_session_take(
         &mut self,
     ) -> Result<SessionData, TypelineError> {
-        if self.setup_settings.print_output {
-            let op_data = create_op_print_with_opts(
-                WritableTarget::Stdout,
-                PrintOptions {
-                    ignore_nulls: true,
-                    propagate_errors: true,
-                },
-            );
-            self.setup_op_generated(op_data)?;
-        }
-        if self.setup_settings.add_success_updator {
-            let op_data = create_op_success_updator();
-            self.setup_op_generated(op_data)?;
+        if !self.has_no_commands() {
+            if self.setup_settings.print_output {
+                let op_data = create_op_print_with_opts(
+                    WritableTarget::Stdout,
+                    PrintOptions {
+                        ignore_nulls: true,
+                        propagate_errors: true,
+                    },
+                );
+                self.setup_op_generated(op_data)?;
+            }
+            if self.setup_settings.add_success_updator {
+                let op_data = create_op_success_updator();
+                self.setup_op_generated(op_data)?;
+            }
         }
 
         let settings = self.build_session_settings()?;

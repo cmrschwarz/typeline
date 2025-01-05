@@ -9,8 +9,8 @@ use thiserror::Error;
 use crate::{
     chain::ChainId,
     cli::{
-        call_expr::Span, CliArgumentError, MissingArgumentsError,
-        PrintInfoAndExitError,
+        call_expr::{CliArgIdx, Span},
+        CliArgumentError, MissingArgumentsError, PrintInfoAndExitError,
     },
     context::SessionData,
     operators::{
@@ -23,10 +23,6 @@ use crate::{
     options::{
         chain_settings::SettingConversionError,
         session_setup::{SessionSetupData, SetupOptions},
-        setting::{
-            CliArgIdx, SettingReassignmentError,
-            SETTING_REASSIGNMENT_ERROR_MESSAGE,
-        },
     },
     record_data::{field_data::FieldValueRepr, field_value::FieldValue},
     utils::{index_slice::IndexSlice, indexing_type::IndexingType},
@@ -79,9 +75,6 @@ pub enum TypelineError {
 
     #[error(transparent)]
     ReplDisabledError(#[from] ReplDisabledError),
-
-    #[error(transparent)]
-    ArgumentReassignmentError(#[from] SettingReassignmentError),
 
     #[error(transparent)]
     MissingArgumentsError(#[from] MissingArgumentsError),
@@ -268,12 +261,6 @@ impl TypelineError {
                 &e.message,
                 args_gathered,
                 e.span,
-                first_arg_skipped,
-            ),
-            TypelineError::ArgumentReassignmentError(e) => contextualize_span(
-                SETTING_REASSIGNMENT_ERROR_MESSAGE,
-                args_gathered,
-                e.reassignment_span,
                 first_arg_skipped,
             ),
             TypelineError::ReplDisabledError(e) => contextualize_span(
