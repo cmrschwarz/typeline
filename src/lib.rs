@@ -33,7 +33,7 @@
 
 use std::sync::{Arc, LazyLock};
 
-use options::{context_builder::ContextBuilder, session_setup::SetupOptions};
+use options::{context_builder::ContextBuilder, session_setup::SessionSetupOptions};
 // we reexport the typeline_core interface from this lib
 pub use typeline_core::*;
 
@@ -94,7 +94,7 @@ pub trait CliOptionsWithDefaultExtensions {
     fn with_default_extensions() -> Self;
 }
 
-impl CliOptionsWithDefaultExtensions for SetupOptions {
+impl CliOptionsWithDefaultExtensions for SessionSetupOptions {
     fn with_default_extensions() -> Self {
         Self::with_extensions(DEFAULT_EXTENSION_REGISTRY.clone())
     }

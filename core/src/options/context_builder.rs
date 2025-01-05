@@ -30,7 +30,7 @@ use super::{
         SettingDebugLog, SettingMaxThreads, SettingStreamBufferSize,
         SettingStreamSizeThreshold,
     },
-    session_setup::{SessionSetupData, SetupOptions},
+    session_setup::{SessionSetupData, SessionSetupOptions},
 };
 
 pub struct ContextBuilder {
@@ -46,9 +46,9 @@ impl ContextBuilder {
         Self::with_exts(EMPTY_EXTENSION_REGISTRY.clone())
     }
     pub fn with_exts(extensions: Arc<ExtensionRegistry>) -> Self {
-        Self::with_opts(SetupOptions::with_extensions(extensions))
+        Self::with_opts(SessionSetupOptions::with_extensions(extensions))
     }
-    pub fn with_opts(opts: SetupOptions) -> Self {
+    pub fn with_opts(opts: SessionSetupOptions) -> Self {
         Self {
             setup_data: SessionSetupData::new(opts),
             input_data: RecordSet::default(),
@@ -56,7 +56,7 @@ impl ContextBuilder {
     }
 
     pub fn from_arguments(
-        opts: SetupOptions,
+        opts: SessionSetupOptions,
         cli_args: Option<Vec<Vec<u8>>>,
         args: Vec<Argument>,
     ) -> Result<Self, ContextualizedTypelineError> {
@@ -72,7 +72,7 @@ impl ContextBuilder {
     }
 
     pub fn from_cli_args(
-        opts: SetupOptions,
+        opts: SessionSetupOptions,
         args: Vec<Vec<u8>>,
     ) -> Result<Self, ContextualizedTypelineError> {
         let mut sess = SessionSetupData::new(opts);
@@ -84,7 +84,7 @@ impl ContextBuilder {
         })
     }
     pub fn from_cli_arg_strings<'a>(
-        opts: SetupOptions,
+        opts: SessionSetupOptions,
         args: impl IntoIterator<Item = impl Into<&'a str>>,
     ) -> Result<Self, ContextualizedTypelineError> {
         let args = args
@@ -238,11 +238,11 @@ impl ContextBuilder {
     ) -> Result<Vec<FieldValue>, ContextualizedTypelineError> {
         let sink = FieldValueSinkHandle::default();
         self.setup_data
-            .setup_op_generated(create_op_field_value_sink(&sink))
+            .setup_op_generated(create_op_field_value_sink(sink.clone()))
             .map_err(|e| self.setup_data.contextualize_error(e))?;
         self.run()?;
         let mut v = sink.get();
-        Ok(std::mem::take(&mut *v))
+        Ok(std::mem::take(v.flat_mut().unwrap()))
     }
     pub fn run_collect_as<T: FixedSizeFieldValueType>(
         self,

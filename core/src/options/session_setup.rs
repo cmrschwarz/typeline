@@ -9,6 +9,7 @@ use crate::{
     extension::ExtensionRegistry,
     liveness_analysis::OpOutputIdx,
     operators::{
+        field_value_sink::{create_op_field_value_sink, FieldValueSinkHandle},
         file_reader::create_op_stdin,
         nop::OpNop,
         operator::{
@@ -48,8 +49,10 @@ use super::chain_settings::{
 };
 
 #[derive(Clone)]
-pub struct SetupOptions {
+pub struct SessionSetupOptions {
     pub extensions: Arc<ExtensionRegistry>,
+    pub last_cli_output: Option<FieldValueSinkHandle>,
+    pub output_storage: Option<FieldValueSinkHandle>,
 
     pub deny_threading: bool,
     pub allow_repl: bool,
@@ -62,10 +65,12 @@ pub struct SetupOptions {
     pub skip_first_cli_arg: bool,
 }
 
-impl SetupOptions {
+impl SessionSetupOptions {
     pub fn with_extensions(extensions: Arc<ExtensionRegistry>) -> Self {
-        SetupOptions {
+        SessionSetupOptions {
             extensions,
+            output_storage: None,
+            last_cli_output: None,
             allow_repl: false,
             deny_threading: false,
             skip_first_cli_arg: false,
@@ -75,7 +80,9 @@ impl SetupOptions {
         }
     }
     pub fn without_extensions() -> Self {
-        SetupOptions::with_extensions(Arc::new(ExtensionRegistry::default()))
+        SessionSetupOptions::with_extensions(Arc::new(
+            ExtensionRegistry::default(),
+        ))
     }
 }
 
@@ -89,6 +96,8 @@ pub struct SessionSetupSettings {
     pub skipped_first_cli_arg: bool,
     pub repl: Option<bool>,
     pub exit_repl: Option<bool>,
+    pub last_cli_output: Option<FieldValueSinkHandle>,
+    pub output_storage: Option<FieldValueSinkHandle>,
 }
 
 pub struct SessionSetupData {
@@ -132,7 +141,7 @@ macro_rules! ENV_VAR_ACTION_LIST_CLEANUP_FREQUENCY {
 }
 
 impl SessionSetupSettings {
-    pub fn new(opts: &SetupOptions) -> Self {
+    pub fn new(opts: &SessionSetupOptions) -> Self {
         Self {
             deny_threading: opts.deny_threading,
             allow_repl: opts.allow_repl,
@@ -142,12 +151,14 @@ impl SessionSetupSettings {
             skipped_first_cli_arg: opts.skip_first_cli_arg,
             repl: None,
             exit_repl: None,
+            last_cli_output: opts.last_cli_output.clone(),
+            output_storage: opts.output_storage.clone(),
         }
     }
 }
 
 impl SessionSetupData {
-    pub fn new(opts: SetupOptions) -> Self {
+    pub fn new(opts: SessionSetupOptions) -> Self {
         let mut res = Self {
             setup_settings: SessionSetupSettings::new(&opts),
             scope_mgr: ScopeManager::default(),
@@ -190,7 +201,7 @@ impl SessionSetupData {
     }
 
     pub fn from_arguments(
-        opts: SetupOptions,
+        opts: SessionSetupOptions,
         args: Vec<Argument>,
     ) -> Result<Self, TypelineError> {
         let mut sess = Self::new(opts);
@@ -357,6 +368,7 @@ impl SessionSetupData {
             debug_break_on_step,
             action_list_cleanup_frequency,
             repl: self.setup_settings.repl.unwrap_or(false),
+            last_cli_output: self.setup_settings.last_cli_output.clone(),
             skipped_first_cli_arg: self.setup_settings.skipped_first_cli_arg,
         })
     }
@@ -378,6 +390,11 @@ impl SessionSetupData {
         &mut self,
     ) -> Result<SessionData, TypelineError> {
         if !self.has_no_commands() {
+            if let Some(storage) = &self.setup_settings.output_storage {
+                let field_value_sink =
+                    create_op_field_value_sink(storage.clone());
+                self.setup_op_generated(field_value_sink)?;
+            }
             if self.setup_settings.print_output {
                 let op_data = create_op_print_with_opts(
                     WritableTarget::Stdout,
@@ -393,11 +410,11 @@ impl SessionSetupData {
                 self.setup_op_generated(op_data)?;
             }
         }
+        use std::mem::take;
 
         let settings = self.build_session_settings()?;
         self.validate_chains()?;
 
-        use std::mem::take;
         let mut sess = SessionData {
             chains: take(&mut self.chains),
             scope_mgr: take(&mut self.scope_mgr),

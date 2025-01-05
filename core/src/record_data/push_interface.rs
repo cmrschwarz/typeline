@@ -1083,6 +1083,16 @@ pub unsafe trait PushInterface {
             self.extend_unchecked(T::REPR, iter, try_header_rle, try_data_rle)
         }
     }
+    fn extend_from_field_values_upacked(
+        &mut self,
+        iter: impl IntoIterator<Item = FieldValue>,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        for v in iter {
+            self.push_field_value_unpacked(v, 1, try_header_rle, try_data_rle);
+        }
+    }
     fn extend_with_variable_sized_types<
         'a,
         T: FieldValueType + ?Sized + 'a,

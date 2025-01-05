@@ -12,7 +12,7 @@ use typeline_core::{
         select::create_op_select,
         sequence::{create_op_enum, create_op_seq, create_op_seqn},
     },
-    options::{context_builder::ContextBuilder, session_setup::SetupOptions},
+    options::{context_builder::ContextBuilder, session_setup::SessionSetupOptions},
     record_data::{array::Array, field_value::FieldValue},
     typeline_error::TypelineError,
     utils::test_utils::SliceReader,
@@ -104,7 +104,7 @@ fn primes_head_tail_add() -> Result<(), TypelineError> {
 #[test]
 fn head_tail_cli() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
+        SessionSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["tl", "%bs=10", "primes", "tail=+3", "head=5"],
     )?
     .run_collect_as::<i64>()?;

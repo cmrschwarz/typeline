@@ -5,7 +5,7 @@ use crate::{
     cli::call_expr::{Argument, CallExprEndKind, MetaInfo, Span},
     options::{
         context_builder::ContextBuilder,
-        session_setup::{SessionSetupData, SetupOptions},
+        session_setup::{SessionSetupData, SessionSetupOptions},
     },
     record_data::{
         array::Array, field_data::FieldValueRepr, field_value::FieldValue,
@@ -155,8 +155,10 @@ impl Operator for OpMacroCall {
         };
 
         let result_args = ContextBuilder::from_arguments(
-            SetupOptions {
+            SessionSetupOptions {
                 extensions: sess.extensions.clone(),
+                output_storage: None,
+                last_cli_output: None,
                 deny_threading: true,
                 allow_repl: false,
                 start_with_stdin: false,

@@ -25,6 +25,7 @@ use crate::{
     job::{Job, JobData},
     liveness_analysis::{self, LivenessData},
     operators::{
+        field_value_sink::FieldValueSinkHandle,
         nop::OpNop,
         operator::{
             OffsetInChain, Operator, OperatorBase, OperatorDataId, OperatorId,
@@ -32,7 +33,7 @@ use crate::{
     },
     options::{
         chain_settings::chain_settings_list,
-        session_setup::{SessionSetupData, SetupOptions},
+        session_setup::{SessionSetupData, SessionSetupOptions},
     },
     record_data::{
         record_buffer::RecordBuffer, record_set::RecordSet,
@@ -87,6 +88,7 @@ pub struct SessionSettings {
     pub debug_log_step_min: usize,
     pub debug_break_on_step: Option<usize>,
     pub action_list_cleanup_frequency: usize,
+    pub last_cli_output: Option<FieldValueSinkHandle>,
     pub chain_setting_names: [StringStoreEntry; chain_settings_list::COUNT],
 }
 
@@ -462,11 +464,17 @@ impl Context {
         self.run_job(self.session.construct_main_chain_job(input_data));
     }
     #[cfg(feature = "repl")]
-    pub fn run_repl(&mut self, mut setup_opts: SetupOptions) {
+    pub fn run_repl(&mut self, mut setup_opts: SessionSetupOptions) {
         use crate::{repl_prompt::ScrPrompt, typeline_error::TypelineError};
         debug_assert!(setup_opts.allow_repl);
+        if setup_opts.output_storage.is_none() {
+            setup_opts.output_storage = Some(FieldValueSinkHandle::default());
+        }
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
+            setup_opts.last_cli_output = setup_opts
+                .output_storage
+                .replace(FieldValueSinkHandle::default());
         }
         setup_opts.skip_first_cli_arg = false;
         let mut history = Box::<FileBackedHistory>::default();
@@ -548,6 +556,9 @@ impl Context {
                             self.set_session(sess);
                             if !self.session.has_no_command() {
                                 self.run_main_chain(RecordSet::default());
+                                setup_opts.last_cli_output = setup_opts
+                                    .output_storage
+                                    .replace(FieldValueSinkHandle::default());
                             }
                         }
                         Err(e) => {
@@ -577,7 +588,7 @@ impl Context {
 }
 
 pub fn build_repl_session(
-    setup_opts: &SetupOptions,
+    setup_opts: &SessionSetupOptions,
     args: Vec<Vec<u8>>,
     exit_repl: &mut bool,
 ) -> Result<SessionData, ContextualizedTypelineError> {

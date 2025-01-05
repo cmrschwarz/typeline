@@ -6,7 +6,7 @@ use typeline_core::{
         sequence::create_op_seq,
         utils::writable::MutexedWriteableTargetOwner,
     },
-    options::{context_builder::ContextBuilder, session_setup::SetupOptions},
+    options::{context_builder::ContextBuilder, session_setup::SessionSetupOptions},
     typeline_error::TypelineError,
 };
 use typeline_ext_utils::{
@@ -19,7 +19,7 @@ use crate::integration::UTILS_EXTENSION_REGISTRY;
 #[test]
 fn parse_exec() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
+        SessionSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["[", "exec", "sh", "-c", "sleep 0.1; echo foo", "]"],
     )?
     .run_collect_stringified()?;
@@ -30,7 +30,7 @@ fn parse_exec() -> Result<(), TypelineError> {
 #[test]
 fn parse_exec_stdin() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
+        SessionSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["str=foo", "[", "exec", "{", "-i", "}", "cat", "]"],
     )?
     .run_collect_stringified()?;
@@ -41,7 +41,7 @@ fn parse_exec_stdin() -> Result<(), TypelineError> {
 #[test]
 fn parse_exec_2() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
+        SessionSetupOptions::with_extensions(UTILS_EXTENSION_REGISTRY.clone()),
         ["seq=3", "[", "exec", "echo", "{}", "]"],
     )?
     .run_collect_stringified()?;

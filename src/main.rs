@@ -3,7 +3,8 @@ use std::{process::ExitCode, sync::Arc};
 use typeline::{
     cli::{collect_env_args, parse_cli_args_form_vec},
     context::Context,
-    options::session_setup::{SessionSetupData, SetupOptions},
+    operators::field_value_sink::FieldValueSinkHandle,
+    options::session_setup::{SessionSetupData, SessionSetupOptions},
     record_data::record_set::RecordSet,
     typeline_error::TypelineError,
     utils::index_slice::IndexSlice,
@@ -13,8 +14,10 @@ use typeline::{
 fn run() -> Result<bool, String> {
     let repl = cfg!(feature = "repl");
 
-    let cli_opts = SetupOptions {
+    let mut setup_opts = SessionSetupOptions {
         allow_repl: repl,
+        output_storage: None,
+        last_cli_output: None,
         skip_first_cli_arg: true,
         print_output: true,
         add_success_updator: true,
@@ -26,31 +29,32 @@ fn run() -> Result<bool, String> {
     let args = collect_env_args().map_err(|e| {
         TypelineError::from(e).contextualize_message(
             None,
-            Some(&cli_opts),
+            Some(&setup_opts),
             None,
             None,
         )
     })?;
 
     let arguments =
-        parse_cli_args_form_vec(&args, cli_opts.skip_first_cli_arg).map_err(
-            |e| {
+        parse_cli_args_form_vec(&args, setup_opts.skip_first_cli_arg)
+            .map_err(|e| {
                 e.contextualize_message(
                     Some(IndexSlice::ref_cast(&*args)),
-                    Some(&cli_opts),
+                    Some(&setup_opts),
                     None,
                     None,
                 )
-            },
-        )?;
+            })?;
 
-    let mut sess = SessionSetupData::new(cli_opts.clone());
+    let mut sess = SessionSetupData::new(setup_opts.clone());
 
     match sess.process_arguments(arguments) {
         Ok(()) => (),
         Err(e) => match e {
             TypelineError::MissingArgumentsError(_) if repl => {
                 sess.setup_settings.repl = Some(true);
+                setup_opts.output_storage =
+                    Some(FieldValueSinkHandle::default());
             }
             TypelineError::PrintInfoAndExitError(_) => {
                 println!(
@@ -72,7 +76,7 @@ fn run() -> Result<bool, String> {
     #[cfg(feature = "repl")]
     if sess.settings.repl {
         let sess = Arc::new(sess);
-        Context::new(sess.clone()).run_repl(cli_opts);
+        Context::new(sess.clone()).run_repl(setup_opts);
         return Ok(sess.get_success());
     }
     let job = sess.construct_main_chain_job(RecordSet::default());

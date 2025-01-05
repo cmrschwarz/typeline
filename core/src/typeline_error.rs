@@ -22,7 +22,7 @@ use crate::{
     },
     options::{
         chain_settings::SettingConversionError,
-        session_setup::{SessionSetupData, SetupOptions},
+        session_setup::{SessionSetupData, SessionSetupOptions},
     },
     record_data::{field_data::FieldValueRepr, field_value::FieldValue},
     utils::{index_slice::IndexSlice, indexing_type::IndexingType},
@@ -111,7 +111,7 @@ impl ContextualizedTypelineError {
     pub fn from_typeline_error(
         err: TypelineError,
         args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-        cli_opts: Option<&SetupOptions>,
+        cli_opts: Option<&SessionSetupOptions>,
         setup_data: Option<&SessionSetupData>,
         sess: Option<&SessionData>,
     ) -> Self {
@@ -198,7 +198,7 @@ fn contextualize_span(
 }
 
 fn was_first_cli_arg_skipped(
-    cli_opts: Option<&SetupOptions>,
+    cli_opts: Option<&SessionSetupOptions>,
     setup_data: Option<&SessionSetupData>,
     sess: Option<&SessionData>,
 ) -> bool {
@@ -216,7 +216,7 @@ fn contextualize_op_id(
     msg: &str,
     op_id: OperatorId,
     args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-    cli_opts: Option<&SetupOptions>,
+    cli_opts: Option<&SessionSetupOptions>,
     setup_data: Option<&SessionSetupData>,
     sess: Option<&SessionData>,
 ) -> String {
@@ -247,7 +247,7 @@ impl TypelineError {
     pub fn contextualize_message(
         &self,
         args: Option<&IndexSlice<CliArgIdx, Vec<u8>>>,
-        cli_opts: Option<&SetupOptions>,
+        cli_opts: Option<&SessionSetupOptions>,
         setup_data: Option<&SessionSetupData>,
         sess: Option<&SessionData>,
     ) -> String {

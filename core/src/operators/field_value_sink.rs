@@ -1,7 +1,7 @@
 use crate::{
     job::JobData,
     record_data::{
-        field::Field,
+        field_data::FieldData,
         field_value::FieldValue,
         field_value_ref::FieldValueSlice,
         iter::{
@@ -22,20 +22,23 @@ use metamatch::metamatch;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::{
-    errors::OperatorApplicationError,
     operator::{Operator, TransformInstatiation},
     transform::{Transform, TransformId, TransformState},
 };
 
-pub type FieldValueSink = Vec<FieldValue>;
+#[derive(Clone)]
+pub enum FieldValueDataStorage {
+    Rle(FieldData),
+    Flat(Vec<FieldValue>),
+}
 
 #[derive(Default, Clone)]
 pub struct FieldValueSinkHandle {
-    data: Arc<Mutex<FieldValueSink>>,
+    data: Arc<Mutex<FieldValueDataStorage>>,
 }
 
 impl FieldValueSinkHandle {
-    pub fn get(&self) -> MutexGuard<FieldValueSink> {
+    pub fn get(&self) -> MutexGuard<FieldValueDataStorage> {
         self.data.lock().unwrap()
     }
 }
@@ -46,11 +49,9 @@ pub struct OpFieldValueSink {
 }
 
 pub fn create_op_field_value_sink(
-    handle: &'_ FieldValueSinkHandle,
+    handle: FieldValueSinkHandle,
 ) -> Box<dyn Operator> {
-    Box::new(OpFieldValueSink {
-        handle: handle.clone(),
-    })
+    Box::new(OpFieldValueSink { handle })
 }
 
 struct StreamValueHandle {
@@ -59,32 +60,75 @@ struct StreamValueHandle {
 }
 
 pub struct TfFieldValueSink<'a> {
-    handle: &'a Mutex<FieldValueSink>,
+    handle: &'a Mutex<FieldValueDataStorage>,
     batch_iter: FieldIterId,
     stream_value_handles: CountedUniverse<usize, StreamValueHandle>,
 }
 
-fn push_field_values(fvs: &mut FieldValueSink, v: FieldValue, run_len: usize) {
-    fvs.extend(std::iter::repeat_with(|| v.clone()).take(run_len - 1));
-    fvs.push(v);
+impl Default for FieldValueDataStorage {
+    fn default() -> Self {
+        FieldValueDataStorage::Rle(FieldData::default())
+    }
 }
 
-pub fn push_errors(
-    err: OperatorApplicationError,
-    run_length: usize,
-    mut field_pos: usize,
-    last_interruption_end: &mut usize,
-    output_field: &mut Field,
-) {
-    field_pos += run_length;
-    output_field
-        .iter_hall
-        .push_null(field_pos - *last_interruption_end, true);
-    output_field
-        .iter_hall
-        .push_error(err, run_length, false, false);
+impl FieldValueDataStorage {
+    pub fn flat(&self) -> Option<&Vec<FieldValue>> {
+        match self {
+            FieldValueDataStorage::Rle(_) => None,
+            FieldValueDataStorage::Flat(v) => Some(v),
+        }
+    }
+    pub fn rle(&self) -> Option<&FieldData> {
+        match self {
+            FieldValueDataStorage::Rle(v) => Some(v),
+            FieldValueDataStorage::Flat(_) => None,
+        }
+    }
+    pub fn flat_mut(&mut self) -> Option<&mut Vec<FieldValue>> {
+        match self {
+            FieldValueDataStorage::Rle(_) => None,
+            FieldValueDataStorage::Flat(v) => Some(v),
+        }
+    }
+    pub fn rle_mut(&mut self) -> Option<&mut FieldData> {
+        match self {
+            FieldValueDataStorage::Rle(v) => Some(v),
+            FieldValueDataStorage::Flat(_) => None,
+        }
+    }
+    pub fn field_count(&self) -> usize {
+        match self {
+            FieldValueDataStorage::Rle(v) => v.field_count(),
+            FieldValueDataStorage::Flat(v) => v.len(),
+        }
+    }
 
-    *last_interruption_end = field_pos;
+    fn extend(&mut self, iter: impl IntoIterator<Item = FieldValue>) {
+        match self {
+            FieldValueDataStorage::Rle(v) => {
+                v.extend_from_field_values_upacked(iter, true, true);
+            }
+            FieldValueDataStorage::Flat(v) => v.extend(iter),
+        }
+    }
+
+    fn push(&mut self, v: FieldValue) {
+        match self {
+            FieldValueDataStorage::Rle(storage) => {
+                storage.push_field_value_unpacked(v, 1, true, true);
+            }
+            FieldValueDataStorage::Flat(storage) => storage.push(v),
+        }
+    }
+}
+
+fn push_field_values(
+    fvs: &mut FieldValueDataStorage,
+    v: FieldValue,
+    run_len: usize,
+) {
+    fvs.extend(std::iter::repeat_with(|| v.clone()).take(run_len - 1));
+    fvs.push(v);
 }
 
 impl Operator for OpFieldValueSink {
@@ -106,6 +150,14 @@ impl Operator for OpFieldValueSink {
         _op_id: super::operator::OperatorId,
     ) -> bool {
         false
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &crate::context::SessionData,
+        _op_id: super::operator::OperatorId,
+    ) -> super::operator::OutputFieldKind {
+        super::operator::OutputFieldKind::SameAsInput
     }
     fn update_variable_liveness(
         &self,
@@ -143,8 +195,6 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
         let input_field = jd
             .field_mgr
             .get_cow_field_ref(&jd.match_set_mgr, tf.input_field);
-        let mut output_field =
-            jd.field_mgr.fields[tf.output_field].borrow_mut();
         let base_iter = jd
             .field_mgr
             .lookup_iter(tf.input_field, &input_field, self.batch_iter)
@@ -153,10 +203,7 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
         let mut iter =
             AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
         let mut fvs = self.handle.lock().unwrap();
-        // interruptions are either errors or field separators
-        // they interrupt a run of nulls that we output foi successes
-        let mut last_interruption_end = 0;
-        let mut field_pos = fvs.len();
+        let mut field_pos = fvs.field_count();
         while let Some(range) = iter.typed_range_fwd(
             &jd.match_set_mgr,
             usize::MAX,
@@ -173,11 +220,11 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
                 }
 
                 #[expand((REP, KIND, ITER, CONV) in [
-                (TextInline, Text, RefAwareInlineTextIter, v.to_string()),
-                (BytesInline, Bytes, RefAwareInlineBytesIter, v.to_vec()),
-                (TextBuffer, Text, RefAwareTextBufferIter, v.to_string()),
-                (BytesBuffer, Bytes, RefAwareBytesBufferIter, v.to_vec()),
-            ])]
+                    (TextInline, Text, RefAwareInlineTextIter, v.to_string()),
+                    (BytesInline, Bytes, RefAwareInlineBytesIter, v.to_vec()),
+                    (TextBuffer, Text, RefAwareTextBufferIter, v.to_string()),
+                    (BytesBuffer, Bytes, RefAwareBytesBufferIter, v.to_vec()),
+                ])]
                 FieldValueSlice::REP(text) => {
                     for (v, rl, _offs) in ITER::from_range(&range, text) {
                         push_field_values(
@@ -189,16 +236,16 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
                 }
 
                 #[expand((REP, ITER, CONV) in [
-                (Int, FieldValueRangeIter, *v),
-                (Float, FieldValueRangeIter, *v),
-                (BigInt, RefAwareFieldValueRangeIter, Box::new(v.clone())),
-                (BigRational, RefAwareFieldValueRangeIter, Box::new(v.clone())),
-                (Argument, RefAwareFieldValueRangeIter, Box::new(v.clone())),
-                (OpDecl, RefAwareFieldValueRangeIter, v.clone()),
-                (Array, RefAwareFieldValueRangeIter, v.clone()),
-                (Object, RefAwareFieldValueRangeIter, Box::new(v.clone())),
-                (Custom, RefAwareFieldValueRangeIter, v.clone()),
-            ])]
+                    (Int, FieldValueRangeIter, *v),
+                    (Float, FieldValueRangeIter, *v),
+                    (BigInt, RefAwareFieldValueRangeIter, Box::new(v.clone())),
+                    (BigRational, RefAwareFieldValueRangeIter, Box::new(v.clone())),
+                    (Argument, RefAwareFieldValueRangeIter, Box::new(v.clone())),
+                    (OpDecl, RefAwareFieldValueRangeIter, v.clone()),
+                    (Array, RefAwareFieldValueRangeIter, v.clone()),
+                    (Object, RefAwareFieldValueRangeIter, Box::new(v.clone())),
+                    (Custom, RefAwareFieldValueRangeIter, v.clone()),
+                ])]
                 FieldValueSlice::REP(text) => {
                     for (v, rl) in ITER::from_range(&range, text) {
                         push_field_values(
@@ -210,7 +257,6 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
                 }
 
                 FieldValueSlice::Error(errs) => {
-                    let mut pos = field_pos;
                     for (v, rl) in
                         RefAwareFieldValueRangeIter::from_range(&range, errs)
                     {
@@ -219,14 +265,6 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
                             FieldValue::Error(v.clone()),
                             rl as usize,
                         );
-                        push_errors(
-                            v.clone(),
-                            rl as usize,
-                            pos,
-                            &mut last_interruption_end,
-                            &mut output_field,
-                        );
-                        pos += rl as usize;
                     }
                 }
 
@@ -273,14 +311,7 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
         }
         jd.field_mgr
             .store_iter(input_field_id, self.batch_iter, base_iter);
-        let last_success_run_length = field_pos - last_interruption_end;
-        if last_success_run_length > 0 {
-            output_field
-                .iter_hall
-                .push_null(last_success_run_length, true);
-        }
         drop(input_field);
-        drop(output_field);
         let streams_done = self.stream_value_handles.is_empty();
         if streams_done && ps.next_batch_ready {
             jd.tf_mgr.push_tf_in_ready_stack(tf_id);
@@ -302,9 +333,18 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
         let svh = &mut self.stream_value_handles[svu.custom];
         let sv = &mut jd.sv_mgr.stream_values[svu.sv_id];
         debug_assert!(sv.done);
-        for fv in &mut fvs[svh.start_idx..svh.start_idx + svh.run_len] {
-            *fv = sv.to_field_value();
+        match &mut *fvs {
+            FieldValueDataStorage::Rle(_field_data) => {
+                todo!("implement value updating in FieldData");
+            }
+            FieldValueDataStorage::Flat(vec) => {
+                for fv in &mut vec[svh.start_idx..svh.start_idx + svh.run_len]
+                {
+                    *fv = sv.to_field_value();
+                }
+            }
         }
+
         jd.sv_mgr.drop_field_value_subscription(svu.sv_id, None);
         self.stream_value_handles.release(svu.custom);
         if self.stream_value_handles.is_empty() {

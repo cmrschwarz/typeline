@@ -1,6 +1,6 @@
 use typeline::{
     cli::{call_expr::Span, CliArgumentError},
-    options::{context_builder::ContextBuilder, session_setup::SetupOptions},
+    options::{context_builder::ContextBuilder, session_setup::SessionSetupOptions},
     typeline_error::{ContextualizedTypelineError, TypelineError},
     utils::test_utils::int_sequence_strings,
     CliOptionsWithDefaultExtensions,
@@ -9,7 +9,7 @@ use typeline::{
 #[test]
 fn seq_sum() -> Result<(), ContextualizedTypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SessionSetupOptions::with_default_extensions(),
         ["seq=10", "sum"],
     )?
     .run_collect_stringified()?;
@@ -20,7 +20,7 @@ fn seq_sum() -> Result<(), ContextualizedTypelineError> {
 #[test]
 fn empty_foreach_block() -> Result<(), ContextualizedTypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SessionSetupOptions::with_default_extensions(),
         ["seq=10", "fe:", "end", "sum"],
     )?
     .run_collect_stringified()?;
@@ -31,7 +31,7 @@ fn empty_foreach_block() -> Result<(), ContextualizedTypelineError> {
 #[test]
 fn foreach_block_no_colon() -> Result<(), ContextualizedTypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SessionSetupOptions::with_default_extensions(),
         ["seq=10", "fe", "end", "sum"],
     );
     assert_eq!(
@@ -48,7 +48,7 @@ fn foreach_block_no_colon() -> Result<(), ContextualizedTypelineError> {
 fn foreach_no_block() -> Result<(), ContextualizedTypelineError> {
     // TODO: probably emit an error for this
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SessionSetupOptions::with_default_extensions(),
         ["seq=3", "fe", "sum"],
     )?
     .run_collect_stringified()?;
@@ -59,7 +59,7 @@ fn foreach_no_block() -> Result<(), ContextualizedTypelineError> {
 #[test]
 fn simple_forkcat_block() -> Result<(), ContextualizedTypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SessionSetupOptions::with_default_extensions(),
         ["str@foo=foo", "fc:", "nop", "next", "nop", "end"],
     )?
     .run_collect_stringified()?;
@@ -70,7 +70,7 @@ fn simple_forkcat_block() -> Result<(), ContextualizedTypelineError> {
 #[test]
 fn parse_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SessionSetupOptions::with_default_extensions(),
         ["tl", "seqn=10", "forkcat:", "r=.*", "next", "drop", "end"],
     )?
     .run_collect_stringified()?;
@@ -81,7 +81,7 @@ fn parse_forkcat() -> Result<(), TypelineError> {
 #[test]
 fn parse_forkcat_2() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SessionSetupOptions::with_default_extensions(),
         [
             "seq=3", "fe:", "forkcat:", "seq=2", "next", "nop", "end", "end",
         ],
@@ -95,7 +95,7 @@ fn parse_forkcat_2() -> Result<(), TypelineError> {
 #[test]
 fn parse_regex_flag() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SessionSetupOptions::with_default_extensions(),
         ["str=abc", "r-m=."],
     )?
     .run_collect_stringified()?;
@@ -107,7 +107,7 @@ fn parse_regex_flag() -> Result<(), TypelineError> {
 #[test]
 fn parse_setting_assignment() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
-        SetupOptions::with_default_extensions(),
+        SessionSetupOptions::with_default_extensions(),
         ["%bs=42", "f={%bs}"],
     )?
     .run_collect_stringified()?;
@@ -123,7 +123,7 @@ mod py {
     use typeline::{
         extension::ExtensionRegistry,
         options::{
-            context_builder::ContextBuilder, session_setup::SetupOptions,
+            context_builder::ContextBuilder, session_setup::SessionSetupOptions,
         },
         typeline_error::TypelineError,
     };
@@ -144,7 +144,7 @@ mod py {
         exts.setup();
         let exts = Arc::new(exts);
         let res = ContextBuilder::from_cli_arg_strings(
-            SetupOptions::with_extensions(exts),
+            SessionSetupOptions::with_extensions(exts),
             [
                 "%rpm=dynamic",
                 &format!(
