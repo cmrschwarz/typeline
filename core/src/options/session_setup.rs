@@ -21,7 +21,10 @@ use crate::{
         utils::writable::WritableTarget,
     },
     options::chain_settings::SettingTypeConverter,
-    record_data::scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
+    record_data::{
+        field_data::FieldData,
+        scope_manager::{ScopeManager, DEFAULT_SCOPE_ID},
+    },
     typeline_error::{
         ChainSetupError, ContextualizedTypelineError, TypelineError,
     },
@@ -51,7 +54,7 @@ use super::chain_settings::{
 #[derive(Clone)]
 pub struct SessionSetupOptions {
     pub extensions: Arc<ExtensionRegistry>,
-    pub last_cli_output: Option<FieldValueSinkHandle>,
+    pub last_cli_output: Option<Arc<FieldData>>,
     pub output_storage: Option<FieldValueSinkHandle>,
 
     pub deny_threading: bool,
@@ -96,7 +99,7 @@ pub struct SessionSetupSettings {
     pub skipped_first_cli_arg: bool,
     pub repl: Option<bool>,
     pub exit_repl: Option<bool>,
-    pub last_cli_output: Option<FieldValueSinkHandle>,
+    pub last_cli_output: Option<Arc<FieldData>>,
     pub output_storage: Option<FieldValueSinkHandle>,
 }
 

@@ -72,9 +72,14 @@ impl<R: FieldDataRef> FieldIter<R> {
         }
         let h = headers[loc.header_idx];
         let data_pos = {
-            let mut h_dummy = h;
-            h_dummy.run_length = loc.header_rl_offset;
-            loc.data_pos - h_dummy.data_size_unique()
+            if loc.header_rl_offset == 0 {
+                // dummy header with rl 0 and shared_value flag would fail
+                loc.data_pos
+            } else {
+                let mut h_dummy = h;
+                h_dummy.run_length = loc.header_rl_offset;
+                loc.data_pos - h_dummy.data_size_unique()
+            }
         };
         let mut res = FieldIter {
             fdr,

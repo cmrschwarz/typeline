@@ -21,6 +21,7 @@ use crate::{
         macro_def::parse_op_macro_def,
         nop::parse_op_nop,
         operator::Operator,
+        paste_pipeline::parse_op_last_cli_output,
         print::parse_op_print,
         regex::parse_op_regex,
         select::parse_op_select,
@@ -195,6 +196,7 @@ pub fn parse_operator_data(
         "to_str" => parse_op_to_str(sess, expr)?,
         "join" | "j" => parse_op_join(&expr)?,
         "r" | "regex" => parse_op_regex(sess, expr)?,
+        "_" => parse_op_last_cli_output(sess, &expr)?,
         "c" | "compute" => parse_op_compute(sess, &expr)?,
         "print" | "p" => parse_op_print(&expr)?,
         "format" | "f" => parse_op_format(&expr)?,
@@ -608,7 +610,9 @@ fn parse_modes(
 
     let mut i = 0;
 
-    if argv.get(i) == Some(&b'%') {
+    let len = argv.len();
+
+    if argv.get(i) == Some(&b'%') && len > i + 1 {
         return Ok((
             ExprModes {
                 setting: true,
@@ -619,12 +623,12 @@ fn parse_modes(
         ));
     }
 
-    if argv.get(i) == Some(&b'+') {
+    if argv.get(i) == Some(&b'+') && len > i + 1 {
         append_mode = true;
         i += 1;
     }
 
-    if argv.get(i) == Some(&b'_') {
+    if argv.get(i) == Some(&b'_') && len > i + 1 {
         transparent_mode = true;
         i += 1;
     }

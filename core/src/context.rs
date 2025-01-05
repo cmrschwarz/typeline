@@ -36,8 +36,8 @@ use crate::{
         session_setup::{SessionSetupData, SessionSetupOptions},
     },
     record_data::{
-        record_buffer::RecordBuffer, record_set::RecordSet,
-        scope_manager::ScopeManager,
+        field_data::FieldData, record_buffer::RecordBuffer,
+        record_set::RecordSet, scope_manager::ScopeManager,
     },
     typeline_error::ContextualizedTypelineError,
     utils::{
@@ -88,7 +88,7 @@ pub struct SessionSettings {
     pub debug_log_step_min: usize,
     pub debug_break_on_step: Option<usize>,
     pub action_list_cleanup_frequency: usize,
-    pub last_cli_output: Option<FieldValueSinkHandle>,
+    pub last_cli_output: Option<Arc<FieldData>>,
     pub chain_setting_names: [StringStoreEntry; chain_settings_list::COUNT],
 }
 
@@ -474,7 +474,8 @@ impl Context {
             self.run_main_chain(RecordSet::default());
             setup_opts.last_cli_output = setup_opts
                 .output_storage
-                .replace(FieldValueSinkHandle::new_rle());
+                .as_mut()
+                .map(|v| Arc::new(v.get().take_rle()));
         }
         setup_opts.skip_first_cli_arg = false;
         let mut history = Box::<FileBackedHistory>::default();
@@ -558,7 +559,8 @@ impl Context {
                                 self.run_main_chain(RecordSet::default());
                                 setup_opts.last_cli_output = setup_opts
                                     .output_storage
-                                    .replace(FieldValueSinkHandle::new_rle());
+                                    .as_mut()
+                                    .map(|v| Arc::new(v.get().take_rle()));
                             }
                         }
                         Err(e) => {

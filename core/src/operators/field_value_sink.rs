@@ -136,6 +136,46 @@ impl FieldValueDataStorage {
             FieldValueDataStorage::Flat(storage) => storage.push(v),
         }
     }
+    pub fn take(&mut self) -> FieldValueDataStorage {
+        match self {
+            FieldValueDataStorage::Rle(_) => std::mem::replace(
+                self,
+                FieldValueDataStorage::Rle(FieldData::default()),
+            ),
+            FieldValueDataStorage::Flat(_) => std::mem::replace(
+                self,
+                FieldValueDataStorage::Flat(Vec::new()),
+            ),
+        }
+    }
+    pub fn take_flat(&mut self) -> Vec<FieldValue> {
+        match self {
+            FieldValueDataStorage::Rle(data) => {
+                let mut iter = data.iter();
+                let mut res = Vec::new();
+                while let Some(v) = iter.typed_field_fwd(1) {
+                    res.push(v.value.to_field_value());
+                }
+                data.clear();
+                res
+            }
+            FieldValueDataStorage::Flat(v) => std::mem::take(v),
+        }
+    }
+    pub fn take_rle(&mut self) -> FieldData {
+        match self {
+            FieldValueDataStorage::Rle(data) => std::mem::take(data),
+            FieldValueDataStorage::Flat(data) => {
+                let mut res = FieldData::default();
+                res.extend_from_field_values_upacked(
+                    std::mem::take(data),
+                    true,
+                    true,
+                );
+                res
+            }
+        }
+    }
 }
 
 fn push_field_values(
