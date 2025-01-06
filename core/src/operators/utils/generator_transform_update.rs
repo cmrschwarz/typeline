@@ -218,7 +218,16 @@ fn handle_seq_mode<G: GeneratorSequence>(
             }
             seq_len_rem = seq_len_total;
         }
-
+        if seq_len_total == 0 {
+            let bs_rem = field_pos_end - field_pos;
+            ab.push_action(
+                FieldActionKind::Drop,
+                field_pos + field_dup_count,
+                bs_rem,
+            );
+            field_pos += bs_rem;
+            break;
+        }
         let full_seqs_rem =
             (out_batch_size_rem as u64 / seq_len_total) as usize;
         let field_count = gbs.iter.next_n_fields(

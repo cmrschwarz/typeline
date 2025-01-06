@@ -112,6 +112,25 @@ fn sequence(#[case] batch_size: usize) -> Result<(), TypelineError> {
     Ok(())
 }
 
+#[test]
+fn empty_sequence() -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 0, 1).unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, [] as [&str; 0]);
+    Ok(())
+}
+
+#[test]
+fn empty_sequence_deletes_input() -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 10, 1).unwrap())
+        .add_op(create_op_seq(0, 0, 1).unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, [] as [&str; 0]);
+    Ok(())
+}
+
 #[rstest]
 #[case(1, 1)]
 #[case(2, 1)]
