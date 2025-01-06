@@ -474,6 +474,8 @@ impl Context {
                 .map(|v| Arc::new(v.get().take_rle()));
         }
         setup_opts.skip_first_cli_arg = false;
+        setup_opts.start_with_stdin = false;
+        setup_opts.add_success_updator = false;
         let mut history = Box::<FileBackedHistory>::default();
         if let Some(args) = &self.session.cli_args {
             history

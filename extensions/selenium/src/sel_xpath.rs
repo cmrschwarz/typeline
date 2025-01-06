@@ -137,10 +137,8 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
             tf.input_field,
             self.input_iter,
         );
-        let ab = &mut jd.match_set_mgr.match_sets[tf.match_set_id]
-            .action_buffer
-            .borrow_mut();
-        ab.begin_action_group(self.actor_id);
+        let ab = &jd.match_set_mgr.match_sets[tf.match_set_id].action_buffer;
+        ab.borrow_mut().begin_action_group(self.actor_id);
         let mut output = jd.field_mgr.fields[tf.output_field].borrow_mut();
         let (bs, ps) = jd.tf_mgr.claim_batch(tf_id);
         let mut bs_rem = bs;
@@ -154,20 +152,23 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
             bs_rem -= range.base.field_count;
             match range.base.data {
                 FieldValueSlice::Custom(data) => {
+                    // prevents double borrow issue.
+                    // TODO: this is subtle and non intuitive. fix?
+                    let mut abb = ab.borrow_mut();
                     for c in FieldValueRangeIter::from_range(&range, data)
                         .unfold_rl()
                     {
                         match find_all_by_xpath(self.xpath, &**c) {
                             Ok(res) => {
                                 if res.elems.is_empty() {
-                                    ab.push_action(
+                                    abb.push_action(
                                         FieldActionKind::Drop,
                                         field_pos,
                                         1,
                                     );
                                 }
                                 if res.elems.len() > 1 {
-                                    ab.push_action(
+                                    abb.push_action(
                                         FieldActionKind::Dup,
                                         field_pos,
                                         res.elems.len() - 1,
@@ -230,7 +231,7 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
                 }
             }
         }
-        ab.end_action_group();
+        ab.borrow_mut().end_action_group();
         jd.tf_mgr.submit_batch_ready_for_more(
             tf_id,
             field_pos - field_pos_start,
