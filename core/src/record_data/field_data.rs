@@ -237,12 +237,12 @@ unsafe impl FieldValueType for str {
 }
 unsafe impl VariableSizedFieldValueType for str {}
 
-unsafe impl FixedSizeFieldValueType for Undefined {
+unsafe impl FixedSizeFieldValueType for Null {
     const REPR: FieldValueRepr = FieldValueRepr::Null;
     const KIND: FieldValueKind = FieldValueKind::Null;
     const TRIVIALLY_COPYABLE: bool = true;
 }
-unsafe impl FixedSizeFieldValueType for Null {
+unsafe impl FixedSizeFieldValueType for Undefined {
     const REPR: FieldValueRepr = FieldValueRepr::Undefined;
     const KIND: FieldValueKind = FieldValueKind::Undefined;
     const TRIVIALLY_COPYABLE: bool = true;
