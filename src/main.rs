@@ -46,6 +46,10 @@ fn run() -> Result<bool, String> {
                 )
             })?;
 
+    if cli_data.repl {
+        setup_opts.output_storage = Some(FieldValueSinkHandle::new_rle());
+    }
+
     let mut sess = SessionSetupData::new(setup_opts.clone());
 
     if cli_data.repl {
@@ -56,9 +60,15 @@ fn run() -> Result<bool, String> {
         Ok(()) => (),
         Err(e) => match e {
             TypelineError::MissingArgumentsError(_) if repl => {
-                sess.setup_settings.repl = Some(true);
-                setup_opts.output_storage =
-                    Some(FieldValueSinkHandle::new_rle());
+                if sess.setup_settings.repl.is_none() {
+                    sess.setup_settings.repl = Some(true);
+                    setup_opts.output_storage =
+                        Some(FieldValueSinkHandle::new_rle());
+                    // make sure this is in setup_opts and the sess setup data
+                    // TODO: refactor this mess
+                    sess.setup_settings.output_storage =
+                        setup_opts.output_storage.clone();
+                }
             }
             TypelineError::PrintInfoAndExitError(_) => {
                 println!(
@@ -72,7 +82,6 @@ fn run() -> Result<bool, String> {
             }
         },
     };
-
     let sess = sess
         .build_session_take()
         .map_err(|e| sess.contextualize_error(e).contextualized_message)?;

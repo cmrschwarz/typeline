@@ -25,7 +25,6 @@ use crate::{
     job::{Job, JobData},
     liveness_analysis::{self, LivenessData},
     operators::{
-        field_value_sink::FieldValueSinkHandle,
         nop::OpNop,
         operator::{
             OffsetInChain, Operator, OperatorBase, OperatorDataId, OperatorId,
@@ -467,9 +466,6 @@ impl Context {
     pub fn run_repl(&mut self, mut setup_opts: SessionSetupOptions) {
         use crate::{repl_prompt::ScrPrompt, typeline_error::TypelineError};
         debug_assert!(setup_opts.allow_repl);
-        if setup_opts.output_storage.is_none() {
-            setup_opts.output_storage = Some(FieldValueSinkHandle::new_rle());
-        }
         if !self.session.has_no_command() {
             self.run_main_chain(RecordSet::default());
             setup_opts.last_cli_output = setup_opts
