@@ -22,6 +22,9 @@ geckodriver = "0.35.0"
 tokio = "1.42.0"
 derive_more = "1.0"
 reqwest= "0.12.12"
+rust-ini = "0.21.1"
+dirs-next = "2.0.0"
+zip = "2.2.2"
 
 [dev-dependencies]
 rstest = "0.24.0"

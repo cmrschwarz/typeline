@@ -10,15 +10,6 @@ index_newtype! {
     pub struct SubchainIndex(pub(crate) u32);
 }
 
-#[derive(Default, Clone, Copy)]
-pub enum TextEncoding {
-    #[default]
-    UTF8,
-    UTF16,
-    UTF32,
-    ASCII,
-}
-
 #[derive(Clone)]
 pub struct Chain {
     pub label: Option<StringStoreEntry>,
