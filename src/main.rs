@@ -35,7 +35,7 @@ fn run() -> Result<bool, String> {
         )
     })?;
 
-    let arguments =
+    let cli_data =
         parse_cli_args_form_vec(&args, setup_opts.skip_first_cli_arg)
             .map_err(|e| {
                 e.contextualize_message(
@@ -48,7 +48,11 @@ fn run() -> Result<bool, String> {
 
     let mut sess = SessionSetupData::new(setup_opts.clone());
 
-    match sess.process_arguments(arguments) {
+    if cli_data.repl {
+        sess.setup_settings.repl = Some(true);
+    }
+
+    match sess.process_arguments(cli_data.args) {
         Ok(()) => (),
         Err(e) => match e {
             TypelineError::MissingArgumentsError(_) if repl => {

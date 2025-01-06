@@ -220,7 +220,10 @@ impl SessionSetupData {
         let arguments = parse_cli_raw(&mut cli_args_into_arguments_iter(
             self.cli_args.as_mut().unwrap().iter().map(|v| &**v),
         ))?;
-        self.process_arguments(arguments)
+        if arguments.repl {
+            self.setup_settings.repl = Some(true);
+        }
+        self.process_arguments(arguments.args)
     }
 
     pub fn has_no_commands(&self) -> bool {

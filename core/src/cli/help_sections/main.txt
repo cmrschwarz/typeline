@@ -3,6 +3,7 @@ tl [FLAGS | SETTINGS | OPERATORS]...
 Flags:
     -h | --help           Print this help and exit
     -v | --version        Print version info and exit
+    -r | --repl                Run in REPL mode
 
 Settings (call `tl h=SETTING` for details):
     h=CMD                 Print help about a Setting or an Operator and exit

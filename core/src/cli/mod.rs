@@ -147,6 +147,7 @@ fn print_version(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 }
 
 fn try_parse_as_special_op<'a>(
+    res: &mut CliArgumentData,
     src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
 ) -> Result<bool, TypelineError> {
     let Some((arg, _start_span)) = src.peek() else {
@@ -160,6 +161,11 @@ fn try_parse_as_special_op<'a>(
 
         let section = get_help_page(src.next(), start_span)?;
         return Err(PrintInfoAndExitError::Help(section.into()).into());
+    }
+    if [b"--repl" as &[u8], b"-r", b"repl"].contains(arg) {
+        res.repl = true;
+        src.next();
+        return Ok(true);
     }
     Ok(false)
 }
@@ -1129,17 +1135,23 @@ pub fn parse_call_expr<'a>(
     }))
 }
 
+#[derive(Default)]
+pub struct CliArgumentData {
+    pub repl: bool,
+    pub args: Vec<Argument>,
+}
+
 pub fn parse_cli_raw<'a>(
     src: &mut Peekable<impl Iterator<Item = (&'a [u8], Span)>>,
-) -> Result<Vec<Argument>, TypelineError> {
-    let mut args = Vec::new();
+) -> Result<CliArgumentData, TypelineError> {
+    let mut res = CliArgumentData::default();
 
     let mut aggregation_start = None;
 
     let scope_id = DEFAULT_SCOPE_ID;
 
     loop {
-        if try_parse_as_special_op(src)? {
+        if try_parse_as_special_op(&mut res, src)? {
             continue;
         }
 
@@ -1148,9 +1160,9 @@ pub fn parse_cli_raw<'a>(
         };
 
         if expr.append_mode && aggregation_start.is_none() {
-            aggregation_start = Some(args.len());
-            if args.is_empty() {
-                args.push(create_nop_arg(scope_id));
+            aggregation_start = Some(res.args.len());
+            if res.args.is_empty() {
+                res.args.push(create_nop_arg(scope_id));
             }
         }
 
@@ -1161,24 +1173,24 @@ pub fn parse_cli_raw<'a>(
                     "aggregation",
                     scope_id,
                 ));
-                agg_args.extend(args.drain(agg_start..));
+                agg_args.extend(res.args.drain(agg_start..));
                 agg_args.push(expr.arg);
-                args.push(Argument::generated_from_field_value(
+                res.args.push(Argument::generated_from_field_value(
                     FieldValue::Array(Array::Argument(agg_args)),
                     scope_id,
                 ));
                 continue;
             }
         }
-        args.push(expr.arg);
+        res.args.push(expr.arg);
     }
-    Ok(args)
+    Ok(res)
 }
 
 pub fn parse_cli_args<'a>(
     src: impl IntoIterator<Item = &'a [u8]>,
     skip_first: bool,
-) -> Result<Vec<Argument>, TypelineError> {
+) -> Result<CliArgumentData, TypelineError> {
     parse_cli_raw(
         &mut src
             .into_iter()
@@ -1192,7 +1204,7 @@ pub fn parse_cli_args<'a>(
 pub fn parse_cli_args_form_vec<'a>(
     src: impl IntoIterator<Item = &'a Vec<u8>>,
     skip_first: bool,
-) -> Result<Vec<Argument>, TypelineError> {
+) -> Result<CliArgumentData, TypelineError> {
     parse_cli_raw(
         &mut src
             .into_iter()
