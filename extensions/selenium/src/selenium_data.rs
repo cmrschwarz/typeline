@@ -17,7 +17,13 @@ use thirtyfour::{
     support::base64_encode, ElementId, WebDriver, WindowHandle,
 };
 use tokio::runtime::Runtime;
-use typeline_core::record_data::custom_data::CustomData;
+use typeline_core::{
+    record_data::{
+        custom_data::CustomData,
+        formattable::{format_maybe_text, format_maybe_text_raw},
+    },
+    utils::maybe_text::MaybeText,
+};
 use zip::write::FileOptions;
 
 #[derive(derive_more::Deref, derive_more::DerefMut)]
@@ -38,7 +44,8 @@ pub struct SeleniumInstance {
 pub struct SeleniumWebElement {
     pub instance: Arc<Mutex<SeleniumInstance>>,
     pub window_handle: WindowHandle,
-    pub element_id: ElementId,
+    pub elem_id: ElementId,
+    pub outer_html: MaybeText,
 }
 
 #[derive(Clone)]
@@ -306,9 +313,25 @@ impl CustomData for SeleniumWebElement {
     fn format(
         &self,
         w: &mut dyn typeline_core::utils::text_write::TextWrite,
-        _format: &typeline_core::record_data::formattable::RealizedFormatKey,
+        format: &typeline_core::record_data::formattable::RealizedFormatKey,
     ) -> std::io::Result<()> {
-        w.write_all_text("<selenium_web_element>")
+        format_maybe_text(
+            w,
+            format.opts.pretty_print,
+            self.outer_html.as_ref(),
+        )
+    }
+
+    fn format_raw(
+        &self,
+        w: &mut dyn typeline_core::utils::text_write::MaybeTextWrite,
+        format: &typeline_core::record_data::formattable::RealizedFormatKey,
+    ) -> std::io::Result<()> {
+        format_maybe_text_raw(
+            w,
+            format.opts.pretty_print,
+            self.outer_html.as_ref(),
+        )
     }
 
     fn cmp(&self, _rhs: &dyn CustomData) -> Option<std::cmp::Ordering> {

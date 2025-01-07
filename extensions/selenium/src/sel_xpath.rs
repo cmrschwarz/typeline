@@ -1,6 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
-use thirtyfour::{error::WebDriverResult, WebElement, WindowHandle};
+use regex::Regex;
+use thirtyfour::{
+    error::WebDriverResult, extensions::query::ElementQuerySource, ElementId,
+    WebElement, WindowHandle,
+};
 use typeline_core::{
     cli::call_expr::CallExpr,
     context::SessionData,
@@ -31,31 +35,84 @@ use typeline_core::{
         push_interface::PushInterface,
     },
     typeline_error::TypelineError,
+    utils::maybe_text::MaybeText,
 };
 
 use crate::selenium_data::{
     SeleniumInstance, SeleniumWebElement, SeleniumWindow,
 };
 
+struct XPathMatchResult {
+    instance: Arc<Mutex<SeleniumInstance>>,
+    window_handle: WindowHandle,
+    elems: Vec<WebElemMatch>,
+}
+
+enum XPathFinalComponent {
+    Attribute(String),
+    Text,
+}
+
+struct UserXPath {
+    main: thirtyfour::By,
+    final_component: Option<XPathFinalComponent>,
+}
+
+#[derive(Clone)]
+pub enum WebElemMatch {
+    Null,
+    Data(MaybeText),
+    Elem {
+        element_id: ElementId,
+        inner_html: MaybeText,
+    },
+    Error(OperatorApplicationError),
+}
+
 pub fn parse_op_sel_xpath(
     sess: &mut SessionSetupData,
     expr: CallExpr,
 ) -> Result<Box<dyn Operator>, TypelineError> {
-    let xpath = expr
-        .require_single_string_arg_autoconvert(sess)?
-        .to_string();
-    Ok(Box::new(OpSelXpath { xpath }))
+    let xpath = expr.require_single_string_arg_autoconvert(sess)?;
+    Ok(Box::new(OpSelXpath {
+        xpath: UserXPath::from_str(&xpath),
+    }))
 }
 
 struct OpSelXpath {
-    xpath: String,
+    xpath: UserXPath,
 }
 
 struct TfSelXpath<'a> {
-    xpath: &'a str,
+    xpath: &'a UserXPath,
     input_iter: FieldIterId,
     input_field_ref: FieldReference,
     actor_id: ActorId,
+}
+
+static ATTR_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"/(@[^/]+|text\(\))$"#).unwrap());
+
+impl UserXPath {
+    fn from_str(xp: &str) -> Self {
+        let (main, extra) = if let Some(trailing_comp) = ATTR_REGEX.find(xp) {
+            let main = &xp[0..trailing_comp.start()];
+            let extra_str = trailing_comp.as_str().to_string();
+            let extra = if let Some(attr) = extra_str.strip_prefix("/@") {
+                XPathFinalComponent::Attribute(attr.to_string())
+            } else {
+                assert!(extra_str.starts_with("/text"));
+                XPathFinalComponent::Text
+            };
+            (main, Some(extra))
+        } else {
+            (xp, None)
+        };
+        UserXPath {
+            main: thirtyfour::By::XPath(main),
+            final_component: extra,
+        }
+    }
 }
 
 impl Operator for OpSelXpath {
@@ -158,7 +215,7 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
                     for c in FieldValueRangeIter::from_range(&range, data)
                         .unfold_rl()
                     {
-                        match find_all_by_xpath(self.xpath, &**c) {
+                        match find_all_by_xpath(self.xpath, &**c, op_id) {
                             Ok(res) => {
                                 if res.elems.is_empty() {
                                     abb.push_action(
@@ -176,18 +233,39 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
                                 }
                                 field_pos += res.elems.len();
                                 for elem in res.elems {
-                                    output.iter_hall.push_custom(
-                                        Box::new(SeleniumWebElement {
-                                            instance: res.instance.clone(),
-                                            window_handle: res
-                                                .window_handle
-                                                .clone(),
-                                            element_id: elem.element_id,
-                                        }),
-                                        1,
-                                        true,
-                                        false,
-                                    );
+                                    match elem {
+                                        WebElemMatch::Null => {
+                                            output.iter_hall.push_null(1, true)
+                                        }
+                                        WebElemMatch::Data(data) => {
+                                            output.iter_hall.push_maybe_text(
+                                                data, 1, true, false,
+                                            )
+                                        }
+                                        WebElemMatch::Elem {
+                                            element_id,
+                                            inner_html: outer_html,
+                                        } => {
+                                            output.iter_hall.push_custom(
+                                                Box::new(SeleniumWebElement {
+                                                    instance: res
+                                                        .instance
+                                                        .clone(),
+                                                    window_handle: res
+                                                        .window_handle
+                                                        .clone(),
+                                                    elem_id: element_id,
+                                                    outer_html,
+                                                }),
+                                                1,
+                                                true,
+                                                false,
+                                            );
+                                        }
+                                        WebElemMatch::Error(err) => output
+                                            .iter_hall
+                                            .push_error(err, 1, true, false),
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -240,15 +318,78 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
     }
 }
 
-struct XPathMatchResult {
-    instance: Arc<Mutex<SeleniumInstance>>,
-    window_handle: WindowHandle,
-    elems: Vec<WebElement>,
+async fn find_xpath_query(
+    source: ElementQuerySource,
+    xpath: &UserXPath,
+    op_id: OperatorId,
+) -> WebDriverResult<Vec<WebElemMatch>> {
+    let elements = match &source {
+        ElementQuerySource::Driver(driver) => {
+            driver.find_all(xpath.main.clone()).await?
+        }
+        ElementQuerySource::Element(element) => {
+            element.find_all(xpath.main.clone()).await?
+        }
+    };
+
+    let mut res = Vec::new();
+    let Some(fc) = xpath.final_component.as_ref() else {
+        for e in elements.into_iter() {
+            res.push(WebElemMatch::Elem {
+                inner_html: MaybeText::Text(e.outer_html().await?),
+                element_id: e.element_id,
+            });
+        }
+        return Ok(res);
+    };
+
+    match &fc {
+        XPathFinalComponent::Attribute(attr) => {
+            for e in elements.into_iter() {
+                match e.attr(attr).await {
+                    WebDriverResult::Ok(Some(v)) => {
+                        res.push(WebElemMatch::Data(MaybeText::Text(v)));
+                    }
+                    WebDriverResult::Ok(None) => {
+                        continue;
+                    }
+                    WebDriverResult::Err(e) => {
+                        res.push(WebElemMatch::Error(
+                            OperatorApplicationError::new_s(
+                                format!("failed to match xpath: {e}"),
+                                op_id,
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+        XPathFinalComponent::Text => {
+            for e in elements.into_iter() {
+                match e.text().await {
+                    WebDriverResult::Ok(v) => {
+                        res.push(WebElemMatch::Data(MaybeText::Text(v)));
+                    }
+                    WebDriverResult::Err(e) => {
+                        res.push(WebElemMatch::Error(
+                            OperatorApplicationError::new_s(
+                                format!("failed to match xpath: {e}"),
+                                op_id,
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(res)
 }
 
 fn find_all_by_xpath(
-    xpath: &str,
+    xpath: &UserXPath,
     c: &dyn CustomData,
+    op_id: OperatorId,
 ) -> Result<XPathMatchResult, String> {
     if let Some(window) = c.downcast_ref::<SeleniumWindow>() {
         let win = &window.window_handle;
@@ -258,7 +399,12 @@ fn find_all_by_xpath(
             .runtime
             .block_on(async {
                 wad.switch_to_window(win).await?;
-                wad.find_all(thirtyfour::By::XPath(xpath)).await
+                find_xpath_query(
+                    ElementQuerySource::Driver(wad.driver.handle.clone()),
+                    xpath,
+                    op_id,
+                )
+                .await
             })
             .map(|v| XPathMatchResult {
                 instance: window.instance.clone(),
@@ -274,14 +420,19 @@ fn find_all_by_xpath(
         let inst = &mut *elem.instance.lock().unwrap();
         let wad = &mut inst.window_aware_driver;
         let src_elem = WebElement {
-            element_id: elem.element_id.clone(),
+            element_id: elem.elem_id.clone(),
             handle: wad.driver.handle.clone(),
         };
         let res: WebDriverResult<_> = inst
             .runtime
             .block_on(async {
                 wad.switch_to_window(win).await?;
-                src_elem.find_all(thirtyfour::By::XPath(xpath)).await
+                find_xpath_query(
+                    ElementQuerySource::Element(src_elem),
+                    xpath,
+                    op_id,
+                )
+                .await
             })
             .map(|v| XPathMatchResult {
                 instance: elem.instance.clone(),

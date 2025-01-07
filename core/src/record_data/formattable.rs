@@ -27,6 +27,7 @@ use crate::{
         escaped_writer::EscapedWriter,
         int_string_conversions::i64_digits,
         lazy_lock_guard::LazyRwLockGuard,
+        maybe_text::MaybeTextRef,
         string_store::StringStore,
         text_write::{MaybeTextWrite, TextWrite, TextWriteIoAdapter},
         MAX_UTF8_CHAR_LEN,
@@ -965,6 +966,62 @@ pub fn format_bytes_raw(
 ) -> std::io::Result<()> {
     // TODO: proper raw encoding
     format_bytes(&mut TextWriteIoAdapter(w), v)
+}
+pub fn format_maybe_text_raw(
+    w: &mut dyn MaybeTextWrite,
+    fmt: PrettyPrintFormat,
+    data: MaybeTextRef,
+) -> std::io::Result<()> {
+    match &data {
+        MaybeTextRef::Text(t) => {
+            if fmt == PrettyPrintFormat::Regular {
+                return w.write_all_text(t);
+            }
+            w.write_all_text("\"")?;
+            let mut ew = EscapedWriter::new(w, b'"');
+            TextWrite::write_all_text(&mut ew, t)?;
+            ew.into_inner().unwrap().write_all_text("\"")
+        }
+        MaybeTextRef::Bytes(b) => {
+            if fmt == PrettyPrintFormat::Regular {
+                return std::io::Write::write_all(w, b);
+            }
+            w.write_all_text("\"")?;
+            let mut ew = EscapedWriter::new(w, b'"');
+            std::io::Write::write_all(&mut ew, b)?;
+            ew.into_inner().unwrap().write_all_text("\"")
+        }
+    }
+}
+
+pub fn format_maybe_text(
+    w: &mut dyn TextWrite,
+    fmt: PrettyPrintFormat,
+    data: MaybeTextRef,
+) -> std::io::Result<()> {
+    match data {
+        MaybeTextRef::Text(t) => {
+            if fmt == PrettyPrintFormat::Regular {
+                return w.write_all_text(t);
+            }
+            w.write_all_text("\"")?;
+            let mut ew = EscapedWriter::new(w, b'"');
+            TextWrite::write_all_text(&mut ew, t)?;
+            ew.into_inner().unwrap().write_all_text("\"")
+        }
+        MaybeTextRef::Bytes(b) => {
+            if fmt == PrettyPrintFormat::Regular {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "byte sequence isn't valid utf-8",
+                ));
+            }
+            w.write_all_text("\"")?;
+            let mut ew = EscapedWriter::new(w, b'"');
+            std::io::Write::write_all(&mut ew, b)?;
+            ew.into_inner().unwrap().write_all_text("\"")
+        }
+    }
 }
 
 pub fn format_quoted_string_raw(
