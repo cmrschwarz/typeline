@@ -271,14 +271,20 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             | TokenKind::Equals
             | TokenKind::DoubleEquals => return Ok(lhs),
         };
+
+        let prec = binary_op.prec();
+        if prec < min_prec {
+            return Ok(lhs);
+        }
+
         self.lexer.drop_token();
-        Ok(Expr::OpBinary(
+
+        let expr = Expr::OpBinary(
             binary_op,
-            Box::new([
-                lhs,
-                self.parse_expression(binary_op.prec().max(min_prec))?,
-            ]),
-        ))
+            Box::new([lhs, self.parse_expression(prec.max(min_prec))?]),
+        );
+
+        self.parse_expression_after_value(expr, min_prec)
     }
 
     fn parse_parenthesized_expr(

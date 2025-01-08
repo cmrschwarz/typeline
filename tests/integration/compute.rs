@@ -1,3 +1,4 @@
+use rstest::rstest;
 use typeline::{
     operators::{
         compute::create_op_compute, format::create_op_format,
@@ -55,5 +56,20 @@ fn cast_to_int() -> Result<(), TypelineError> {
         .add_op(create_op_compute("int(_)")?)
         .run_collect_as::<i64>()?;
     assert_eq!(res, &[0, 1, 2, 3, 4, 5, 6]);
+    Ok(())
+}
+
+#[rstest]
+#[case("2**10+1", 1025)]
+#[case("2**10+1*2", 1026)]
+#[case("2**(10+1)*2", 4096)]
+fn precedence(
+    #[case] expr: &str,
+    #[case] expected: i64,
+) -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_compute(expr)?)
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, &[expected]);
     Ok(())
 }
