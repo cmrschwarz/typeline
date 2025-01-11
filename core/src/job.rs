@@ -610,14 +610,8 @@ impl<'a> Job<'a> {
                     input_field = field_id;
                 } else {
                     let ms = &self.job_data.match_set_mgr.match_sets[ms_id];
-                    let actor = ActorRef::Unconfirmed(
-                        ms.action_buffer.borrow().peek_next_actor_id(),
-                    );
-                    input_field = self.job_data.field_mgr.add_field(
-                        &self.job_data.match_set_mgr,
-                        ms_id,
-                        actor,
-                    );
+                    input_field =
+                        self.job_data.match_set_mgr.get_dummy_field(ms_id);
                     self.job_data.scope_mgr.insert_field_name(
                         ms.active_scope,
                         op.key_interned.unwrap(),

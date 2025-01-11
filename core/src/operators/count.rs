@@ -93,6 +93,7 @@ impl Operator for OpCount {
 
 impl Transform<'_> for TfCount {
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
+        // TODO: propagate errors
         let (batch_size, ps) = jd.tf_mgr.claim_batch(tf_id);
 
         let mut iter =

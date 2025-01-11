@@ -53,6 +53,14 @@ pub fn add_terminator(sess: &mut Job, last_tf_id: TransformId) -> TransformId {
 }
 
 impl<'a> Transform<'a> for TfTerminator {
+    fn display_name(
+        &self,
+        _jd: &JobData,
+        _tf_id: TransformId,
+    ) -> super::transform::DefaultTransformName {
+        // explicit impl since this has no op_id
+        "terminator".into()
+    }
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
         let (batch_size, ps) = jd.tf_mgr.claim_all(tf_id);
         let tf = &jd.tf_mgr.transforms[tf_id];

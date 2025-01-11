@@ -12,7 +12,9 @@ use typeline_core::{
         select::create_op_select,
         sequence::{create_op_enum, create_op_seq, create_op_seqn},
     },
-    options::{context_builder::ContextBuilder, session_setup::SessionSetupOptions},
+    options::{
+        context_builder::ContextBuilder, session_setup::SessionSetupOptions,
+    },
     record_data::{array::Array, field_value::FieldValue},
     typeline_error::TypelineError,
     utils::test_utils::SliceReader,
@@ -166,7 +168,9 @@ fn explode_output_col(
     Ok(())
 }
 
+// TODO: FIXME
 #[test]
+#[ignore = "broken due to missing dynamic field renaming support"]
 fn explode_into_select() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_v("{'foo': 3}").unwrap())

@@ -162,7 +162,9 @@ nm0000019,Federico Fellini,1920,1993,writer;director;actor,tt0056801;tt0050783;t
 #[rstest]
 #[case(7)]
 #[case(2)]
-fn imdb_actor_count(#[case] batch_size: usize) -> Result<(), TypelineError> {
+fn imdb_director_count(
+    #[case] batch_size: usize,
+) -> Result<(), TypelineError> {
     let target =
         MutexedReadableTargetOwner::new(Cursor::new(IMDB_CSV_EXAMPLE));
 
@@ -170,7 +172,7 @@ fn imdb_actor_count(#[case] batch_size: usize) -> Result<(), TypelineError> {
         .set_batch_size(batch_size)
         .unwrap()
         .add_op(create_op_csv(target.create_target(), true, false))
-        .add_op(create_op_select("_4"))
+        .add_op(create_op_select("primaryProfession"))
         .add_op(create_op_foreach([
             create_op_regex_with_opts(
                 "(?<>.*?)(;|$)",
@@ -179,12 +181,12 @@ fn imdb_actor_count(#[case] batch_size: usize) -> Result<(), TypelineError> {
                     ..Default::default()
                 },
             )?,
-            create_op_regex("actor|actress")?,
+            create_op_regex("director|writer")?,
             create_op_head(1),
         ]))
         .add_op(create_op_count())
         .run_collect_as::<i64>()?;
-    assert_eq!(res, [19]);
+    assert_eq!(res, [7]);
     Ok(())
 }
 
