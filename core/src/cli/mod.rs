@@ -168,6 +168,11 @@ fn try_parse_as_special_op<'a>(
         src.next();
         return Ok(true);
     }
+    if *arg == b"--debug-ast" {
+        res.debug_ast = true;
+        src.next();
+        return Ok(true);
+    }
     Ok(false)
 }
 
@@ -1154,6 +1159,7 @@ pub fn parse_call_expr<'a>(
 #[derive(Default)]
 pub struct CliArgumentData {
     pub repl: bool,
+    pub debug_ast: bool,
     pub args: Vec<Argument>,
 }
 

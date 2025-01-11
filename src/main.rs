@@ -1,13 +1,17 @@
 use ref_cast::RefCast;
-use std::{process::ExitCode, sync::Arc};
+use std::{io::Write, process::ExitCode, sync::Arc};
 use typeline::{
+    self,
     cli::{collect_env_args, parse_cli_args_form_vec},
     context::Context,
     operators::field_value_sink::FieldValueSinkHandle,
     options::session_setup::{SessionSetupData, SessionSetupOptions},
-    record_data::record_set::RecordSet,
+    record_data::{
+        formattable::{Formattable, FormattingContext},
+        record_set::RecordSet,
+    },
     typeline_error::TypelineError,
-    utils::index_slice::IndexSlice,
+    utils::{index_slice::IndexSlice, text_write::TextWriteIoAdapter},
     DEFAULT_EXTENSION_REGISTRY,
 };
 
@@ -48,6 +52,18 @@ fn run() -> Result<bool, String> {
 
     if cli_data.repl {
         setup_opts.output_storage = Some(FieldValueSinkHandle::new_rle());
+    }
+    if cli_data.debug_ast {
+        let mut fc = FormattingContext::default();
+        let mut out = std::io::stderr().lock();
+        _ = out.write(b"[");
+        for (i, arg) in cli_data.args.iter().enumerate() {
+            if i > 0 {
+                _ = out.write(b", ");
+            }
+            _ = arg.format(&mut fc, &mut TextWriteIoAdapter(&mut out));
+        }
+        _ = out.write(b"]\n");
     }
 
     let mut sess = SessionSetupData::new(setup_opts.clone());
