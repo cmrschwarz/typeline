@@ -59,6 +59,7 @@ serde_json = { version = "1.0.133", optional = true }
 handlebars = { version = "6.2.0", features = [
     "string_helpers",
 ], optional = true }
+yoke = {version="0.7.5",features = ["default", "derive"] }
 
 
 [dependencies.bitvec]
@@ -68,7 +69,7 @@ features = ["std"]
 default-features = false
 # use version with fixed miri for local development
 git = "https://github.com/djkoloski/bitvec"
-branch = "fix_miri" 
+branch = "fix_miri"
 
 # deps for repl mode:
 [dependencies.reedline]

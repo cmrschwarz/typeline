@@ -279,10 +279,13 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
 
         self.lexer.drop_token();
 
-        let expr = Expr::OpBinary(
-            binary_op,
-            Box::new([lhs, self.parse_expression(prec.max(min_prec))?]),
-        );
+        let expr = Expr::OpBinary {
+            kind: binary_op,
+            children: Box::new([
+                lhs,
+                self.parse_expression(prec.max(min_prec))?,
+            ]),
+        };
 
         self.parse_expression_after_value(expr, min_prec)
     }
@@ -601,10 +604,10 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                 })
             }
         };
-        Ok(Expr::OpUnary(
-            unary_op,
-            Box::new(self.parse_expression(unary_op.prec())?),
-        ))
+        Ok(Expr::OpUnary {
+            kind: unary_op,
+            child: Box::new(self.parse_expression(unary_op.prec())?),
+        })
     }
 
     fn parse_symbol_identifier(&mut self, ident: &'i str) -> Expr {
@@ -733,7 +736,10 @@ mod test {
             "1+1",
             [],
             [],
-            Expr::OpBinary(BinaryOpKind::Add, Box::new([one.clone(), one])),
+            Expr::OpBinary {
+                kind: BinaryOpKind::Add,
+                children: Box::new([one.clone(), one]),
+            },
         )
     }
 
@@ -743,16 +749,16 @@ mod test {
             "1+-2",
             [],
             [],
-            Expr::OpBinary(
-                BinaryOpKind::Add,
-                Box::new([
+            Expr::OpBinary {
+                kind: BinaryOpKind::Add,
+                children: Box::new([
                     Expr::Literal(FieldValue::Int(1)),
-                    Expr::OpUnary(
-                        UnaryOpKind::UnaryMinus,
-                        Box::new(Expr::Literal(FieldValue::Int(2))),
-                    ),
+                    Expr::OpUnary {
+                        kind: UnaryOpKind::UnaryMinus,
+                        child: Box::new(Expr::Literal(FieldValue::Int(2))),
+                    },
                 ]),
-            ),
+            },
         )
     }
 
@@ -762,22 +768,24 @@ mod test {
             "1+-2*3",
             [],
             [],
-            Expr::OpBinary(
-                BinaryOpKind::Add,
-                Box::new([
+            Expr::OpBinary {
+                kind: BinaryOpKind::Add,
+                children: Box::new([
                     Expr::Literal(FieldValue::Int(1)),
-                    Expr::OpUnary(
-                        UnaryOpKind::UnaryMinus,
-                        Box::new(Expr::OpBinary(
-                            BinaryOpKind::Multiply,
-                            Box::new([
-                                Expr::Literal(FieldValue::Int(2)),
-                                Expr::Literal(FieldValue::Int(3)),
-                            ]),
-                        )),
-                    ),
+                    Expr::OpBinary {
+                        kind: BinaryOpKind::Multiply,
+                        children: Box::new([
+                            Expr::OpUnary {
+                                kind: UnaryOpKind::UnaryMinus,
+                                child: Box::new(Expr::Literal(
+                                    FieldValue::Int(2),
+                                )),
+                            },
+                            Expr::Literal(FieldValue::Int(3)),
+                        ]),
+                    },
                 ]),
-            ),
+            },
         )
     }
 }

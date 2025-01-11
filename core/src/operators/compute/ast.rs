@@ -129,8 +129,14 @@ pub enum Expr {
         ident_id: IdentId,
         access_idx: AccessIdx,
     },
-    OpUnary(UnaryOpKind, Box<Expr>),
-    OpBinary(BinaryOpKind, Box<[Expr; 2]>),
+    OpUnary {
+        kind: UnaryOpKind,
+        child: Box<Expr>,
+    },
+    OpBinary {
+        kind: BinaryOpKind,
+        children: Box<[Expr; 2]>,
+    },
     IfExpr(Box<IfExpr>),
     Block(Block),
     Object(Box<[(Expr, Option<Expr>)]>),

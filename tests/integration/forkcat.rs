@@ -22,8 +22,9 @@ use typeline_ext_utils::dup::create_op_dup;
 fn empty_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_forkcat([[]]))
+        .add_op(create_op_format("{:??}")?)
         .run_collect_stringified()?;
-    assert_eq!(res, ["null"]);
+    assert_eq!(res, ["undefined"]);
     Ok(())
 }
 

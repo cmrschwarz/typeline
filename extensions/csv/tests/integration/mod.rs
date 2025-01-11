@@ -187,3 +187,16 @@ fn imdb_actor_count(#[case] batch_size: usize) -> Result<(), TypelineError> {
     assert_eq!(res, [19]);
     Ok(())
 }
+
+#[test]
+fn header_names_become_column_names() -> Result<(), TypelineError> {
+    const INPUT: &str = "a,b,c\nfoo,bar,baz\n1,2,3";
+    let target = MutexedReadableTargetOwner::new(Cursor::new(INPUT));
+
+    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+        .add_op(create_op_csv(target.create_target(), true, false))
+        .add_op(create_op_format("{a}{b}{c}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["foobarbaz", "123"]);
+    Ok(())
+}

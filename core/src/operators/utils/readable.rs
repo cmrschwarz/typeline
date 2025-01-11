@@ -54,8 +54,7 @@ impl Default for Buffer {
     }
 }
 
-pub struct CustomReaderBufAdapter<'a, R: Deref<Target = dyn CustomReader + 'a>>
-{
+pub struct CustomReaderBufAdapter<R: Deref<Target = dyn CustomReader>> {
     reader: R,
     buffer: Buffer,
 }
@@ -68,19 +67,15 @@ pub struct AquiredCustomReaderBufAdapter<'a> {
 pub enum ReadableTarget {
     Stdin,
     File(PathBuf),
-    Custom(Box<dyn CustomReadableTarget>),
-    CustomArc(Arc<dyn CustomReadableTarget>),
-    CustomBuf(Box<dyn CustomBufReadableTarget>),
-    CustomBufArc(Arc<dyn CustomBufReadableTarget>),
+    Custom(Arc<dyn CustomReadableTarget>),
+    CustomBuf(Arc<dyn CustomBufReadableTarget>),
 }
 
-pub enum AnyReader<'a> {
+pub enum AnyReader {
     Stdin,
     File(File),
-    Custom(Box<dyn CustomReader + 'a>),
-    CustomArc(Arc<dyn CustomReader + 'a>),
-    CustomBuf(Box<dyn CustomBufReader + 'a>),
-    CustomBufArc(Arc<dyn CustomBufReader + 'a>),
+    Custom(Arc<dyn CustomReader>),
+    CustomBuf(Arc<dyn CustomBufReader>),
     // option so we can take it and raise it as an error later
     IoError(Option<std::io::Error>),
 }
@@ -93,13 +88,11 @@ pub enum AquiredReader<'a> {
     IoError(&'a Option<std::io::Error>),
 }
 
-pub enum AnyBufReader<'a> {
+pub enum AnyBufReader {
     Stdin,
     BufferedFile(BufReader<File>),
-    Custom(CustomReaderBufAdapter<'a, Box<dyn CustomReader + 'a>>),
-    CustomArc(CustomReaderBufAdapter<'a, Arc<dyn CustomReader + 'a>>),
-    CustomBuf(Box<dyn CustomBufReader + 'a>),
-    CustomBufArc(Arc<dyn CustomBufReader + 'a>),
+    Custom(CustomReaderBufAdapter<Arc<dyn CustomReader>>),
+    CustomBuf(Arc<dyn CustomBufReader>),
     // option so we can take it and raise it as an error later
     IoError(Option<std::io::Error>),
 }
@@ -115,13 +108,11 @@ pub enum AquiredBufReader<'a> {
 
 pub struct MutexedReadableTargetOwner<W: Read>(Arc<MutexedReadableTarget<W>>);
 
-pub struct MutexedReadableTarget<W: Read>(pub parking_lot::Mutex<W>);
+pub struct MutexedReadableTarget<W: Read>(pub Arc<parking_lot::Mutex<W>>);
 
-pub struct MutexedReader<'a, W: Read>(pub &'a parking_lot::Mutex<W>);
+pub struct MutexedReader<W: Read>(pub Arc<parking_lot::Mutex<W>>);
 
-impl<'a, R: Deref<Target = dyn CustomReader + 'a>>
-    CustomReaderBufAdapter<'a, R>
-{
+impl<R: Deref<Target = dyn CustomReader>> CustomReaderBufAdapter<R> {
     pub fn aquire_buf_reader(&mut self) -> AquiredBufReader {
         match self.reader.aquire_reader() {
             AquiredReader::Stdin(stdin) => AquiredBufReader::Stdin(stdin),
@@ -150,27 +141,22 @@ pub fn adapt_reader(r: AnyReader) -> AnyBufReader {
             reader: c,
             buffer: Buffer::default(),
         }),
-        AnyReader::CustomArc(c) => {
-            AnyBufReader::CustomArc(CustomReaderBufAdapter {
-                reader: c,
-                buffer: Buffer::default(),
-            })
-        }
         AnyReader::CustomBuf(c) => AnyBufReader::CustomBuf(c),
-        AnyReader::CustomBufArc(c) => AnyBufReader::CustomBufArc(c),
         AnyReader::IoError(e) => AnyBufReader::IoError(e),
     }
 }
 
 impl<R: Read + Send + 'static> MutexedReadableTargetOwner<R> {
     pub fn new(reader: R) -> Self {
-        Self(Arc::new(MutexedReadableTarget(Mutex::new(reader))))
+        Self(Arc::new(MutexedReadableTarget(Arc::new(Mutex::new(
+            reader,
+        )))))
     }
     pub fn get(&self) -> MutexGuard<RawMutex, R> {
         self.0 .0.lock()
     }
     pub fn create_target(&self) -> ReadableTarget {
-        ReadableTarget::CustomArc(self.0.clone())
+        ReadableTarget::Custom(self.0.clone())
     }
 }
 impl<R: Read + Send + 'static> CustomReadableTarget
@@ -180,22 +166,20 @@ impl<R: Read + Send + 'static> CustomReadableTarget
         String::from("<custom readable>")
     }
     fn create_reader(&self) -> std::io::Result<AnyReader> {
-        Ok(AnyReader::Custom(Box::new(MutexedReader(&self.0))))
+        Ok(AnyReader::Custom(Arc::new(MutexedReader(self.0.clone()))))
     }
 }
 
-impl<'a, W: Read + Send + 'static> CustomReadableTarget
-    for MutexedReader<'a, W>
-{
+impl<W: Read + Send + 'static> CustomReadableTarget for MutexedReader<W> {
     fn target_path(&self) -> String {
         String::from("<custom readable>")
     }
     fn create_reader(&self) -> std::io::Result<AnyReader> {
-        Ok(AnyReader::Custom(Box::new(MutexedReader(self.0))))
+        Ok(AnyReader::Custom(Arc::new(MutexedReader(self.0.clone()))))
     }
 }
 
-impl<'a, W: Read + Send + 'static> CustomReader for MutexedReader<'a, W> {
+impl<W: Read + Send + 'static> CustomReader for MutexedReader<W> {
     fn aquire_reader(&self) -> AquiredReader {
         AquiredReader::MutexLock(MutexGuard::map(self.0.lock(), |g| {
             g as &mut dyn Read
@@ -211,9 +195,7 @@ impl ReadableTarget {
                 path_buf.to_string_lossy().to_string()
             }
             ReadableTarget::Custom(c) => c.target_path(),
-            ReadableTarget::CustomArc(c) => c.target_path(),
             ReadableTarget::CustomBuf(c) => c.target_path(),
-            ReadableTarget::CustomBufArc(c) => c.target_path(),
         }
     }
     pub fn create_reader(&self) -> std::io::Result<AnyReader> {
@@ -223,9 +205,7 @@ impl ReadableTarget {
                 Ok(AnyReader::File(File::open(path)?))
             }
             ReadableTarget::Custom(c) => c.create_reader(),
-            ReadableTarget::CustomArc(c) => c.create_reader(),
             ReadableTarget::CustomBuf(c) => c.create_reader(),
-            ReadableTarget::CustomBufArc(c) => c.create_reader(),
         }
     }
     pub fn create_reader_hide_error(&self) -> AnyReader {
@@ -241,11 +221,7 @@ impl ReadableTarget {
                 BufReader::new(File::open(path)?),
             )),
             ReadableTarget::Custom(c) => Ok(adapt_reader(c.create_reader()?)),
-            ReadableTarget::CustomArc(c) => {
-                Ok(adapt_reader(c.create_reader()?))
-            }
             ReadableTarget::CustomBuf(c) => c.create_buf_reader(),
-            ReadableTarget::CustomBufArc(c) => c.create_buf_reader(),
         }
     }
     pub fn create_buf_reader_hide_error(&self) -> AnyBufReader {
@@ -256,16 +232,14 @@ impl ReadableTarget {
     }
 }
 
-impl<'a> AnyReader<'a> {
+impl AnyReader {
     pub fn aquire(&mut self) -> AquiredReader {
         match self {
             AnyReader::Stdin => AquiredReader::Stdin(std::io::stdin().lock()),
             AnyReader::File(f) => AquiredReader::File(f),
             AnyReader::Custom(f) => f.aquire_reader(),
-            AnyReader::CustomArc(f) => f.aquire_reader(),
             AnyReader::IoError(f) => AquiredReader::IoError(f),
             AnyReader::CustomBuf(f) => f.aquire_reader(),
-            AnyReader::CustomBufArc(f) => f.aquire_reader(),
         }
     }
 }
@@ -284,7 +258,7 @@ impl Read for AquiredReader<'_> {
     }
 }
 
-impl<'a> AnyBufReader<'a> {
+impl AnyBufReader {
     pub fn aquire(&mut self) -> AquiredBufReader {
         match self {
             AnyBufReader::Stdin => {
@@ -292,9 +266,7 @@ impl<'a> AnyBufReader<'a> {
             }
             AnyBufReader::BufferedFile(b) => AquiredBufReader::BufferedFile(b),
             AnyBufReader::Custom(c) => c.aquire_buf_reader(),
-            AnyBufReader::CustomArc(c) => c.aquire_buf_reader(),
             AnyBufReader::CustomBuf(c) => c.aquire_buf_reader(),
-            AnyBufReader::CustomBufArc(c) => c.aquire_buf_reader(),
             AnyBufReader::IoError(f) => AquiredBufReader::IoError(f),
         }
     }

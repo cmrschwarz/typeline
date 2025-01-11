@@ -1,9 +1,9 @@
 use core::str;
 use std::{
-    borrow::BorrowMut,
     cell::{RefCell, RefMut},
     io::{BufRead, Write},
     path::PathBuf,
+    sync::Mutex,
 };
 
 use memchr::memchr2;
@@ -16,7 +16,7 @@ use typeline_core::{
         BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
     },
     operators::{
-        errors::OperatorApplicationError,
+        errors::{OperatorApplicationError, OperatorSetupError},
         operator::{
             OffsetInChain, Operator, OperatorDataId, OperatorId,
             OperatorOffsetInChain, PreboundOutputsMap, TransformInstatiation,
@@ -36,44 +36,182 @@ use typeline_core::{
     },
     typeline_error::TypelineError,
     utils::{
+        counting_writer::RememberLastCharacterWriter,
         indexing_type::IndexingType,
         int_string_conversions::usize_to_str,
         stable_vec::StableVec,
-        string_store::StringStoreEntry,
+        string_store::{StringStore, StringStoreEntry},
         temp_vec::TransmutableContainer,
-        test_utils::{read_until_2, read_until_match},
+        test_utils::{read_until_2, read_until_3},
     },
 };
+
+// HACK
+// TODO: proper dynamic field management
+const INITIAL_OUTPUT_COUNT: usize = 6;
 
 pub struct OpCsv {
     header: bool,
     disable_quotes: bool,
     var_names: Vec<StringStoreEntry>,
     unused_fields: Vec<bool>,
-    // TODO: add form that takes this from input
     input: ReadableTarget,
+    reader: Mutex<Option<AnyBufReader>>,
 }
 
-pub enum Input<'a> {
+pub enum Input {
     NotStarted,
-    Running(AnyBufReader<'a>),
+    Running(AnyBufReader),
     Error(OperatorApplicationError),
+}
+
+struct PendingField {
+    name: String,
+    data: RefCell<FieldData>,
 }
 
 pub struct TfCsv<'a> {
     op: &'a OpCsv,
-    input: Input<'a>,
+    input: Input,
     output_fields: Vec<FieldId>,
     inserters: Vec<VaryingTypeInserter<RefMut<'static, FieldData>>>,
-    additional_fields: StableVec<RefCell<FieldData>>,
+    additional_fields: StableVec<PendingField>,
     lines_produced: usize,
     actor_id: ActorId,
     group_iter: GroupTrackIterRef,
 }
 
-// HACK
-// TODO: proper dynamic field management
-const INITIAL_OUTPUT_COUNT: usize = 6;
+struct ReadStatus {
+    lines_produced: usize,
+    col_idx: usize,
+    done: bool,
+}
+
+struct CsvReadOptions<'a> {
+    unused_fields: &'a [bool],
+    disable_quotes: bool,
+    prefix_nulls: usize,
+    lines_max: usize,
+}
+
+enum CsvTerminal {
+    Comma,
+    Newline,
+    Eof,
+}
+
+fn parse_quoted(
+    reader: &'_ mut impl BufRead,
+    out: &mut Vec<u8>,
+) -> Result<CsvTerminal, std::io::Error> {
+    reader.consume(1);
+    loop {
+        let read = read_until_3(reader, out, b',', b'\"', b'\n')?;
+        if read == 0 {
+            // TODO: add strict mode?
+            return Ok(CsvTerminal::Eof);
+        }
+        let mut len = out.len();
+        if out[len - 1] == b'"' {
+            let buf = reader.fill_buf()?;
+            len = buf.len();
+            if len == 0 {
+                out.truncate(len - 1);
+                return Ok(CsvTerminal::Eof);
+            }
+            if buf[0] == b'"' {
+                reader.consume(1);
+                continue;
+            }
+            if buf[0] == b',' {
+                out.truncate(len - 1);
+                reader.consume(1);
+                return Ok(CsvTerminal::Comma);
+            }
+            continue; // TODO: add strict mode?
+        }
+        if out[len - 1] == b'\n' {
+            if read > 1 && out[len - 2] == b'\r' {
+                out.truncate(len - 2);
+            } else {
+                out.truncate(len - 1);
+            }
+            return Ok(CsvTerminal::Newline);
+        }
+        debug_assert_eq!(out[out.len() - 1], b',');
+        out.truncate(len - 1);
+        return Ok(CsvTerminal::Comma);
+    }
+}
+
+fn parse_unquoted(
+    reader: &'_ mut impl BufRead,
+    out: &mut Vec<u8>,
+) -> Result<CsvTerminal, std::io::Error> {
+    let read = read_until_2(reader, out, b',', b'\n')?;
+    if read == 0 {
+        return Ok(CsvTerminal::Eof);
+    }
+    let len = out.len();
+    if out[len - 1] == b'\n' {
+        if read > 1 && out[len - 2] == b'\r' {
+            out.truncate(len - 2);
+        } else {
+            out.truncate(len - 1);
+        }
+        return Ok(CsvTerminal::Newline);
+    }
+    debug_assert_eq!(out[len - 1], b',');
+    out.truncate(len - 1);
+    Ok(CsvTerminal::Comma)
+}
+
+fn process_header(
+    ss: &mut StringStore,
+    reader: &'_ mut impl BufRead,
+    var_names: &mut Vec<StringStoreEntry>,
+) -> Result<(), std::io::Error> {
+    loop {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
+            return Ok(());
+        }
+        let mut header_name = Vec::new();
+        let terminal = if chunk[0] == b'"' {
+            parse_quoted(reader, &mut header_name)?
+        } else {
+            parse_unquoted(reader, &mut header_name)?
+        };
+        let name = String::from_utf8(header_name).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "header name is invalid utf-8: {}",
+                    String::from_utf8_lossy(e.as_bytes())
+                ),
+            )
+        })?;
+        var_names.push(ss.intern_moved(name));
+        match terminal {
+            CsvTerminal::Comma => {
+                continue;
+            }
+            CsvTerminal::Newline | CsvTerminal::Eof => break,
+        }
+    }
+    Ok(())
+}
+
+fn skip_header(reader: &mut impl BufRead) -> Result<(), std::io::Error> {
+    let mut lcw = RememberLastCharacterWriter::default();
+    loop {
+        read_until_2(reader, &mut lcw, b'"', b'\n')?;
+        if lcw.0.is_none() || lcw.0 == Some(b'\n') {
+            return Ok(());
+        }
+        todo!("parse quoted");
+    }
+}
 
 impl Operator for OpCsv {
     fn default_name(
@@ -83,7 +221,15 @@ impl Operator for OpCsv {
     }
 
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
-        INITIAL_OUTPUT_COUNT
+        self.var_names.len()
+    }
+
+    fn output_field_kind(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> typeline_core::operators::operator::OutputFieldKind {
+        typeline_core::operators::operator::OutputFieldKind::Unconfigured
     }
 
     fn setup(
@@ -94,11 +240,34 @@ impl Operator for OpCsv {
         offset_in_chain: OperatorOffsetInChain,
         span: Span,
     ) -> Result<OperatorId, TypelineError> {
-        for i in 0..INITIAL_OUTPUT_COUNT {
-            let var_name = sess.string_store.intern_cloned(&format!("_{i}"));
-            self.var_names.push(var_name);
+        let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
+        if self.header {
+            let reader = self
+                .input
+                .create_buf_reader()
+                .and_then(|mut r| {
+                    process_header(
+                        &mut sess.string_store,
+                        &mut r.aquire(),
+                        &mut self.var_names,
+                    )?;
+                    Ok(r)
+                })
+                .map_err(|e| {
+                    OperatorSetupError::new_s(
+                        format!("failed to open file: {e}"),
+                        op_id,
+                    )
+                })?;
+            self.reader.lock().unwrap().replace(reader);
+        } else {
+            for i in 0..INITIAL_OUTPUT_COUNT {
+                let var_name =
+                    sess.string_store.intern_cloned(&format!("_{i}"));
+                self.var_names.push(var_name);
+            }
         }
-        Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
+        Ok(op_id)
     }
 
     fn has_dynamic_outputs(
@@ -134,8 +303,8 @@ impl Operator for OpCsv {
         _sess: &SessionData,
         _op_id: OperatorId,
     ) {
-        for i in 0..INITIAL_OUTPUT_COUNT {
-            ld.add_var_name(self.var_names[i]);
+        for &vn in &self.var_names {
+            ld.add_var_name(vn);
         }
     }
 
@@ -154,7 +323,9 @@ impl Operator for OpCsv {
         _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
+        let actor_id = job
+            .job_data
+            .add_actor_for_tf_state_ignore_output_field(tf_state);
 
         let next_actor = job.job_data.match_set_mgr.match_sets
             [tf_state.match_set_id]
@@ -162,28 +333,35 @@ impl Operator for OpCsv {
             .borrow()
             .peek_next_actor_id();
 
-        let mut output_fields = vec![tf_state.output_field];
-        for _ in 1..INITIAL_OUTPUT_COUNT {
-            output_fields.push(job.job_data.field_mgr.add_field(
+        let input = if let Some(rdr) = self.reader.lock().unwrap().take() {
+            Input::Running(rdr)
+        } else {
+            Input::NotStarted
+        };
+
+        let mut output_fields = vec![];
+        for &name in &self.var_names {
+            let field_id = job.job_data.field_mgr.add_field(
                 &job.job_data.match_set_mgr,
                 tf_state.match_set_id,
                 ActorRef::Unconfirmed(next_actor),
-            ));
-        }
-        for (i, &field_id) in output_fields.iter().enumerate() {
+            );
+            output_fields.push(field_id);
             job.job_data.scope_mgr.insert_field_name(
                 job.job_data.match_set_mgr.match_sets[tf_state.match_set_id]
                     .active_scope,
-                self.var_names[i],
+                name,
                 field_id,
             );
         }
+
+        tf_state.output_field = output_fields[0];
 
         TransformInstatiation::Single(Box::new(TfCsv {
             op: self,
             inserters: Default::default(),
             output_fields,
-            input: Input::NotStarted,
+            input,
             lines_produced: 0,
             actor_id,
             additional_fields: StableVec::new(),
@@ -235,8 +413,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             self.output_fields.iter().copied(),
         );
 
-        let mut additional_inserters =
-            self.additional_fields.borrow_container();
+        let mut additional_fields = self.additional_fields.borrow_container();
         let mut inserters = self.inserters.borrow_container();
 
         for &f in &self.output_fields {
@@ -311,17 +488,32 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             done: false,
         };
 
-        match read_in_lines(
-            reader.aquire(),
-            &mut inserters,
-            &additional_inserters,
-            &self.op.unused_fields,
-            !header_processed,
-            self.op.disable_quotes,
-            iter.field_pos(),
-            target_batch_size,
-            &mut status,
-        ) {
+        let res = {
+            let mut rdr = reader.aquire();
+
+            let res = if !header_processed {
+                skip_header(&mut rdr)
+            } else {
+                Ok(())
+            };
+
+            res.and_then(|_| {
+                read_in_lines(
+                    &mut rdr,
+                    &mut inserters,
+                    &additional_fields,
+                    CsvReadOptions {
+                        unused_fields: &self.op.unused_fields,
+                        disable_quotes: self.op.disable_quotes,
+                        prefix_nulls: iter.field_pos(),
+                        lines_max: target_batch_size,
+                    },
+                    &mut status,
+                )
+            })
+        };
+
+        match res {
             Ok(()) => {
                 if status.col_idx != 0 {
                     debug_assert!(status.done);
@@ -381,54 +573,36 @@ impl<'a> Transform<'a> for TfCsv<'a> {
         self.lines_produced += status.lines_produced;
         drop(inserters);
 
-        if !additional_inserters.is_empty() {
-            let actor = jd.field_mgr.fields[self.output_fields[0]]
-                .borrow()
-                .first_actor
-                .get();
+        if !additional_fields.is_empty() {
+            let actor = ActorRef::Unconfirmed(self.actor_id + ActorId::one());
+
             let mut ssm = jd.session_data.string_store.write().unwrap();
-            for ins in additional_inserters.iter_mut() {
+            for ins in additional_fields.iter_mut() {
                 let field_id = jd.field_mgr.add_field_with_data(
                     &jd.match_set_mgr,
                     ms_id,
                     actor,
-                    ins.borrow_mut().take(),
+                    std::mem::take(&mut ins.data.borrow_mut()),
                 );
                 self.output_fields.push(field_id);
                 jd.scope_mgr.insert_field_name(
                     jd.match_set_mgr.match_sets[ms_id].active_scope,
-                    ssm.intern_cloned(&usize_to_str(self.output_fields.len())),
+                    ssm.intern_moved(std::mem::take(&mut ins.name)),
                     field_id,
                 );
             }
-            additional_inserters.clear();
+            additional_fields.clear();
         }
     }
 }
 
-struct ReadStatus {
-    lines_produced: usize,
-    col_idx: usize,
-    done: bool,
-}
-#[inline(always)]
-#[allow(clippy::too_many_arguments)]
-fn read_in_lines<'a, R: BufRead>(
-    mut reader: R,
+fn read_in_lines<'a>(
+    reader: &mut impl BufRead,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
-    additional_fields: &'a StableVec<RefCell<FieldData>>,
-    unused_fields: &[bool],
-    process_header: bool,
-    disable_quotes: bool,
-    prefix_nulls: usize,
-    lines_max: usize,
+    additional_fields: &'a StableVec<PendingField>,
+    opts: CsvReadOptions,
     status: &mut ReadStatus,
 ) -> Result<(), std::io::Error> {
-    if process_header {
-        read_until_match(&mut reader, &mut std::io::empty(), |buf| {
-            memchr::memchr(b'\n', buf)
-        })?;
-    }
     let mut offset;
     let mut buffer: &[u8];
     let mut newline = false;
@@ -459,7 +633,7 @@ fn read_in_lines<'a, R: BufRead>(
                 }
                 status.col_idx = 0;
                 status.lines_produced += 1;
-                if status.lines_produced == lines_max {
+                if status.lines_produced == opts.lines_max {
                     reader.consume(offset);
                     status.done = reader.fill_buf()?.is_empty();
                     return Ok(());
@@ -488,7 +662,7 @@ fn read_in_lines<'a, R: BufRead>(
                         &mut inserters[status.col_idx],
                         Some(b'\r'),
                         None,
-                        &mut reader,
+                        reader,
                         &mut newline,
                     )? {
                         status.done = true;
@@ -504,7 +678,7 @@ fn read_in_lines<'a, R: BufRead>(
             }
 
             loop {
-                if !disable_quotes && c == b'"' {
+                if !opts.disable_quotes && c == b'"' {
                     // todo: parse quoted text
                     unimplemented!();
                 }
@@ -526,8 +700,16 @@ fn read_in_lines<'a, R: BufRead>(
                 let val = &buffer[offset..val_end];
                 offset = cell_end + 1;
 
+                if status.col_idx >= inserters.len() {
+                    add_inserter(
+                        additional_fields,
+                        inserters,
+                        status,
+                        opts.prefix_nulls,
+                    );
+                }
                 let inserter = &mut inserters[status.col_idx];
-                if unused_fields.get(status.col_idx) == Some(&true) {
+                if opts.unused_fields.get(status.col_idx) == Some(&true) {
                     inserter.push_undefined(1, true);
                 } else if let Ok(v) = lexical_core::parse::<i64>(val) {
                     inserter.push_int(v, 1, true, false);
@@ -544,14 +726,6 @@ fn read_in_lines<'a, R: BufRead>(
                     continue 'newline;
                 }
 
-                if status.col_idx >= inserters.len() {
-                    add_inserter(
-                        additional_fields,
-                        inserters,
-                        status,
-                        prefix_nulls,
-                    );
-                }
                 if offset == buffer.len() {
                     reader.consume(offset);
                     continue 'refill;
@@ -562,7 +736,7 @@ fn read_in_lines<'a, R: BufRead>(
                 &mut inserters[status.col_idx],
                 None,
                 Some(offset),
-                &mut reader,
+                reader,
                 &mut newline,
             )?;
             status.col_idx += 1;
@@ -578,14 +752,17 @@ fn read_in_lines<'a, R: BufRead>(
 
 #[cold]
 fn add_inserter<'a>(
-    additional_fields: &'a StableVec<RefCell<FieldData>>,
+    additional_fields: &'a StableVec<PendingField>,
     inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
     status: &ReadStatus,
     prefix_nulls: usize,
 ) {
-    additional_fields.push(RefCell::default());
+    additional_fields.push(PendingField {
+        name: usize_to_str(inserters.len()).to_string(),
+        data: RefCell::default(),
+    });
     inserters.push(VaryingTypeInserter::new(
-        additional_fields.last().unwrap().borrow_mut(),
+        additional_fields.last().unwrap().data.borrow_mut(),
     ));
     inserters[status.col_idx]
         .push_null(prefix_nulls + status.lines_produced, false);
@@ -652,6 +829,7 @@ pub fn create_op_csv(
         unused_fields: Vec::new(),
         var_names: Vec::new(),
         disable_quotes,
+        reader: Mutex::new(None),
     })
 }
 

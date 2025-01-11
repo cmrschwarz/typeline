@@ -293,9 +293,8 @@ impl Compiler<'_> {
                 ident_id,
                 access_idx: access_index,
             } => self.reference_to_intermediate(ident_id, access_index),
-            Expr::OpUnary(kind, subexpr) => {
-                let mut subexpr_v =
-                    self.compile_expr_for_temp_target(*subexpr);
+            Expr::OpUnary { kind, child } => {
+                let mut subexpr_v = self.compile_expr_for_temp_target(*child);
                 let (ssa_id, temp_id) = self.claim_ssa_temporary();
                 self.instructions.push(Instruction::OpUnary {
                     kind,
@@ -311,8 +310,8 @@ impl Compiler<'_> {
                     release_after_use: true,
                 }
             }
-            Expr::OpBinary(kind, sub_exprs) => {
-                let [lhs, rhs] = *sub_exprs;
+            Expr::OpBinary { kind, children } => {
+                let [lhs, rhs] = *children;
                 let mut lhs = self.compile_expr_for_temp_target(lhs);
                 let mut rhs = self.compile_expr_for_temp_target(rhs);
                 let (ssa_id, temp_id) = self.claim_ssa_temporary();
@@ -526,8 +525,8 @@ impl Compiler<'_> {
                 });
                 self.release_intermediate(source);
             }
-            Expr::OpUnary(kind, subexpr) => {
-                let mut subexpr = self.compile_expr_for_temp_target(*subexpr);
+            Expr::OpUnary { kind, child } => {
+                let mut subexpr = self.compile_expr_for_temp_target(*child);
                 self.instructions.push(Instruction::OpUnary {
                     kind,
                     value: subexpr.take_value_accessed(
@@ -538,8 +537,8 @@ impl Compiler<'_> {
                 });
                 self.release_intermediate(subexpr);
             }
-            Expr::OpBinary(kind, sub_exprs) => {
-                let [lhs, rhs] = *sub_exprs;
+            Expr::OpBinary { kind, children } => {
+                let [lhs, rhs] = *children;
                 let mut lhs = self.compile_expr_for_temp_target(lhs);
                 let mut rhs = self.compile_expr_for_temp_target(rhs);
                 self.instructions.push(Instruction::OpBinary {

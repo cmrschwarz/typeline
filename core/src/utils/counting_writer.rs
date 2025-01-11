@@ -372,3 +372,18 @@ impl<R: Read> Read for CountingReader<R> {
         Ok(len)
     }
 }
+
+#[derive(Default, Clone)]
+pub struct RememberLastCharacterWriter(pub Option<u8>);
+impl std::io::Write for RememberLastCharacterWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(last) = buf.last() {
+            self.0 = Some(*last);
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}

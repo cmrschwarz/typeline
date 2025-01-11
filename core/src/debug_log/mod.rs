@@ -827,11 +827,9 @@ pub fn field_to_json(
 
     let mut field_name = String::new();
 
-    for (i, (&name, value)) in jd.scope_mgr.scopes
+    for (&name, value) in &jd.scope_mgr.scopes
         [jd.match_set_mgr.match_sets[field.match_set].active_scope]
         .values
-        .iter()
-        .enumerate()
     {
         let &ScopeValue::Field(sym_field_id) = value else {
             continue;
@@ -839,7 +837,7 @@ pub fn field_to_json(
         if sym_field_id != field_id {
             continue;
         }
-        if i > 0 {
+        if !field_name.is_empty() {
             field_name.push_str(" / ");
         }
         field_name
