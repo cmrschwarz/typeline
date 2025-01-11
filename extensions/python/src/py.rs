@@ -381,7 +381,10 @@ fn to_python_object<'a>(
             Ok(Some(s.into_pyobject(py).unwrap().into_any()))
         }
         FieldValueRef::Bytes(b) => Ok(Some(PyBytes::new(py, b).into_any())),
-        FieldValueRef::Argument(_) => todo!(),
+        FieldValueRef::Argument(a) => {
+            // TODO: decide whether or not we like this
+            to_python_object(a.value.as_ref(), py, lazy_string_store)
+        }
         FieldValueRef::OpDecl(_) => todo!(),
         FieldValueRef::Array(a) => {
             let res =

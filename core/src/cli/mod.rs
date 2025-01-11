@@ -28,6 +28,7 @@ use crate::{
         select::parse_op_select,
         sequence::{parse_op_seq, SequenceMode},
         to_str::parse_op_to_str,
+        transparent::parse_op_transparent,
     },
     options::{
         chain_settings::RationalsPrintMode, session_setup::SessionSetupData,
@@ -236,6 +237,7 @@ pub fn parse_operator_data(
         "callcc" => parse_op_call_concurrent(&expr)?,
         "macro" => parse_op_macro_def(sess, arg)?,
         "aggregate" => parse_op_aggregate(sess, arg)?,
+        "transparent" => parse_op_transparent(sess, arg)?,
         _ => {
             let ext_registry = sess.extensions.clone();
             for ext in &ext_registry.extensions {
@@ -349,7 +351,8 @@ pub fn parse_block_until_end<'a>(
     block_start: Span,
     source_scope: ScopeId,
 ) -> Result<Span, CliArgumentError> {
-    // TODO: support aggregates
+    let arg_count_start = args.len();
+    let mut append_group_start = None;
 
     while let Some((argv, span)) = src.peek() {
         if argv.first() == Some(&b']') && (argv.len() == 1 || argv[1] == b'@')
@@ -361,11 +364,38 @@ pub fn parse_block_until_end<'a>(
         }
         if argv == b"end" {
             let (_, end_span) = src.next().unwrap();
+
+            if let Some(append_group_start) = append_group_start {
+                let agg = create_aggregate(
+                    source_scope,
+                    args.drain(append_group_start..),
+                );
+                args.push(agg);
+            }
+
             return Ok(end_span);
         }
         let Some(expr) = parse_call_expr(src, source_scope)? else {
             break;
         };
+
+        if !expr.append_mode {
+            if let Some(append_group_start) = append_group_start.take() {
+                let agg = create_aggregate(
+                    source_scope,
+                    args.drain(append_group_start..),
+                );
+                args.push(agg);
+            }
+        }
+
+        if expr.append_mode && append_group_start.is_none() {
+            if args.len() == arg_count_start {
+                args.push(create_nop_arg(source_scope));
+            }
+            append_group_start = Some(args.len() - 1);
+        }
+
         args.push(expr.arg);
     }
     Err(CliArgumentError::new(
@@ -866,6 +896,15 @@ pub fn parse_list_after_start<'a>(
     while let Some((argv, span)) = src.next() {
         if argv.first() == Some(&b']') {
             let label = parse_list_end_with_label(argv, span)?;
+
+            if let Some(append_group_start) = append_group_start {
+                let agg = create_aggregate(
+                    source_scope,
+                    args.drain(append_group_start..),
+                );
+                args.push(agg);
+            }
+
             let list = Argument {
                 value: FieldValue::Array(Array::Argument(args)),
                 span: start_span.span_until(span).unwrap(),
@@ -905,7 +944,7 @@ pub fn parse_list_after_start<'a>(
         }
 
         if !modes.append_mode {
-            if let Some(append_group_start) = append_group_start {
+            if let Some(append_group_start) = append_group_start.take() {
                 let agg = create_aggregate(
                     source_scope,
                     args.drain(append_group_start..),
@@ -915,14 +954,15 @@ pub fn parse_list_after_start<'a>(
         }
 
         if modes.append_mode && append_group_start.is_none() {
-            append_group_start = Some(args.len());
             if args.is_empty() {
                 args.push(create_nop_arg(source_scope));
             }
+            append_group_start = Some(args.len() - 1);
         }
 
         args.push(arg);
     }
+
     Err(error_unterminated_list(start_span))
 }
 

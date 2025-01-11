@@ -188,10 +188,11 @@ impl Operator for OpMacroCall {
                 if let FieldValue::Array(arr) = arg.value {
                     arr
                 } else {
+                    // TODO: to string
                     return Err(OperatorSetupError::new_s(
                     format!(
-                        "error during macro instantiation: code block expected, macro returned argument[{}]",
-                        arg.value.kind()
+                        "error during macro instantiation: code block expected, macro returned argument[{:?}]",
+                        arg.value
                     ),
                     op_id,
                 )
@@ -199,8 +200,9 @@ impl Operator for OpMacroCall {
                 }
             }
             arg => {
+                // TODO: to string
                 return Err(OperatorSetupError::new_s(
-                format!("error during macro instantiation: code block expected, macro returned {}", arg.kind()),
+                format!("error during macro instantiation: code block expected, macro returned {:?}", arg),
                 op_id,
             )
             .into());
