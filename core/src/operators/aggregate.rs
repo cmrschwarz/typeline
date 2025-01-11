@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use crate::{
     chain::ChainId,
-    cli::call_expr::Span,
+    cli::call_expr::{Argument, Span},
     context::SessionData,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{LivenessData, OpOutputIdx, OperatorLivenessOutput},
@@ -25,12 +25,12 @@ use super::{
     transform::{Transform, TransformId, TransformState},
 };
 
-pub struct OpAggregator {
+pub struct OpAggregate {
     pub sub_ops_from_user: Vec<(Box<dyn Operator>, Span)>,
     pub sub_ops: IndexVec<OffsetInAggregation, OperatorId>,
 }
 
-pub const AGGREGATOR_DEFAULT_NAME: &str = "aggregator";
+pub const AGGREGATE_DEFAULT_NAME: &str = "aggregate";
 
 // TODO: rename this primitive to splitcat and support whole subchains
 // Gives input records to the first subchain that accepts it, concatenates the
@@ -47,7 +47,7 @@ pub const AGGREGATOR_DEFAULT_NAME: &str = "aggregator";
 //   hand it out to the current subchain.
 // - Once `input_done` is received, hand out the last record but `dup` it
 //   beforehand for any following subchains in case it is consumed.
-pub struct TfAggregatorHeader {
+pub struct TfAggregateHeader {
     pub curr_sub_tf_idx: usize,
     pub sub_tfs: Vec<TransformId>,
     pub elem_buffered: bool,
@@ -57,14 +57,34 @@ pub struct TfAggregatorHeader {
     pub trailer_tf_id: TransformId,
 }
 
-pub struct TfAggregatorTrailer {
+pub struct TfAggregateTrailer {
     header_tf_id: TransformId,
+}
+
+pub fn parse_op_aggregate(
+    sess: &mut SessionSetupData,
+    mut arg: Argument,
+) -> Result<Box<dyn Operator>, TypelineError> {
+    let mut sub_ops_from_user = Vec::new();
+    for arg in std::mem::take(arg.expect_arg_array_mut()?)
+        .into_iter()
+        .skip(1)
+    {
+        let span = arg.span;
+        let op = sess.parse_argument(arg)?;
+        sub_ops_from_user.push((op, span));
+    }
+
+    Ok(Box::new(OpAggregate {
+        sub_ops_from_user,
+        sub_ops: IndexVec::new(),
+    }))
 }
 
 pub fn create_op_aggregate(
     sub_ops: impl IntoIterator<Item = Box<dyn Operator>>,
 ) -> Box<dyn Operator> {
-    Box::new(OpAggregator {
+    Box::new(OpAggregate {
         sub_ops_from_user: sub_ops
             .into_iter()
             .map(|v| (v, Span::Generated))
@@ -79,9 +99,9 @@ pub fn create_op_aggregate_appending(
     create_op_aggregate(std::iter::once(create_op_nop_copy()).chain(sub_ops))
 }
 
-impl Operator for OpAggregator {
+impl Operator for OpAggregate {
     fn default_name(&self) -> super::operator::OperatorName {
-        AGGREGATOR_DEFAULT_NAME.into()
+        AGGREGATE_DEFAULT_NAME.into()
     }
 
     fn debug_op_name(&self) -> super::operator::OperatorName {
@@ -270,7 +290,7 @@ impl Operator for OpAggregator {
             &mut job.job_data,
             &mut job.transform_data,
             tf_state.clone(),
-            Box::new(TfAggregatorHeader {
+            Box::new(TfAggregateHeader {
                 sub_tfs: Vec::new(),
                 curr_sub_tf_idx: 0,
                 elem_buffered: false,
@@ -318,14 +338,14 @@ impl Operator for OpAggregator {
             &mut job.job_data,
             &mut job.transform_data,
             trailer_tf_state,
-            Box::new(TfAggregatorTrailer { header_tf_id }),
+            Box::new(TfAggregateTrailer { header_tf_id }),
         );
         for &sub_tf_id in &sub_tfs {
             job.job_data.tf_mgr.transforms[sub_tf_id].successor =
                 Some(trailer_tf_id);
         }
         let header = job.transform_data[header_tf_id]
-            .downcast_mut::<TfAggregatorHeader>()
+            .downcast_mut::<TfAggregateHeader>()
             .unwrap();
         header.trailer_tf_id = trailer_tf_id;
 
@@ -357,7 +377,7 @@ impl Operator for OpAggregator {
     }
 }
 
-impl<'a> Transform<'a> for TfAggregatorHeader {
+impl<'a> Transform<'a> for TfAggregateHeader {
     fn display_name(
         &self,
         _jd: &JobData,
@@ -482,7 +502,7 @@ impl<'a> Transform<'a> for TfAggregatorHeader {
     }
 }
 
-impl<'a> Transform<'a> for TfAggregatorTrailer {
+impl<'a> Transform<'a> for TfAggregateTrailer {
     fn display_name(
         &self,
         _jd: &JobData,
@@ -504,7 +524,7 @@ impl<'a> Transform<'a> for TfAggregatorTrailer {
             let header_tf_id = self.header_tf_id;
 
             let agg_h = job.transform_data[header_tf_id]
-                .downcast_mut::<TfAggregatorHeader>()
+                .downcast_mut::<TfAggregateHeader>()
                 .unwrap();
             agg_h.curr_sub_tf_idx += 1;
             job.job_data.tf_mgr.transforms[tf_id].predecessor_done = false;

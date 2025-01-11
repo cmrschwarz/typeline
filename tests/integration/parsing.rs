@@ -1,6 +1,8 @@
 use typeline::{
     cli::{call_expr::Span, CliArgumentError},
-    options::{context_builder::ContextBuilder, session_setup::SessionSetupOptions},
+    options::{
+        context_builder::ContextBuilder, session_setup::SessionSetupOptions,
+    },
     typeline_error::{ContextualizedTypelineError, TypelineError},
     utils::test_utils::int_sequence_strings,
     CliOptionsWithDefaultExtensions,
@@ -116,6 +118,18 @@ fn parse_setting_assignment() -> Result<(), TypelineError> {
     Ok(())
 }
 
+#[test]
+fn simple_aggregate() -> Result<(), TypelineError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        SessionSetupOptions::with_default_extensions(),
+        ["v=17", "+v=42"],
+    )?
+    .run_collect_stringified()?;
+    assert_eq!(res, ["17", "42"]);
+
+    Ok(())
+}
+
 #[cfg(not(miri))]
 mod py {
     use rstest::rstest;
@@ -123,7 +137,8 @@ mod py {
     use typeline::{
         extension::ExtensionRegistry,
         options::{
-            context_builder::ContextBuilder, session_setup::SessionSetupOptions,
+            context_builder::ContextBuilder,
+            session_setup::SessionSetupOptions,
         },
         typeline_error::TypelineError,
     };

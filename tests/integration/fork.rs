@@ -1,5 +1,5 @@
 use rstest::rstest;
-use typeline::operators::aggregator::create_op_aggregate_appending;
+use typeline::operators::aggregate::create_op_aggregate_appending;
 use typeline_core::{
     operators::{
         fork::create_op_fork,

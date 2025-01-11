@@ -1,7 +1,7 @@
 use rstest::rstest;
 use typeline::{
     operators::{
-        aggregator::{create_op_aggregate, create_op_aggregate_appending},
+        aggregate::{create_op_aggregate, create_op_aggregate_appending},
         compute::create_op_compute,
         foreach::create_op_foreach,
         print::{create_op_print_with_opts, PrintOptions},

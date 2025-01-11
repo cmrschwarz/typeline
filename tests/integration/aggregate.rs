@@ -1,5 +1,5 @@
 use typeline::operators::{
-    aggregator::create_op_aggregate_appending,
+    aggregate::create_op_aggregate_appending,
     fork::create_op_fork,
     string_sink::{create_op_string_sink, StringSinkHandle},
 };

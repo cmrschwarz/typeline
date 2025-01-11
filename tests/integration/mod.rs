@@ -1,4 +1,4 @@
-mod aggregator;
+mod aggregate;
 mod basic;
 mod custom_types;
 mod foreach;

@@ -7,7 +7,7 @@ use crate::{
     context::{Context, SessionData},
     extension::ExtensionRegistry,
     operators::{
-        aggregator::{create_op_aggregate, create_op_aggregate_appending},
+        aggregate::{create_op_aggregate, create_op_aggregate_appending},
         field_value_sink::{create_op_field_value_sink, FieldValueSinkHandle},
         key::create_op_key_with_op,
         operator::Operator,

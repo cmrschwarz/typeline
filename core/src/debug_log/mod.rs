@@ -8,7 +8,7 @@ use std::{cell::Cell, collections::HashSet, fmt::Write, io::BufWriter};
 use crate::{
     job::JobData,
     operators::{
-        aggregator::TfAggregatorHeader,
+        aggregate::TfAggregateHeader,
         fork::TfFork,
         forkcat::{FcSubchainIdx, TfForkCatHeader, TfForkCatSubchainTrailer},
         transform::{TransformData, TransformId},
@@ -261,7 +261,7 @@ fn setup_transform_tf_envs(
         match_chains.push(fc_mc);
         return succ;
     }
-    if let Some(agg) = tf.downcast_ref::<TfAggregatorHeader>() {
+    if let Some(agg) = tf.downcast_ref::<TfAggregateHeader>() {
         return Some(setup_aggregator_tf_envs(
             jd,
             tf_data,
@@ -297,7 +297,7 @@ fn setup_transform_tf_envs(
 fn setup_aggregator_tf_envs(
     jd: &JobData,
     tf_data: &IndexSlice<TransformId, TransformData>,
-    agg: &TfAggregatorHeader,
+    agg: &TfAggregateHeader,
     tf_id: TransformId,
     match_chains: &mut Vec<MatchChain>,
     match_chain: &mut MatchChain,

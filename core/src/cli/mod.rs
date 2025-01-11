@@ -1,5 +1,6 @@
 use crate::{
     operators::{
+        aggregate::{parse_op_aggregate, AGGREGATE_DEFAULT_NAME},
         atom::parse_op_atom,
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
@@ -229,6 +230,7 @@ pub fn parse_operator_data(
         "call" => parse_op_call(&expr)?,
         "callcc" => parse_op_call_concurrent(&expr)?,
         "macro" => parse_op_macro_def(sess, arg)?,
+        "aggregate" => parse_op_aggregate(sess, arg)?,
         _ => {
             let ext_registry = sess.extensions.clone();
             for ext in &ext_registry.extensions {
@@ -696,6 +698,7 @@ pub fn create_nop_arg(source_scope: ScopeId) -> Argument {
             Argument::generated_from_name("nop", source_scope),
         ])),
         source_scope,
+        MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin),
     )
 }
 
@@ -879,6 +882,7 @@ pub fn parse_list_after_start<'a>(
                     list,
                 ])),
                 source_scope,
+                MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin),
             ));
         }
 
@@ -897,16 +901,11 @@ pub fn parse_list_after_start<'a>(
 
         if !modes.append_mode {
             if let Some(append_group_start) = append_group_start {
-                let mut args_group = Vec::new();
-                args_group.push(Argument::generated_from_name(
-                    "aggregate",
+                let agg = create_aggregate(
                     source_scope,
-                ));
-                args_group.extend(args.drain(append_group_start..));
-                args.push(Argument::generated_from_field_value(
-                    FieldValue::Array(Array::Argument(args_group)),
-                    source_scope,
-                ));
+                    args.drain(append_group_start..),
+                );
+                args.push(agg);
             }
         }
 
@@ -920,6 +919,23 @@ pub fn parse_list_after_start<'a>(
         args.push(arg);
     }
     Err(error_unterminated_list(start_span))
+}
+
+fn create_aggregate(
+    source_scope: ScopeId,
+    args: impl IntoIterator<Item = Argument>,
+) -> Argument {
+    let mut args_group = Vec::new();
+    args_group.push(Argument::generated_from_name(
+        AGGREGATE_DEFAULT_NAME,
+        source_scope,
+    ));
+    args_group.extend(args);
+    Argument::generated_from_field_value(
+        FieldValue::Array(Array::Argument(args_group)),
+        source_scope,
+        MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin),
+    )
 }
 
 pub struct ParsedExpr {
@@ -1160,30 +1176,27 @@ pub fn parse_cli_raw<'a>(
         };
 
         if expr.append_mode && aggregation_start.is_none() {
-            aggregation_start = Some(res.args.len());
             if res.args.is_empty() {
                 res.args.push(create_nop_arg(scope_id));
             }
+            aggregation_start = Some(res.args.len() - 1);
         }
 
         if !expr.append_mode {
             if let Some(agg_start) = aggregation_start.take() {
-                let mut agg_args = Vec::new();
-                agg_args.push(Argument::generated_from_name(
-                    "aggregation",
-                    scope_id,
-                ));
-                agg_args.extend(res.args.drain(agg_start..));
-                agg_args.push(expr.arg);
-                res.args.push(Argument::generated_from_field_value(
-                    FieldValue::Array(Array::Argument(agg_args)),
-                    scope_id,
-                ));
+                let agg =
+                    create_aggregate(scope_id, res.args.drain(agg_start..));
+                res.args.push(agg);
                 continue;
             }
         }
         res.args.push(expr.arg);
     }
+    if let Some(agg_start) = aggregation_start.take() {
+        let agg = create_aggregate(scope_id, res.args.drain(agg_start..));
+        res.args.push(agg);
+    }
+
     Ok(res)
 }
 

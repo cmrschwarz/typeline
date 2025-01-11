@@ -1,4 +1,4 @@
-pub mod aggregator;
+pub mod aggregate;
 pub mod atom;
 pub mod call;
 pub mod call_concurrent;

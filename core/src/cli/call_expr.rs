@@ -142,12 +142,13 @@ impl Argument {
     pub fn generated_from_field_value(
         value: FieldValue,
         scope: ScopeId,
+        meta_info: MetaInfo,
     ) -> Self {
         Argument {
             value,
             source_scope: scope,
             span: Span::Generated,
-            meta_info: None,
+            meta_info: Some(meta_info),
         }
     }
     pub fn expect_plain(
@@ -723,6 +724,7 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
             span,
         )
     }
+
     pub fn error_arg_invalid_utf8(
         &self,
         argname: &str,
