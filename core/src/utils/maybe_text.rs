@@ -266,6 +266,18 @@ impl<'a> MaybeTextCow<'a> {
             MaybeTextCow::BytesRef(bytes) => Cow::Borrowed(bytes),
         }
     }
+    pub fn into_str_cow(self) -> Option<Cow<'a, str>> {
+        Some(match self {
+            MaybeTextCow::Text(text) => Cow::Owned(text),
+            MaybeTextCow::Bytes(bytes) => {
+                Cow::Owned(bytes.into_string().ok()?)
+            }
+            MaybeTextCow::TextRef(text) => Cow::Borrowed(text),
+            MaybeTextCow::BytesRef(bytes) => {
+                Cow::Borrowed(bytes.to_str().ok()?)
+            }
+        })
+    }
     pub fn as_str(&self) -> Option<&str> {
         match self {
             MaybeTextCow::Text(s) => Some(s),

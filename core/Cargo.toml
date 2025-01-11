@@ -59,7 +59,6 @@ serde_json = { version = "1.0.133", optional = true }
 handlebars = { version = "6.2.0", features = [
     "string_helpers",
 ], optional = true }
-yoke = {version="0.7.5",features = ["default", "derive"] }
 
 
 [dependencies.bitvec]

@@ -455,6 +455,7 @@ impl<'a> TfExec<'a> {
                     (TextBuffer, RefAwareTextBufferIter),
                 ])]
                 FieldValueSlice::REP(text) => {
+                    // TODO: support formatting options!
                     for v in ITER::from_range(&range, text).unfold_rl() {
                         self.push_text(sv_mgr, cmd_idx, arg_idx, v);
                         cmd_idx += 1;

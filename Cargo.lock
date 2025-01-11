@@ -3784,7 +3784,6 @@ dependencies = [
  "thin-vec",
  "thiserror 2.0.3",
  "unicode-ident",
- "yoke",
 ]
 
 [[package]]
@@ -3796,7 +3795,6 @@ dependencies = [
  "rstest",
  "typeline_core",
  "typeline_ext_utils",
- "yoke",
 ]
 
 [[package]]

@@ -11,7 +11,8 @@ use head::parse_op_head;
 use max::parse_op_max;
 use primes::parse_op_primes;
 use string_utils::{
-    create_op_chars, create_op_lines, create_op_to_tyson, create_op_trim,
+    create_op_chars, create_op_lines, create_op_ls, create_op_to_tyson,
+    create_op_trim,
 };
 use sum::parse_op_sum;
 use tail::parse_op_tail;
@@ -85,6 +86,7 @@ impl Extension for UtilsExtension {
             "from_tyson" => parse_op_reject_args(&expr, create_op_from_tyson)?,
             "to_tyson" => parse_op_reject_args(&expr, create_op_to_tyson)?,
             "to_int" => parse_op_reject_args(&expr, create_op_to_int)?,
+            "ls" => parse_op_reject_args(&expr, create_op_ls)?,
             _ => return Ok(None),
         }))
     }

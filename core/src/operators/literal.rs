@@ -3,7 +3,10 @@ use num::{BigInt, BigRational};
 use std::{borrow::Cow, io::BufReader, sync::Arc};
 
 use crate::{
-    cli::call_expr::{Argument, CallExpr, ParsedArgValue, Span},
+    cli::{
+        call_expr::{Argument, CallExpr, ParsedArgValue, Span},
+        CliArgumentError,
+    },
     job::JobData,
     options::{
         chain_settings::{ChainSetting, SettingUseFloatingPointMath},
@@ -20,7 +23,7 @@ use crate::{
     },
     typeline_error::TypelineError,
     tyson::{parse_tyson, TysonParseError},
-    utils::{cow_to_small_str, cow_to_str},
+    utils::{cow_to_small_str, maybe_text::MaybeTextCow},
 };
 
 use super::{
@@ -61,6 +64,32 @@ pub struct TfLiteral<'a> {
     explicit_count: Option<ExplicitCount>,
     value_inserted: bool,
     iter_ref: FieldIterRef,
+}
+
+impl TryFrom<FieldValue> for Literal {
+    type Error = FieldValueRepr;
+
+    fn try_from(value: FieldValue) -> Result<Self, FieldValueRepr> {
+        match value {
+            FieldValue::Undefined => Ok(Literal::Undefined),
+            FieldValue::Null => Ok(Literal::Null),
+            FieldValue::Int(i) => Ok(Literal::Int(i)),
+            FieldValue::BigInt(v) => Ok(Literal::BigInt(*v)),
+            FieldValue::Float(f) => Ok(Literal::Float(f)),
+            FieldValue::BigRational(v) => Ok(Literal::BigRational(*v)),
+            FieldValue::Text(v) => Ok(Literal::Text(v)),
+            FieldValue::Bytes(v) => Ok(Literal::Bytes(v)),
+            FieldValue::Array(v) => Ok(Literal::Array(v)),
+            FieldValue::Object(v) => Ok(Literal::Object(*v)),
+            FieldValue::Custom(v) => Ok(Literal::Custom(v)),
+            FieldValue::Error(v) => Ok(Literal::Error(v.message().to_owned())),
+            FieldValue::Argument(v) => Ok(Literal::Argument(*v)),
+            FieldValue::OpDecl(_)
+            | FieldValue::StreamValueId(_)
+            | FieldValue::FieldReference(_)
+            | FieldValue::SlicedFieldReference(_) => Err(value.repr()),
+        }
+    }
 }
 
 impl Operator for OpLiteral {
@@ -217,9 +246,8 @@ pub fn parse_insert_count_reject_value(
 }
 
 pub fn parse_insert_count_and_value_args<'a>(
-    sess: &mut SessionSetupData,
     expr: &'a CallExpr<'a>,
-) -> Result<(Option<usize>, Cow<'a, [u8]>, Span), TypelineError> {
+) -> Result<(Option<usize>, &'a Argument), TypelineError> {
     let mut insert_count = None;
     let mut value = None;
     for arg in expr.parsed_args_iter_with_bounded_positionals(1, 1) {
@@ -245,25 +273,33 @@ pub fn parse_insert_count_and_value_args<'a>(
             }
             ParsedArgValue::PositionalArg { arg, .. } => {
                 // TODO: this is stupid
-                value =
-                    Some((arg.as_maybe_text(sess).into_bytes_cow(), arg.span));
+                value = Some(arg)
             }
         }
     }
-    let (value, value_span) = value.unwrap();
-    Ok((insert_count, value, value_span))
+    Ok((insert_count, value.unwrap()))
+}
+
+pub fn parse_insert_count_and_value_args_maybe_text<'a>(
+    sess: &mut SessionSetupData,
+    expr: &'a CallExpr<'a>,
+) -> Result<(Option<usize>, MaybeTextCow<'a>, Span), TypelineError> {
+    let (insert_count, arg) = parse_insert_count_and_value_args(expr)?;
+    let value_str = arg.as_maybe_text(sess);
+
+    Ok((insert_count, value_str, arg.span))
 }
 
 pub fn parse_insert_count_and_value_args_str<'a>(
     sess: &mut SessionSetupData,
     expr: &'a CallExpr<'a>,
 ) -> Result<(Option<usize>, Cow<'a, str>, Span), TypelineError> {
-    let (insert_count, value, value_span) =
-        parse_insert_count_and_value_args(sess, expr)?;
-    let value_str = cow_to_str(value)
-        .map_err(|_| expr.error_positional_arg_invalid_utf8(value_span))?;
-
-    Ok((insert_count, value_str, value_span))
+    let (insert_count, arg, span) =
+        parse_insert_count_and_value_args_maybe_text(sess, expr)?;
+    let value_str = arg
+        .into_str_cow()
+        .ok_or_else(|| expr.error_positional_arg_invalid_utf8(span))?;
+    Ok((insert_count, value_str, span))
 }
 
 pub fn parse_op_int(
@@ -292,12 +328,12 @@ pub fn parse_op_bytes(
 ) -> Result<Box<dyn Operator>, TypelineError> {
     let call_expr = CallExpr::from_argument_mut(arg)?;
     let (insert_count, value, _value_span) =
-        parse_insert_count_and_value_args(sess, &call_expr)?;
+        parse_insert_count_and_value_args_maybe_text(sess, &call_expr)?;
     Ok(Box::new(OpLiteral {
         data: if stream {
-            Literal::StreamBytes(Arc::new(value.into_owned()))
+            Literal::StreamBytes(Arc::new(value.into_owned().into_bytes()))
         } else {
-            Literal::Bytes(value.into_owned())
+            Literal::Bytes(value.into_owned().into_bytes())
         },
         insert_count,
     }))
@@ -327,9 +363,9 @@ pub fn parse_op_tyson(
     affinity: FieldValueKind,
 ) -> Result<Box<dyn Operator>, TypelineError> {
     let (insert_count, value, value_span) =
-        parse_insert_count_and_value_args(sess, expr)?;
+        parse_insert_count_and_value_args_maybe_text(sess, expr)?;
     let value = parse_tyson(
-        BufReader::new(&*value),
+        BufReader::new(value.as_bytes()),
         use_fpm(&mut Some(sess)),
         Some(&sess.extensions),
     )
@@ -389,9 +425,23 @@ pub fn parse_op_tyson_value(
     sess: &mut SessionSetupData,
     expr: &CallExpr,
 ) -> Result<Box<dyn Operator>, TypelineError> {
-    let (insert_count, value, value_span) =
-        parse_insert_count_and_value_args(sess, expr)?;
-    build_op_tyson_value(Some(sess), &value, value_span, insert_count)
+    let (insert_count, arg) = parse_insert_count_and_value_args(expr)?;
+
+    if let Some(text) = arg.value.as_maybe_text_ref() {
+        return build_op_tyson_value(
+            Some(sess),
+            text.as_bytes(),
+            arg.span,
+            insert_count,
+        );
+    }
+    let data = Literal::try_from(arg.value.clone()).map_err(|repr| {
+        CliArgumentError::new_s(
+            format!("unsupported literal kind {repr}"),
+            arg.span,
+        )
+    })?;
+    Ok(Box::new(OpLiteral { data, insert_count }))
 }
 
 pub fn create_op_literal_with_insert_count(
