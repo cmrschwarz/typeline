@@ -1,0 +1,14 @@
+macro:=mv
+    py="[
+        [ 'key', '_in'],
+        [ 'key', '_out', [ 'f', _[1] ] ],
+        [ 'exec', 'mv', '{_in}', '{_out}']
+    ]"
+end
+
+macro:=ls
+    py="[
+        [ 'exec', 'ls', '-1'],
+        [ 'lines']
+    ]"
+end

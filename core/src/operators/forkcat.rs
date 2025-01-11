@@ -1267,7 +1267,7 @@ pub fn parse_op_forkcat(
 ) -> Result<Box<dyn Operator>, TypelineError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
-    for arg in std::mem::take(arg.expect_arg_array_mut()?)
+    for arg in std::mem::take(arg.expect_arg_array_mut()?.0)
         .into_iter()
         .skip(1)
     {

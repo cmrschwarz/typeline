@@ -95,7 +95,7 @@ pub fn parse_op_fork(
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
 
-    let sub_args = arg.expect_arg_array_mut()?;
+    let sub_args = arg.expect_arg_array_mut()?.0;
 
     for arg in sub_args.drain(1..) {
         let expr = CallExpr::from_argument(&arg)?;

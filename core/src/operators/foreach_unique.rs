@@ -375,7 +375,7 @@ pub fn parse_op_foreach_unique(
 ) -> Result<Box<dyn Operator>, TypelineError> {
     let mut subchain = Vec::new();
     assert!(CallExpr::from_argument(&arg)?.has_flags_arg(false));
-    for arg in std::mem::take(arg.expect_arg_array_mut()?)
+    for arg in std::mem::take(arg.expect_arg_array_mut()?.0)
         .into_iter()
         .skip(2)
     {

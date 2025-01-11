@@ -210,18 +210,7 @@ impl Operator for OpMacroCall {
         };
 
         for (i, arg) in arr.into_iter().enumerate() {
-            let mut arg = if let FieldValue::Argument(arg) = arg {
-                *arg
-            } else {
-                Argument {
-                    value: arg,
-                    span: Span::MacroExpansion { op_id },
-                    source_scope: parent_scope_id,
-                    meta_info: Some(MetaInfo::EndKind(
-                        CallExprEndKind::SpecialBuiltin,
-                    )),
-                }
-            };
+            let mut arg = argumentize(parent_scope_id, op_id, arg);
 
             let FieldValue::Array(arr) = &mut arg.value else {
                 return Err(OperatorSetupError::new_s(
@@ -246,7 +235,7 @@ impl Operator for OpMacroCall {
                             span: Span::MacroExpansion { op_id },
                             source_scope: parent_scope_id,
                             meta_info: Some(MetaInfo::EndKind(
-                                CallExprEndKind::SpecialBuiltin,
+                                CallExprEndKind::Generated,
                             )),
                         });
                     }
@@ -278,5 +267,45 @@ impl Operator for OpMacroCall {
         op_id: OperatorId,
     ) {
         self.multi_op.on_liveness_computed(sess, ld, op_id);
+    }
+}
+
+fn argumentize(
+    parent_scope_id: crate::record_data::scope_manager::ScopeId,
+    op_id: OperatorId,
+    mut arg: FieldValue,
+) -> Argument {
+    match &mut arg {
+        FieldValue::Argument(arg) => return std::mem::take(arg),
+        FieldValue::Undefined
+        | FieldValue::Null
+        | FieldValue::Int(_)
+        | FieldValue::BigInt(_)
+        | FieldValue::Float(_)
+        | FieldValue::BigRational(_)
+        | FieldValue::Text(_)
+        | FieldValue::Bytes(_)
+        | FieldValue::Custom(_)
+        | FieldValue::Error(_)
+        | FieldValue::OpDecl(_)
+        | FieldValue::StreamValueId(_)
+        | FieldValue::FieldReference(_)
+        | FieldValue::SlicedFieldReference(_)
+        | FieldValue::Object(_) => (),
+        FieldValue::Array(array) => {
+            if array.repr() != Some(FieldValueRepr::Argument) {
+                let mut res = Vec::new();
+                for v in std::mem::take(array) {
+                    res.push(argumentize(parent_scope_id, op_id, v));
+                }
+                *array = Array::Argument(res);
+            }
+        }
+    }
+    Argument {
+        value: arg,
+        span: Span::MacroExpansion { op_id },
+        source_scope: parent_scope_id,
+        meta_info: Some(MetaInfo::EndKind(CallExprEndKind::Generated)),
     }
 }

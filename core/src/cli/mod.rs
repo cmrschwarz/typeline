@@ -697,7 +697,7 @@ pub fn wrap_expr_in_transparent(arg: Argument) -> Argument {
     Argument {
         span: arg.span,
         source_scope: arg.source_scope,
-        meta_info: Some(MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin)),
+        meta_info: Some(MetaInfo::EndKind(CallExprEndKind::Generated)),
         value: FieldValue::Array(Array::Argument(vec![
             Argument::generated_from_name("transparent", arg.source_scope),
             arg,
@@ -714,7 +714,7 @@ pub fn wrap_expr_in_key(
     Argument {
         span: arg.span,
         source_scope,
-        meta_info: Some(MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin)),
+        meta_info: Some(MetaInfo::EndKind(CallExprEndKind::Generated)),
         value: FieldValue::Array(Array::Argument(vec![
             Argument::generated_from_name("key", source_scope),
             Argument::from_field_value(
@@ -733,7 +733,7 @@ pub fn create_nop_arg(source_scope: ScopeId) -> Argument {
             Argument::generated_from_name("nop", source_scope),
         ])),
         source_scope,
-        MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin),
+        MetaInfo::EndKind(CallExprEndKind::Generated),
     )
 }
 
@@ -926,7 +926,7 @@ pub fn parse_list_after_start<'a>(
                     list,
                 ])),
                 source_scope,
-                MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin),
+                MetaInfo::EndKind(CallExprEndKind::Generated),
             ));
         }
 
@@ -979,7 +979,7 @@ fn create_aggregate(
     Argument::generated_from_field_value(
         FieldValue::Array(Array::Argument(args_group)),
         source_scope,
-        MetaInfo::EndKind(CallExprEndKind::SpecialBuiltin),
+        MetaInfo::EndKind(CallExprEndKind::Generated),
     )
 }
 
@@ -1260,7 +1260,7 @@ pub fn parse_cli_args<'a>(
     )
 }
 
-pub fn parse_cli_args_form_vec<'a>(
+pub fn parse_cli_args_from_vec<'a>(
     src: impl IntoIterator<Item = &'a Vec<u8>>,
     skip_first: bool,
 ) -> Result<CliArgumentData, TypelineError> {
@@ -1274,6 +1274,22 @@ pub fn parse_cli_args_form_vec<'a>(
             .skip(usize::from(skip_first))
             .peekable(),
     )
+}
+
+pub fn parse_cli_args_from_bytes(
+    src: &[u8],
+) -> Result<CliArgumentData, TypelineError> {
+    // TODO: replace shlex
+    let src = src.to_str().unwrap();
+    let args = shlex::split(src).ok_or_else(|| {
+        CliArgumentError::new(
+            "failed to parse byte sequence as shell arguments",
+            Span::Builtin,
+        )
+    })?;
+    let args_bytes =
+        args.into_iter().map(String::into_bytes).collect::<Vec<_>>();
+    parse_cli_args_from_vec(args_bytes.iter(), false)
 }
 
 pub fn collect_env_args() -> Result<Vec<Vec<u8>>, CliArgumentError> {

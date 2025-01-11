@@ -10,7 +10,7 @@
 //! [msrv]: https://img.shields.io/crates/msrv/typeline?logo=rust
 //! [docs-rs]: https://img.shields.io/badge/docs.rs-typeline-66c2a5?logo=docs.rs
 //!
-//! An efficient, type-safe pipeline processing language.
+//! An efficient, type-safe pipeline processing system.
 //!
 //!
 //! # Usage Examles
@@ -18,7 +18,7 @@
 //! ## Add Leading Zeroes to Numbered Files
 //!
 //! ```bash
-//! ls | tl lines r="foo_(?<id>\d+)\.txt" mv="foo_{id:02}.txt"
+//! tl ls r="foo_(?<id>\d+)\.txt" mv="foo_{id:02}.txt"
 //! ```
 //!
 //! ## Advent of Code (Day 1, Part 1, 2023)
@@ -33,7 +33,9 @@
 
 use std::sync::{Arc, LazyLock};
 
-use options::{context_builder::ContextBuilder, session_setup::SessionSetupOptions};
+use options::{
+    context_builder::ContextBuilder, session_setup::SessionSetupOptions,
+};
 // we reexport the typeline_core interface from this lib
 pub use typeline_core::*;
 

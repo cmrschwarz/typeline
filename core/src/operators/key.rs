@@ -33,7 +33,7 @@ pub fn parse_op_key(
     let expr = CallExpr::from_argument_mut(&mut arg)?;
     let op_name = expr.op_name;
 
-    if expr.args.len() < 2 {
+    if expr.args.is_empty() {
         return Err(OperatorCreationError::new(
             "missing label argument for operator `key`",
             expr.span,

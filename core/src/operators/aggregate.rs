@@ -66,7 +66,7 @@ pub fn parse_op_aggregate(
     mut arg: Argument,
 ) -> Result<Box<dyn Operator>, TypelineError> {
     let mut sub_ops_from_user = Vec::new();
-    for arg in std::mem::take(arg.expect_arg_array_mut()?)
+    for arg in std::mem::take(arg.expect_arg_array_mut()?.0)
         .into_iter()
         .skip(1)
     {

@@ -75,7 +75,7 @@ pub enum CallExprEndKind {
     Inline,
     ClosingBracket(Span),
     End(Span),
-    SpecialBuiltin, // for transparent and key
+    Generated,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -218,20 +218,38 @@ impl Argument {
             )),
         }
     }
-    pub fn error_expect_call_expr(&self) -> CliArgumentError {
-        CliArgumentError::new(
-            "call expression must start with an operator name identifier",
-            self.span,
-        )
+
+    pub fn expect_arg_array(
+        &self,
+    ) -> Result<&Vec<Argument>, CliArgumentError> {
+        if !matches!(&self.value, FieldValue::Array(Array::Argument(_))) {
+            return Err(CliArgumentError::new_s(
+                format!("expected argument array, not `{:?}`", self.value),
+                self.span,
+            ));
+        }
+        let FieldValue::Array(Array::Argument(sub_args)) = &self.value else {
+            // avoids lifetime issue
+            unreachable!()
+        };
+        Ok(sub_args)
     }
     pub fn expect_arg_array_mut(
         &mut self,
-    ) -> Result<&mut Vec<Argument>, CliArgumentError> {
-        let err_v = self.error_expect_call_expr(); // avoids lifetime issue
-        if let FieldValue::Array(Array::Argument(sub_args)) = &mut self.value {
-            return Ok(sub_args);
+    ) -> Result<(&mut Vec<Argument>, &mut Option<MetaInfo>), CliArgumentError>
+    {
+        if !matches!(&self.value, FieldValue::Array(Array::Argument(_))) {
+            return Err(CliArgumentError::new_s(
+                format!("expected argument array, not `{:?}`", self.value),
+                self.span,
+            ));
         }
-        Err(err_v)
+        let FieldValue::Array(Array::Argument(sub_args)) = &mut self.value
+        else {
+            // avoids lifetime issue
+            unreachable!()
+        };
+        Ok((sub_args, &mut self.meta_info))
     }
 
     pub fn as_maybe_text(&self, sess: &mut SessionSetupData) -> MaybeTextCow {
@@ -455,7 +473,7 @@ impl Span {
 fn parse_call_expr_meta<'a>(
     span: Span,
     first_sub_arg: Option<&'a Argument>,
-    end_kind: Option<&'a MetaInfo>,
+    meta_info: Option<&'a MetaInfo>,
 ) -> Result<(&'a str, CallExprEndKind), CliArgumentError> {
     let Some(first_sub_arg) = first_sub_arg else {
         return Err(CliArgumentError::new(
@@ -477,21 +495,18 @@ fn parse_call_expr_meta<'a>(
         )
     })?;
 
-    let Some(MetaInfo::EndKind(end_kind)) = end_kind else {
-        return Err(CliArgumentError::new(
-            "call expression must be an s-expression",
-            span,
-        ));
+    let end_kind = if let Some(MetaInfo::EndKind(end_kind)) = &meta_info {
+        *end_kind
+    } else {
+        CallExprEndKind::Generated
     };
 
-    Ok((op_name, *end_kind))
+    Ok((op_name, end_kind))
 }
 
 impl<'a> CallExpr<'a, &'a [Argument]> {
     pub fn from_argument(arg: &'a Argument) -> Result<Self, CliArgumentError> {
-        let FieldValue::Array(Array::Argument(sub_args)) = &arg.value else {
-            return Err(arg.error_expect_call_expr());
-        };
+        let sub_args = arg.expect_arg_array()?;
 
         let (op_name, end_kind) = parse_call_expr_meta(
             arg.span,
@@ -512,27 +527,19 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
     pub fn from_argument_mut(
         arg: &'a mut Argument,
     ) -> Result<Self, CliArgumentError> {
-        // lifetime shenanegans
-        let err_pre = arg.error_expect_call_expr();
+        let span = arg.span;
 
-        let FieldValue::Array(Array::Argument(sub_args)) =
-            arg.value.deref_argument_mut()
-        else {
-            return Err(err_pre);
-        };
+        let (sub_args, meta_info) = arg.expect_arg_array_mut()?;
 
         let (arg1, args_rest) = sub_args.split_at_mut(1);
 
-        let (op_name, end_kind) = parse_call_expr_meta(
-            arg.span,
-            arg1.first(),
-            arg.meta_info.as_ref(),
-        )?;
+        let (op_name, end_kind) =
+            parse_call_expr_meta(span, arg1.first(), meta_info.as_ref())?;
 
         Ok(CallExpr {
             op_name,
             end_kind,
-            span: arg.span,
+            span,
             args: args_rest,
         })
     }

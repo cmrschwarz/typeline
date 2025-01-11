@@ -396,7 +396,7 @@ pub fn parse_op_foreach(
         }
         return Err(expr.error_flags_unsupported(arg.span).into());
     }
-    for arg in std::mem::take(arg.expect_arg_array_mut()?)
+    for arg in std::mem::take(arg.expect_arg_array_mut()?.0)
         .into_iter()
         .skip(1)
     {

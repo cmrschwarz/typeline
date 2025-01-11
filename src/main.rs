@@ -1,8 +1,15 @@
 use ref_cast::RefCast;
-use std::{io::Write, process::ExitCode, sync::Arc};
+use std::{
+    fs::File,
+    io::{Read, Write},
+    process::ExitCode,
+    sync::Arc,
+};
 use typeline::{
     self,
-    cli::{collect_env_args, parse_cli_args_form_vec},
+    cli::{
+        collect_env_args, parse_cli_args_from_bytes, parse_cli_args_from_vec,
+    },
     context::Context,
     operators::field_value_sink::FieldValueSinkHandle,
     options::session_setup::{SessionSetupData, SessionSetupOptions},
@@ -39,8 +46,8 @@ fn run() -> Result<bool, String> {
         )
     })?;
 
-    let cli_data =
-        parse_cli_args_form_vec(&args, setup_opts.skip_first_cli_arg)
+    let mut cli_data =
+        parse_cli_args_from_vec(&args, setup_opts.skip_first_cli_arg)
             .map_err(|e| {
                 e.contextualize_message(
                     Some(IndexSlice::ref_cast(&*args)),
@@ -71,6 +78,8 @@ fn run() -> Result<bool, String> {
     if cli_data.repl {
         sess.setup_settings.repl = Some(true);
     }
+
+    insert_tlrc(&setup_opts, &mut cli_data)?;
 
     match sess.process_arguments(cli_data.args) {
         Ok(()) => (),
@@ -116,6 +125,29 @@ fn run() -> Result<bool, String> {
     let sess = Arc::new(sess);
     Context::new(sess.clone()).run_job(job);
     Ok(sess.get_success())
+}
+
+fn insert_tlrc(
+    setup_opts: &SessionSetupOptions,
+    cli_data: &mut typeline::cli::CliArgumentData,
+) -> Result<(), String> {
+    let mut buf = Vec::new();
+    let rc_source = if let Some(rc_path) = std::env::var_os("TYPELINE_RC") {
+        let mut f = File::open(rc_path)
+            .map_err(|e| format!("Error opening rc file: {e}"))?;
+
+        f.read_to_end(&mut buf)
+            .map_err(|e| format!("Error reading rc file: {e}"))?;
+        &*buf
+    } else {
+        include_bytes!("./tlrc")
+    };
+    let mut data = parse_cli_args_from_bytes(rc_source).map_err(|e| {
+        e.contextualize_message(None, Some(setup_opts), None, None)
+    })?;
+    data.args.extend(std::mem::take(&mut cli_data.args));
+    cli_data.args = data.args;
+    Ok(())
 }
 
 fn main() -> ExitCode {

@@ -60,6 +60,9 @@ handlebars = { version = "6.2.0", features = [
     "string_helpers",
 ], optional = true }
 
+# to parse quotes (todo custom)
+shlex = "1.3.0"
+
 
 [dependencies.bitvec]
 package = "bitvec"
@@ -77,19 +80,13 @@ features = ["bashisms"]
 default-features = false
 optional = true
 
-[dependencies.shlex]
-version = "1.3.0"
-default-features = false
-optional = true
-
-
 [dev-dependencies]
 rstest = "0.24.0"
 
 [features]
 default = []
 
-repl = ["dep:shlex", "dep:reedline"]
+repl = ["dep:reedline"]
 
 unstable = []
 debug_state = []

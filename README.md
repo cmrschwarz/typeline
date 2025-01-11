@@ -20,7 +20,7 @@ An efficient, type-safe pipeline processing system.
 ### Add Leading Zeroes to Numbered Files
 
 ```bash
-ls | tl lines r="foo_(?<id>\d+)\.txt" mv="foo_{id:02}.txt"
+tl ls r="foo_(?<id>\d+)\.txt" mv="foo_{id:02}.txt"
 ```
 
 ### Advent of Code (Day 1, Part 1, 2023)

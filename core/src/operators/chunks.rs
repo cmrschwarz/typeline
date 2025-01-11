@@ -274,7 +274,7 @@ pub fn parse_op_chunks(
     let stride = stride_arg.expect_int(expr.op_name, true)?;
     let stride_span = stride_arg.span;
 
-    let args = std::mem::take(arg.expect_arg_array_mut()?);
+    let args = std::mem::take(arg.expect_arg_array_mut()?.0);
 
     let mut subchain = Vec::new();
     for arg in args.into_iter().skip(2) {

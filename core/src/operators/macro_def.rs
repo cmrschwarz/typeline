@@ -156,7 +156,7 @@ pub fn parse_op_macro_def(
 ) -> Result<Box<dyn Operator>, TypelineError> {
     let span = arg.span;
 
-    let mut args = std::mem::take(arg.expect_arg_array_mut()?).into_iter();
+    let mut args = std::mem::take(arg.expect_arg_array_mut()?.0).into_iter();
 
     let _ = args.next();
 

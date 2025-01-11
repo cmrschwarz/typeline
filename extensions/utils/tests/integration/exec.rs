@@ -6,7 +6,9 @@ use typeline_core::{
         sequence::create_op_seq,
         utils::writable::MutexedWriteableTargetOwner,
     },
-    options::{context_builder::ContextBuilder, session_setup::SessionSetupOptions},
+    options::{
+        context_builder::ContextBuilder, session_setup::SessionSetupOptions,
+    },
     typeline_error::TypelineError,
 };
 use typeline_ext_utils::{
