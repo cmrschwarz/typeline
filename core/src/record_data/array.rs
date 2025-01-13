@@ -178,6 +178,33 @@ impl Array {
             }
         })
     }
+    pub fn push_raw_unboxed(&mut self, value: FieldValueUnboxed) {
+        metamatch!(match (self, value) {
+            #[expand_pattern(REP in [Null, Undefined])]
+            (Array::REP(n), FieldValueUnboxed::REP) => {
+                *n += 1;
+            }
+
+            #[expand(REP in [
+                Int, Error, Array,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, Text, Bytes, BigInt, BigRational, Argument,
+                Object
+            ])]
+            (Array::REP(a), FieldValueUnboxed::REP(v)) => {
+                a.push(v);
+            }
+
+            (Array::Mixed(a), value) => {
+                a.push(FieldValue::from(value));
+            }
+
+            (arr, value) => {
+                debug_assert!(arr.repr() != Some(value.repr()));
+                arr.make_mixed().push(FieldValue::from(value));
+            }
+        })
+    }
     pub fn extend_raw<T: FixedSizeFieldValueType>(
         &mut self,
         iter: impl Iterator<Item = T>,
@@ -286,10 +313,13 @@ impl Array {
             self.push_raw(v);
         }
     }
-
     pub fn push(&mut self, value: FieldValue) {
         self.canonicalize_for_repr(value.repr());
         self.push_raw(value);
+    }
+    pub fn push_unboxed(&mut self, value: FieldValueUnboxed) {
+        self.canonicalize_for_repr(value.repr());
+        self.push_raw_unboxed(value);
     }
     pub fn pop(&mut self) -> Option<FieldValue> {
         Some(metamatch!(match self {

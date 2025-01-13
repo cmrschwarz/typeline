@@ -21,5 +21,6 @@ pub mod record_buffer;
 pub mod record_set;
 pub mod scope_manager;
 pub mod stream_value;
+pub mod value_deserialize;
 pub mod variable_sized_type_inserter;
 pub mod varying_type_inserter;

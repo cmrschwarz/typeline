@@ -53,7 +53,10 @@ unicode-ident = "1.0.13"
 
 num-order = { version = "1.2", features = ["num-rational", "num-bigint"] }
 
+serde = { version = "1.0.217", optional = true }
+
 # for debug_log
+
 serde_derive = { version = "1.0.215", optional = true }
 serde_json = { version = "1.0.133", optional = true }
 handlebars = { version = "6.2.0", features = [
@@ -87,6 +90,7 @@ rstest = "0.24.0"
 default = []
 
 repl = ["dep:reedline"]
+serde = ["dep:serde"]
 
 unstable = []
 debug_state = []

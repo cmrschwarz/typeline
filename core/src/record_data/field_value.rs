@@ -633,8 +633,48 @@ impl FieldValue {
 }
 
 impl FieldValueUnboxed {
-    pub fn into_field_value(self) -> FieldValue {
+    pub fn repr(&self) -> FieldValueRepr {
         metamatch!(match self {
+            FieldValueUnboxed::Null => FieldValueRepr::Null,
+            FieldValueUnboxed::Undefined => FieldValueRepr::Undefined,
+
+            FieldValueUnboxed::Text(_) => FieldValueRepr::TextBuffer,
+            FieldValueUnboxed::Bytes(_) => FieldValueRepr::BytesBuffer,
+
+            #[expand(REP in [
+                Int, Error, Array, Object, OpDecl,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument
+            ])]
+            FieldValueUnboxed::REP(_) => FieldValueRepr::REP,
+        })
+    }
+}
+
+impl From<FieldValue> for FieldValueUnboxed {
+    fn from(value: FieldValue) -> Self {
+        metamatch!(match value {
+            #[expand(REP in [Null, Undefined])]
+            FieldValue::REP => FieldValueUnboxed::REP,
+
+            #[expand(REP in [
+                Int, Error, Array, OpDecl, Text, Bytes,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId,
+            ])]
+            FieldValue::REP(v) => FieldValueUnboxed::REP(v),
+
+            #[expand(REP in [
+                Object, BigInt, BigRational, Argument,
+            ])]
+            FieldValue::REP(v) => FieldValueUnboxed::REP(*v),
+        })
+    }
+}
+
+impl From<FieldValueUnboxed> for FieldValue {
+    fn from(value: FieldValueUnboxed) -> Self {
+        metamatch!(match value {
             #[expand(REP in [Null, Undefined])]
             FieldValueUnboxed::REP => FieldValue::REP,
 
