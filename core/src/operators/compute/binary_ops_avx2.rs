@@ -7,7 +7,9 @@ use std::{
     mem::MaybeUninit,
 };
 
-use super::binary_ops::{BinOp, BinOpAdd, BinOpSub, AVX2_I64_ELEM_COUNT};
+use super::binary_ops_int::{
+    BinOpInt, BinOpIntAdd, BinOpIntSub, AVX2_I64_ELEM_COUNT,
+};
 
 fn get_i64_add_overflow_mask(
     res_v: __m256i,
@@ -63,7 +65,7 @@ pub fn integer_add_stop_on_overflow_avx2(
         }
     }
 
-    i + BinOpAdd::calc_until_overflow_baseline(
+    i + BinOpIntAdd::calc_until_overflow_baseline(
         &lhs[i..],
         &rhs[i..],
         &mut res[i..],
@@ -124,7 +126,7 @@ pub fn integer_sub_stop_on_overflow_avx2(
         }
     }
 
-    i + BinOpSub::calc_until_overflow_baseline(
+    i + BinOpIntSub::calc_until_overflow_baseline(
         &lhs[i..],
         &rhs[i..],
         &mut res[i..],
@@ -162,7 +164,7 @@ pub fn integer_add_immediate_stop_on_overflow_avx2(
         }
     }
 
-    i + BinOpAdd::calc_until_overflow_rhs_immediate_baseline(
+    i + BinOpIntAdd::calc_until_overflow_rhs_immediate_baseline(
         &lhs[i..],
         rhs,
         &mut res[i..],
@@ -200,7 +202,7 @@ pub fn integer_sub_immediate_stop_on_overflow_avx2(
         }
     }
 
-    i + BinOpSub::calc_until_overflow_rhs_immediate_baseline(
+    i + BinOpIntSub::calc_until_overflow_rhs_immediate_baseline(
         &lhs[i..],
         rhs,
         &mut res[i..],
@@ -238,7 +240,7 @@ pub fn integer_sub_from_immediate_stop_on_overflow_avx2(
         }
     }
 
-    i + BinOpSub::calc_until_overflow_lhs_immediate_baseline(
+    i + BinOpIntSub::calc_until_overflow_lhs_immediate_baseline(
         lhs,
         &rhs[i..],
         &mut res[i..],

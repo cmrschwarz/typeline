@@ -2,7 +2,9 @@
 pub mod binary_ops_avx2;
 
 pub mod ast;
-pub mod binary_ops;
+pub mod binary_ops_float;
+pub mod binary_ops_int;
+pub mod binary_ops_int_float;
 pub mod compiler;
 pub mod executor;
 pub mod lexer;

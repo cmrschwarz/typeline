@@ -18,7 +18,7 @@ use super::binary_ops_avx2::{
 #[cfg(target_feature = "avx2")]
 pub const AVX2_I64_ELEM_COUNT: usize = 4;
 
-pub trait BinOp {
+pub trait BinOpInt {
     fn try_calc_single(lhs: i64, rhs: i64) -> Option<i64>;
 
     fn calc_until_overflow_baseline(
@@ -123,16 +123,16 @@ pub trait BinOp {
     }
 }
 
-pub trait BigIntCapableBinOp: BinOp {
+pub trait BigIntCapableBinOp: BinOpInt {
     fn calc_into_bigint(lhs: i64, rhs: i64) -> BigInt;
 }
 
-pub trait ErroringBinOp: BinOp {
+pub trait ErroringBinOp {
     fn get_error(op_id: OperatorId) -> OperatorApplicationError;
 }
 
-pub struct BinOpAdd;
-impl BinOp for BinOpAdd {
+pub struct BinOpIntAdd;
+impl BinOpInt for BinOpIntAdd {
     fn try_calc_single(lhs: i64, rhs: i64) -> Option<i64> {
         lhs.checked_add(rhs)
     }
@@ -166,7 +166,7 @@ impl BinOp for BinOpAdd {
     }
 }
 
-impl BigIntCapableBinOp for BinOpAdd {
+impl BigIntCapableBinOp for BinOpIntAdd {
     fn calc_into_bigint(lhs: i64, rhs: i64) -> BigInt {
         let mut res = BigInt::from_i64(lhs).unwrap();
         res += rhs;
@@ -174,8 +174,8 @@ impl BigIntCapableBinOp for BinOpAdd {
     }
 }
 
-pub struct BinOpSub;
-impl BinOp for BinOpSub {
+pub struct BinOpIntSub;
+impl BinOpInt for BinOpIntSub {
     fn try_calc_single(lhs: i64, rhs: i64) -> Option<i64> {
         lhs.checked_sub(rhs)
     }
@@ -208,7 +208,7 @@ impl BinOp for BinOpSub {
     }
 }
 
-impl BigIntCapableBinOp for BinOpSub {
+impl BigIntCapableBinOp for BinOpIntSub {
     fn calc_into_bigint(lhs: i64, rhs: i64) -> BigInt {
         let mut res = BigInt::from_i64(lhs).unwrap();
         res -= rhs;
@@ -216,8 +216,8 @@ impl BigIntCapableBinOp for BinOpSub {
     }
 }
 
-pub struct BinOpDiv;
-impl BinOp for BinOpDiv {
+pub struct BinOpIntDiv;
+impl BinOpInt for BinOpIntDiv {
     fn try_calc_single(lhs: i64, rhs: i64) -> Option<i64> {
         lhs.checked_div(rhs)
     }
@@ -252,7 +252,7 @@ impl BinOp for BinOpDiv {
         Self::calc_until_overflow_lhs_immediate_baseline(lhs, rhs, res)
     }
 }
-impl ErroringBinOp for BinOpDiv {
+impl ErroringBinOp for BinOpIntDiv {
     fn get_error(op_id: OperatorId) -> OperatorApplicationError {
         OperatorApplicationError::Borrowed {
             op_id,
@@ -261,8 +261,8 @@ impl ErroringBinOp for BinOpDiv {
     }
 }
 
-pub struct BinOpMul;
-impl BinOp for BinOpMul {
+pub struct BinOpIntMul;
+impl BinOpInt for BinOpIntMul {
     fn try_calc_single(lhs: i64, rhs: i64) -> Option<i64> {
         lhs.checked_mul(rhs)
     }
@@ -298,7 +298,7 @@ impl BinOp for BinOpMul {
     }
 }
 
-impl BigIntCapableBinOp for BinOpMul {
+impl BigIntCapableBinOp for BinOpIntMul {
     fn calc_into_bigint(lhs: i64, rhs: i64) -> BigInt {
         let mut bi = BigInt::from_i64(lhs).unwrap();
         bi *= rhs;
@@ -306,8 +306,8 @@ impl BigIntCapableBinOp for BinOpMul {
     }
 }
 
-pub struct BinOpPowerOf;
-impl BinOp for BinOpPowerOf {
+pub struct BinOpIntPowerOf;
+impl BinOpInt for BinOpIntPowerOf {
     fn try_calc_single(lhs: i64, rhs: i64) -> Option<i64> {
         lhs.checked_pow(rhs.try_into().ok()?)
     }
@@ -343,7 +343,7 @@ impl BinOp for BinOpPowerOf {
     }
 }
 
-impl BigIntCapableBinOp for BinOpPowerOf {
+impl BigIntCapableBinOp for BinOpIntPowerOf {
     fn calc_into_bigint(lhs: i64, rhs: i64) -> BigInt {
         let bi = BigInt::from_i64(lhs).unwrap();
         // TODO: implement properly

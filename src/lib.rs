@@ -73,6 +73,11 @@ pub fn build_extension_registry() -> Arc<ExtensionRegistry> {
         .extensions
         .push(Box::<typeline_ext_csv::CsvExtension>::default());
 
+    #[cfg(feature = "json")]
+    extensions
+        .extensions
+        .push(Box::<typeline_ext_json::JsonExtension>::default());
+
     #[cfg(feature = "selenium")]
     extensions
         .extensions
