@@ -53,7 +53,7 @@ fn average() -> Result<(), TypelineError> {
         .add_op(create_op_seq(0, 10, 1)?)
         .add_op(create_op_avg())
         .run_collect_stringified()?;
-    assert_eq!(res, ["2", "3", "5"]);
+    assert_eq!(res, ["4.5"]);
     Ok(())
 }
 

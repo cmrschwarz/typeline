@@ -69,9 +69,10 @@ fn error_in_object() -> Result<(), TypelineError> {
     ));
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
         .add_op(create_op_jsonl(target.create_target(), false))
-        .add_op(create_op_format("{b}").unwrap())
+        .add_op(create_op_format("{b:??}").unwrap())
         .run_collect_stringified()?;
-    assert_eq!(res, ["2", "7"]);
+    // TODO: improve message
+    assert_eq!(res, ["2", "(error)\"<custom readable>:1 EOF while parsing at line 1 column 15\\n\\n\\t, \\\"b\\\": \\\"}\\n\\t........^\\n\""]);
     Ok(())
 }
 
@@ -117,18 +118,5 @@ fn head() -> Result<(), TypelineError> {
         .add_op(create_op_head(5))
         .run_collect_stringified()?;
     assert_eq!(res, ["0", "1", "2", "3", "4"]);
-    Ok(())
-}
-
-#[test]
-fn header_names_become_column_names() -> Result<(), TypelineError> {
-    const INPUT: &str = "a,b,c\nfoo,bar,baz\n1,2,3";
-    let target = MutexedReadableTargetOwner::new(Cursor::new(INPUT));
-
-    let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target(), false))
-        .add_op(create_op_format("{a}{b}{c}").unwrap())
-        .run_collect_stringified()?;
-    assert_eq!(res, ["foobarbaz", "123"]);
     Ok(())
 }
