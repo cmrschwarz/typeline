@@ -144,10 +144,10 @@ type DirectOperatorAccessIndex = u32;
 
 #[derive(Clone)]
 pub struct OutputAcccess {
-    header_write: bool,
-    non_stringified: bool,
-    direct_access: bool,
-    direct_access_index: DirectOperatorAccessIndex,
+    pub header_write: bool,
+    pub non_stringified: bool,
+    pub direct_access: bool,
+    pub direct_access_index: DirectOperatorAccessIndex,
 }
 
 #[derive(Clone, Default)]

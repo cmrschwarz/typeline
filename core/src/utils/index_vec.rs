@@ -122,6 +122,11 @@ impl<I: IndexingType, T> IndexVec<I, T> {
     ) -> IndexIterEnumerated<I, std::slice::Iter<T>> {
         IndexIterEnumerated::new(I::ZERO, self.data.iter())
     }
+    pub fn iter_enumerated_mut(
+        &mut self,
+    ) -> IndexIterEnumerated<I, std::slice::IterMut<T>> {
+        IndexIterEnumerated::new(I::ZERO, self.data.iter_mut())
+    }
     pub fn into_iter_enumerated(
         self,
     ) -> IndexIterEnumerated<I, std::vec::IntoIter<T>> {

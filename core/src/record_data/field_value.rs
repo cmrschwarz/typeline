@@ -649,6 +649,20 @@ impl FieldValueUnboxed {
             FieldValueUnboxed::REP(_) => FieldValueRepr::REP,
         })
     }
+
+    pub fn as_ref(&self) -> FieldValueRef {
+        metamatch!(match self {
+            #[expand(REP in [Null, Undefined])]
+            FieldValueUnboxed::REP => FieldValueRef::REP,
+
+            #[expand(REP in [
+                Int, Error, Array, Object, Text, Bytes,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, BigInt, BigRational, Argument, OpDecl
+            ])]
+            FieldValueUnboxed::REP(v) => FieldValueRef::REP(v),
+        })
+    }
 }
 
 impl From<FieldValue> for FieldValueUnboxed {

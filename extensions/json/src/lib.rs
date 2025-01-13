@@ -1,0 +1,30 @@
+use jsonl::parse_op_jsonl;
+use typeline_core::{
+    cli::call_expr::{Argument, CallExpr},
+    extension::Extension,
+    operators::operator::Operator,
+    options::session_setup::SessionSetupData,
+    typeline_error::TypelineError,
+};
+
+pub mod jsonl;
+
+#[derive(Default)]
+pub struct JsonExtension {}
+
+impl Extension for JsonExtension {
+    fn name(&self) -> std::borrow::Cow<'static, str> {
+        "typeline_ext_json".into()
+    }
+    fn parse_call_expr(
+        &self,
+        sess: &mut SessionSetupData,
+        arg: &mut Argument,
+    ) -> Result<Option<Box<dyn Operator>>, TypelineError> {
+        let expr = CallExpr::from_argument_mut(arg)?;
+        if expr.op_name == "jsonl" {
+            return parse_op_jsonl(sess, expr);
+        }
+        Ok(None)
+    }
+}

@@ -6,6 +6,7 @@ members = [
     "extensions/utils",
     "extensions/python",
     "extensions/csv",
+    "extensions/json",
     "extensions/selenium",
 ]
 
@@ -66,7 +67,7 @@ criterion = "0.5.1"
 criterion-macro = "0.4.0"
 paste = "1.0.15"
 macro_rules_attribute = "0.2.0"
-inventory = "0.3.16"
+inventory = "0.3.17"
 
 [dependencies]
 ref-cast = "1.0.23"
@@ -77,6 +78,7 @@ typeline_ext_python = { version = "0.1.0", path = "./extensions/python", optiona
 typeline_ext_http = { version = "0.1.0", path = "./extensions/http", optional = true }
 typeline_ext_utils = { version = "0.1.0", path = "./extensions/utils", optional = true }
 typeline_ext_csv = { version = "0.1.0", path = "./extensions/csv", optional = true }
+typeline_ext_json = { path = "./extensions/json", optional = true }
 typeline_ext_selenium = { version = "0.1.0", path = "./extensions/selenium", optional = true }
 
 [profile.release]
@@ -100,8 +102,9 @@ http = ["dep:typeline_ext_http"]
 python = ["dep:typeline_ext_python"]
 sqlite = ["dep:typeline_ext_sqlite"]
 csv = ["dep:typeline_ext_csv"]
+json = ["dep:typeline_ext_json"]
 selenium = ["dep:typeline_ext_selenium"]
-all_exts = ["utils", "http", "python", "sqlite", "csv", "selenium"]
+all_exts = ["utils", "http", "python", "sqlite", "csv", "json", "selenium"]
 
 full = ["all_exts", "repl", "debug_log"]
 default = ["repl", "utils", "csv"]

@@ -51,7 +51,9 @@ regex = "1.11.1"
 regex-syntax = "0.8.5"
 unicode-ident = "1.0.13"
 
-num-order = { version = "1.2", features = ["num-rational", "num-bigint"] }
+num-order = { version = "1.2" }
+num-bigint = { version = "0.4.6" }
+num-rational = { version = "0.4.2" }
 
 serde = { version = "1.0.217", optional = true }
 
@@ -90,7 +92,7 @@ rstest = "0.24.0"
 default = []
 
 repl = ["dep:reedline"]
-serde = ["dep:serde"]
+serde = ["dep:serde", "num-bigint/serde", "num-rational/serde"]
 
 unstable = []
 debug_state = []

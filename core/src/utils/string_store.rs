@@ -237,9 +237,18 @@ impl StringStore {
         self.existing_strings.push(OwnedStrPtr(str_ptr));
         self.claim_id_for_str_ptr(str_ptr)
     }
-    pub fn intern_cow(&mut self, cow: Cow<'static, str>) -> StringStoreEntry {
+    pub fn intern_cow_static(
+        &mut self,
+        cow: Cow<'static, str>,
+    ) -> StringStoreEntry {
         match cow {
             Cow::Borrowed(s) => self.intern_static(s),
+            Cow::Owned(s) => self.intern_moved(s),
+        }
+    }
+    pub fn intern_cow(&mut self, cow: Cow<str>) -> StringStoreEntry {
+        match cow {
+            Cow::Borrowed(s) => self.intern_cloned(s),
             Cow::Owned(s) => self.intern_moved(s),
         }
     }

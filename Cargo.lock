@@ -1610,9 +1610,9 @@ dependencies = [
 
 [[package]]
 name = "inventory"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5d80fade88dd420ce0d9ab6f7c58ef2272dde38db874657950f827d4982c817"
+checksum = "3b31349d02fe60f80bbbab1a9402364cad7460626d6030494b08ac4a2075bf81"
 dependencies = [
  "rustversion",
 ]
@@ -2085,6 +2085,7 @@ checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
 dependencies = [
  "num-integer",
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -2149,6 +2150,7 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -3037,9 +3039,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.133"
+version = "1.0.135"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7fceb2473b9166b2294ef05efcb65a3db80803f0b03ef86a5fc88a2b85ee377"
+checksum = "2b0d7ba2887406110130a978386c4e1befb98c674b4fba677954e4db976630d9"
 dependencies = [
  "indexmap 2.7.0",
  "itoa",
@@ -3744,6 +3746,7 @@ dependencies = [
  "typeline_core",
  "typeline_ext_csv",
  "typeline_ext_http",
+ "typeline_ext_json",
  "typeline_ext_python",
  "typeline_ext_selenium",
  "typeline_ext_sqlite",
@@ -3766,7 +3769,9 @@ dependencies = [
  "memchr",
  "metamatch",
  "num",
+ "num-bigint",
  "num-order",
+ "num-rational",
  "once_cell",
  "parking_lot",
  "reedline",
@@ -3825,6 +3830,22 @@ dependencies = [
  "typeline_core",
  "url",
  "webpki-roots",
+]
+
+[[package]]
+name = "typeline_ext_json"
+version = "0.1.0"
+dependencies = [
+ "indexmap 2.7.0",
+ "lexical-core",
+ "memchr",
+ "num",
+ "num-bigint",
+ "rstest",
+ "serde",
+ "serde_json",
+ "typeline_core",
+ "typeline_ext_utils",
 ]
 
 [[package]]

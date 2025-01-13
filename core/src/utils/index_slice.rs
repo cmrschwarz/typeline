@@ -52,6 +52,15 @@ impl<I: IndexingType, T> IndexSlice<I, T> {
             pos: initial_offset,
         }
     }
+    pub fn iter_enumerated_mut(
+        &mut self,
+        initial_offset: I,
+    ) -> IndexIterEnumerated<I, std::slice::IterMut<T>> {
+        IndexIterEnumerated {
+            base_iter: self.data.iter_mut(),
+            pos: initial_offset,
+        }
+    }
     pub fn len(&self) -> usize {
         self.data.len()
     }
