@@ -1064,6 +1064,7 @@ impl Operator for OpForkCat {
         _input_field: crate::liveness_analysis::OpOutputIdx,
         output: &mut crate::liveness_analysis::OperatorLivenessOutput,
     ) {
+        output.flags.input_accessed = false;
         output.call_effect = OperatorCallEffect::Diverge;
     }
 }

@@ -177,6 +177,8 @@ impl Operator for OpKey {
         input_field: crate::liveness_analysis::OpOutputIdx,
         output: &mut crate::liveness_analysis::OperatorLivenessOutput,
     ) {
+        let var_id = ld.var_names[&self.key_interned.unwrap()];
+
         if let Some(NestedOp::SetUp(nested_op_id)) = self.nested_op {
             sess.operator_data[sess.op_data_id(nested_op_id)]
                 .update_variable_liveness(
@@ -188,19 +190,22 @@ impl Operator for OpKey {
                     input_field,
                     output,
                 );
+            ld.op_outputs[output.primary_output]
+                .field_references
+                .push(input_field);
+        } else {
+            output.flags.input_accessed = false;
+            output.call_effect = OperatorCallEffect::NoCall;
+            output.primary_output = input_field;
+
+            if let Some(prev_tgt) =
+                ld.key_aliases_map.insert(var_id, input_field)
+            {
+                ld.apply_var_remapping(var_id, prev_tgt);
+            }
         }
 
-        let var_id = ld.var_names[&self.key_interned.unwrap()];
         ld.vars_to_op_outputs_map[var_id] = output.primary_output;
-        ld.op_outputs[output.primary_output]
-            .field_references
-            .push(input_field);
-        if let Some(prev_tgt) = ld.key_aliases_map.insert(var_id, input_field)
-        {
-            ld.apply_var_remapping(var_id, prev_tgt);
-        }
-        output.primary_output = input_field;
-        output.call_effect = OperatorCallEffect::NoCall;
     }
 
     fn output_field_kind(
@@ -209,7 +214,7 @@ impl Operator for OpKey {
         _op_id: OperatorId,
     ) -> super::operator::OutputFieldKind {
         let Some(nested) = &self.nested_op else {
-            return OutputFieldKind::SameAsInput;
+            return OutputFieldKind::Unconfigured;
         };
         let &NestedOp::SetUp(op_id) = nested else {
             unreachable!()

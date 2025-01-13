@@ -86,6 +86,7 @@ impl Operator for OpSelect {
             var = VarId::from_usize(field.into_usize());
         }
         output.primary_output = var.natural_output_idx();
+        output.flags.input_accessed = false;
         output.call_effect = OperatorCallEffect::NoCall;
     }
 

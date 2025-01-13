@@ -16,7 +16,7 @@ use crate::{
     chain::{Chain, ChainId},
     context::SessionData,
     index_newtype,
-    operators::operator::{OffsetInChain, OperatorId},
+    operators::operator::{OffsetInChain, OperatorId, OutputFieldKind},
     utils::{
         get_two_distinct_mut,
         identity_hasher::BuildIdentityHasher,
@@ -677,7 +677,9 @@ impl LivenessData {
         self.operator_liveness_data[op_id]
             .accessed_vars
             .push(var_id);
-        let output_id = self.vars_to_op_outputs_map[var_id];
+
+        let output_id =
+            self.deref_op_output(self.vars_to_op_outputs_map[var_id]);
         self.access_output(
             sess,
             op_id,
@@ -803,6 +805,15 @@ impl LivenessData {
             self.op_outputs_data[tgt_idx] || self.op_outputs_data[src_idx],
         );
     }
+    fn deref_op_output(&self, mut output: OpOutputIdx) -> OpOutputIdx {
+        while let Some(var) = output.into_var_id(self.vars.len()) {
+            output = self.vars_to_op_outputs_map[var];
+            if var.into_usize() == output.into_usize() {
+                break;
+            }
+        }
+        output
+    }
     fn compute_local_liveness_for_bb(
         &mut self,
         sess: &SessionData,
@@ -820,9 +831,22 @@ impl LivenessData {
             let op_id = cn.operators[op_n];
             let op_base = &sess.operator_bases[op_id];
             let op_data_id = op_base.op_data_id;
+            let op_data = &sess.operator_data[op_data_id];
+
+            let primary_output = match op_data.output_field_kind(sess, op_id) {
+                OutputFieldKind::Unique => {
+                    debug_assert!(
+                        op_base.outputs_start != op_base.outputs_end
+                    );
+                    op_base.outputs_start
+                }
+                OutputFieldKind::Dummy => VOID_VAR_OUTPUT_IDX,
+                OutputFieldKind::SameAsInput => input_field,
+                OutputFieldKind::Unconfigured => op_base.outputs_start,
+            };
             let mut output =
-                OperatorLivenessOutput::with_defaults(op_base.outputs_start);
-            sess.operator_data[op_data_id].update_variable_liveness(
+                OperatorLivenessOutput::with_defaults(primary_output);
+            op_data.update_variable_liveness(
                 sess,
                 self,
                 op_offset_after_last_write,
@@ -831,14 +855,7 @@ impl LivenessData {
                 input_field,
                 &mut output,
             );
-            match output.call_effect {
-                OperatorCallEffect::Basic => (),
-                OperatorCallEffect::NoCall => {
-                    input_field = output.primary_output;
-                    continue;
-                }
-                OperatorCallEffect::Diverge => break,
-            }
+
             if output.flags.input_accessed {
                 self.access_var(
                     sess,
@@ -852,13 +869,12 @@ impl LivenessData {
                 op_offset_after_last_write =
                     op_n + OffsetInChain::from_usize(1);
             }
-
-            let op_base = &sess.operator_bases[op_id];
-            if op_base.outputs_start != op_base.outputs_end {
-                input_field = output.primary_output;
-                self.vars_to_op_outputs_map[BB_INPUT_VAR_ID] =
-                    sess.operator_bases[op_id].outputs_start;
+            if output.call_effect == OperatorCallEffect::Diverge {
+                break;
             }
+
+            input_field = output.primary_output;
+            self.vars_to_op_outputs_map[BB_INPUT_VAR_ID] = input_field;
         }
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
@@ -901,19 +917,24 @@ impl LivenessData {
             .fill(true);
         for var_id in 0..self.vars_to_op_outputs_map.len() {
             let var_id = VarId::from_usize(var_id);
-            let op_output_id = self.vars_to_op_outputs_map[var_id];
-            if op_output_id.into_usize() >= self.vars.len() {
+            let op_output_id =
+                self.deref_op_output(self.vars_to_op_outputs_map[var_id]);
+            if let Some(tgt_var) = op_output_id.into_var_id(vc) {
+                if ![VOID_VAR_ID, DYN_VAR_ID].contains(&var_id) {
+                    self.basic_blocks[bb_id]
+                        .key_aliases
+                        .insert(var_id, tgt_var);
+                }
+                // debug_assert!(op_output_id == var_id.natural_output_idx());
+            } else {
                 self.var_data.set_aliased(
                     var_data_start
-                        + VarLivenessSlotKind::Survives.index()
-                            * self.vars.len()
+                        + VarLivenessSlotKind::Survives.index() * vc
                         + var_id.into_usize(),
                     false,
                 );
                 self.insert_var_field_references(op_output_id, bb_id, var_id);
                 self.op_outputs[op_output_id].bound_vars.push(var_id);
-            } else {
-                debug_assert!(op_output_id == var_id.natural_output_idx());
             }
         }
         for (&var_id, &op_output) in &self.key_aliases_map {
