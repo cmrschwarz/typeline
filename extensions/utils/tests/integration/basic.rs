@@ -20,6 +20,7 @@ use typeline_core::{
     utils::test_utils::SliceReader,
 };
 use typeline_ext_utils::{
+    avg::create_op_avg,
     collect::create_op_collect,
     dup::create_op_dup,
     eliminate_errors::create_op_eliminate_errors,
@@ -41,6 +42,16 @@ fn primes() -> Result<(), TypelineError> {
         .add_op_with_key("p", create_op_primes())
         .add_op(create_op_enum(0, 3, 1).unwrap())
         .add_op(create_op_select("p"))
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2", "3", "5"]);
+    Ok(())
+}
+
+#[test]
+fn average() -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 10, 1)?)
+        .add_op(create_op_avg())
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "3", "5"]);
     Ok(())

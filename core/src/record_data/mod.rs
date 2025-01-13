@@ -8,6 +8,7 @@ pub mod field_action_applicator;
 pub mod field_data;
 pub mod field_data_ref;
 pub mod field_value;
+#[cfg(feature = "serde")]
 pub mod field_value_deserialize;
 pub mod field_value_ref;
 pub mod fixed_sized_type_inserter;

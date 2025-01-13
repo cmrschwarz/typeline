@@ -32,7 +32,7 @@ use typeline_core::{
     record_data::{
         action_buffer::{ActorId, ActorRef},
         field::FieldId,
-        field_data::FieldData,
+        field_data::{FieldData, FieldValueRepr},
         field_value::{FieldValue, Object},
         field_value_deserialize::{ArrayVisitor, DeCowStr},
         group_track::GroupTrackIterRef,
@@ -58,6 +58,7 @@ pub struct OpJsonl {
     input: ReadableTarget,
     first_line: Option<FieldValue>,
     reader: Mutex<Option<AnyBufReader>>,
+    use_null: bool,
 }
 
 pub enum Input {
@@ -92,14 +93,17 @@ pub struct TfJsonl<'a> {
     group_iter: GroupTrackIterRef,
     line_buffer: Vec<u8>,
     first_line_processed: bool,
+    zst_to_push: FieldValueRepr,
 }
 
 #[derive(Clone, Copy)]
 struct JsonlReadOptions<'a> {
     prefix_nulls: usize,
+    lines_produced_prev: usize,
     lines_max: usize,
     dyn_access: bool,
     first_line_value: Option<&'a FieldValue>,
+    zst_to_push: FieldValueRepr,
 }
 
 struct ReadStatus {
@@ -298,6 +302,11 @@ impl Operator for OpJsonl {
                     ),
                 ),
             first_line_processed: false,
+            zst_to_push: if self.use_null {
+                FieldValueRepr::Null
+            } else {
+                FieldValueRepr::Undefined
+            },
         }))
     }
 }
@@ -425,6 +434,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                 &mut self.last_field_access,
                 JsonlReadOptions {
                     prefix_nulls: iter.field_pos(),
+                    lines_produced_prev: self.lines_produced,
                     lines_max: target_batch_size,
                     dyn_access: self.dyn_access,
                     first_line_value: if self.first_line_processed {
@@ -432,6 +442,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                     } else {
                         self.op.first_line.as_ref()
                     },
+                    zst_to_push: self.zst_to_push,
                 },
                 &mut status,
             )
@@ -450,8 +461,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                         - line_idx
                             .map(|i| i.into_usize())
                             .unwrap_or(self.lines_produced);
-
-                    inserters[idx].push_undefined(gap, true);
+                    inserters[idx].push_zst(self.zst_to_push, gap, true);
                     if line_idx.is_some() {
                         *line_idx = Some(
                             DebuggableNonMaxUsize::new(line_count).unwrap(),
@@ -507,7 +517,11 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                     }
 
                     if let Some(line_idx) = line_idx {
-                        inserters[idx].push_undefined(gap - 1, true);
+                        inserters[idx].push_zst(
+                            self.zst_to_push,
+                            gap - 1,
+                            true,
+                        );
                         if status.incomplete_line {
                             inserters[idx].push_error(
                                 err.clone(),
@@ -521,7 +535,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                         )
                         .unwrap();
                     } else {
-                        inserters[idx].push_undefined(gap, true);
+                        inserters[idx].push_zst(self.zst_to_push, gap, true);
                     }
                 }
 
@@ -889,8 +903,11 @@ fn read_in_lines<'a>(
                             let value = map.next_value()?;
                             let gap = self.total_lines_produced
                                 - elem_count.into_usize();
-                            self.inserters[inserter_idx]
-                                .push_undefined(gap, true);
+                            self.inserters[inserter_idx].push_zst(
+                                self.opts.zst_to_push,
+                                gap,
+                                true,
+                            );
                             *elem_count = DebuggableNonMaxUsize::new(
                                 self.total_lines_produced + 1,
                             )
@@ -928,16 +945,22 @@ fn read_in_lines<'a>(
                                     )
                                     .unwrap(),
                                 );
-                            self.inserters[ii]
-                                .push_null(self.total_lines_produced, false);
+                            self.inserters[ii].push_zst(
+                                self.opts.zst_to_push,
+                                self.total_lines_produced,
+                                false,
+                            );
                             self.inserters[ii].push_field_value_unpacked(
                                 value, 1, true, false,
                             );
                         } else {
                             map.next_value::<serde::de::IgnoredAny>()?;
 
-                            self.inserters[ii]
-                                .push_null(self.opts.prefix_nulls, false);
+                            self.inserters[ii].push_zst(
+                                self.opts.zst_to_push,
+                                self.opts.prefix_nulls,
+                                false,
+                            );
                         }
                         e.insert(ii);
                     }
@@ -965,7 +988,7 @@ fn read_in_lines<'a>(
         inserter_map,
         field_element_count: last_field_access,
         opts,
-        total_lines_produced: opts.prefix_nulls,
+        total_lines_produced: opts.lines_produced_prev,
     };
 
     if let Some(value) = opts.first_line_value {
@@ -983,44 +1006,61 @@ fn read_in_lines<'a>(
             status.done = true;
             break;
         }
-        let mut de = serde_json::Deserializer::from_slice(line_buffer);
+        let mut de = sonic_rs::Deserializer::from_slice(line_buffer);
         let res = de.deserialize_any(&mut visitor);
         line_buffer.clear();
         if let Err(e) = res {
             status.incomplete_line = true;
             status.lines_produced =
-                visitor.total_lines_produced - opts.prefix_nulls;
+                visitor.total_lines_produced - opts.lines_produced_prev;
             return Err(e.into());
         }
         visitor.total_lines_produced += 1;
     }
-    status.lines_produced = visitor.total_lines_produced - opts.prefix_nulls;
+    status.lines_produced =
+        visitor.total_lines_produced - opts.lines_produced_prev;
     Ok(())
 }
 
-pub fn create_op_jsonl(input: ReadableTarget) -> Box<dyn Operator> {
+pub fn create_op_jsonl(
+    input: ReadableTarget,
+    use_null: bool,
+) -> Box<dyn Operator> {
     Box::new(OpJsonl {
         input,
         accessed_fields: Vec::new(),
         var_names: Vec::new(),
         first_line: None,
         reader: Mutex::new(None),
+        use_null,
     })
 }
 
 pub fn create_op_jsonl_from_file(
     input_file: impl Into<PathBuf>,
+    use_null: bool,
 ) -> Box<dyn Operator> {
-    create_op_jsonl(ReadableTarget::File(input_file.into()))
+    create_op_jsonl(ReadableTarget::File(input_file.into()), use_null)
 }
 
 pub fn parse_op_jsonl(
     sess: &mut SessionSetupData,
     expr: CallExpr,
 ) -> Result<Option<Box<dyn Operator>>, TypelineError> {
-    let path = expr.require_single_arg()?;
-
+    let (flags, args) = expr.split_flags_arg(false);
+    if args.len() != 1 {
+        return Err(expr.error_require_exact_positional_count(1).into());
+    }
+    let mut use_null = false;
+    // TODO: this is non exhaustive.
+    // add proper, generalized cli parsing code ala CLAP
+    if let Some(flags) = flags {
+        if flags.get("-n").is_some() {
+            use_null = true;
+        }
+    }
     Ok(Some(create_op_jsonl_from_file(
-        path.try_into_text(expr.op_name, sess)?.to_string(),
+        args[0].try_into_text(expr.op_name, sess)?.to_string(),
+        use_null,
     )))
 }

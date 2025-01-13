@@ -29,7 +29,7 @@ fn first_column_becomes_output() -> Result<(), TypelineError> {
         "\"a\"\n\"b\"\n42\n".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_jsonl(target.create_target(), false))
         .run_collect_stringified()?;
     assert_eq!(res, ["a", "b", "42"]);
     Ok(())
@@ -41,7 +41,7 @@ fn jsonl_with_object() -> Result<(), TypelineError> {
         "{\"a\": 42, \"b\": 12}".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_jsonl(target.create_target(), false))
         .add_op(create_op_format("{b}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["12"]);
@@ -55,7 +55,7 @@ fn unobserved_error_in_object() -> Result<(), TypelineError> {
         "{\"a\": 42, \"b\": 2}\n{\"a\": 7, \"b\": \"}".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_jsonl(target.create_target(), false))
         .add_op(create_op_format("{a}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["42", "7"]);
@@ -68,7 +68,7 @@ fn error_in_object() -> Result<(), TypelineError> {
         "{\"a\": 42, \"b\": 2}\n{\"a\": 7, \"b\": \"}".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_jsonl(target.create_target(), false))
         .add_op(create_op_format("{b}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "7"]);
@@ -93,7 +93,7 @@ fn multibatch(
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
         .set_batch_size(batch_size)
         .unwrap()
-        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_jsonl(target.create_target(), false))
         .add_op(create_op_sum())
         .run_collect_as::<i64>()?;
     assert_eq!(res, [(count * (count - 1) / 2) as i64]);
@@ -113,7 +113,7 @@ fn head() -> Result<(), TypelineError> {
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
         .set_batch_size(3)
         .unwrap()
-        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_jsonl(target.create_target(), false))
         .add_op(create_op_head(5))
         .run_collect_stringified()?;
     assert_eq!(res, ["0", "1", "2", "3", "4"]);
@@ -126,7 +126,7 @@ fn header_names_become_column_names() -> Result<(), TypelineError> {
     let target = MutexedReadableTargetOwner::new(Cursor::new(INPUT));
 
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_jsonl(target.create_target(), false))
         .add_op(create_op_format("{a}{b}{c}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["foobarbaz", "123"]);

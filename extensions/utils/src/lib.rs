@@ -1,5 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
+use avg::parse_op_avg;
 use collect::parse_op_collect;
 use dup::{parse_op_drop, parse_op_dup};
 use eliminate_errors::parse_op_eliminate_errors;
@@ -27,6 +28,7 @@ use typeline_core::{
 };
 use typename::create_op_typename;
 
+pub mod avg;
 pub mod collect;
 pub mod dup;
 pub mod eliminate_errors;
@@ -74,6 +76,7 @@ impl Extension for UtilsExtension {
             "explode" => parse_op_explode(&expr)?,
             "flatten" => parse_op_flatten(&expr)?,
             "sum" => parse_op_sum(&expr)?,
+            "avg" => parse_op_avg(&expr)?,
             "max" => parse_op_max(&expr)?,
             "eliminate_errors" | "ee" => parse_op_eliminate_errors(&expr)?,
             "primes" => parse_op_primes(&expr)?,

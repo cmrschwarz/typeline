@@ -185,6 +185,35 @@ impl AnyNumber {
             AnyNumber::BigRational(r) => r.add_assign(BigInt::from(value)),
         }
     }
+    pub fn div_usize(&mut self, value: usize) {
+        match self {
+            // TODO: figure out somethign smarter
+            AnyNumber::Int(v) => {
+                *self = AnyNumber::BigRational(
+                    BigRational::from_i64(*v).unwrap()
+                        / BigRational::from_usize(value).unwrap(),
+                );
+            }
+            AnyNumber::BigInt(v) => {
+                *self = AnyNumber::BigInt(
+                    std::mem::take(v) / BigInt::from_usize(value).unwrap(),
+                );
+            }
+            AnyNumber::Float(v) => {
+                // HACK
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    *self = AnyNumber::Float(*v / value as f64);
+                }
+            }
+            AnyNumber::BigRational(v) => {
+                *self = AnyNumber::BigRational(
+                    std::mem::take(v)
+                        / BigRational::from_usize(value).unwrap(),
+                );
+            }
+        }
+    }
     pub fn add_int_with_rl(&mut self, v: i64, rl: RunLength, fpm: bool) {
         if rl == 1 {
             self.add_int(v, fpm);
