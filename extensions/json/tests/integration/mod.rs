@@ -16,7 +16,7 @@ use typeline_core::{
 use typeline_ext_json::{jsonl::create_op_jsonl, JsonExtension};
 use typeline_ext_utils::{head::create_op_head, sum::create_op_sum};
 
-pub static CSV_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
+pub static JSON_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
     LazyLock::new(|| {
         ExtensionRegistry::new([Box::<dyn Extension>::from(Box::new(
             JsonExtension::default(),
@@ -28,10 +28,50 @@ fn first_column_becomes_output() -> Result<(), TypelineError> {
     let target = MutexedReadableTargetOwner::new(SliceReader::new(
         "\"a\"\n\"b\"\n42\n".as_bytes(),
     ));
-    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+    let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
         .add_op(create_op_jsonl(target.create_target()))
         .run_collect_stringified()?;
     assert_eq!(res, ["a", "b", "42"]);
+    Ok(())
+}
+
+#[test]
+fn jsonl_with_object() -> Result<(), TypelineError> {
+    let target = MutexedReadableTargetOwner::new(SliceReader::new(
+        "{\"a\": 42, \"b\": 12}".as_bytes(),
+    ));
+    let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
+        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_format("{b}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["12"]);
+    Ok(())
+}
+
+// TODO: maybe change semantics here?
+#[test]
+fn unobserved_error_in_object() -> Result<(), TypelineError> {
+    let target = MutexedReadableTargetOwner::new(SliceReader::new(
+        "{\"a\": 42, \"b\": 2}\n{\"a\": 7, \"b\": \"}".as_bytes(),
+    ));
+    let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
+        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_format("{a}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["42", "7"]);
+    Ok(())
+}
+
+#[test]
+fn error_in_object() -> Result<(), TypelineError> {
+    let target = MutexedReadableTargetOwner::new(SliceReader::new(
+        "{\"a\": 42, \"b\": 2}\n{\"a\": 7, \"b\": \"}".as_bytes(),
+    ));
+    let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
+        .add_op(create_op_jsonl(target.create_target()))
+        .add_op(create_op_format("{b}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2", "7"]);
     Ok(())
 }
 
@@ -50,7 +90,7 @@ fn multibatch(
 
     let target = MutexedReadableTargetOwner::new(Cursor::new(input));
 
-    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+    let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
         .set_batch_size(batch_size)
         .unwrap()
         .add_op(create_op_jsonl(target.create_target()))
@@ -70,7 +110,7 @@ fn head() -> Result<(), TypelineError> {
 
     let target = MutexedReadableTargetOwner::new(Cursor::new(input));
 
-    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+    let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
         .set_batch_size(3)
         .unwrap()
         .add_op(create_op_jsonl(target.create_target()))
@@ -85,7 +125,7 @@ fn header_names_become_column_names() -> Result<(), TypelineError> {
     const INPUT: &str = "a,b,c\nfoo,bar,baz\n1,2,3";
     let target = MutexedReadableTargetOwner::new(Cursor::new(INPUT));
 
-    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+    let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
         .add_op(create_op_jsonl(target.create_target()))
         .add_op(create_op_format("{a}{b}{c}").unwrap())
         .run_collect_stringified()?;

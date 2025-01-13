@@ -8,7 +8,7 @@ use std::{
 use indexmap::IndexMap;
 use num::FromPrimitive;
 use num_bigint::BigInt;
-use serde::{de::Visitor, Deserialize, Deserializer};
+use serde::{de::Visitor, Deserializer};
 use typeline_core::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
@@ -235,9 +235,7 @@ impl Operator for OpJsonl {
         _op_id: OperatorId,
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
-        let actor_id = job
-            .job_data
-            .add_actor_for_tf_state_ignore_output_field(tf_state);
+        let actor_id = job.job_data.add_actor_for_tf_state(tf_state);
 
         let next_actor = job.job_data.match_set_mgr.match_sets
             [tf_state.match_set_id]
@@ -451,8 +449,8 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                     let gap = line_count
                         - line_idx
                             .map(|i| i.into_usize())
-                            .unwrap_or(status.lines_produced)
-                            .saturating_sub(1);
+                            .unwrap_or(self.lines_produced);
+
                     inserters[idx].push_undefined(gap, true);
                     if line_idx.is_some() {
                         *line_idx = Some(
@@ -497,12 +495,14 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                 for (idx, line_idx) in
                     &mut self.last_field_access.iter_enumerated_mut()
                 {
-                    let gap = line_count
-                        - line_idx
-                            .map(|i| i.into_usize())
-                            .unwrap_or(status.lines_produced);
-                    if gap == 0 {
-                        debug_assert!(status.incomplete_line);
+                    let elem_count = line_idx
+                        .map(|i| i.into_usize())
+                        .unwrap_or(self.lines_produced);
+
+                    let gap = (line_count
+                        + usize::from(status.incomplete_line))
+                        - elem_count;
+                    if status.incomplete_line && gap == 0 {
                         continue;
                     }
 
@@ -521,17 +521,22 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                         )
                         .unwrap();
                     } else {
-                        inserters[idx].push_undefined(
-                            gap - usize::from(!status.incomplete_line),
-                            true,
-                        );
+                        inserters[idx].push_undefined(gap, true);
                     }
                 }
 
                 drop(iter);
+                ps.input_done = true; // TODO: this is not correct
+
+                jd.tf_mgr.submit_batch_ready_for_more(
+                    tf_id,
+                    status.lines_produced + 1,
+                    ps,
+                );
             }
         }
-        self.lines_produced += status.lines_produced;
+        self.lines_produced +=
+            status.lines_produced + usize::from(status.incomplete_line);
         drop(inserters);
 
         if !additional_fields.is_empty() {
@@ -583,7 +588,7 @@ fn read_in_lines<'a>(
             VaryingTypeInserter<RefMut<'b, FieldData>>,
         >,
         additional_fields: &'b StableVec<PendingField>,
-        last_field_access:
+        field_element_count:
             &'a mut IndexVec<InserterIndex, Option<DebuggableNonMaxUsize>>,
         opts: JsonlReadOptions<'a>,
         total_lines_produced: usize,
@@ -591,12 +596,12 @@ fn read_in_lines<'a>(
     struct Dummy;
     impl JsonlVisitor<'_, '_> {
         fn update_last_field_access(&mut self) -> bool {
-            let Some(lfa) = &mut self.last_field_access[InserterIndex::ZERO]
+            let Some(lfa) = &mut self.field_element_count[InserterIndex::ZERO]
             else {
                 return false;
             };
-            *lfa =
-                DebuggableNonMaxUsize::new(self.total_lines_produced).unwrap();
+            *lfa = DebuggableNonMaxUsize::new(self.total_lines_produced + 1)
+                .unwrap();
             true
         }
     }
@@ -878,23 +883,21 @@ fn read_in_lines<'a>(
                 match self.inserter_map.entry(key_idx) {
                     indexmap::map::Entry::Occupied(e) => {
                         let inserter_idx = *e.get();
-                        if let Some(last_access) =
-                            &mut self.last_field_access[inserter_idx]
+                        if let Some(elem_count) =
+                            &mut self.field_element_count[inserter_idx]
                         {
+                            let value = map.next_value()?;
                             let gap = self.total_lines_produced
-                                - last_access.into_usize();
+                                - elem_count.into_usize();
                             self.inserters[inserter_idx]
                                 .push_undefined(gap, true);
-                            *last_access = DebuggableNonMaxUsize::new(
-                                self.total_lines_produced,
+                            *elem_count = DebuggableNonMaxUsize::new(
+                                self.total_lines_produced + 1,
                             )
                             .unwrap();
                             self.inserters[inserter_idx]
                                 .push_field_value_unpacked(
-                                    map.next_value()?,
-                                    1,
-                                    true,
-                                    false,
+                                    value, 1, true, false,
                                 );
                         } else {
                             map.next_value::<serde::de::IgnoredAny>()?;
@@ -914,25 +917,25 @@ fn read_in_lines<'a>(
                                 .data
                                 .borrow_mut(),
                         ));
+                        self.field_element_count.push(None);
 
                         if self.opts.dyn_access {
-                            self.last_field_access.push(Some(
-                                DebuggableNonMaxUsize::new(
-                                    self.total_lines_produced,
-                                )
-                                .unwrap(),
-                            ));
+                            let value = map.next_value()?;
+                            *self.field_element_count.last_mut().unwrap() =
+                                Some(
+                                    DebuggableNonMaxUsize::new(
+                                        self.total_lines_produced + 1,
+                                    )
+                                    .unwrap(),
+                                );
                             self.inserters[ii]
                                 .push_null(self.total_lines_produced, false);
                             self.inserters[ii].push_field_value_unpacked(
-                                map.next_value()?,
-                                1,
-                                true,
-                                false,
+                                value, 1, true, false,
                             );
                         } else {
                             map.next_value::<serde::de::IgnoredAny>()?;
-                            self.last_field_access.push(None);
+
                             self.inserters[ii]
                                 .push_null(self.opts.prefix_nulls, false);
                         }
@@ -960,7 +963,7 @@ fn read_in_lines<'a>(
         inserters,
         additional_fields,
         inserter_map,
-        last_field_access,
+        field_element_count: last_field_access,
         opts,
         total_lines_produced: opts.prefix_nulls,
     };
@@ -989,6 +992,7 @@ fn read_in_lines<'a>(
                 visitor.total_lines_produced - opts.prefix_nulls;
             return Err(e.into());
         }
+        visitor.total_lines_produced += 1;
     }
     status.lines_produced = visitor.total_lines_produced - opts.prefix_nulls;
     Ok(())

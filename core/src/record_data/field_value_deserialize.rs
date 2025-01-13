@@ -7,7 +7,10 @@ use super::{
 };
 use num::{BigInt, FromPrimitive};
 use serde::{
-    de::{value::SeqDeserializer, IntoDeserializer, SeqAccess, Visitor},
+    de::{
+        value::{MapDeserializer, SeqDeserializer},
+        IntoDeserializer, Visitor,
+    },
     forward_to_deserialize_any,
     ser::{SerializeMap, SerializeSeq},
     Deserialize, Deserializer, Serialize, Serializer,
@@ -487,15 +490,22 @@ impl<'de> Deserializer<'de> for FieldValueRef<'de> {
     {
         match self {
             FieldValueRef::Int(v) => visitor.visit_i64(*v),
-            FieldValueRef::BigInt(v) => todo!(),
+            FieldValueRef::BigInt(_) => todo!(),
             FieldValueRef::Float(v) => visitor.visit_f64(*v),
             FieldValueRef::Text(v) => visitor.visit_str(v),
             FieldValueRef::Bytes(v) => visitor.visit_bytes(v),
-            FieldValueRef::Array(v) => todo!(),
-            FieldValueRef::Object(v) => todo!(),
+            FieldValueRef::Array(v) => {
+                visitor.visit_seq(SeqDeserializer::new(v.ref_iter()))
+            }
+            FieldValueRef::Object(v) => {
+                let Object::KeysStored(v) = v else { todo!() };
+                visitor.visit_map(MapDeserializer::new(
+                    v.iter().map(|(k, v)| (&**k, v.as_ref())),
+                ))
+            }
             FieldValueRef::Null => visitor.visit_none(),
             FieldValueRef::Undefined => visitor.visit_unit(),
-            FieldValueRef::BigRational(ratio) => todo!(),
+            FieldValueRef::BigRational(_) => todo!(),
             FieldValueRef::Custom(_) => todo!(),
             FieldValueRef::StreamValueId(_) => todo!(),
             FieldValueRef::Error(_) => todo!(),
