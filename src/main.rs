@@ -132,21 +132,28 @@ fn insert_tlrc(
     cli_data: &mut typeline::cli::CliArgumentData,
 ) -> Result<(), String> {
     let mut buf = Vec::new();
-    let rc_source = if let Some(rc_path) = std::env::var_os("TYPELINE_RC") {
-        let mut f = File::open(rc_path)
-            .map_err(|e| format!("Error opening rc file: {e}"))?;
+    let rc_source = if let Some(rc_path) = std::env::var_os("TYPELINE_RC_PATH")
+    {
+        if rc_path.is_empty() {
+            None
+        } else {
+            let mut f = File::open(rc_path)
+                .map_err(|e| format!("Error opening rc file: {e}"))?;
 
-        f.read_to_end(&mut buf)
-            .map_err(|e| format!("Error reading rc file: {e}"))?;
-        &*buf
+            f.read_to_end(&mut buf)
+                .map_err(|e| format!("Error reading rc file: {e}"))?;
+            Some(&*buf)
+        }
     } else {
-        include_bytes!("./tlrc")
+        Some(&include_bytes!("./tlrc")[0..])
     };
-    let mut data = parse_cli_args_from_bytes(rc_source).map_err(|e| {
-        e.contextualize_message(None, Some(setup_opts), None, None)
-    })?;
-    data.args.extend(std::mem::take(&mut cli_data.args));
-    cli_data.args = data.args;
+    if let Some(source) = rc_source {
+        let mut data = parse_cli_args_from_bytes(source).map_err(|e| {
+            e.contextualize_message(None, Some(setup_opts), None, None)
+        })?;
+        data.args.extend(std::mem::take(&mut cli_data.args));
+        cli_data.args = data.args;
+    }
     Ok(())
 }
 
