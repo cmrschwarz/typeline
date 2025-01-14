@@ -6,6 +6,7 @@ use dup::{parse_op_drop, parse_op_dup};
 use eliminate_errors::parse_op_eliminate_errors;
 use exec::parse_op_exec;
 use explode::parse_op_explode;
+use filter::parse_op_filter;
 use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
 use head::parse_op_head;
@@ -34,6 +35,7 @@ pub mod dup;
 pub mod eliminate_errors;
 pub mod exec;
 pub mod explode;
+pub mod filter;
 pub mod flatten;
 pub mod from_tyson;
 pub mod head;
@@ -79,6 +81,7 @@ impl Extension for UtilsExtension {
             "avg" => parse_op_avg(&expr)?,
             "max" => parse_op_max(&expr)?,
             "eliminate_errors" | "ee" => parse_op_eliminate_errors(&expr)?,
+            "filter" => parse_op_filter(&expr)?,
             "primes" => parse_op_primes(&expr)?,
             "collect" => parse_op_collect(&expr)?,
             "lines" | "l" => parse_op_reject_args(&expr, create_op_lines)?,

@@ -137,12 +137,16 @@ pub trait Operator: Send + Sync {
     fn input_field_kind(&self) -> InputFieldKind {
         InputFieldKind::LastOutput
     }
-    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize;
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
+        1
+    }
     fn has_dynamic_outputs(
         &self,
         _sess: &SessionData,
         _op_id: OperatorId,
-    ) -> bool;
+    ) -> bool {
+        false
+    }
 
     fn register_output_var_names(
         &self,
