@@ -250,6 +250,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             Tok::AmpersandEquals => Op::BitwiseAndAssign,
             Tok::DoubleAmpersand => Op::LogicalAnd,
             Tok::DoubleAmpersandEquals => Op::LogicalAndAssign,
+            TokenKind::DoubleEquals => Op::Equals,
 
             TokenKind::LParen => return self.parse_function_call(lhs),
 
@@ -268,8 +269,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             | TokenKind::Comma
             | TokenKind::If
             | TokenKind::Else
-            | TokenKind::Equals
-            | TokenKind::DoubleEquals => return Ok(lhs),
+            | TokenKind::Equals => return Ok(lhs),
         };
 
         let prec = binary_op.prec();

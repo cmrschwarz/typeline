@@ -5,6 +5,7 @@ pub mod ast;
 pub mod binary_ops_float;
 pub mod binary_ops_int;
 pub mod binary_ops_int_float;
+pub mod cmp_ops;
 pub mod compiler;
 pub mod executor;
 pub mod lexer;

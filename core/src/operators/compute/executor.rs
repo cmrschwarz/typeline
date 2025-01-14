@@ -12,6 +12,7 @@ use super::{
         BinOpIntPowerOf, BinOpIntSub, ErroringBinOp,
     },
     binary_ops_int_float::{BinOpIntFloat, BinOpIntFloatDiv},
+    cmp_ops::{CmpOp, CmpOpEq},
     compiler::{
         Compilation, Instruction, InstructionId, TargetRef, TempFieldIdRaw,
         ValueAccess,
@@ -506,6 +507,73 @@ fn execute_binary_op_double_int_erroring<Op: BinOpInt + ErroringBinOp>(
     }
 }
 
+fn execute_cmp_op_double_int<Op: CmpOp>(
+    lhs_block: FieldValueBlock<i64>,
+    rhs_range: &RefAwareTypedRange,
+    rhs_data: &[i64],
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
+    match lhs_block {
+        FieldValueBlock::Plain(lhs_data) => {
+            let mut lhs_block_offset = 0;
+            while let Some(rhs_block) = rhs_iter.next_block() {
+                match rhs_block {
+                    FieldValueBlock::Plain(rhs_data) => {
+                        let len = rhs_data.len();
+                        let res = inserter.reserve_for_fixed_size::<bool>(len);
+                        Op::calc_until_overflow(
+                            &lhs_data[lhs_block_offset..],
+                            rhs_data,
+                            res,
+                        );
+                        unsafe {
+                            inserter.add_count(len);
+                        }
+                        lhs_block_offset += len;
+                    }
+                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
+                        let len = rhs_rl as usize;
+                        let res = inserter.reserve_for_fixed_size::<bool>(len);
+                        Op::calc_rhs_immediate(
+                            &lhs_data[lhs_block_offset..],
+                            rhs_val,
+                            res,
+                        );
+                        unsafe {
+                            inserter.add_count(len);
+                        }
+                        lhs_block_offset += len;
+                    }
+                }
+            }
+        }
+        FieldValueBlock::WithRunLength(&lhs_val, _lhs_rl) => {
+            while let Some(rhs_block) = rhs_iter.next_block() {
+                match rhs_block {
+                    FieldValueBlock::Plain(rhs_data) => {
+                        let len = rhs_data.len();
+                        let res = inserter.reserve_for_fixed_size::<bool>(len);
+                        Op::calc_lhs_immediate(lhs_val, rhs_data, res);
+                        unsafe {
+                            inserter.add_count(len);
+                        }
+                    }
+                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
+                        let len = rhs_rl as usize;
+                        inserter.push_bool(
+                            Op::calc_single(lhs_val, rhs_val),
+                            len,
+                            true,
+                            false,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn execute_binary_op_double_float_total<Op: BinOpFloat>(
     lhs_block: FieldValueBlock<f64>,
     rhs_range: &RefAwareTypedRange,
@@ -769,7 +837,9 @@ fn execute_binary_op_double_int(
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     match op_kind {
-        BinaryOpKind::Equals => todo!(),
+        BinaryOpKind::Equals => execute_cmp_op_double_int::<CmpOpEq>(
+            lhs_block, rhs_range, rhs_data, inserter,
+        ),
         BinaryOpKind::NotEquals => todo!(),
         BinaryOpKind::LessThan => todo!(),
         BinaryOpKind::GreaterThan => todo!(),
