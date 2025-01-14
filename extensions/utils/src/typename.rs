@@ -101,6 +101,7 @@ impl TfTypename {
             match range.base.data {
                 FieldValueSlice::Undefined(_)
                 | FieldValueSlice::Null(_)
+                | FieldValueSlice::Bool(_)
                 | FieldValueSlice::Int(_)
                 | FieldValueSlice::Float(_)
                 | FieldValueSlice::BigInt(_)

@@ -214,6 +214,13 @@ impl TfAvg {
                         self.aggregate.add_big_int(v, rl, fpm)
                     }
                 }
+                FieldValueSlice::Bool(bools) => {
+                    for (v, rl) in
+                        FieldValueRangeIter::from_range(&range, bools)
+                    {
+                        self.aggregate.add_bool_with_rl(*v, rl, fpm)
+                    }
+                }
                 FieldValueSlice::Float(floats) => {
                     for (v, rl) in
                         FieldValueRangeIter::from_range(&range, floats)

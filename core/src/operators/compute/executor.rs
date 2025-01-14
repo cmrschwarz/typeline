@@ -986,6 +986,7 @@ fn execute_binary_op_for_int_lhs(
                 FieldValueSlice::BigRational(_) => todo!(),
                 FieldValueSlice::Null(_)
                 | FieldValueSlice::Undefined(_)
+                | FieldValueSlice::Bool(_)
                 | FieldValueSlice::TextInline(_)
                 | FieldValueSlice::TextBuffer(_)
                 | FieldValueSlice::BytesInline(_)
@@ -1046,6 +1047,7 @@ fn execute_binary_op_for_float_lhs(
                 FieldValueSlice::BigRational(_) => todo!(),
                 FieldValueSlice::Null(_)
                 | FieldValueSlice::Undefined(_)
+                | FieldValueSlice::Bool(_)
                 | FieldValueSlice::TextInline(_)
                 | FieldValueSlice::TextBuffer(_)
                 | FieldValueSlice::BytesInline(_)
@@ -1089,6 +1091,7 @@ fn execute_binary_op(
         FieldValueSlice::Float(lhs_data) => execute_binary_op_for_float_lhs(
             op_id, msm, op_kind, lhs_range, lhs_data, rhs_iter, inserter,
         ),
+        FieldValueSlice::Bool(_) => todo!(),
         FieldValueSlice::BigInt(_)
         | FieldValueSlice::BigRational(_)
         | FieldValueSlice::TextInline(_)
@@ -1183,6 +1186,7 @@ fn execute_cast_int(
         FieldValueSlice::Float(_) => todo!(),
         FieldValueSlice::BigRational(_) => todo!(),
         FieldValueSlice::Int(_)
+        | FieldValueSlice::Bool(_)
         | FieldValueSlice::BigInt(_)
         | FieldValueSlice::Error(_) => {
             inserter.extend_from_ref_aware_range(range, true, false)

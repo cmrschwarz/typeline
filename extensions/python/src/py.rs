@@ -6,7 +6,7 @@ use pyo3::{
     ffi::{PyObject, PyTypeObject},
     pybacked::{PyBackedBytes, PyBackedStr},
     types::{
-        PyAnyMethods, PyBytes, PyCode, PyDict, PyList, PyListMethods,
+        PyAnyMethods, PyBool, PyBytes, PyCode, PyDict, PyList, PyListMethods,
         PyString, PyTypeMethods,
     },
     Bound, IntoPyObject, Py, PyAny, Python,
@@ -366,6 +366,10 @@ fn to_python_object<'a>(
         }
         // TODO: maybe error / configurable
         FieldValueRef::Undefined => Ok(None),
+        FieldValueRef::Bool(v) => {
+            let v = PyBool::new(py, *v).to_owned().into_any();
+            Ok(Some(v))
+        }
         FieldValueRef::Int(i) => {
             Ok(Some(i.into_pyobject(py).unwrap().into_any()))
         }

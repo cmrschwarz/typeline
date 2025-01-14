@@ -24,6 +24,7 @@ use super::{
 pub enum Array {
     Undefined(usize),
     Null(usize),
+    Bool(Vec<bool>),
     Int(Vec<i64>),
     BigInt(Vec<BigInt>),
     Float(Vec<f64>),
@@ -53,7 +54,7 @@ impl Array {
         metamatch!(match self {
             Array::Null(len) | Array::Undefined(len) => *len,
             #[expand(REP in [
-                Int, BigInt, BigRational, Bytes, Text, Error, Array, Object,
+                Bool, Int, BigInt, BigRational, Bytes, Text, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Mixed, Float,
                 StreamValueId, Argument, OpDecl
             ])]
@@ -68,7 +69,7 @@ impl Array {
         Some(metamatch!(match self {
             #[expand(REP in [
                 Null, Undefined,
-                Int, BigInt, BigRational, Error, Array, Object,
+                Bool, Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Argument, OpDecl
             ])]
@@ -90,7 +91,7 @@ impl Array {
         metamatch!(match self {
             Array::Null(_) | Array::Undefined(_) => Vec::new(),
             #[expand(REP in [
-                Int, BigInt, BigRational, Error, Array, Object,
+                Bool, Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Argument, Mixed, Text, Bytes, OpDecl
             ])]
@@ -109,7 +110,7 @@ impl Array {
                 Array::Bytes(arr.into_cleared_vec())
             }
             #[expand(REP in [
-                Int, BigInt, BigRational, Error, Array, Object,
+                Bool, Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Argument, OpDecl,
             ])]
@@ -122,7 +123,7 @@ impl Array {
             Array::Mixed(v) => v,
 
             #[expand(REP in [
-                Int, Error, Array,
+                Bool, Int, Error, Array,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes, OpDecl
             ])]
@@ -224,6 +225,7 @@ impl Array {
 
             #[expand((ARRAY_T, REP_T, VALUE_T) in [
                 (Int, Int, i64),
+                (Bool, Bool, bool),
                 (Float, Float, f64),
                 (Text, TextBuffer, String),
                 (Bytes, BytesBuffer, Vec<u8>),
@@ -333,7 +335,7 @@ impl Array {
             }
 
             #[expand(REP in [
-                Int, Error, Array, OpDecl,
+                Bool, Int, Error, Array, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
             ])]
@@ -363,7 +365,7 @@ impl Array {
                 Some(FieldValueRef::REP)
             }
             #[expand(REP in [
-                Int, Error, Array, Object, OpDecl,
+                Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -389,7 +391,7 @@ impl Array {
                 Some(FieldValueRefMut::REP)
             }
             #[expand(REP in [
-                Int, Error, Array, Object,
+                Bool, Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
             ])]
@@ -426,7 +428,7 @@ impl Array {
 
             #[expand(REP in [
                 Text, Bytes, Mixed,
-                Int, Error, Array, Object, OpDecl,
+                Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -448,7 +450,7 @@ impl IntoIterator for Array {
 
             #[expand(REP in [
                 Text, Bytes, Mixed,
-                Int, Error, Array, Object, OpDecl,
+                Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -477,6 +479,7 @@ impl<'a> Iterator for ArrayRefIter<'a> {
 pub enum ArrayIntoIterUnboxed {
     Null(std::iter::RepeatN<FieldValueUnboxed>),
     Undefined(std::iter::RepeatN<FieldValueUnboxed>),
+    Bool(std::vec::IntoIter<bool>),
     Int(std::vec::IntoIter<i64>),
     BigInt(std::vec::IntoIter<BigInt>),
     Float(std::vec::IntoIter<f64>),
@@ -505,7 +508,7 @@ impl Iterator for ArrayIntoIterUnboxed {
 
             #[expand(REP in [
                 Text, Bytes,
-                Int, Error, Array, Object, OpDecl,
+                Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -521,6 +524,7 @@ impl Iterator for ArrayIntoIterUnboxed {
 pub enum ArrayIntoIter {
     Null(std::iter::RepeatN<FieldValue>),
     Undefined(std::iter::RepeatN<FieldValue>),
+    Bool(std::vec::IntoIter<bool>),
     Int(std::vec::IntoIter<i64>),
     BigInt(std::vec::IntoIter<BigInt>),
     Float(std::vec::IntoIter<f64>),
@@ -549,7 +553,7 @@ impl Iterator for ArrayIntoIter {
 
             #[expand(REP in [
                 Text, Bytes,
-                Int, Error, Array, OpDecl,
+                Bool, Int, Error, Array, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId
             ])]

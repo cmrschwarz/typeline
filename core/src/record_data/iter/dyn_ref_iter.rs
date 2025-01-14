@@ -31,6 +31,7 @@ use super::super::{
 pub enum DynFieldValueRangeIter<'a> {
     Null(usize),
     Undefined(usize),
+    Bool(FieldValueRangeIter<'a, bool>),
     Int(FieldValueRangeIter<'a, i64>),
     BigInt(FieldValueRangeIter<'a, BigInt>),
     Float(FieldValueRangeIter<'a, f64>),
@@ -66,7 +67,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 ),
 
             #[expand(REP in [
-                Int, BigInt, Float, BigRational,
+                Bool, Int, BigInt, Float, BigRational,
                 TextBuffer, BytesBuffer,
                 Object, Array, Argument, Custom, Error, OpDecl,
                 StreamValueId, FieldReference, SlicedFieldReference,
@@ -102,7 +103,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
             }
 
             #[expand(REP in [
-                Int, BigInt, Float, BigRational,
+                Bool, Int, BigInt, Float, BigRational,
                 Object, Array, Argument, Custom, Error, OpDecl,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
@@ -125,7 +126,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 res
             }
             #[expand(REP in [
-                Int, BigInt,Float, BigRational, TextInline, TextBuffer,
+                Bool, Int, BigInt,Float, BigRational, TextInline, TextBuffer,
                 BytesInline, BytesBuffer, Object, Array,
                 Argument, OpDecl, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
@@ -182,7 +183,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
             }
 
             #[expand(REP in [
-                Int, BigInt, Float, BigRational,
+                Bool, Int, BigInt, Float, BigRational,
                 Object, Array, Argument, OpDecl, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
@@ -229,7 +230,7 @@ impl<'a> Iterator for DynFieldValueRangeIter<'a> {
             }
 
             #[expand(REP in [
-                Int, BigInt, Float, BigRational,
+                Bool, Int, BigInt, Float, BigRational,
                 Object, Array, Argument, OpDecl, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]

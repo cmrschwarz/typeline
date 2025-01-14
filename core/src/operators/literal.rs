@@ -41,6 +41,7 @@ pub enum Literal {
     StreamString(Arc<String>),
     Object(Object),
     Array(Array),
+    Bool(bool),
     Int(i64),
     BigInt(BigInt),
     Float(f64),
@@ -73,6 +74,7 @@ impl TryFrom<FieldValue> for Literal {
         match value {
             FieldValue::Undefined => Ok(Literal::Undefined),
             FieldValue::Null => Ok(Literal::Null),
+            FieldValue::Bool(i) => Ok(Literal::Bool(i)),
             FieldValue::Int(i) => Ok(Literal::Int(i)),
             FieldValue::BigInt(v) => Ok(Literal::BigInt(*v)),
             FieldValue::Float(f) => Ok(Literal::Float(f)),
@@ -104,6 +106,7 @@ impl Operator for OpLiteral {
             Literal::Error(_) => "error",
             Literal::StreamError(_) => "~error",
             Literal::Int(_) => "int",
+            Literal::Bool(_) => "bool",
             Literal::BigInt(_) => "integer",
             Literal::Float(_) => "float",
             Literal::BigRational(_) => "rational",
@@ -343,7 +346,7 @@ pub fn field_value_to_literal(v: FieldValue) -> Literal {
         #[expand(REP in [Null, Undefined])]
         FieldValue::REP => Literal::REP,
 
-        #[expand(REP in [Int, Float, Bytes, Text, Array,  Custom])]
+        #[expand(REP in [Bool, Int, Float, Bytes, Text, Array,  Custom])]
         FieldValue::REP(v) => Literal::REP(v),
 
         #[expand(REP in [BigInt, BigRational, Argument, Object])]
@@ -571,6 +574,7 @@ pub fn insert_value(
         }
 
         #[expand((REP, PUSH_FN, VAL) in [
+            (Bool, push_bool, *v),
             (Int, push_int, *v),
             (Float, push_float, *v),
             (Bytes, push_bytes, v),

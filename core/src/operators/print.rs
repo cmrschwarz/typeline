@@ -48,7 +48,7 @@ use crate::{
         },
     },
     utils::{
-        int_string_conversions::{f64_to_str, i64_to_str},
+        int_string_conversions::{bool_to_str, f64_to_str, i64_to_str},
         lazy_lock_guard::LazyRwLockGuard,
         string_store::StringStore,
         text_write::TextWriteIoAdapter,
@@ -242,6 +242,7 @@ pub fn handle_tf_print_raw(
             }
 
             #[expand((REP, CONV_FN) in [
+                (Bool, bool_to_str(*v)),
                 (Int, i64_to_str(false, *v)),
                 (Float, f64_to_str(*v))
             ])]

@@ -138,7 +138,7 @@ impl TfFromTyson {
                 }
 
                 #[expand_pattern(REP in [
-                    Undefined, Null, Int, Float, Argument, OpDecl,
+                    Undefined, Null, Bool, Int, Float, Argument, OpDecl,
                     BigInt, BigRational, Custom, Object, Array, Error
                 ])]
                 FieldValueSlice::REP(_) => {

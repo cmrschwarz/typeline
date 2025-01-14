@@ -43,7 +43,9 @@ use crate::{
     typeline_error::TypelineError,
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
-        int_string_conversions::{f64_to_str, i64_to_str, usize_to_str},
+        int_string_conversions::{
+            bool_to_str, f64_to_str, i64_to_str, usize_to_str,
+        },
         lazy_lock_guard::LazyRwLockGuard,
         maybe_text::{MaybeText, MaybeTextBoxed, MaybeTextCow, MaybeTextRef},
         text_write::MaybeTextWritePanicAdapter,
@@ -1005,8 +1007,9 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                     }
                 }
                 #[expand((REP, CONV_FN) in [
-                    (Int, i64_to_str(false, *v)),
-                    (Float, f64_to_str(*v)),
+                    (Bool, bool_to_str(*v)),
+                    (Int, &i64_to_str(false, *v)),
+                    (Float, &f64_to_str(*v)),
                 ])]
                 FieldValueSlice::REP(ints) => {
                     for (v, rl) in
@@ -1015,7 +1018,7 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                         push_join_data(
                             self,
                             &mut jd.sv_mgr,
-                            MaybeTextCow::TextRef(&CONV_FN),
+                            MaybeTextCow::TextRef(CONV_FN),
                             rl,
                         );
                     }

@@ -1062,6 +1062,7 @@ pub fn setup_key_output_state(
             }
 
             #[expand((REP, CTX) in [
+                (Bool, &mut fc.rfk),
                 (Int, &mut fc.rfk),
                 (Float, &mut fc.rfk),
                 (BigInt, &mut fc.rfk),
@@ -1612,7 +1613,7 @@ fn write_fmt_key(
                 }
             }
 
-            #[expand(REP in [Int, Float, BigInt])]
+            #[expand(REP in [Bool, Int, Float, BigInt])]
             FieldValueSlice::REP(ints) => {
                 for (v, rl) in
                     RefAwareFieldValueRangeIter::from_range(&range, ints)

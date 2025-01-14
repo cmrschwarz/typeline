@@ -194,7 +194,7 @@ fn flatten_array(
             }
 
             #[expand(REP in [
-                Int, Float, Array, Object, Argument, OpDecl,
+                Bool, Int, Float, Array, Object, Argument, OpDecl,
                 BigInt, BigRational, Custom,
                 FieldReference, SlicedFieldReference,
                 StreamValueId, Error,
@@ -237,7 +237,7 @@ fn flatten_argument(
     metamatch!(match &v.value {
         FieldValue::Undefined | FieldValue::Null |
         #[expand_pattern(REP in [
-            Int, Float, StreamValueId, BigInt, OpDecl,
+            Bool, Int, Float, StreamValueId, BigInt, OpDecl,
             BigRational, Text, Bytes,Custom, Error,
             FieldReference, SlicedFieldReference
         ])]
@@ -279,7 +279,7 @@ impl TfFlatten {
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             metamatch!(match range.base.data {
                 #[expand_pattern(REP in [
-                    Undefined, Null, Int, Float, StreamValueId, BigInt,
+                    Undefined, Null, Bool, Int, Float, StreamValueId, BigInt,
                     BigRational, TextInline, TextBuffer, BytesInline,
                     BytesBuffer, Custom, Error, OpDecl
                 ])]

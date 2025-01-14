@@ -55,6 +55,7 @@ pub enum FieldValueRepr {
     #[default]
     Null,
     Undefined,
+    Bool,
     Int,
     BigInt,
     Float,
@@ -247,6 +248,11 @@ unsafe impl FixedSizeFieldValueType for Undefined {
     const KIND: FieldValueKind = FieldValueKind::Undefined;
     const TRIVIALLY_COPYABLE: bool = true;
 }
+unsafe impl FixedSizeFieldValueType for bool {
+    const REPR: FieldValueRepr = FieldValueRepr::Bool;
+    const KIND: FieldValueKind = FieldValueKind::Bool;
+    const TRIVIALLY_COPYABLE: bool = true;
+}
 unsafe impl FixedSizeFieldValueType for i64 {
     const REPR: FieldValueRepr = FieldValueRepr::Int;
     const KIND: FieldValueKind = FieldValueKind::Int;
@@ -333,6 +339,7 @@ impl FieldValueRepr {
             #[expand((REP, T) in [
                 (Null, Null),
                 (Undefined, Undefined),
+                (Bool, bool),
                 (Int, i64),
                 (BigInt, BigInt),
                 (Float, f64),
@@ -441,6 +448,7 @@ impl FieldValueRepr {
         match self {
             FieldValueRepr::Undefined => "undefined",
             FieldValueRepr::Null => "null",
+            FieldValueRepr::Bool => "bool",
             FieldValueRepr::Int => "int",
             FieldValueRepr::BigInt => "integer",
             FieldValueRepr::Float => "float",
@@ -913,7 +921,7 @@ impl FieldData {
                 }
 
                 #[expand(REP in [
-                    Int, Float, StreamValueId, FieldReference,
+                    Bool, Int, Float, StreamValueId, FieldReference,
                     SlicedFieldReference
                 ])]
                 FieldValueSlice::REP(data) => {
@@ -1024,7 +1032,7 @@ unsafe fn append_data(
                 extend_raw(target_applicator, v.as_bytes()),
 
             #[expand(REP in [
-                Int, Float, BytesInline,
+                Bool, Int, Float, BytesInline,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
             FieldValueSlice::REP(v) => {

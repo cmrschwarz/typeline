@@ -292,6 +292,7 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
                 }
 
                 #[expand((REP, ITER, CONV) in [
+                    (Bool, FieldValueRangeIter, *v),
                     (Int, FieldValueRangeIter, *v),
                     (Float, FieldValueRangeIter, *v),
                     (BigInt, RefAwareFieldValueRangeIter, Box::new(v.clone())),

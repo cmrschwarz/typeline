@@ -128,6 +128,10 @@ pub fn i64_to_str(
     res
 }
 
+pub fn bool_to_str(val: bool) -> &'static str {
+    ["false", "true"][usize::from(val)]
+}
+
 pub fn i64_digits(display_plus_sign: bool, mut v: i64) -> usize {
     let sign_len = if v < 0 {
         v = -v;

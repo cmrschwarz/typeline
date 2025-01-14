@@ -455,6 +455,7 @@ impl Serialize for FieldValueRef<'_> {
         S: Serializer,
     {
         match self {
+            FieldValueRef::Bool(v) => v.serialize(serializer),
             FieldValueRef::Int(v) => v.serialize(serializer),
             FieldValueRef::BigInt(v) => v.serialize(serializer),
             FieldValueRef::Float(v) => v.serialize(serializer),
@@ -489,6 +490,7 @@ impl<'de> Deserializer<'de> for FieldValueRef<'de> {
         V: Visitor<'de>,
     {
         match self {
+            FieldValueRef::Bool(v) => visitor.visit_bool(*v),
             FieldValueRef::Int(v) => visitor.visit_i64(*v),
             FieldValueRef::BigInt(_) => todo!(),
             FieldValueRef::Float(v) => visitor.visit_f64(*v),

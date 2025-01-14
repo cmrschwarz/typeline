@@ -35,7 +35,7 @@ use crate::{
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
-        int_string_conversions::{f64_to_str, i64_to_str},
+        int_string_conversions::{bool_to_str, f64_to_str, i64_to_str},
         lazy_lock_guard::LazyRwLockGuard,
         text_write::{
             MaybeTextWriteFlaggedAdapter, MaybeTextWritePanicAdapter,
@@ -362,9 +362,9 @@ impl<'a> Transform<'a> for TfStringSink<'a> {
                 }
 
                 #[expand((REP, ITER) in [
-                (TextInline, RefAwareInlineTextIter),
-                (TextBuffer, RefAwareTextBufferIter),
-            ])]
+                    (TextInline, RefAwareInlineTextIter),
+                    (TextBuffer, RefAwareTextBufferIter),
+                ])]
                 FieldValueSlice::REP(v) => {
                     for (v, rl, _offs) in ITER::from_range(&range, v) {
                         push_str(&mut out, v, rl as usize);
@@ -372,9 +372,9 @@ impl<'a> Transform<'a> for TfStringSink<'a> {
                 }
 
                 #[expand((REP, ITER) in [
-                (BytesInline, RefAwareInlineBytesIter),
-                (BytesBuffer, RefAwareBytesBufferIter),
-            ])]
+                    (BytesInline, RefAwareInlineBytesIter),
+                    (BytesBuffer, RefAwareBytesBufferIter),
+                ])]
                 FieldValueSlice::REP(v) => {
                     for (v, rl, _offs) in ITER::from_range(&range, v) {
                         push_bytes(op_id, field_pos, &mut out, v, rl as usize);
@@ -382,15 +382,15 @@ impl<'a> Transform<'a> for TfStringSink<'a> {
                 }
 
                 #[expand((REP, CONV_FN) in [
-                (Int, i64_to_str(false, *v)),
-                (Float, f64_to_str(*v))
-            ])]
+                    (Bool, bool_to_str(*v)),
+                    (Int, &i64_to_str(false, *v)),
+                    (Float, &f64_to_str(*v))
+                ])]
                 FieldValueSlice::REP(ints) => {
                     for (v, rl) in
                         FieldValueRangeIter::from_range(&range, ints)
                     {
-                        let v = CONV_FN;
-                        push_str(&mut out, v.as_str(), rl as usize);
+                        push_str(&mut out, CONV_FN, rl as usize);
                     }
                 }
 

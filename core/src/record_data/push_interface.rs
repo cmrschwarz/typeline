@@ -47,7 +47,7 @@ use crate::{
     },
     utils::{
         as_u8_slice,
-        int_string_conversions::{f64_to_str, i64_to_str},
+        int_string_conversions::{bool_to_str, f64_to_str, i64_to_str},
         lazy_lock_guard::LazyRwLockGuard,
         maybe_text::{MaybeText, MaybeTextRef},
         string_store::StringStore,
@@ -384,6 +384,20 @@ pub unsafe trait PushInterface {
             try_data_rle,
         );
     }
+    fn push_bool(
+        &mut self,
+        data: bool,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        self.push_fixed_size_type(
+            data,
+            run_length,
+            try_header_rle,
+            try_data_rle,
+        );
+    }
     fn push_int(
         &mut self,
         data: i64,
@@ -537,7 +551,7 @@ pub unsafe trait PushInterface {
             #[expand(REP in [
                 Float, Array, Custom, Error,
                 FieldReference, SlicedFieldReference, StreamValueId,
-                Int, OpDecl,
+                Bool, Int, OpDecl,
             ])]
             FieldValue::REP(v) => {
                 self.push_fixed_size_type(
@@ -579,7 +593,7 @@ pub unsafe trait PushInterface {
                 self.push_undefined(run_length, try_header_rle)
             }
             #[expand(REP in [
-                Float, Int, FieldReference, SlicedFieldReference, StreamValueId,
+                Bool, Int, Float, FieldReference, SlicedFieldReference, StreamValueId,
             ])]
             FieldValue::REP(v) => {
                 self.push_fixed_size_type(
@@ -659,6 +673,7 @@ pub unsafe trait PushInterface {
             }
 
             #[expand((REP, VAL) in [
+                (Bool, *v),
                 (Int, *v),
                 (Float, *v),
                 (StreamValueId, *v),
@@ -701,6 +716,7 @@ pub unsafe trait PushInterface {
         match range.data {
             FieldValueSlice::Undefined(_)
             | FieldValueSlice::Null(_)
+            | FieldValueSlice::Bool(_)
             | FieldValueSlice::Int(_)
             | FieldValueSlice::Float(_)
             | FieldValueSlice::OpDecl(_)
@@ -774,6 +790,7 @@ pub unsafe trait PushInterface {
         match range.base.data {
             FieldValueSlice::Undefined(_)
             | FieldValueSlice::Null(_)
+            | FieldValueSlice::Bool(_)
             | FieldValueSlice::Int(_)
             | FieldValueSlice::Float(_)
             | FieldValueSlice::OpDecl(_)
@@ -913,13 +930,14 @@ pub unsafe trait PushInterface {
                 ),
 
             #[expand((REP, CONV) in [
-                (Int, i64_to_str(false, *v)),
-                (Float, f64_to_str(*v))
+                (Bool, bool_to_str(*v)),
+                (Int, i64_to_str(false, *v).as_str()),
+                (Float, f64_to_str(*v).as_str())
             ])]
             FieldValueSlice::REP(vals) => {
                 for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
                     self.push_inline_str(
-                        &CONV,
+                        CONV,
                         rl as usize,
                         try_header_rle,
                         try_data_rle,

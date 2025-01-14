@@ -604,7 +604,7 @@ impl<'a> Iterator for FieldValueSliceIter<'a> {
                 }
             }
             #[expand(REP in [
-                Int, BigInt, Float, BigRational,
+                Bool, Int, BigInt, Float, BigRational,
                 Object, Array, Argument, OpDecl, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference
             ])]

@@ -207,6 +207,13 @@ impl TfSum {
                         self.aggregate.add_float(*v, rl, fpm)
                     }
                 }
+                FieldValueSlice::Bool(bools) => {
+                    for (v, rl) in
+                        FieldValueRangeIter::from_range(&range, bools)
+                    {
+                        self.aggregate.add_bool_with_rl(*v, rl, fpm)
+                    }
+                }
                 FieldValueSlice::BigRational(rationals) => {
                     for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                         &range, rationals,

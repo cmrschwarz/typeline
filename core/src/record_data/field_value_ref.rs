@@ -28,6 +28,7 @@ use crate::{
 pub enum FieldValueRef<'a> {
     Null,
     Undefined,
+    Bool(&'a bool),
     Int(&'a i64),
     BigInt(&'a BigInt),
     Float(&'a f64),
@@ -48,6 +49,7 @@ pub enum FieldValueRef<'a> {
 pub enum FieldValueRefMut<'a> {
     Null,
     Undefined,
+    Bool(&'a mut bool),
     Int(&'a mut i64),
     BigInt(&'a mut BigInt),
     Float(&'a mut f64),
@@ -71,6 +73,7 @@ pub enum FieldValueRefMut<'a> {
 pub enum FieldValueSlice<'a> {
     Null(usize),
     Undefined(usize),
+    Bool(&'a [bool]),
     Int(&'a [i64]),
     BigInt(&'a [BigInt]),
     Float(&'a [f64]),
@@ -205,7 +208,7 @@ impl<'a> FieldValueRef<'a> {
                 }
 
                 #[expand(REP in [
-                    Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
+                    Bool, Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
                     SlicedFieldReference, Error, OpDecl,
                     Object, Array, Custom, Argument
                 ])]
@@ -226,8 +229,8 @@ impl<'a> FieldValueRef<'a> {
             FieldValueRef::KIND(v) => FieldValueSlice::REP(v),
 
             #[expand(REP in [
-                Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
-                SlicedFieldReference, Error, Argument, OpDecl,
+                Bool, Int, BigInt, Float, BigRational, StreamValueId,
+                FieldReference, SlicedFieldReference, Error, Argument, OpDecl,
                 Object, Array, Custom,
             ])]
             FieldValueRef::REP(v) => FieldValueSlice::REP(from_ref(v)),
@@ -239,7 +242,7 @@ impl<'a> FieldValueRef<'a> {
             FieldValueRef::REP => FieldValue::REP,
 
             #[expand(REP in [
-                Int, Float, StreamValueId, FieldReference,
+                Bool, Int, Float, StreamValueId, FieldReference,
                 SlicedFieldReference,
             ])]
             FieldValueRef::REP(v) => FieldValue::REP(*v),
@@ -271,8 +274,9 @@ impl<'a> FieldValueRef<'a> {
 
             FieldValueRef::Null | FieldValueRef::Undefined |
             #[expand_pattern(REP in [
-                Int, BigInt, Float, BigRational, Object, Custom, StreamValueId,
-                Error, FieldReference, SlicedFieldReference, OpDecl,
+                Bool, Int, BigInt, Float, BigRational, Object, Custom,
+                StreamValueId, Error,
+                FieldReference, SlicedFieldReference, OpDecl,
             ])]
             FieldValueRef::REP(_) => {
                 panic!("typed value kind {:?} is not slicable", self.repr(),)
@@ -287,6 +291,7 @@ impl<'a> FieldValueRef<'a> {
             FieldValueRef::Argument(v) => v.value.text_or_bytes(),
             FieldValueRef::Null
             | FieldValueRef::Undefined
+            | FieldValueRef::Bool(_)
             | FieldValueRef::Int(_)
             | FieldValueRef::BigInt(_)
             | FieldValueRef::Float(_)
@@ -370,7 +375,7 @@ impl<'a> FieldValueSlice<'a> {
                 }
 
                 #[expand(REP in [
-                    Int, BigInt, Float, BigRational, TextBuffer, BytesInline,
+                    Bool, Int, BigInt, Float, BigRational, TextBuffer, BytesInline,
                     BytesBuffer, Object, Array, Custom, Error, StreamValueId,
                     FieldReference, SlicedFieldReference, Argument, OpDecl
                 ])]
@@ -390,7 +395,7 @@ impl<'a> FieldValueSlice<'a> {
                 FieldValueSlice::TextInline(v) => v.as_bytes(),
 
                 #[expand(REP in [
-                    Int, BigInt, Float, BigRational, StreamValueId,
+                    Bool, Int, BigInt, Float, BigRational, StreamValueId,
                     FieldReference, SlicedFieldReference, Error,
                     BytesBuffer, TextBuffer, Object, Array, Argument,
                     OpDecl, Custom
@@ -403,8 +408,8 @@ impl<'a> FieldValueSlice<'a> {
         metamatch!(match self {
             #[expand(REP in [
                 Undefined, Null, BytesInline, TextInline,
-                Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
-                SlicedFieldReference, Error,
+                Bool, Int, BigInt, Float, BigRational,
+                StreamValueId, FieldReference, SlicedFieldReference, Error,
                 BytesBuffer, TextBuffer, Object, Array, Argument, OpDecl, Custom
             ])]
             FieldValueSlice::REP(_) => FieldValueRepr::REP,
@@ -418,8 +423,8 @@ impl<'a> FieldValueSlice<'a> {
             FieldValueSlice::Undefined(v) | FieldValueSlice::Null(v) => *v,
             #[expand(REP in [
                 BytesInline, TextInline,
-                Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
-                SlicedFieldReference, Error,
+                Bool, Int, BigInt, Float, BigRational,
+                StreamValueId, FieldReference, SlicedFieldReference, Error,
                 BytesBuffer, TextBuffer, Object, Array, Argument, OpDecl, Custom
             ])]
             FieldValueSlice::REP(v) => v.len(),
@@ -476,7 +481,7 @@ impl<'a> FieldValueSlice<'a> {
                     drop_slice::<TYPE>(ptr, len)
                 }
                 #[expand_pattern(REP in [
-                    Null, Undefined, Int, Float, TextInline, BytesInline,
+                    Null, Undefined, Bool, Int, Float, TextInline, BytesInline,
                     StreamValueId, FieldReference, SlicedFieldReference,
                 ])]
                 FieldValueRepr::REP => {

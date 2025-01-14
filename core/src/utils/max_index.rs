@@ -194,6 +194,23 @@ pub fn max_index_f64_avx2(arr: &[f64]) -> Option<usize> {
     Some(max_idx)
 }
 
+pub fn max_index_bool(bools: &[bool]) -> Option<usize> {
+    // TODO: avx
+    if bools.is_empty() {
+        return None;
+    }
+    let mut max_val = bools[0];
+    let mut max_idx = 0;
+    for i in 1..bools.len() {
+        let v = bools[i];
+        if v && !max_val {
+            max_idx = i;
+            max_val = v;
+        }
+    }
+    Some(max_idx)
+}
+
 pub fn max_index_i64(nums: &[i64]) -> Option<usize> {
     #[cfg(target_feature = "avx2")]
     if nums.len() >= AVX2_MIN_LEN {

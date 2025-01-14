@@ -21,7 +21,7 @@ use typeline_core::{
         },
         iter_hall::FieldIterId,
     },
-    utils::max_index::{max_index_f64, max_index_i64},
+    utils::max_index::{max_index_bool, max_index_f64, max_index_i64},
 };
 
 use typeline_core::operators::utils::any_number::AnyNumber;
@@ -195,9 +195,36 @@ impl Transform<'_> for TfMax {
             // declare these up here so they live long enough
             let mut max_val_f64;
             let mut max_val_i64;
+            let mut max_val_bool;
 
             let res_val;
             match range.base.data {
+                FieldValueSlice::Bool(vals) => {
+                    max_val_bool = false;
+                    let mut iter =
+                        FieldValueRangeIter::from_range(&range, vals);
+                    while let Some(b) = iter.next_block() {
+                        match b {
+                            FieldValueBlock::Plain(v) => {
+                                if let Some(idx) = max_index_bool(v) {
+                                    if v[idx] & !max_val_bool {
+                                        max_val_bool = v[idx];
+                                        res_idx = field_idx + idx;
+                                    }
+                                }
+                                field_idx += v.len();
+                            }
+                            FieldValueBlock::WithRunLength(v, rl) => {
+                                if *v & !max_val_bool {
+                                    res_idx = field_idx;
+                                    max_val_bool = *v;
+                                }
+                                field_idx += rl as usize;
+                            }
+                        }
+                    }
+                    res_val = AnyNumberRef::Bool(&max_val_bool);
+                }
                 FieldValueSlice::Int(vals) => {
                     max_val_i64 = i64::MIN;
                     let mut iter =

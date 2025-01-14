@@ -227,6 +227,7 @@ impl<S: ChainSetting> SettingTypeConverter for SettingConverterBool<S> {
     ) -> Result<bool, SettingConversionError> {
         match value {
             FieldValueRef::Undefined | FieldValueRef::Null => Ok(false),
+            FieldValueRef::Bool(v) => Ok(*v),
             FieldValueRef::Int(v) => Ok(*v == 0),
             FieldValueRef::BigInt(v) => Ok(v.is_zero()),
             FieldValueRef::Float(v) => Ok(*v == 0.0),
@@ -412,8 +413,10 @@ impl<S: ChainSetting> SettingTypeConverter for SettingConverterPath<S> {
             FieldValueRef::Bytes(v) => {
                 Ok(PathBuf::from(OsString::from_vec(v.to_owned())))
             }
-             FieldValueRef::Undefined | FieldValueRef::Null  |
-            FieldValueRef::Int(_)
+            FieldValueRef::Undefined
+            | FieldValueRef::Null
+            | FieldValueRef::Bool(_)
+            | FieldValueRef::Int(_)
             | FieldValueRef::BigInt(_)
             | FieldValueRef::Float(_)
             | FieldValueRef::BigRational(_)

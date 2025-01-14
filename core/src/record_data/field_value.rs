@@ -34,6 +34,7 @@ use super::{
 pub enum FieldValueKind {
     Undefined,
     Null,
+    Bool,
     Int,
     Float,
     Error,
@@ -60,6 +61,7 @@ pub enum FieldValue {
     #[default]
     Undefined,
     Null,
+    Bool(bool),
     Int(i64),
     BigInt(Box<BigInt>),
     Float(f64),
@@ -89,6 +91,7 @@ pub enum FieldValueUnboxed {
     #[default]
     Undefined,
     Null,
+    Bool(bool),
     Int(i64),
     BigInt(BigInt),
     Float(f64),
@@ -227,7 +230,7 @@ impl FieldValueKind {
             }
 
             #[expand(T in [
-                Undefined, Null, Error, Object, Array,
+                Undefined, Null, Bool, Error, Object, Array,
                 Argument, OpDecl, FieldReference,
                 SlicedFieldReference, StreamValueId, Custom
             ])]
@@ -238,6 +241,7 @@ impl FieldValueKind {
         match self {
             FieldValueKind::Undefined => "undefined",
             FieldValueKind::Null => "null",
+            FieldValueKind::Bool => "bool",
             FieldValueKind::Int => "int",
             FieldValueKind::Float => "float",
             FieldValueKind::Error => "error",
@@ -257,6 +261,7 @@ impl FieldValueKind {
         match self {
             FieldValueKind::Undefined
             | FieldValueKind::Null
+            | FieldValueKind::Bool
             | FieldValueKind::Int
             | FieldValueKind::Float
             | FieldValueKind::Error
@@ -281,7 +286,7 @@ impl PartialEq for FieldValue {
             Self::REP => matches!(other, Self::REP),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Bytes, Text, OpDecl,
+                Bool, Int, Error, Array, Object, Bytes, Text, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -309,7 +314,7 @@ impl FieldValue {
             FieldValue::Bytes(_) => FieldValueRepr::BytesBuffer,
 
             #[expand(REP in [
-                Int, Error, Array, Object, OpDecl,
+                Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -322,7 +327,7 @@ impl FieldValue {
             FieldValue::REP => <dyn Any>::downcast_ref(&REP),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Text, Bytes, OpDecl,
+                Bool, Int, Error, Array, Object, Text, Bytes, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -341,7 +346,7 @@ impl FieldValue {
             v @ FieldValue::T => <dyn Any>::downcast_mut(v),
 
             #[expand(REP in [
-                Int, Error, Array, Object, Text, Bytes, OpDecl,
+                Bool, Int, Error, Array, Object, Text, Bytes, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -362,6 +367,7 @@ impl FieldValue {
             FieldValue::Undefined
             | FieldValue::Null
             | FieldValue::Int(_)
+            | FieldValue::Bool(_)
             | FieldValue::BigInt(_)
             | FieldValue::Float(_)
             | FieldValue::BigRational(_)
@@ -400,7 +406,7 @@ impl FieldValue {
             FieldValue::REP => FieldValueRef::REP,
 
             #[expand(REP in [
-                Int, Error, Array, Object, Text, Bytes,
+                Bool, Int, Error, Array, Object, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
             ])]
@@ -416,7 +422,7 @@ impl FieldValue {
             FieldValue::REP => FieldValueSlice::REP(1),
 
             #[expand(REP in [
-                Int, Error, Array, Object, OpDecl,
+                Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument,
             ])]
@@ -437,7 +443,7 @@ impl FieldValue {
             FieldValue::REP => FieldValueRefMut::REP,
 
             #[expand(REP in [
-                Int, Error, Array, Object,
+                Bool, Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
             ])]
@@ -474,7 +480,7 @@ impl FieldValue {
             FieldValueRepr::REP => FieldValue::REP,
 
             #[expand(REP in [
-                Int, Error, Array, Object,
+                Bool, Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
             ])]
@@ -518,7 +524,7 @@ impl FieldValue {
             {
                 None
             }
-
+            FieldValue::Bool(v) => Some(i64::from(*v)),
             FieldValue::Int(v) => Some(*v),
             FieldValue::BigInt(v) => v.to_i64(),
 
@@ -564,7 +570,7 @@ impl FieldValue {
             {
                 None
             }
-
+            FieldValue::Bool(v) => Some(BigInt::from(v)),
             FieldValue::Int(v) => Some(BigInt::from(v)),
             FieldValue::BigInt(v) => Some(*v),
             FieldValue::Float(f) => {
@@ -603,7 +609,7 @@ impl FieldValue {
             FieldValue::REP => FieldValueUnboxed::REP,
 
             #[expand(REP in [
-                Int, Error, Array, OpDecl, Text, Bytes,
+                Bool, Int, Error, Array, OpDecl, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId,
             ])]
@@ -642,7 +648,7 @@ impl FieldValueUnboxed {
             FieldValueUnboxed::Bytes(_) => FieldValueRepr::BytesBuffer,
 
             #[expand(REP in [
-                Int, Error, Array, Object, OpDecl,
+                Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
@@ -656,7 +662,7 @@ impl FieldValueUnboxed {
             FieldValueUnboxed::REP => FieldValueRef::REP,
 
             #[expand(REP in [
-                Int, Error, Array, Object, Text, Bytes,
+                Bool, Int, Error, Array, Object, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
             ])]
@@ -672,7 +678,7 @@ impl From<FieldValue> for FieldValueUnboxed {
             FieldValue::REP => FieldValueUnboxed::REP,
 
             #[expand(REP in [
-                Int, Error, Array, OpDecl, Text, Bytes,
+                Bool, Int, Error, Array, OpDecl, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId,
             ])]
@@ -693,7 +699,7 @@ impl From<FieldValueUnboxed> for FieldValue {
             FieldValueUnboxed::REP => FieldValue::REP,
 
             #[expand(REP in [
-                Int, Error, Array, OpDecl, Text, Bytes,
+                Bool, Int, Error, Array, OpDecl, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId,
             ])]

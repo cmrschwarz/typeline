@@ -25,7 +25,7 @@ use crate::{
             LengthAndCharsCountingWriter, LengthCountingWriter,
         },
         escaped_writer::EscapedWriter,
-        int_string_conversions::i64_digits,
+        int_string_conversions::{bool_to_str, i64_digits},
         lazy_lock_guard::LazyRwLockGuard,
         maybe_text::MaybeTextRef,
         string_store::StringStore,
@@ -399,6 +399,28 @@ impl Formattable<'_, '_> for i64 {
         TextBounds::new(len, len)
     }
 }
+impl Formattable<'_, '_> for bool {
+    type Context = RealizedFormatKey;
+    fn total_length_cheap(&self, _ctx: &mut Self::Context) -> bool {
+        true
+    }
+    fn format<W: MaybeTextWrite + ?Sized>(
+        &self,
+        _ctx: &mut Self::Context,
+        w: &mut W,
+    ) -> std::io::Result<()> {
+        // TODO: padding?
+        w.write_text_fmt(format_args!("{self}"))
+    }
+    fn length_total(&self, _ctx: &mut Self::Context) -> usize {
+        // TODO: padding?
+        bool_to_str(*self).len()
+    }
+    fn text_bounds_total(&self, ctx: &mut Self::Context) -> TextBounds {
+        let len = self.length_total(ctx);
+        TextBounds::new(len, len)
+    }
+}
 impl<'a, 'b: 'a> Formattable<'a, 'b> for Object {
     type Context = FormattingContext<'a, 'b>;
 
@@ -488,6 +510,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
             }
 
             #[expand((REP, T, FC) in [
+                (Bool, bool, &mut fc.rfk),
                 (Int, i64, &mut fc.rfk),
                 (Float, f64, &mut fc.rfk),
                 (Array, Array, fc),
@@ -689,6 +712,7 @@ pub fn with_formattable<'a, 'b: 'a, R>(
         FieldValueRef::T => with_fmt.call(&T, &mut ()),
 
         #[expand((REP, CTX) in [
+            (Bool, &mut fc.rfk),
             (Int, &mut fc.rfk),
             (Float, &mut fc.rfk),
             (Array, fc),

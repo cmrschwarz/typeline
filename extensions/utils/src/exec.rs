@@ -77,7 +77,7 @@ use typeline_core::{
     utils::{
         index_vec::IndexVec,
         indexing_type::IndexingType,
-        int_string_conversions::{f64_to_str, i64_to_str},
+        int_string_conversions::{bool_to_str, f64_to_str, i64_to_str},
         maybe_text::MaybeText,
         string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
         universe::{CountedUniverse, Universe},
@@ -473,6 +473,7 @@ impl<'a> TfExec<'a> {
                 }
 
                 #[expand((REP, CONV_FN) in [
+                    (Bool, bool_to_str(*v)),
                     (Int, i64_to_str(false, *v)),
                     (Float, f64_to_str(*v)),
                 ])]

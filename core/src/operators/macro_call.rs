@@ -280,6 +280,7 @@ fn argumentize(
         FieldValue::Undefined
         | FieldValue::Null
         | FieldValue::Int(_)
+        | FieldValue::Bool(_)
         | FieldValue::BigInt(_)
         | FieldValue::Float(_)
         | FieldValue::BigRational(_)

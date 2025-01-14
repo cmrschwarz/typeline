@@ -42,7 +42,8 @@ use crate::{
         escaped_writer::EscapedFmtWriter,
         indexing_type::IndexingType,
         int_string_conversions::{
-            i64_to_str, usize_to_str, USIZE_MAX_DECIMAL_DIGITS,
+            bool_to_str, f64_to_str, i64_to_str, usize_to_str,
+            USIZE_MAX_DECIMAL_DIGITS,
         },
         string_store::StringStoreEntry,
         text_write::{MaybeTextWriteFlaggedAdapter, TextWriteIoAdapter},
@@ -1165,9 +1166,9 @@ impl<'a> Transform<'a> for TfRegex<'a> {
                     }
                 }
                 #[expand((REP, ITER) in [
-                (BytesInline, RefAwareInlineBytesIter),
-                (BytesBuffer, RefAwareBytesBufferIter),
-            ])]
+                    (BytesInline, RefAwareInlineBytesIter),
+                    (BytesBuffer, RefAwareBytesBufferIter),
+                ])]
                 FieldValueSlice::REP(bytes) => {
                     for (v, rl, offset) in ITER::from_range(&range, bytes) {
                         match_regex_inner::<true, _>(
@@ -1221,7 +1222,12 @@ impl<'a> Transform<'a> for TfRegex<'a> {
                         }
                     }
                 }
-                FieldValueSlice::Int(ints) => {
+                #[expand((REPR, T, TO_STR_FN) in [
+                    (Bool, bool, bool_to_str(*v)),
+                    (Int, i64, i64_to_str(false, *v).as_str()),
+                    (Float, f64, f64_to_str(*v).as_str()),
+                ])]
+                FieldValueSlice::REPR(ints) => {
                     if let Some(tr) = &mut text_regex {
                         for (v, rl) in
                             FieldValueRangeIter::from_range(&range, ints)
@@ -1229,7 +1235,7 @@ impl<'a> Transform<'a> for TfRegex<'a> {
                             match_regex_inner::<false, _>(
                                 &mut rmis,
                                 tr,
-                                &i64_to_str(false, *v),
+                                TO_STR_FN,
                                 rl,
                                 RangeOffsets::default(),
                             );
@@ -1244,7 +1250,7 @@ impl<'a> Transform<'a> for TfRegex<'a> {
                             match_regex_inner::<false, _>(
                                 &mut rmis,
                                 &mut bytes_regex,
-                                i64_to_str(false, *v).as_bytes(),
+                                (TO_STR_FN).as_bytes(),
                                 rl,
                                 RangeOffsets::default(),
                             );
@@ -1378,7 +1384,6 @@ impl<'a> Transform<'a> for TfRegex<'a> {
                     }
                 }
                 FieldValueSlice::BigInt(_)
-                | FieldValueSlice::Float(_)
                 | FieldValueSlice::BigRational(_)
                 | FieldValueSlice::Argument(_)
                 | FieldValueSlice::OpDecl(_) => {

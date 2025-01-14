@@ -15,6 +15,7 @@ use num_order::NumOrd;
 
 #[derive(Clone)]
 pub enum AnyNumber {
+    Bool(bool),
     Int(i64),
     BigInt(num::BigInt),
     Float(f64),
@@ -23,6 +24,7 @@ pub enum AnyNumber {
 
 #[derive(Clone, Copy)]
 pub enum AnyNumberRef<'a> {
+    Bool(&'a bool),
     Int(&'a i64),
     BigInt(&'a num::BigInt),
     Float(&'a f64),
@@ -50,6 +52,12 @@ impl<'a, 'b> PartialEq<AnyNumberRef<'b>> for AnyNumberRef<'a> {
 impl<'a, 'b> PartialOrd<AnyNumberRef<'b>> for AnyNumberRef<'a> {
     fn partial_cmp(&self, other: &AnyNumberRef<'b>) -> Option<Ordering> {
         match (self, other) {
+            (AnyNumberRef::Bool(lhs), rhs) => {
+                AnyNumberRef::Int(&i64::from(**lhs)).partial_cmp(rhs)
+            }
+            (lhs, AnyNumberRef::Bool(rhs)) => {
+                lhs.partial_cmp(&AnyNumberRef::Int(&i64::from(**rhs)))
+            }
             (AnyNumberRef::Int(lhs), AnyNumberRef::Int(rhs)) => {
                 Some(lhs.cmp(rhs))
             }
@@ -118,6 +126,7 @@ impl Default for AnyNumber {
 impl AnyNumber {
     pub fn as_ref(&self) -> AnyNumberRef {
         match self {
+            AnyNumber::Bool(v) => AnyNumberRef::Bool(v),
             AnyNumber::Int(v) => AnyNumberRef::Int(v),
             AnyNumber::BigInt(v) => AnyNumberRef::BigInt(v),
             AnyNumber::Float(v) => AnyNumberRef::Float(v),
@@ -129,6 +138,7 @@ impl AnyNumber {
 impl<'a> AnyNumberRef<'a> {
     pub fn to_owned(&self) -> AnyNumber {
         match *self {
+            AnyNumberRef::Bool(v) => AnyNumber::Bool(*v),
             AnyNumberRef::Int(v) => AnyNumber::Int(*v),
             AnyNumberRef::BigInt(v) => AnyNumber::BigInt(v.clone()),
             AnyNumberRef::BigRational(v) => AnyNumber::BigRational(v.clone()),
@@ -146,6 +156,9 @@ impl AnyNumber {
         data_rle: bool,
     ) {
         match self {
+            AnyNumber::Bool(v) => {
+                tgt.push_fixed_size_type(v, 1, header_rle, data_rle)
+            }
             AnyNumber::Int(v) => {
                 tgt.push_fixed_size_type(v, 1, header_rle, data_rle)
             }
@@ -160,8 +173,13 @@ impl AnyNumber {
             }
         }
     }
+
     pub fn add_int(&mut self, value: i64, fpm: bool) {
         match self {
+            AnyNumber::Bool(v) => {
+                *self = AnyNumber::Int(i64::from(*v));
+                self.add_int(value, fpm);
+            }
             AnyNumber::Int(i) => {
                 if let Some(r) = i.checked_add(value) {
                     *self = AnyNumber::Int(r);
@@ -185,9 +203,21 @@ impl AnyNumber {
             AnyNumber::BigRational(r) => r.add_assign(BigInt::from(value)),
         }
     }
+    pub fn add_bool(&mut self, value: bool, fpm: bool) {
+        self.add_int(i64::from(value), fpm);
+    }
+    pub fn add_bool_with_rl(&mut self, value: bool, rl: RunLength, fpm: bool) {
+        self.add_int_with_rl(i64::from(value), rl, fpm);
+    }
     pub fn div_usize(&mut self, value: usize) {
         match self {
             // TODO: figure out somethign smarter
+            AnyNumber::Bool(v) => {
+                *self = AnyNumber::BigRational(
+                    BigRational::from_i64(i64::from(*v)).unwrap()
+                        / BigRational::from_usize(value).unwrap(),
+                );
+            }
             AnyNumber::Int(v) => {
                 *self = AnyNumber::BigRational(
                     BigRational::from_i64(*v).unwrap()
@@ -224,6 +254,11 @@ impl AnyNumber {
             return;
         }
         match self {
+            AnyNumber::Bool(b) => {
+                *self = AnyNumber::BigInt(
+                    BigInt::from(v).mul(rl).add(i64::from(*b)),
+                );
+            }
             AnyNumber::Int(i) => {
                 *self = AnyNumber::BigInt(BigInt::from(v).mul(rl).add(*i));
             }
@@ -265,6 +300,10 @@ impl AnyNumber {
             }
         };
         match self {
+            AnyNumber::Bool(b) => {
+                *self =
+                    AnyNumber::BigInt(v_x_rl.into_owned().add(i64::from(*b)));
+            }
             AnyNumber::Int(i) => {
                 *self = AnyNumber::BigInt(v_x_rl.into_owned().add(*i));
             }
@@ -283,8 +322,9 @@ impl AnyNumber {
     }
     pub fn add_float(&mut self, v: f64, rl: RunLength, fpm: bool) {
         if fpm {
+            #[allow(clippy::cast_precision_loss)]
             let curr = match self {
-                #[allow(clippy::cast_precision_loss)]
+                AnyNumber::Bool(b) => i64::from(*b) as f64,
                 AnyNumber::Int(i) => *i as f64,
                 AnyNumber::BigInt(i) => i.to_f64().unwrap(),
                 AnyNumber::Float(f) => *f,
@@ -301,6 +341,7 @@ impl AnyNumber {
             return;
         }
         let curr = match std::mem::take(self) {
+            AnyNumber::Bool(b) => BigRational::from_i64(i64::from(b)).unwrap(),
             AnyNumber::Int(i) => BigRational::from_i64(i).unwrap(),
             AnyNumber::BigInt(i) => {
                 BigRational::new(i, BigInt::from_u8(1).unwrap())
@@ -329,6 +370,11 @@ impl AnyNumber {
             }
         };
         match self {
+            AnyNumber::Bool(b) => {
+                *self = AnyNumber::BigRational(
+                    v_x_rl.into_owned().add(BigInt::from(i64::from(*b))),
+                );
+            }
             AnyNumber::Int(i) => {
                 *self = AnyNumber::BigRational(
                     v_x_rl.into_owned().add(BigInt::from(*i)),
