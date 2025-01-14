@@ -1,5 +1,10 @@
-use std::io::{IsTerminal, Write};
+use std::{
+    io::{IsTerminal, Write},
+    path::PathBuf,
+    str::FromStr,
+};
 
+use bstr::ByteSlice;
 use metamatch::metamatch;
 
 use super::{
@@ -18,7 +23,10 @@ use crate::{
         buffer_remaining_stream_values_in_auto_deref_iter,
         buffer_remaining_stream_values_in_sv_iter,
     },
-    options::chain_settings::{RationalsPrintMode, SettingRationalsPrintMode},
+    options::{
+        chain_settings::{RationalsPrintMode, SettingRationalsPrintMode},
+        session_setup::SessionSetupData,
+    },
     record_data::{
         field::{Field, FieldManager},
         field_data::FieldValueType,
@@ -47,6 +55,7 @@ use crate::{
             StreamValueManager, StreamValueUpdate,
         },
     },
+    typeline_error::TypelineError,
     utils::{
         int_string_conversions::{bool_to_str, f64_to_str, i64_to_str},
         lazy_lock_guard::LazyRwLockGuard,
@@ -90,30 +99,54 @@ pub struct TfPrint<'a> {
 }
 
 pub fn parse_op_print(
+    sess: &mut SessionSetupData,
     expr: &CallExpr,
-) -> Result<Box<dyn Operator>, CliArgumentError> {
+) -> Result<Box<dyn Operator>, TypelineError> {
     let mut opts = PrintOptions::default();
-    for arg in expr.parsed_args_iter() {
+    let mut target = WritableTarget::Stdout;
+    for arg in expr.parsed_args_iter_with_bounded_positionals(0, 1) {
+        let arg = arg?;
         match arg.value {
             ParsedArgValue::Flag(flag) => match flag {
                 "n" => opts.ignore_nulls = true,
                 "e" => opts.propagate_errors = true,
                 _ => {
-                    return Err(expr.error_flag_unsupported(flag, arg.span));
+                    return Err(expr
+                        .error_flag_unsupported(flag, arg.span)
+                        .into());
                 }
             },
             ParsedArgValue::NamedArg { key, .. } => {
-                return Err(expr.error_named_args_unsupported(key, arg.span));
+                return Err(expr
+                    .error_named_args_unsupported(key, arg.span)
+                    .into());
             }
-            ParsedArgValue::PositionalArg { .. } => {
-                return Err(expr.error_positional_args_unsupported(arg.span));
+            ParsedArgValue::PositionalArg {
+                arg,
+                idx: _,
+                value: _,
+            } => {
+                let path = arg.as_maybe_text(sess);
+                let path = path.as_str().ok_or_else(|| {
+                    CliArgumentError::new_s(
+                        format!(
+                            "invalid path: {:?}",
+                            path.as_bytes().to_str_lossy()
+                        ),
+                        arg.span,
+                    )
+                })?;
+                let path = PathBuf::from_str(path).map_err(|e| {
+                    CliArgumentError::new_s(
+                        format!("invalid path: {}", e),
+                        arg.span,
+                    )
+                })?;
+                target = WritableTarget::File(path);
             }
         }
     }
-    Ok(Box::new(OpPrint {
-        target: WritableTarget::Stdout,
-        opts,
-    }))
+    Ok(Box::new(OpPrint { target, opts }))
 }
 
 pub fn create_op_print() -> Box<dyn Operator> {

@@ -24,7 +24,7 @@ use crate::{
     operators::{errors::OperatorApplicationError, operator::OperatorId},
     record_data::{
         field::FieldManager,
-        field_data::FieldData,
+        field_data::{FieldData, FieldValueType},
         field_data_ref::DestructuredFieldDataRef,
         field_value::FieldValueKind,
         field_value_ref::{FieldValueBlock, FieldValueSlice},
@@ -507,10 +507,15 @@ fn execute_binary_op_double_int_erroring<Op: BinOpInt + ErroringBinOp>(
     }
 }
 
-fn execute_cmp_op_double_int<Op: CmpOp>(
-    lhs_block: FieldValueBlock<i64>,
+#[allow(clippy::needless_pass_by_value)]
+fn execute_cmp_op<
+    Lhs: FieldValueType,
+    Rhs: FieldValueType,
+    Op: CmpOp<Lhs, Rhs>,
+>(
+    lhs_block: FieldValueBlock<Lhs>,
     rhs_range: &RefAwareTypedRange,
-    rhs_data: &[i64],
+    rhs_data: &[Rhs],
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
@@ -522,17 +527,13 @@ fn execute_cmp_op_double_int<Op: CmpOp>(
                     FieldValueBlock::Plain(rhs_data) => {
                         let len = rhs_data.len();
                         let res = inserter.reserve_for_fixed_size::<bool>(len);
-                        Op::calc_until_overflow(
-                            &lhs_data[lhs_block_offset..],
-                            rhs_data,
-                            res,
-                        );
+                        Op::calc(&lhs_data[lhs_block_offset..], rhs_data, res);
                         unsafe {
                             inserter.add_count(len);
                         }
                         lhs_block_offset += len;
                     }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
+                    FieldValueBlock::WithRunLength(rhs_val, rhs_rl) => {
                         let len = rhs_rl as usize;
                         let res = inserter.reserve_for_fixed_size::<bool>(len);
                         Op::calc_rhs_immediate(
@@ -548,7 +549,7 @@ fn execute_cmp_op_double_int<Op: CmpOp>(
                 }
             }
         }
-        FieldValueBlock::WithRunLength(&lhs_val, _lhs_rl) => {
+        FieldValueBlock::WithRunLength(lhs_val, _lhs_rl) => {
             while let Some(rhs_block) = rhs_iter.next_block() {
                 match rhs_block {
                     FieldValueBlock::Plain(rhs_data) => {
@@ -559,7 +560,7 @@ fn execute_cmp_op_double_int<Op: CmpOp>(
                             inserter.add_count(len);
                         }
                     }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
+                    FieldValueBlock::WithRunLength(rhs_val, rhs_rl) => {
                         let len = rhs_rl as usize;
                         inserter.push_bool(
                             Op::calc_single(lhs_val, rhs_val),
@@ -837,7 +838,7 @@ fn execute_binary_op_double_int(
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     match op_kind {
-        BinaryOpKind::Equals => execute_cmp_op_double_int::<CmpOpEq>(
+        BinaryOpKind::Equals => execute_cmp_op::<i64, i64, CmpOpEq>(
             lhs_block, rhs_range, rhs_data, inserter,
         ),
         BinaryOpKind::NotEquals => todo!(),
@@ -908,7 +909,9 @@ fn execute_binary_op_double_float(
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     match op_kind {
-        BinaryOpKind::Equals => todo!(),
+        BinaryOpKind::Equals => execute_cmp_op::<f64, f64, CmpOpEq>(
+            lhs_block, rhs_range, rhs_data, inserter,
+        ),
         BinaryOpKind::NotEquals => todo!(),
         BinaryOpKind::LessThan => todo!(),
         BinaryOpKind::GreaterThan => todo!(),
@@ -977,7 +980,9 @@ fn execute_binary_op_int_float(
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     match op_kind {
-        BinaryOpKind::Equals => todo!(),
+        BinaryOpKind::Equals => execute_cmp_op::<i64, f64, CmpOpEq>(
+            lhs_block, rhs_range, rhs_data, inserter,
+        ),
         BinaryOpKind::NotEquals => todo!(),
         BinaryOpKind::LessThan => todo!(),
         BinaryOpKind::GreaterThan => todo!(),
@@ -1104,8 +1109,10 @@ fn execute_binary_op_for_float_lhs(
             rem -= rhs_range.base.field_count;
 
             match rhs_range.base.data {
-                FieldValueSlice::Int(_) => {
-                    todo!()
+                FieldValueSlice::Int(rhs_data) => {
+                    execute_cmp_op::<f64, i64, CmpOpEq>(
+                        lhs_block, &rhs_range, rhs_data, inserter,
+                    );
                 }
                 FieldValueSlice::BigInt(_) => todo!(),
                 FieldValueSlice::Float(rhs_data) => {

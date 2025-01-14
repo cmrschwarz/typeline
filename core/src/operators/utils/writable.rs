@@ -99,7 +99,7 @@ impl WritableTarget {
         match self {
             WritableTarget::Stdout => Ok(AnyWriter::Stdout),
             WritableTarget::File(path) => {
-                let f = File::open(path)?;
+                let f = File::create(path)?;
                 Ok(if buffered {
                     AnyWriter::BufferedFile(BufWriter::new(f))
                 } else {

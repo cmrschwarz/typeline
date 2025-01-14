@@ -211,7 +211,7 @@ pub fn parse_operator_data(
         "r" | "regex" => parse_op_regex(sess, expr)?,
         "_" => parse_op_last_cli_output(sess, &expr)?,
         "c" | "compute" => parse_op_compute(sess, &expr)?,
-        "print" | "p" => parse_op_print(&expr)?,
+        "print" | "p" | "write" | "w" => parse_op_print(sess, &expr)?,
         "format" | "f" => parse_op_format(&expr)?,
         "file" => parse_op_file_reader(sess, expr)?,
         "stdin" | "in" => parse_op_stdin(sess, expr)?,
