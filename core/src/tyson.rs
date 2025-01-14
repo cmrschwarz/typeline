@@ -3,6 +3,7 @@ use std::{io::BufRead, ops::MulAssign};
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use indexmap::IndexMap;
+use metamatch::metamatch;
 use num::{pow::Pow, BigInt, BigRational, FromPrimitive};
 use once_cell::sync::Lazy;
 use smallstr::SmallString;
@@ -674,7 +675,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     }
     pub fn parse_value(&mut self) -> Result<FieldValue, TysonParseError> {
         let c = self.consume_char_eat_whitespace()?;
-        match c {
+        metamatch!(match c {
             '{' => self.parse_object_after_brace(),
             '"' => self.parse_string_after_quote(b'"', false),
             '\'' => self.parse_string_after_quote(b'\'', false),
@@ -699,8 +700,13 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 }
                 Ok(FieldValue::Null)
             }
-            'u' => {
-                for expected in "ndefined".chars() {
+            #[expand((FIRST, REST, VAL) in [
+                ('t', "rue", FieldValue::Bool(true)),
+                ('f', "alse", FieldValue::Bool(false)),
+                ('u', "ndefined", FieldValue::Undefined),
+            ])]
+            FIRST => {
+                for expected in REST.chars() {
                     let c = self.read_char()?;
                     if c != expected {
                         return Err(TysonParseError::InvalidSyntax {
@@ -711,8 +717,9 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     }
                     self.col += 1;
                 }
-                Ok(FieldValue::Undefined)
+                Ok(VAL)
             }
+
             c if c.is_ascii() && Self::is_number_start(c as u8) => {
                 self.parse_number(c as u8)
             }
@@ -720,7 +727,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 self.col -= 1;
                 self.err(TysonParseErrorKind::StrayToken(other))
             }
-        }
+        })
     }
     pub fn reject_further_input(&mut self) -> Result<(), TysonParseError> {
         match self.read_char_eat_whitespace() {
