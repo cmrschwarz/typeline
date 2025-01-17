@@ -1,14 +1,8 @@
-#[cfg(target_feature = "avx2")]
-pub mod binary_ops_avx2;
-
 pub mod ast;
-pub mod binary_ops_float;
-pub mod binary_ops_int;
-pub mod binary_ops_int_float;
-pub mod cmp_ops;
 pub mod compiler;
 pub mod executor;
 pub mod lexer;
+pub mod operations;
 pub mod parser;
 
 use std::sync::Arc;

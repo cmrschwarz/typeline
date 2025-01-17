@@ -1,21 +1,21 @@
 use bstr::ByteSlice;
-use num::BigInt;
+use num::{BigInt, FromPrimitive};
 
 use super::{
     ast::{AccessIdx, BinaryOpKind, BuiltinFunction, ExternIdentId},
-    binary_ops_float::{
-        BinOpFloat, BinOpFloatAdd, BinOpFloatDiv, BinOpFloatMul,
-        BinOpFloatPowerOf, BinOpFloatSub,
-    },
-    binary_ops_int::{
-        BigIntCapableBinOp, BinOpInt, BinOpIntAdd, BinOpIntDiv, BinOpIntMul,
-        BinOpIntPowerOf, BinOpIntSub, ErroringBinOp,
-    },
-    binary_ops_int_float::{BinOpIntFloat, BinOpIntFloatDiv},
-    cmp_ops::{CmpOp, CmpOpEq},
     compiler::{
         Compilation, Instruction, InstructionId, TargetRef, TempFieldIdRaw,
         ValueAccess,
+    },
+    operations::{
+        add::{BinaryOpAddBigIntI64, BinaryOpAddF64F64, BinaryOpAddI64I64},
+        div::{BinaryOpDivF64F64, BinaryOpDivI64F64, BinaryOpDivI64I64},
+        eq::{BasicBinaryOpEq, BinaryOpEqF64F64, BinaryOpEqI64I64},
+        mul::{BinaryOpMulBigIntI64, BinaryOpMulF64F64, BinaryOpMulI64I64},
+        ne::{BinaryOpNeF64F64, BinaryOpNeI64I64},
+        pow::{BinaryOpPowBigIntI64, BinaryOpPowF64F64, BinaryOpPowI64I64},
+        sub::{BinaryOpSubBigIntI64, BinaryOpSubF64F64, BinaryOpSubI64I64},
+        BinaryOp, ErrorToOperatorApplicationError,
     },
     ExternField, ExternFieldIdx, ExternVarData, TempField,
 };
@@ -24,7 +24,7 @@ use crate::{
     operators::{errors::OperatorApplicationError, operator::OperatorId},
     record_data::{
         field::FieldManager,
-        field_data::{FieldData, FieldValueType},
+        field_data::{FieldData, FixedSizeFieldValueType},
         field_data_ref::DestructuredFieldDataRef,
         field_value::FieldValueKind,
         field_value_ref::{FieldValueBlock, FieldValueSlice},
@@ -51,7 +51,7 @@ use crate::{
     },
 };
 use metamatch::metamatch;
-use std::ops::Range;
+use std::{convert::Infallible, ops::Range};
 
 index_newtype! {
     pub struct ExternFieldTempIterId(u32);
@@ -263,128 +263,11 @@ fn insert_binary_op_type_error_iter_rhs(
     }
 }
 
-fn execute_binary_op_double_int_overflowing<Op: BigIntCapableBinOp>(
-    lhs_block: FieldValueBlock<i64>,
+#[allow(clippy::needless_pass_by_value)]
+fn execute_binary_op_erroring<Op: BinaryOp>(
+    lhs_block: FieldValueBlock<Op::Lhs>,
     rhs_range: &RefAwareTypedRange,
-    rhs_data: &[i64],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
-) {
-    let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
-    match lhs_block {
-        FieldValueBlock::Plain(lhs_data) => {
-            let mut lhs_block_offset = 0;
-            while let Some(rhs_block) = rhs_iter.next_block() {
-                match rhs_block {
-                    FieldValueBlock::Plain(rhs_data) => {
-                        let len = rhs_data.len();
-                        let mut i = 0;
-                        while i < len {
-                            let res = inserter
-                                .reserve_for_fixed_size::<i64>(len - i);
-                            let success = Op::calc_until_overflow(
-                                &lhs_data[lhs_block_offset + i..],
-                                &rhs_data[i..],
-                                res,
-                            );
-                            unsafe {
-                                inserter.add_count(success);
-                            }
-                            i += success;
-                            if i == len {
-                                break;
-                            }
-                            let res = Op::calc_into_bigint(
-                                lhs_data[lhs_block_offset + i],
-                                rhs_data[i],
-                            );
-                            inserter.push_big_int(res, 1, true, false);
-                            i += 1;
-                        }
-                        lhs_block_offset += len;
-                    }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
-                        let len = rhs_rl as usize;
-                        let mut i = 0;
-                        while i < len {
-                            let res = inserter
-                                .reserve_for_fixed_size::<i64>(len - i);
-                            let success =
-                                Op::calc_until_overflow_rhs_immediate(
-                                    &lhs_data[lhs_block_offset + i..],
-                                    rhs_val,
-                                    res,
-                                );
-                            unsafe {
-                                inserter.add_count(success);
-                            }
-                            i += success;
-                            if i == len {
-                                break;
-                            }
-                            let res = Op::calc_into_bigint(
-                                lhs_data[lhs_block_offset + i],
-                                rhs_val,
-                            );
-                            inserter.push_big_int(res, 1, true, false);
-                            i += 1;
-                        }
-                        lhs_block_offset += len;
-                    }
-                }
-            }
-        }
-        FieldValueBlock::WithRunLength(&lhs_val, _lhs_rl) => {
-            while let Some(rhs_block) = rhs_iter.next_block() {
-                match rhs_block {
-                    FieldValueBlock::Plain(rhs_data) => {
-                        let len = rhs_data.len();
-                        let mut i = 0;
-                        while i < len {
-                            let res = inserter
-                                .reserve_for_fixed_size::<i64>(len - i);
-                            let success =
-                                Op::calc_until_overflow_lhs_immediate(
-                                    lhs_val,
-                                    &rhs_data[i..],
-                                    res,
-                                );
-                            unsafe {
-                                inserter.add_count(success);
-                            }
-                            i += success;
-                            if i == len {
-                                break;
-                            }
-                            let res =
-                                Op::calc_into_bigint(lhs_val, rhs_data[i]);
-                            inserter.push_big_int(res, 1, true, false);
-                            i += 1;
-                        }
-                    }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
-                        let len = rhs_rl as usize;
-                        match Op::try_calc_single(lhs_val, rhs_val) {
-                            Some(res) => {
-                                inserter.push_int(res, len, true, false)
-                            }
-                            None => inserter.push_big_int(
-                                Op::calc_into_bigint(lhs_val, rhs_val),
-                                len,
-                                true,
-                                false,
-                            ),
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn execute_binary_op_double_int_erroring<Op: BinOpInt + ErroringBinOp>(
-    lhs_block: FieldValueBlock<i64>,
-    rhs_range: &RefAwareTypedRange,
-    rhs_data: &[i64],
+    rhs_data: &[Op::Rhs],
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
     op_id: OperatorId,
 ) {
@@ -399,55 +282,187 @@ fn execute_binary_op_double_int_erroring<Op: BinOpInt + ErroringBinOp>(
                         let mut i = 0;
                         while i < len {
                             let res = inserter
-                                .reserve_for_fixed_size::<i64>(len - i);
-                            let success = Op::calc_until_overflow(
+                                .reserve_for_fixed_size::<Op::Output>(len - i);
+                            let (len, err) = Op::calc_until_error(
                                 &lhs_data[lhs_block_offset + i..],
                                 &rhs_data[i..],
                                 res,
                             );
                             unsafe {
-                                inserter.add_count(success);
+                                inserter.add_count(len);
                             }
-                            i += success;
-                            if i == len {
-                                break;
+                            i += len;
+                            if let Some(e) = err {
+                                inserter.push_error(
+                                    e.to_operator_application_error(op_id),
+                                    1,
+                                    true,
+                                    true,
+                                );
+                                i += 1;
                             }
-                            inserter.push_error(
-                                Op::get_error(op_id),
-                                1,
-                                true,
-                                true,
-                            );
-                            i += 1;
                         }
                         lhs_block_offset += len;
                     }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
+                    FieldValueBlock::WithRunLength(rhs_val, rhs_rl) => {
                         let len = rhs_rl as usize;
                         let mut i = 0;
                         while i < len {
                             let res = inserter
-                                .reserve_for_fixed_size::<i64>(len - i);
-                            let success =
-                                Op::calc_until_overflow_rhs_immediate(
+                                .reserve_for_fixed_size::<Op::Output>(len - i);
+                            let (len, err) =
+                                Op::calc_until_error_rhs_immediate(
                                     &lhs_data[lhs_block_offset + i..],
                                     rhs_val,
                                     res,
                                 );
                             unsafe {
-                                inserter.add_count(success);
+                                inserter.add_count(len);
                             }
-                            i += success;
-                            if i == len {
-                                break;
+                            i += len;
+                            if let Some(e) = err {
+                                inserter.push_error(
+                                    e.to_operator_application_error(op_id),
+                                    1,
+                                    true,
+                                    true,
+                                );
+                                i += 1;
                             }
-                            inserter.push_error(
-                                Op::get_error(op_id),
-                                1,
-                                true,
-                                true,
+                        }
+                        lhs_block_offset += len;
+                    }
+                }
+            }
+        }
+        FieldValueBlock::WithRunLength(lhs_val, _lhs_rl) => {
+            while let Some(rhs_block) = rhs_iter.next_block() {
+                match rhs_block {
+                    FieldValueBlock::Plain(rhs_data) => {
+                        let len = rhs_data.len();
+                        let mut i = 0;
+                        while i < len {
+                            let res = inserter
+                                .reserve_for_fixed_size::<Op::Output>(len - i);
+                            let (len, err) =
+                                Op::calc_until_error_lhs_immediate(
+                                    lhs_val,
+                                    &rhs_data[i..],
+                                    res,
+                                );
+                            unsafe {
+                                inserter.add_count(len);
+                            }
+                            i += len;
+                            if let Some(e) = err {
+                                inserter.push_error(
+                                    e.to_operator_application_error(op_id),
+                                    1,
+                                    true,
+                                    true,
+                                );
+                                i += 1;
+                            }
+                        }
+                    }
+                    FieldValueBlock::WithRunLength(rhs_val, rhs_rl) => {
+                        let len = rhs_rl as usize;
+                        match Op::try_calc_single(lhs_val, rhs_val) {
+                            Ok(res) => inserter
+                                .push_fixed_size_type(res, len, true, false),
+                            Err(e) => {
+                                inserter.push_error(
+                                    e.to_operator_application_error(op_id),
+                                    len,
+                                    true,
+                                    true,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn execute_binary_op_bigint_fallback<
+    Op: BinaryOp<Lhs = i64>,
+    OpBigint: BinaryOp<Lhs = BigInt, Rhs = Op::Rhs, Error = Infallible>,
+>(
+    lhs_block: FieldValueBlock<Op::Lhs>,
+    rhs_range: &RefAwareTypedRange,
+    rhs_data: &[Op::Rhs],
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) where
+    Op::Rhs: FixedSizeFieldValueType,
+{
+    let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
+    match lhs_block {
+        FieldValueBlock::Plain(lhs_data) => {
+            let mut lhs_block_offset = 0;
+            while let Some(rhs_block) = rhs_iter.next_block() {
+                match rhs_block {
+                    FieldValueBlock::Plain(rhs_data) => {
+                        let len = rhs_data.len();
+                        let mut i = 0;
+                        while i < len {
+                            let res = inserter
+                                .reserve_for_fixed_size::<Op::Output>(len - i);
+                            let (len, err) = Op::calc_until_error(
+                                &lhs_data[lhs_block_offset + i..],
+                                &rhs_data[i..],
+                                res,
                             );
-                            i += 1;
+                            unsafe {
+                                inserter.add_count(len);
+                            }
+                            i += len;
+                            if err.is_some() {
+                                let res = OpBigint::try_calc_single(
+                                    &BigInt::from_i64(
+                                        lhs_data[lhs_block_offset + i],
+                                    )
+                                    .unwrap(),
+                                    &rhs_data[i],
+                                )
+                                .unwrap();
+                                inserter
+                                    .push_fixed_size_type(res, 1, true, false);
+                                i += 1;
+                            }
+                        }
+                        lhs_block_offset += len;
+                    }
+                    FieldValueBlock::WithRunLength(rhs_val, rhs_rl) => {
+                        let len = rhs_rl as usize;
+                        let mut i = 0;
+                        while i < len {
+                            let res = inserter
+                                .reserve_for_fixed_size::<Op::Output>(len - i);
+                            let (len, err) =
+                                Op::calc_until_error_rhs_immediate(
+                                    &lhs_data[lhs_block_offset + i..],
+                                    rhs_val,
+                                    res,
+                                );
+                            unsafe {
+                                inserter.add_count(len);
+                            }
+                            i += len;
+                            if err.is_some() {
+                                let res = OpBigint::try_calc_single(
+                                    &BigInt::from_i64(
+                                        lhs_data[lhs_block_offset + i],
+                                    )
+                                    .unwrap(),
+                                    rhs_val,
+                                )
+                                .unwrap();
+                                inserter
+                                    .push_fixed_size_type(res, 1, true, false);
+                                i += 1;
+                            }
                         }
                         lhs_block_offset += len;
                     }
@@ -462,43 +477,45 @@ fn execute_binary_op_double_int_erroring<Op: BinOpInt + ErroringBinOp>(
                         let mut i = 0;
                         while i < len {
                             let res = inserter
-                                .reserve_for_fixed_size::<i64>(len - i);
-                            let success =
-                                Op::calc_until_overflow_lhs_immediate(
-                                    lhs_val,
+                                .reserve_for_fixed_size::<Op::Output>(len - i);
+                            let (len, err) =
+                                Op::calc_until_error_lhs_immediate(
+                                    &lhs_val,
                                     &rhs_data[i..],
                                     res,
                                 );
                             unsafe {
-                                inserter.add_count(success);
+                                inserter.add_count(len);
                             }
-                            i += success;
-                            if i == len {
-                                break;
+                            i += len;
+
+                            if err.is_some() {
+                                let res = OpBigint::try_calc_single(
+                                    &BigInt::from_i64(lhs_val).unwrap(),
+                                    &rhs_data[i],
+                                )
+                                .unwrap();
+                                inserter
+                                    .push_fixed_size_type(res, 1, true, false);
+                                i += 1;
                             }
-                            inserter.push_error(
-                                Op::get_error(op_id),
-                                1,
-                                true,
-                                true,
-                            );
-                            i += 1;
                         }
                     }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
+                    FieldValueBlock::WithRunLength(rhs_val, rhs_rl) => {
                         let len = rhs_rl as usize;
-                        match Op::try_calc_single(lhs_val, rhs_val) {
-                            Some(res) => {
-                                inserter.push_int(res, len, true, false)
-                            }
-                            None => {
-                                inserter.push_error(
-                                    Op::get_error(op_id),
-                                    1,
-                                    true,
-                                    true,
-                                );
-                            }
+                        match Op::try_calc_single(&lhs_val, rhs_val) {
+                            Ok(res) => inserter
+                                .push_fixed_size_type(res, len, true, false),
+                            Err(_) => inserter.push_fixed_size_type(
+                                OpBigint::try_calc_single(
+                                    &BigInt::from_i64(lhs_val).unwrap(),
+                                    rhs_val,
+                                )
+                                .unwrap(),
+                                len,
+                                true,
+                                false,
+                            ),
                         }
                     }
                 }
@@ -508,14 +525,10 @@ fn execute_binary_op_double_int_erroring<Op: BinOpInt + ErroringBinOp>(
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn execute_cmp_op<
-    Lhs: FieldValueType,
-    Rhs: FieldValueType,
-    Op: CmpOp<Lhs, Rhs>,
->(
-    lhs_block: FieldValueBlock<Lhs>,
+fn execute_binary_op_infallable<Op: BinaryOp<Error = Infallible>>(
+    lhs_block: FieldValueBlock<Op::Lhs>,
     rhs_range: &RefAwareTypedRange,
-    rhs_data: &[Rhs],
+    rhs_data: &[Op::Rhs],
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
@@ -526,8 +539,13 @@ fn execute_cmp_op<
                 match rhs_block {
                     FieldValueBlock::Plain(rhs_data) => {
                         let len = rhs_data.len();
-                        let res = inserter.reserve_for_fixed_size::<bool>(len);
-                        Op::calc(&lhs_data[lhs_block_offset..], rhs_data, res);
+                        let res =
+                            inserter.reserve_for_fixed_size::<Op::Output>(len);
+                        Op::calc_until_error(
+                            &lhs_data[lhs_block_offset..],
+                            rhs_data,
+                            res,
+                        );
                         unsafe {
                             inserter.add_count(len);
                         }
@@ -535,8 +553,9 @@ fn execute_cmp_op<
                     }
                     FieldValueBlock::WithRunLength(rhs_val, rhs_rl) => {
                         let len = rhs_rl as usize;
-                        let res = inserter.reserve_for_fixed_size::<bool>(len);
-                        Op::calc_rhs_immediate(
+                        let res =
+                            inserter.reserve_for_fixed_size::<Op::Output>(len);
+                        Op::calc_until_error_rhs_immediate(
                             &lhs_data[lhs_block_offset..],
                             rhs_val,
                             res,
@@ -554,16 +573,19 @@ fn execute_cmp_op<
                 match rhs_block {
                     FieldValueBlock::Plain(rhs_data) => {
                         let len = rhs_data.len();
-                        let res = inserter.reserve_for_fixed_size::<bool>(len);
-                        Op::calc_lhs_immediate(lhs_val, rhs_data, res);
+                        let res =
+                            inserter.reserve_for_fixed_size::<Op::Output>(len);
+                        Op::calc_until_error_lhs_immediate(
+                            lhs_val, rhs_data, res,
+                        );
                         unsafe {
                             inserter.add_count(len);
                         }
                     }
                     FieldValueBlock::WithRunLength(rhs_val, rhs_rl) => {
                         let len = rhs_rl as usize;
-                        inserter.push_bool(
-                            Op::calc_single(lhs_val, rhs_val),
+                        inserter.push_fixed_size_type(
+                            Op::try_calc_single(lhs_val, rhs_val).unwrap(),
                             len,
                             true,
                             false,
@@ -575,260 +597,7 @@ fn execute_cmp_op<
     }
 }
 
-fn execute_binary_op_double_float_total<Op: BinOpFloat>(
-    lhs_block: FieldValueBlock<f64>,
-    rhs_range: &RefAwareTypedRange,
-    rhs_data: &[f64],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
-    op_id: OperatorId,
-) {
-    let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
-    match lhs_block {
-        FieldValueBlock::Plain(lhs_data) => {
-            let mut lhs_block_offset = 0;
-            while let Some(rhs_block) = rhs_iter.next_block() {
-                match rhs_block {
-                    FieldValueBlock::Plain(rhs_data) => {
-                        let len = rhs_data.len();
-                        let mut i = 0;
-                        while i < len {
-                            let res = inserter
-                                .reserve_for_fixed_size::<f64>(len - i);
-                            let success = Op::calc_until_overflow(
-                                &lhs_data[lhs_block_offset + i..],
-                                &rhs_data[i..],
-                                res,
-                            );
-                            unsafe {
-                                inserter.add_count(success);
-                            }
-                            i += success;
-                            if i == len {
-                                break;
-                            }
-                            inserter.push_error(
-                                OperatorApplicationError::new("todo!", op_id),
-                                1,
-                                true,
-                                true,
-                            );
-                            i += 1;
-                        }
-                        lhs_block_offset += len;
-                    }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
-                        let len = rhs_rl as usize;
-                        let mut i = 0;
-                        while i < len {
-                            let res = inserter
-                                .reserve_for_fixed_size::<f64>(len - i);
-                            let success =
-                                Op::calc_until_overflow_rhs_immediate(
-                                    &lhs_data[lhs_block_offset + i..],
-                                    rhs_val,
-                                    res,
-                                );
-                            unsafe {
-                                inserter.add_count(success);
-                            }
-                            i += success;
-                            if i == len {
-                                break;
-                            }
-                            inserter.push_error(
-                                OperatorApplicationError::new("todo!", op_id),
-                                1,
-                                true,
-                                true,
-                            );
-                            i += 1;
-                        }
-                        lhs_block_offset += len;
-                    }
-                }
-            }
-        }
-        FieldValueBlock::WithRunLength(&lhs_val, _lhs_rl) => {
-            while let Some(rhs_block) = rhs_iter.next_block() {
-                match rhs_block {
-                    FieldValueBlock::Plain(rhs_data) => {
-                        let len = rhs_data.len();
-                        let mut i = 0;
-                        while i < len {
-                            let res = inserter
-                                .reserve_for_fixed_size::<f64>(len - i);
-                            let success =
-                                Op::calc_until_overflow_lhs_immediate(
-                                    lhs_val,
-                                    &rhs_data[i..],
-                                    res,
-                                );
-                            unsafe {
-                                inserter.add_count(success);
-                            }
-                            i += success;
-                            if i == len {
-                                break;
-                            }
-                            inserter.push_error(
-                                OperatorApplicationError::new("todo!", op_id),
-                                1,
-                                true,
-                                true,
-                            );
-                            i += 1;
-                        }
-                    }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
-                        let len = rhs_rl as usize;
-                        match Op::try_calc_single(lhs_val, rhs_val) {
-                            Some(res) => {
-                                inserter.push_float(res, len, true, false)
-                            }
-                            None => {
-                                inserter.push_error(
-                                    OperatorApplicationError::new(
-                                        "todo!", op_id,
-                                    ),
-                                    1,
-                                    true,
-                                    true,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn execute_binary_op_int_float_erroring<Op: ErroringBinOp + BinOpIntFloat>(
-    lhs_block: FieldValueBlock<i64>,
-    rhs_range: &RefAwareTypedRange,
-    rhs_data: &[f64],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
-    op_id: OperatorId,
-) {
-    let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
-    match lhs_block {
-        FieldValueBlock::Plain(lhs_data) => {
-            let mut lhs_block_offset = 0;
-            while let Some(rhs_block) = rhs_iter.next_block() {
-                match rhs_block {
-                    FieldValueBlock::Plain(rhs_data) => {
-                        let len = rhs_data.len();
-                        let mut i = 0;
-                        while i < len {
-                            let res = inserter
-                                .reserve_for_fixed_size::<f64>(len - i);
-                            let success = Op::calc_until_overflow(
-                                &lhs_data[lhs_block_offset + i..],
-                                &rhs_data[i..],
-                                res,
-                            );
-                            unsafe {
-                                inserter.add_count(success);
-                            }
-                            i += success;
-                            if i == len {
-                                break;
-                            }
-                            inserter.push_error(
-                                Op::get_error(op_id),
-                                1,
-                                true,
-                                true,
-                            );
-                            i += 1;
-                        }
-                        lhs_block_offset += len;
-                    }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
-                        let len = rhs_rl as usize;
-                        let mut i = 0;
-                        while i < len {
-                            let res = inserter
-                                .reserve_for_fixed_size::<f64>(len - i);
-                            let success =
-                                Op::calc_until_overflow_rhs_immediate(
-                                    &lhs_data[lhs_block_offset + i..],
-                                    rhs_val,
-                                    res,
-                                );
-                            unsafe {
-                                inserter.add_count(success);
-                            }
-                            i += success;
-                            if i == len {
-                                break;
-                            }
-                            inserter.push_error(
-                                Op::get_error(op_id),
-                                1,
-                                true,
-                                true,
-                            );
-                            i += 1;
-                        }
-                        lhs_block_offset += len;
-                    }
-                }
-            }
-        }
-        FieldValueBlock::WithRunLength(&lhs_val, _lhs_rl) => {
-            while let Some(rhs_block) = rhs_iter.next_block() {
-                match rhs_block {
-                    FieldValueBlock::Plain(rhs_data) => {
-                        let len = rhs_data.len();
-                        let mut i = 0;
-                        while i < len {
-                            let res = inserter
-                                .reserve_for_fixed_size::<f64>(len - i);
-                            let success =
-                                Op::calc_until_overflow_lhs_immediate(
-                                    lhs_val,
-                                    &rhs_data[i..],
-                                    res,
-                                );
-                            unsafe {
-                                inserter.add_count(success);
-                            }
-                            i += success;
-                            if i == len {
-                                break;
-                            }
-                            inserter.push_error(
-                                Op::get_error(op_id),
-                                1,
-                                true,
-                                true,
-                            );
-                            i += 1;
-                        }
-                    }
-                    FieldValueBlock::WithRunLength(&rhs_val, rhs_rl) => {
-                        let len = rhs_rl as usize;
-                        match Op::try_calc_single(lhs_val, rhs_val) {
-                            Some(res) => {
-                                inserter.push_float(res, len, true, false)
-                            }
-                            None => {
-                                inserter.push_error(
-                                    Op::get_error(op_id),
-                                    1,
-                                    true,
-                                    true,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
+#[allow(clippy::needless_pass_by_value)]
 fn execute_binary_op_double_int(
     op_id: OperatorId,
     op_kind: BinaryOpKind,
@@ -838,40 +607,50 @@ fn execute_binary_op_double_int(
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     match op_kind {
-        BinaryOpKind::Equals => execute_cmp_op::<i64, i64, CmpOpEq>(
-            lhs_block, rhs_range, rhs_data, inserter,
-        ),
-        BinaryOpKind::NotEquals => todo!(),
+        BinaryOpKind::Equals => {
+            execute_binary_op_infallable::<BinaryOpEqI64I64>(
+                lhs_block, rhs_range, rhs_data, inserter,
+            )
+        }
+        BinaryOpKind::NotEquals => {
+            execute_binary_op_infallable::<BinaryOpNeI64I64>(
+                lhs_block, rhs_range, rhs_data, inserter,
+            )
+        }
         BinaryOpKind::LessThan => todo!(),
         BinaryOpKind::GreaterThan => todo!(),
         BinaryOpKind::LessThanEquals => todo!(),
         BinaryOpKind::GreaterThanEquals => todo!(),
         BinaryOpKind::Add => {
-            execute_binary_op_double_int_overflowing::<BinOpIntAdd>(
-                lhs_block, rhs_range, rhs_data, inserter,
-            )
+            execute_binary_op_bigint_fallback::<
+                BinaryOpAddI64I64,
+                BinaryOpAddBigIntI64,
+            >(lhs_block, rhs_range, rhs_data, inserter)
         }
         BinaryOpKind::Subtract => {
-            execute_binary_op_double_int_overflowing::<BinOpIntSub>(
-                lhs_block, rhs_range, rhs_data, inserter,
-            )
+            execute_binary_op_bigint_fallback::<
+                BinaryOpSubI64I64,
+                BinaryOpSubBigIntI64,
+            >(lhs_block, rhs_range, rhs_data, inserter)
         }
         BinaryOpKind::AddAssign => todo!(),
         BinaryOpKind::SubtractAssign => todo!(),
         BinaryOpKind::Multiply => {
-            execute_binary_op_double_int_overflowing::<BinOpIntMul>(
-                lhs_block, rhs_range, rhs_data, inserter,
-            )
+            execute_binary_op_bigint_fallback::<
+                BinaryOpMulI64I64,
+                BinaryOpMulBigIntI64,
+            >(lhs_block, rhs_range, rhs_data, inserter)
         }
         BinaryOpKind::PowerOf => {
-            execute_binary_op_double_int_overflowing::<BinOpIntPowerOf>(
-                lhs_block, rhs_range, rhs_data, inserter,
-            )
+            execute_binary_op_bigint_fallback::<
+                BinaryOpPowI64I64,
+                BinaryOpPowBigIntI64,
+            >(lhs_block, rhs_range, rhs_data, inserter)
         }
         BinaryOpKind::MultiplyAssign => todo!(),
         BinaryOpKind::PowerOfAssign => todo!(),
         BinaryOpKind::Divide => {
-            execute_binary_op_double_int_erroring::<BinOpIntDiv>(
+            execute_binary_op_erroring::<BinaryOpDivI64I64>(
                 lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
@@ -901,7 +680,7 @@ fn execute_binary_op_double_int(
 }
 
 fn execute_binary_op_double_float(
-    op_id: OperatorId,
+    _op_id: OperatorId,
     op_kind: BinaryOpKind,
     lhs_block: FieldValueBlock<f64>,
     rhs_range: &RefAwareTypedRange,
@@ -909,41 +688,47 @@ fn execute_binary_op_double_float(
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     match op_kind {
-        BinaryOpKind::Equals => execute_cmp_op::<f64, f64, CmpOpEq>(
-            lhs_block, rhs_range, rhs_data, inserter,
-        ),
-        BinaryOpKind::NotEquals => todo!(),
+        BinaryOpKind::Equals => {
+            execute_binary_op_infallable::<BinaryOpEqF64F64>(
+                lhs_block, rhs_range, rhs_data, inserter,
+            )
+        }
+        BinaryOpKind::NotEquals => {
+            execute_binary_op_infallable::<BinaryOpNeF64F64>(
+                lhs_block, rhs_range, rhs_data, inserter,
+            )
+        }
         BinaryOpKind::LessThan => todo!(),
         BinaryOpKind::GreaterThan => todo!(),
         BinaryOpKind::LessThanEquals => todo!(),
         BinaryOpKind::GreaterThanEquals => todo!(),
         BinaryOpKind::Add => {
-            execute_binary_op_double_float_total::<BinOpFloatAdd>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+            execute_binary_op_infallable::<BinaryOpAddF64F64>(
+                lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Subtract => {
-            execute_binary_op_double_float_total::<BinOpFloatSub>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+            execute_binary_op_infallable::<BinaryOpSubF64F64>(
+                lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::AddAssign => todo!(),
         BinaryOpKind::SubtractAssign => todo!(),
         BinaryOpKind::Multiply => {
-            execute_binary_op_double_float_total::<BinOpFloatMul>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+            execute_binary_op_infallable::<BinaryOpMulF64F64>(
+                lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::PowerOf => {
-            execute_binary_op_double_float_total::<BinOpFloatPowerOf>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+            execute_binary_op_infallable::<BinaryOpPowF64F64>(
+                lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::MultiplyAssign => todo!(),
         BinaryOpKind::PowerOfAssign => todo!(),
         BinaryOpKind::Divide => {
-            execute_binary_op_double_float_total::<BinOpFloatDiv>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+            execute_binary_op_infallable::<BinaryOpDivF64F64>(
+                lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::DivideAssign => todo!(),
@@ -980,9 +765,11 @@ fn execute_binary_op_int_float(
     inserter: &mut VaryingTypeInserter<&mut FieldData>,
 ) {
     match op_kind {
-        BinaryOpKind::Equals => execute_cmp_op::<i64, f64, CmpOpEq>(
-            lhs_block, rhs_range, rhs_data, inserter,
-        ),
+        BinaryOpKind::Equals => {
+            execute_binary_op_infallable::<BasicBinaryOpEq<i64, f64>>(
+                lhs_block, rhs_range, rhs_data, inserter,
+            )
+        }
         BinaryOpKind::NotEquals => todo!(),
         BinaryOpKind::LessThan => todo!(),
         BinaryOpKind::GreaterThan => todo!(),
@@ -997,7 +784,7 @@ fn execute_binary_op_int_float(
         BinaryOpKind::MultiplyAssign => todo!(),
         BinaryOpKind::PowerOfAssign => todo!(),
         BinaryOpKind::Divide => {
-            execute_binary_op_int_float_erroring::<BinOpIntFloatDiv>(
+            execute_binary_op_erroring::<BinaryOpDivI64F64>(
                 lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
@@ -1110,7 +897,7 @@ fn execute_binary_op_for_float_lhs(
 
             match rhs_range.base.data {
                 FieldValueSlice::Int(rhs_data) => {
-                    execute_cmp_op::<f64, i64, CmpOpEq>(
+                    execute_binary_op_infallable::<BasicBinaryOpEq<f64, i64>>(
                         lhs_block, &rhs_range, rhs_data, inserter,
                     );
                 }
