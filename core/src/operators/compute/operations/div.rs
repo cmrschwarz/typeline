@@ -99,3 +99,22 @@ unsafe impl BinaryOp for BinaryOpDivI64F64 {
         }
     }
 }
+
+pub struct BinaryOpDivF64I64;
+unsafe impl BinaryOp for BinaryOpDivF64I64 {
+    type Lhs = f64;
+    type Rhs = i64;
+    type Output = f64;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        // TODO: handle overflow
+        #[allow(clippy::float_cmp, clippy::cast_precision_loss)]
+        {
+            Ok(*lhs / (*rhs as f64))
+        }
+    }
+}

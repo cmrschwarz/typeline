@@ -67,3 +67,35 @@ unsafe impl BinaryOp for BinaryOpPowF64F64 {
         Ok(lhs.powf(*rhs))
     }
 }
+
+pub struct BinaryOpPowF64I64;
+unsafe impl BinaryOp for BinaryOpPowF64I64 {
+    type Lhs = f64;
+    type Rhs = i64;
+    type Output = f64;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        #[allow(clippy::cast_precision_loss)]
+        Ok(lhs.powf(*rhs as f64))
+    }
+}
+
+pub struct BinaryOpPowI64F64;
+unsafe impl BinaryOp for BinaryOpPowI64F64 {
+    type Lhs = i64;
+    type Rhs = f64;
+    type Output = f64;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        #[allow(clippy::cast_precision_loss)]
+        Ok((*lhs as f64).powf(*rhs))
+    }
+}

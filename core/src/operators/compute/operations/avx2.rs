@@ -4,7 +4,16 @@ use std::{
         _mm256_movemask_epi8, _mm256_movemask_pd, _mm256_set1_epi64x,
         _mm256_set1_pd, _mm256_storeu_si256,
     },
+    convert::Infallible,
     mem::MaybeUninit,
+};
+
+use crate::record_data::field_data::FixedSizeFieldValueType;
+use std::fmt::Debug;
+
+use super::{
+    calc_until_error, calc_until_error_lhs_immediate,
+    calc_until_error_rhs_immediate, BinaryOp, ErrorToOperatorApplicationError,
 };
 
 // avx2 -> 256 bit registers -> 4 i64 elements
@@ -287,8 +296,7 @@ pub fn calc_cmp_avx2(
     lhs: &[i64],
     rhs: &[i64],
     res: &mut [MaybeUninit<bool>],
-    operation: impl Fn(__m256i, __m256i) -> __m256i,
-    bool_cast: impl Fn(__m256i) -> [bool; AVX2_I64_ELEM_COUNT],
+    operation: impl Fn(__m256i, __m256i) -> [bool; AVX2_I64_ELEM_COUNT],
     base_case: impl Fn(&i64, &i64) -> bool,
 ) -> usize {
     let len_min = lhs.len().min(rhs.len()).min(res.len());
@@ -308,8 +316,7 @@ pub fn calc_cmp_avx2(
 
             let res_v = operation(lhs_v, rhs_v);
 
-            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() =
-                bool_cast(res_v);
+            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() = res_v;
 
             i += 4;
         }
@@ -327,8 +334,7 @@ pub fn calc_cmp_avx2_lhs_immediate(
     lhs: &i64,
     rhs: &[i64],
     res: &mut [MaybeUninit<bool>],
-    operation: impl Fn(__m256i, __m256i) -> __m256i,
-    bool_cast: impl Fn(__m256i) -> [bool; AVX2_I64_ELEM_COUNT],
+    operation: impl Fn(__m256i, __m256i) -> [bool; AVX2_I64_ELEM_COUNT],
     base_case: impl Fn(&i64, &i64) -> bool,
 ) -> usize {
     let len_min = rhs.len().min(res.len());
@@ -343,10 +349,9 @@ pub fn calc_cmp_avx2_lhs_immediate(
             #[allow(clippy::cast_ptr_alignment)]
             let rhs_v = _mm256_loadu_si256(rhs_p.add(i).cast::<__m256i>());
 
-            let res_v = operation(lhs_v, rhs_v);
+            let res = operation(lhs_v, rhs_v);
 
-            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() =
-                bool_cast(res_v);
+            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() = res;
 
             i += AVX2_I64_ELEM_COUNT;
         }
@@ -364,8 +369,7 @@ pub fn calc_cmp_avx2_rhs_immediate(
     lhs: &[i64],
     rhs: &i64,
     res: &mut [MaybeUninit<bool>],
-    operation: impl Fn(__m256i, __m256i) -> __m256i,
-    bool_cast: impl Fn(__m256i) -> [bool; AVX2_I64_ELEM_COUNT],
+    operation: impl Fn(__m256i, __m256i) -> [bool; AVX2_I64_ELEM_COUNT],
     base_case: impl Fn(&i64, &i64) -> bool,
 ) -> usize {
     let len_min = lhs.len().min(res.len());
@@ -380,9 +384,9 @@ pub fn calc_cmp_avx2_rhs_immediate(
             #[allow(clippy::cast_ptr_alignment)]
             let lhs_v = _mm256_loadu_si256(lhs_p.add(i).cast::<__m256i>());
 
-            let res_v = operation(lhs_v, rhs_v);
-            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() =
-                bool_cast(res_v);
+            let res = operation(lhs_v, rhs_v);
+
+            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() = res;
 
             i += 4;
         }
@@ -400,8 +404,7 @@ pub fn calc_cmp_f64_avx2(
     lhs: &[f64],
     rhs: &[f64],
     res: &mut [MaybeUninit<bool>],
-    operation: impl Fn(__m256d, __m256d) -> __m256d,
-    bool_cast: impl Fn(__m256d) -> [bool; AVX2_I64_ELEM_COUNT],
+    operation: impl Fn(__m256d, __m256d) -> [bool; AVX2_I64_ELEM_COUNT],
     base_case: impl Fn(&f64, &f64) -> bool,
 ) -> usize {
     let len_min = lhs.len().min(rhs.len()).min(res.len());
@@ -416,10 +419,9 @@ pub fn calc_cmp_f64_avx2(
             let lhs_v = _mm256_loadu_pd(lhs_p.add(i));
             let rhs_v = _mm256_loadu_pd(rhs_p.add(i));
 
-            let res_v = operation(lhs_v, rhs_v);
+            let res = operation(lhs_v, rhs_v);
 
-            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() =
-                bool_cast(res_v);
+            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() = res;
 
             i += 4;
         }
@@ -437,8 +439,7 @@ pub fn calc_cmp_f64_avx2_lhs_immediate(
     lhs: &f64,
     rhs: &[f64],
     res: &mut [MaybeUninit<bool>],
-    operation: impl Fn(__m256d, __m256d) -> __m256d,
-    bool_cast: impl Fn(__m256d) -> [bool; AVX2_I64_ELEM_COUNT],
+    operation: impl Fn(__m256d, __m256d) -> [bool; AVX2_I64_ELEM_COUNT],
     base_case: impl Fn(&f64, &f64) -> bool,
 ) -> usize {
     let len_min = rhs.len().min(res.len());
@@ -455,8 +456,7 @@ pub fn calc_cmp_f64_avx2_lhs_immediate(
 
             let res_v = operation(lhs_v, rhs_v);
 
-            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() =
-                bool_cast(res_v);
+            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() = res_v;
 
             i += AVX2_I64_ELEM_COUNT;
         }
@@ -474,8 +474,7 @@ pub fn calc_cmp_f64_avx2_rhs_immediate(
     lhs: &[f64],
     rhs: &f64,
     res: &mut [MaybeUninit<bool>],
-    operation: impl Fn(__m256d, __m256d) -> __m256d,
-    bool_cast: impl Fn(__m256d) -> [bool; AVX2_I64_ELEM_COUNT],
+    operation: impl Fn(__m256d, __m256d) -> [bool; AVX2_I64_ELEM_COUNT],
     base_case: impl Fn(&f64, &f64) -> bool,
 ) -> usize {
     let len_min = lhs.len().min(res.len());
@@ -492,8 +491,7 @@ pub fn calc_cmp_f64_avx2_rhs_immediate(
 
             let res_v = operation(lhs_v, rhs_v);
 
-            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() =
-                bool_cast(res_v);
+            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() = res_v;
 
             i += AVX2_I64_ELEM_COUNT;
         }
@@ -504,5 +502,227 @@ pub fn calc_cmp_f64_avx2_rhs_immediate(
         }
 
         i
+    }
+}
+
+pub unsafe trait BinaryOpAvx2Aware {
+    type Lhs: FixedSizeFieldValueType;
+    type Rhs: FixedSizeFieldValueType;
+    type Output: FixedSizeFieldValueType;
+    type Error: Debug + ErrorToOperatorApplicationError;
+
+    const AVX2_MIN_ELEM_COUNT: usize = 4;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error>;
+
+    fn calc_until_error_avx2<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>);
+
+    fn calc_until_error_rhs_immediate_avx2<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &Self::Rhs,
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>);
+
+    fn calc_until_error_lhs_immediate_avx2<'a>(
+        lhs: &Self::Lhs,
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>);
+}
+
+pub struct BinaryOpAvx2Adapter<OP: BinaryOpAvx2Aware>(OP);
+unsafe impl<OP: BinaryOpAvx2Aware> BinaryOp for BinaryOpAvx2Adapter<OP> {
+    type Lhs = OP::Lhs;
+
+    type Rhs = OP::Rhs;
+
+    type Output = OP::Output;
+
+    type Error = OP::Error;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        OP::try_calc_single(lhs, rhs)
+    }
+
+    fn calc_until_error<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        if cfg!(target_feature = "avx2")
+            && res.len() >= OP::AVX2_MIN_ELEM_COUNT
+        {
+            OP::calc_until_error_avx2(lhs, rhs, res)
+        } else {
+            calc_until_error(lhs, rhs, res, OP::try_calc_single)
+        }
+    }
+
+    fn calc_until_error_rhs_immediate<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &Self::Rhs,
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        if cfg!(target_feature = "avx2")
+            && res.len() >= OP::AVX2_MIN_ELEM_COUNT
+        {
+            OP::calc_until_error_rhs_immediate_avx2(lhs, rhs, res)
+        } else {
+            calc_until_error_rhs_immediate(lhs, rhs, res, OP::try_calc_single)
+        }
+    }
+
+    fn calc_until_error_lhs_immediate<'a>(
+        lhs: &Self::Lhs,
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        if cfg!(target_feature = "avx2")
+            && res.len() >= OP::AVX2_MIN_ELEM_COUNT
+        {
+            OP::calc_until_error_lhs_immediate_avx2(lhs, rhs, res)
+        } else {
+            calc_until_error_lhs_immediate(lhs, rhs, res, OP::try_calc_single)
+        }
+    }
+}
+
+pub trait BinaryOpCmpI64Avx2Aware {
+    fn cmp_single(lhs: &i64, rhs: &i64) -> bool;
+    fn cmp_avx2(lhs: __m256i, rhs: __m256i) -> [bool; AVX2_I64_ELEM_COUNT];
+}
+
+pub type BinaryOpCmpI64Avx2Adapter<OP> =
+    BinaryOpAvx2Adapter<BinaryOpCmpI64Avx2AdapterInternal<OP>>;
+
+pub struct BinaryOpCmpI64Avx2AdapterInternal<OP: BinaryOpCmpI64Avx2Aware>(OP);
+
+unsafe impl<Op: BinaryOpCmpI64Avx2Aware> BinaryOpAvx2Aware
+    for BinaryOpCmpI64Avx2AdapterInternal<Op>
+{
+    type Lhs = i64;
+    type Rhs = i64;
+    type Output = bool;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(Op::cmp_single(lhs, rhs))
+    }
+
+    fn calc_until_error_avx2<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        let len = calc_cmp_avx2(lhs, rhs, res, Op::cmp_avx2, Op::cmp_single);
+        (len, None)
+    }
+
+    fn calc_until_error_rhs_immediate_avx2<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &Self::Rhs,
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        let len = calc_cmp_avx2_rhs_immediate(
+            lhs,
+            rhs,
+            res,
+            Op::cmp_avx2,
+            Op::cmp_single,
+        );
+        (len, None)
+    }
+
+    fn calc_until_error_lhs_immediate_avx2<'a>(
+        lhs: &Self::Lhs,
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        let len = calc_cmp_avx2_lhs_immediate(
+            lhs,
+            rhs,
+            res,
+            Op::cmp_avx2,
+            Op::cmp_single,
+        );
+        (len, None)
+    }
+}
+
+pub trait BinaryOpCmpF64Avx2Aware {
+    fn cmp_single(lhs: &f64, rhs: &f64) -> bool;
+    fn cmp_avx2(lhs: __m256d, rhs: __m256d) -> [bool; AVX2_I64_ELEM_COUNT];
+}
+pub type BinaryOpCmpF64Avx2Adapter<OP> =
+    BinaryOpAvx2Adapter<BinaryOpCmpF64Avx2AdapterInternal<OP>>;
+
+pub struct BinaryOpCmpF64Avx2AdapterInternal<OP: BinaryOpCmpF64Avx2Aware>(OP);
+
+unsafe impl<Op: BinaryOpCmpF64Avx2Aware> BinaryOpAvx2Aware
+    for BinaryOpCmpF64Avx2AdapterInternal<Op>
+{
+    type Lhs = f64;
+    type Rhs = f64;
+    type Output = bool;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        Ok(Op::cmp_single(lhs, rhs))
+    }
+
+    fn calc_until_error_avx2<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        let len =
+            calc_cmp_f64_avx2(lhs, rhs, res, Op::cmp_avx2, Op::cmp_single);
+        (len, None)
+    }
+
+    fn calc_until_error_rhs_immediate_avx2<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &Self::Rhs,
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        let len = calc_cmp_f64_avx2_rhs_immediate(
+            lhs,
+            rhs,
+            res,
+            Op::cmp_avx2,
+            Op::cmp_single,
+        );
+        (len, None)
+    }
+
+    fn calc_until_error_lhs_immediate_avx2<'a>(
+        lhs: &Self::Lhs,
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        let len = calc_cmp_f64_avx2_lhs_immediate(
+            lhs,
+            rhs,
+            res,
+            Op::cmp_avx2,
+            Op::cmp_single,
+        );
+        (len, None)
     }
 }

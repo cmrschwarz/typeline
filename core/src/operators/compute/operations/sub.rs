@@ -14,10 +14,10 @@ use crate::operators::errors::OperatorApplicationError;
 use super::{
     avx2::{
         calc_until_error_avx2, calc_until_error_avx2_lhs_immediate,
-        calc_until_error_avx2_rhs_immediate,
+        calc_until_error_avx2_rhs_immediate, BinaryOpAvx2Adapter,
+        BinaryOpAvx2Aware,
     },
-    BinaryOp, BinaryOpAvx2Adapter, BinaryOpAvx2Aware,
-    ErrorToOperatorApplicationError,
+    BinaryOp, ErrorToOperatorApplicationError,
 };
 
 #[derive(Debug)]
@@ -159,5 +159,37 @@ unsafe impl BinaryOp for BinaryOpSubF64F64 {
         rhs: &Self::Rhs,
     ) -> Result<Self::Output, Self::Error> {
         Ok(lhs - rhs)
+    }
+}
+
+pub struct BinaryOpSubI64F64;
+unsafe impl BinaryOp for BinaryOpSubI64F64 {
+    type Lhs = i64;
+    type Rhs = f64;
+    type Output = f64;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        #[allow(clippy::cast_precision_loss)]
+        Ok((*lhs as f64) - rhs)
+    }
+}
+
+pub struct BinaryOpSubF64I64;
+unsafe impl BinaryOp for BinaryOpSubF64I64 {
+    type Lhs = f64;
+    type Rhs = i64;
+    type Output = f64;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        #[allow(clippy::cast_precision_loss)]
+        Ok(*lhs - (*rhs as f64))
     }
 }

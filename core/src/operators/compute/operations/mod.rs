@@ -2,7 +2,10 @@ pub mod add;
 pub mod avx2;
 pub mod div;
 pub mod eq;
+pub mod ge;
+pub mod gt;
 pub mod le;
+pub mod lt;
 pub mod mul;
 pub mod ne;
 pub mod pow;
@@ -120,97 +123,5 @@ pub unsafe trait BinaryOp {
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
         calc_until_error_rhs_immediate(lhs, rhs, res, Self::try_calc_single)
-    }
-}
-
-pub unsafe trait BinaryOpAvx2Aware {
-    type Lhs: FixedSizeFieldValueType;
-    type Rhs: FixedSizeFieldValueType;
-    type Output: FixedSizeFieldValueType;
-    type Error: Debug + ErrorToOperatorApplicationError;
-
-    const AVX2_MIN_ELEM_COUNT: usize = 4;
-
-    fn try_calc_single(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-    ) -> Result<Self::Output, Self::Error>;
-
-    fn calc_until_error_avx2<'a>(
-        lhs: &[Self::Lhs],
-        rhs: &[Self::Rhs],
-        res: &'a mut [MaybeUninit<Self::Output>],
-    ) -> (usize, Option<Self::Error>);
-
-    fn calc_until_error_rhs_immediate_avx2<'a>(
-        lhs: &[Self::Lhs],
-        rhs: &Self::Rhs,
-        res: &'a mut [MaybeUninit<Self::Output>],
-    ) -> (usize, Option<Self::Error>);
-
-    fn calc_until_error_lhs_immediate_avx2<'a>(
-        lhs: &Self::Lhs,
-        rhs: &[Self::Rhs],
-        res: &'a mut [MaybeUninit<Self::Output>],
-    ) -> (usize, Option<Self::Error>);
-}
-
-pub struct BinaryOpAvx2Adapter<OP: BinaryOpAvx2Aware>(OP);
-unsafe impl<OP: BinaryOpAvx2Aware> BinaryOp for BinaryOpAvx2Adapter<OP> {
-    type Lhs = OP::Lhs;
-
-    type Rhs = OP::Rhs;
-
-    type Output = OP::Output;
-
-    type Error = OP::Error;
-
-    fn try_calc_single(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-    ) -> Result<Self::Output, Self::Error> {
-        OP::try_calc_single(lhs, rhs)
-    }
-
-    fn calc_until_error<'a>(
-        lhs: &[Self::Lhs],
-        rhs: &[Self::Rhs],
-        res: &'a mut [MaybeUninit<Self::Output>],
-    ) -> (usize, Option<Self::Error>) {
-        if cfg!(target_feature = "avx2")
-            && res.len() >= OP::AVX2_MIN_ELEM_COUNT
-        {
-            OP::calc_until_error_avx2(lhs, rhs, res)
-        } else {
-            calc_until_error(lhs, rhs, res, OP::try_calc_single)
-        }
-    }
-
-    fn calc_until_error_rhs_immediate<'a>(
-        lhs: &[Self::Lhs],
-        rhs: &Self::Rhs,
-        res: &'a mut [MaybeUninit<Self::Output>],
-    ) -> (usize, Option<Self::Error>) {
-        if cfg!(target_feature = "avx2")
-            && res.len() >= OP::AVX2_MIN_ELEM_COUNT
-        {
-            OP::calc_until_error_rhs_immediate_avx2(lhs, rhs, res)
-        } else {
-            calc_until_error_rhs_immediate(lhs, rhs, res, OP::try_calc_single)
-        }
-    }
-
-    fn calc_until_error_lhs_immediate<'a>(
-        lhs: &Self::Lhs,
-        rhs: &[Self::Rhs],
-        res: &'a mut [MaybeUninit<Self::Output>],
-    ) -> (usize, Option<Self::Error>) {
-        if cfg!(target_feature = "avx2")
-            && res.len() >= OP::AVX2_MIN_ELEM_COUNT
-        {
-            OP::calc_until_error_lhs_immediate_avx2(lhs, rhs, res)
-        } else {
-            calc_until_error_lhs_immediate(lhs, rhs, res, OP::try_calc_single)
-        }
     }
 }

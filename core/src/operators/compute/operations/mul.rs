@@ -80,3 +80,35 @@ unsafe impl BinaryOp for BinaryOpMulF64F64 {
         Ok(lhs * rhs)
     }
 }
+
+pub struct BinaryOpMulF64I64;
+unsafe impl BinaryOp for BinaryOpMulF64I64 {
+    type Lhs = f64;
+    type Rhs = i64;
+    type Output = f64;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        #[allow(clippy::cast_precision_loss)]
+        Ok(*lhs * (*rhs as f64))
+    }
+}
+
+pub struct BinaryOpMulI64F64;
+unsafe impl BinaryOp for BinaryOpMulI64F64 {
+    type Lhs = i64;
+    type Rhs = f64;
+    type Output = f64;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        #[allow(clippy::cast_precision_loss)]
+        Ok((*lhs as f64) * *rhs)
+    }
+}
