@@ -5,6 +5,7 @@ use typeline::{
         key::create_op_key, literal::create_op_int, sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
+    record_data::array::Array,
     typeline_error::TypelineError,
 };
 
@@ -113,6 +114,19 @@ fn compute_bools(
     let res = ContextBuilder::without_exts()
         .add_op(create_op_compute(expr)?)
         .run_collect_as::<bool>()?;
+    assert_eq!(res, &[expected]);
+    Ok(())
+}
+
+#[rstest]
+#[case("[1,2,3]", Array::Int(vec![1, 2, 3]))]
+fn compute_array(
+    #[case] expr: &str,
+    #[case] expected: Array,
+) -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_compute(expr)?)
+        .run_collect_as::<Array>()?;
     assert_eq!(res, &[expected]);
     Ok(())
 }

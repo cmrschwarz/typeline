@@ -243,6 +243,7 @@ impl<'a> ComputeExprLexer<'a> {
                 (')', RParen),
                 ('[', LBracket),
                 (']', RBracket),
+                (',', Comma),
             ])]
             CHAR => {
                 self.offset += 1;
@@ -403,7 +404,7 @@ impl<'a> ComputeExprLexer<'a> {
 
         Err(ComputeExprParseError {
             span,
-            kind: ParseErrorKind::UnexpectedCharacter(c),
+            kind: ParseErrorKind::InvalidCharacter(c),
         })
     }
 }

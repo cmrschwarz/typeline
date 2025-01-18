@@ -43,8 +43,8 @@ impl<'a> std::fmt::Display for ParseErrorKind<'a> {
             ParseErrorKind::Empty => {
                 f.write_str("expected expression, found empty input")
             }
-            ParseErrorKind::UnexpectedCharacter(c) => {
-                f.write_fmt(format_args!("unexpected character `{c}`"))
+            ParseErrorKind::InvalidCharacter(c) => {
+                f.write_fmt(format_args!("invalid character `{c}`"))
             }
             ParseErrorKind::InvalidUTF8(_) => {
                 // TODO: display character bytes
@@ -110,7 +110,7 @@ impl std::fmt::Debug for ComputeExprParseError<'_> {
 
 pub enum ParseErrorKind<'a> {
     Empty,
-    UnexpectedCharacter(char),
+    InvalidCharacter(char),
     InvalidUTF8(ArrayVec<u8, MAX_UTF8_CHAR_LEN>),
     LiteralError(TysonParseErrorKind),
     UnmatchedParenthesis {
@@ -511,6 +511,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                         });
                     }
                     trailing_comma_observed = Some(next_tok.span);
+                    self.lexer.drop_token();
                     continue;
                 }
                 TokenKind::RBracket => {
@@ -758,6 +759,20 @@ mod test {
                 kind: BinaryOpKind::Add,
                 children: Box::new([one.clone(), one]),
             },
+        )
+    }
+
+    #[test]
+    fn test_parse_array() {
+        test_parse(
+            "[1,2,3]",
+            [],
+            [],
+            Expr::Array(vec![
+                Expr::Literal(FieldValue::Int(1)),
+                Expr::Literal(FieldValue::Int(2)),
+                Expr::Literal(FieldValue::Int(3)),
+            ]),
         )
     }
 
