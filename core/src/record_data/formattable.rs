@@ -596,16 +596,34 @@ impl Formattable<'_, '_> for f64 {
             }
             return w.write_text_fmt(format_args!("{self:.float_prec$}"));
         }
-        if ctx.opts.add_plus_sign {
-            if ctx.opts.zero_pad_numbers {
-                return w.write_text_fmt(format_args!("{self:+0char_count$}"));
+        if self.fract() == 0.0 {
+            if ctx.opts.add_plus_sign {
+                if ctx.opts.zero_pad_numbers {
+                    return w.write_text_fmt(format_args!(
+                        "{self:+0char_count$.1}"
+                    ));
+                }
+                return w
+                    .write_text_fmt(format_args!("{self:+char_count$.1}"));
             }
-            return w.write_text_fmt(format_args!("{self:+char_count$}"));
+            if ctx.opts.zero_pad_numbers {
+                return w
+                    .write_text_fmt(format_args!("{self:0char_count$.1}"));
+            }
+            w.write_text_fmt(format_args!("{self:.1}"))
+        } else {
+            if ctx.opts.add_plus_sign {
+                if ctx.opts.zero_pad_numbers {
+                    return w
+                        .write_text_fmt(format_args!("{self:+0char_count$}"));
+                }
+                return w.write_text_fmt(format_args!("{self:+char_count$}"));
+            }
+            if ctx.opts.zero_pad_numbers {
+                return w.write_text_fmt(format_args!("{self:0char_count$}"));
+            }
+            w.write_text_fmt(format_args!("{self}"))
         }
-        if ctx.opts.zero_pad_numbers {
-            return w.write_text_fmt(format_args!("{self:0char_count$}"));
-        }
-        w.write_text_fmt(format_args!("{self}"))
     }
 }
 impl Formattable<'_, '_> for Null {
