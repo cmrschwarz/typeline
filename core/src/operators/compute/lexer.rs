@@ -36,6 +36,8 @@ pub enum TokenKind<'a> {
     Let,
     If,
     Else,
+    True,
+    False,
 
     LParen,
     RParen,
@@ -381,6 +383,8 @@ impl<'a> ComputeExprLexer<'a> {
             let kind = match ident {
                 b"let" => TokenKind::Let,
                 b"if" => TokenKind::If,
+                b"true" => TokenKind::True,
+                b"false" => TokenKind::False,
                 b"else" => TokenKind::Else,
                 b"null" => TokenKind::Literal(FieldValue::Null),
                 b"undefined" => TokenKind::Literal(FieldValue::Undefined),
@@ -411,6 +415,8 @@ impl<'a> TokenKind<'a> {
             TokenKind::Let => "let",
             TokenKind::If => "if",
             TokenKind::Else => "else",
+            TokenKind::True => "true",
+            TokenKind::False => "false",
             TokenKind::LParen => "(",
             TokenKind::RParen => ")",
             TokenKind::LBrace => "{",

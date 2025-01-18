@@ -3,7 +3,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use crate::{
     index_newtype,
     operators::compute::ast::BinaryOpKind,
-    record_data::field_value::FieldValueKind,
+    record_data::field_value::{FieldValue, FieldValueKind},
     tyson::TysonParseErrorKind,
     utils::{
         index_vec::IndexVec, indexing_type::IndexingType,
@@ -269,7 +269,9 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             | TokenKind::Comma
             | TokenKind::If
             | TokenKind::Else
-            | TokenKind::Equals => return Ok(lhs),
+            | TokenKind::Equals
+            | TokenKind::True
+            | TokenKind::False => return Ok(lhs),
         };
 
         let prec = binary_op.prec();
@@ -593,6 +595,13 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                 }
             }
             TokenKind::Literal(v) => return Ok(Expr::Literal(v)),
+
+            TokenKind::True => {
+                return Ok(Expr::Literal(FieldValue::Bool(true)))
+            }
+            TokenKind::False => {
+                return Ok(Expr::Literal(FieldValue::Bool(false)))
+            }
 
             TokenKind::If => return self.parse_if_expr(tok.span),
 

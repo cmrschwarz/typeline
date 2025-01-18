@@ -1272,8 +1272,12 @@ fn execute_cast_int(
                 }
             }
         }
+        FieldValueSlice::Bool(values) => {
+            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+                inserter.push_int(i64::from(*v), rl as usize, true, false);
+            }
+        }
         FieldValueSlice::Int(_)
-        | FieldValueSlice::Bool(_)
         | FieldValueSlice::BigInt(_)
         | FieldValueSlice::Error(_) => {
             inserter.extend_from_ref_aware_range(range, true, false)

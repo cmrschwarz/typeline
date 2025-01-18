@@ -76,6 +76,8 @@ fn precedence(
 
 #[rstest]
 #[case("float(3)/2", 1.5)]
+#[case("float(true)", 1.0)]
+#[case("float(false)", 0.0)]
 fn float_cast(
     #[case] expr: &str,
     #[case] expected: f64,
@@ -83,6 +85,34 @@ fn float_cast(
     let res = ContextBuilder::without_exts()
         .add_op(create_op_compute(expr)?)
         .run_collect_as::<f64>()?;
+    assert_eq!(res, &[expected]);
+    Ok(())
+}
+
+#[rstest]
+#[case("int(4.2)", 4)]
+#[case("int(true)", 1)]
+fn int_cast(
+    #[case] expr: &str,
+    #[case] expected: i64,
+) -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_compute(expr)?)
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, &[expected]);
+    Ok(())
+}
+
+#[rstest]
+#[case("true", true)]
+#[case("false", false)]
+fn compute_bools(
+    #[case] expr: &str,
+    #[case] expected: bool,
+) -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_compute(expr)?)
+        .run_collect_as::<bool>()?;
     assert_eq!(res, &[expected]);
     Ok(())
 }
