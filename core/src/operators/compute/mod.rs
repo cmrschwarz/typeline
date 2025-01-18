@@ -396,3 +396,11 @@ pub fn build_op_to_int(span: Span) -> Box<dyn Operator> {
 pub fn create_op_to_int() -> Box<dyn Operator> {
     build_op_to_int(Span::Generated)
 }
+
+pub fn build_op_to_float(span: Span) -> Box<dyn Operator> {
+    build_op_compute(b"float(_)", span).unwrap()
+}
+
+pub fn create_op_to_float() -> Box<dyn Operator> {
+    build_op_to_float(Span::Generated)
+}

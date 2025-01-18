@@ -21,7 +21,8 @@ use typeline_core::{
     cli::call_expr::{Argument, CallExpr},
     extension::Extension,
     operators::{
-        compute::create_op_to_int, errors::OperatorCreationError,
+        compute::{create_op_to_float, create_op_to_int},
+        errors::OperatorCreationError,
         operator::Operator,
     },
     options::session_setup::SessionSetupData,
@@ -91,6 +92,7 @@ impl Extension for UtilsExtension {
             "from_tyson" => parse_op_reject_args(&expr, create_op_from_tyson)?,
             "to_tyson" => parse_op_reject_args(&expr, create_op_to_tyson)?,
             "to_int" => parse_op_reject_args(&expr, create_op_to_int)?,
+            "to_float" => parse_op_reject_args(&expr, create_op_to_float)?,
             _ => return Ok(None),
         }))
     }
