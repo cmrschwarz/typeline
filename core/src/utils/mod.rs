@@ -38,6 +38,7 @@ pub mod random_access_container;
 pub mod ringbuf;
 pub mod size_classed_vec_deque;
 pub mod small_box;
+pub mod stable_universe;
 pub mod stable_vec;
 pub mod string_store;
 pub mod temp_vec;

@@ -8,6 +8,8 @@ use std::{
 
 use super::temp_vec::{LayoutCompatible, TransmutableContainer};
 
+pub const DEFAULT_CHUNK_SIZE: usize = 64;
+
 type Chunk<T, const CHUNK_SIZE: usize> = [MaybeUninit<T>; CHUNK_SIZE];
 
 /// Like `Vec<T>`, but with chunked allocation and interior mutability.
@@ -17,7 +19,7 @@ type Chunk<T, const CHUNK_SIZE: usize> = [MaybeUninit<T>; CHUNK_SIZE];
 /// + never has to copy elements, only the chunk pointer buffer has to grow
 /// - no Deref to `&[T]`, because it's not contiguous
 /// - many of `Vec<T>`'s convenience methods are missing
-pub struct StableVec<T, const CHUNK_SIZE: usize = 64> {
+pub struct StableVec<T, const CHUNK_SIZE: usize = DEFAULT_CHUNK_SIZE> {
     data: Cell<NonNull<*mut Chunk<T, CHUNK_SIZE>>>,
     chunk_capacity: Cell<usize>,
     len: Cell<usize>,
@@ -200,6 +202,21 @@ impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
             self.push(elem)
         }
     }
+
+    pub fn pop(&mut self) -> Option<T> {
+        let mut idx = self.len.get();
+        if idx == 0 {
+            return None;
+        }
+        idx -= 1;
+        let chunk_index = idx / CHUNK_SIZE;
+        let offset = idx % CHUNK_SIZE;
+        let res = unsafe {
+            self.get_chunk_ptr_unchecked(chunk_index).add(offset).read()
+        };
+        self.len.set(idx);
+        Some(res)
+    }
     // TODO: implement drain
 }
 
@@ -258,6 +275,7 @@ impl<T> IndexMut<usize> for StableVec<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct StableVecIter<'a, T, const CHUNK_SIZE: usize> {
     vec: &'a StableVec<T, CHUNK_SIZE>,
     pos: usize,

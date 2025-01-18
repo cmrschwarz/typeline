@@ -1,153 +1,36 @@
 use std::{
     marker::PhantomData,
     ops::{Index, IndexMut},
-    ptr::NonNull,
 };
-
-use arrayvec::ArrayVec;
 
 use super::{
-    debuggable_nonmax::DebuggableNonMaxUsize, get_three_distinct_mut,
-    indexing_type::IndexingType, temp_vec::TransmutableContainer,
+    debuggable_nonmax::DebuggableNonMaxUsize,
+    indexing_type::IndexingType,
+    stable_vec::{self, StableVec, StableVecIter, StableVecIterMut},
+    temp_vec::TransmutableContainer,
+    universe::UniverseEntry,
 };
 
-use super::get_two_distinct_mut;
-
 #[derive(Clone)]
-pub enum UniverseEntry<T> {
-    Occupied(T),
-    // PERF: maybe use the indexing type / a derived non max type
-    // here instead to save memory for u32s, e.g. in `GroupList`
-    Vacant(Option<DebuggableNonMaxUsize>),
-}
-
-#[derive(Clone)]
-pub struct Universe<I, T> {
-    data: Vec<UniverseEntry<T>>,
+pub struct StableUniverse<I, T> {
+    data: StableVec<UniverseEntry<T>>,
     first_vacant_entry: Option<DebuggableNonMaxUsize>,
     _phantom_data: PhantomData<I>,
 }
 
-pub struct UniverseMultiRefMutHandout<'a, I, T, const CAP: usize> {
-    universe_data: NonNull<UniverseEntry<T>>,
-    first_vacant_entry: &'a mut Option<DebuggableNonMaxUsize>,
-    len: usize,
-    handed_out: ArrayVec<I, CAP>,
-}
-
-pub unsafe trait RefHandoutStack<I, T> {
-    type Child<'b>: RefHandoutStack<I, T>
-    where
-        Self: 'b;
-    fn claim(&mut self, idx: I) -> (Self::Child<'_>, &mut T);
-    fn assert_unused(&mut self, idx: I) -> NonNull<UniverseEntry<T>>;
-}
-
-pub struct RefHandoutStackNode<'a, I, T, P> {
-    base: &'a mut P,
-    id: I,
-    _phantom: PhantomData<fn() -> T>,
-}
-
-pub struct RefHandoutStackBase<'a, I, T> {
-    universe_data: NonNull<UniverseEntry<T>>,
-    len: usize,
-    _phantom: PhantomData<&'a mut Universe<I, T>>,
-}
-
-unsafe impl<'a, I: IndexingType, T> RefHandoutStack<I, T>
-    for RefHandoutStackBase<'a, I, T>
-{
-    type Child<'b>
-        = RefHandoutStackNode<'b, I, T, Self>
-    where
-        Self: 'b;
-
-    fn claim<'b>(&'b mut self, id: I) -> (Self::Child<'b>, &'b mut T) {
-        let idx = id.into_usize();
-        assert!(idx < self.len);
-        let elem = unsafe { &mut *self.universe_data.as_ptr().add(idx) };
-        let UniverseEntry::Occupied(elem) = elem else {
-            panic!("attempted to claim vacant universe entry")
-        };
-        let child = RefHandoutStackNode {
-            base: self,
-            id,
-            _phantom: PhantomData,
-        };
-        (child, elem)
-    }
-
-    fn assert_unused(&mut self, id: I) -> NonNull<UniverseEntry<T>> {
-        assert!(id.into_usize() < self.len);
-        self.universe_data
-    }
-}
-
-unsafe impl<'a, I: IndexingType, T, P: RefHandoutStack<I, T>>
-    RefHandoutStack<I, T> for RefHandoutStackNode<'a, I, T, P>
-{
-    type Child<'b>
-        = RefHandoutStackNode<'b, I, T, Self>
-    where
-        Self: 'b;
-
-    fn claim<'b>(&'b mut self, id: I) -> (Self::Child<'b>, &'b mut T) {
-        let idx = id.into_usize();
-        let universe_data = self.assert_unused(id);
-        let elem = unsafe { &mut *universe_data.as_ptr().add(idx) };
-        let UniverseEntry::Occupied(elem) = elem else {
-            panic!("attempted to claim vacant universe entry")
-        };
-
-        let child = RefHandoutStackNode {
-            base: self,
-            id,
-            _phantom: PhantomData,
-        };
-        (child, elem)
-    }
-
-    fn assert_unused(&mut self, idx: I) -> NonNull<UniverseEntry<T>> {
-        assert!(idx != self.id);
-        self.base.assert_unused(idx)
-    }
-}
-
-impl<T> UniverseEntry<T> {
-    pub fn as_option_mut(&mut self) -> Option<&mut T> {
-        match self {
-            UniverseEntry::Occupied(v) => Some(v),
-            UniverseEntry::Vacant(_) => None,
-        }
-    }
-}
-
 // if we autoderive this, I would have to implement Default
-impl<I: IndexingType, T> Default for Universe<I, T> {
+impl<I: IndexingType, T> Default for StableUniverse<I, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<I: IndexingType, T> Universe<I, T> {
+impl<I: IndexingType, T> StableUniverse<I, T> {
     pub const fn new() -> Self {
         Self {
-            data: Vec::new(),
+            data: StableVec::new(),
             first_vacant_entry: None,
             _phantom_data: PhantomData,
-        }
-    }
-    pub fn multi_ref_mut_handout<const CAP: usize>(
-        &mut self,
-    ) -> UniverseMultiRefMutHandout<I, T, CAP> {
-        UniverseMultiRefMutHandout::new(self)
-    }
-    pub fn ref_mut_handout_stack(&mut self) -> RefHandoutStackBase<I, T> {
-        RefHandoutStackBase {
-            len: self.data.len(),
-            universe_data: NonNull::new(self.data.as_mut_ptr()).unwrap(),
-            _phantom: PhantomData,
         }
     }
     fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
@@ -173,14 +56,14 @@ impl<I: IndexingType, T> Universe<I, T> {
         self.data.clear();
         self.first_vacant_entry = None;
     }
-    pub fn indices(&self) -> UniverseIndexIter<I, T> {
-        UniverseIndexIter {
+    pub fn indices(&self) -> StableUniverseIndexIter<I, T> {
+        StableUniverseIndexIter {
             index: I::zero(),
             base: self.data.iter(),
         }
     }
-    pub fn iter(&self) -> UniverseIter<T> {
-        UniverseIter {
+    pub fn iter(&self) -> StableUniverseIter<T> {
+        StableUniverseIter {
             base: self.data.iter(),
         }
     }
@@ -281,27 +164,6 @@ impl<I: IndexingType, T> Universe<I, T> {
     pub fn claim_with_value(&mut self, value: T) -> I {
         self.claim_with(|| value)
     }
-    pub fn calc_id(&self, entry: &T) -> I {
-        let offset_in_entry = if let UniverseEntry::Occupied(v) = &self.data[0]
-        {
-            unsafe {
-                std::ptr::from_ref(v)
-                    .cast::<u8>()
-                    .offset_from(self.data.as_ptr().cast())
-            }
-        } else {
-            panic!("element not in Universe")
-        };
-        let ptr = unsafe {
-            std::ptr::from_ref(entry)
-                .cast::<u8>()
-                .sub(usize::try_from(offset_in_entry).unwrap_unchecked())
-                .cast()
-        };
-        let range = self.data.as_ptr_range();
-        assert!(range.contains(&ptr));
-        I::from_usize(unsafe { ptr.offset_from(range.start) } as usize)
-    }
     pub fn get(&self, id: I) -> Option<&T> {
         match self.data.get(id.into_usize()) {
             Some(UniverseEntry::Occupied(v)) => Some(v),
@@ -321,8 +183,11 @@ impl<I: IndexingType, T> Universe<I, T> {
     ) -> (Option<&mut T>, Option<&mut T>) {
         let idx1 = id1.into_usize();
         let idx2 = id2.into_usize();
-
-        let (a, b) = get_two_distinct_mut(&mut self.data, idx1, idx2);
+        let (a, b) = unsafe {
+            let a_ptr = self.data.get_element_pointer_unchecked(idx1);
+            let b_ptr = self.data.get_element_pointer_unchecked(idx2);
+            (&mut *a_ptr, &mut *b_ptr)
+        };
         (a.as_option_mut(), b.as_option_mut())
     }
     pub fn get_three_distinct_mut(
@@ -335,8 +200,12 @@ impl<I: IndexingType, T> Universe<I, T> {
         let idx2 = id2.into_usize();
         let idx3 = id3.into_usize();
 
-        let (a, b, c) =
-            get_three_distinct_mut(&mut self.data, idx1, idx2, idx3);
+        let (a, b, c) = unsafe {
+            let a_ptr = self.data.get_element_pointer_unchecked(idx1);
+            let b_ptr = self.data.get_element_pointer_unchecked(idx2);
+            let c_ptr = self.data.get_element_pointer_unchecked(idx3);
+            (&mut *a_ptr, &mut *b_ptr, &mut *c_ptr)
+        };
         (a.as_option_mut(), b.as_option_mut(), c.as_option_mut())
     }
     pub fn two_distinct_mut(&mut self, id1: I, id2: I) -> (&mut T, &mut T) {
@@ -360,69 +229,14 @@ impl<I: IndexingType, T> Universe<I, T> {
     }
 }
 
-impl<'a, I: IndexingType, T, const CAP: usize>
-    UniverseMultiRefMutHandout<'a, I, T, CAP>
-{
-    fn new(universe: &'a mut Universe<I, T>) -> Self {
-        // SAFETY: `UniverseMultiRefMutHandout` supports claiming additional
-        // elements using claim_new. We have to ensure that this is possible
-        // without reallocation as that would invalidate the previously handed
-        // out refs.
-        universe.reserve(CAP.into_usize());
-        Self {
-            len: universe.data.len(),
-            universe_data: NonNull::new(universe.data.as_mut_ptr()).unwrap(),
-            first_vacant_entry: &mut universe.first_vacant_entry,
-            handed_out: ArrayVec::new(),
-        }
-    }
-    pub fn claim(&mut self, i: I) -> &'a mut T {
-        let idx = i.into_usize();
-        assert!(self.len > idx);
-
-        assert!(!self.handed_out.contains(&i));
-        self.handed_out.push(i);
-
-        // SAFETY: this type dynamically ensures that each index is handed out
-        // exactly once through the assert above
-        let v = unsafe { &mut *self.universe_data.as_ptr().add(idx) };
-
-        let UniverseEntry::Occupied(v) = v else {
-            panic!("attempted to claim vacant universe entry");
-        };
-        v
-    }
-
-    pub fn claim_new(&mut self, value: T) -> (I, &'a mut T) {
-        // first_vacant_entry is guaranteed to be valid because
-        // we called `Universe::reserve(CAP)` before creating this type
-        let idx = self.first_vacant_entry.unwrap().into_usize();
-        let id = I::from_usize(idx);
-        self.handed_out.push(id);
-        let entry = unsafe { &mut *self.universe_data.as_ptr().add(idx) };
-
-        let UniverseEntry::Vacant(next) = *entry else {
-            unreachable!()
-        };
-        *self.first_vacant_entry = next;
-
-        *entry = UniverseEntry::Occupied(value);
-
-        let UniverseEntry::Occupied(v) = entry else {
-            unreachable!()
-        };
-        (id, v)
-    }
-}
-
 // separate impl since only available if T: Default
-impl<I: IndexingType, T: Default> Universe<I, T> {
+impl<I: IndexingType, T: Default> StableUniverse<I, T> {
     pub fn claim(&mut self) -> I {
         self.claim_with(Default::default)
     }
 }
 
-impl<I: IndexingType, T> Index<I> for Universe<I, T> {
+impl<I: IndexingType, T> Index<I> for StableUniverse<I, T> {
     type Output = T;
     #[inline]
     fn index(&self, index: I) -> &Self::Output {
@@ -433,7 +247,7 @@ impl<I: IndexingType, T> Index<I> for Universe<I, T> {
     }
 }
 
-impl<I: IndexingType, T> IndexMut<I> for Universe<I, T> {
+impl<I: IndexingType, T> IndexMut<I> for StableUniverse<I, T> {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         match &mut self.data[index.into_usize()] {
@@ -444,17 +258,25 @@ impl<I: IndexingType, T> IndexMut<I> for Universe<I, T> {
 }
 
 #[derive(Clone)]
-pub struct UniverseIter<'a, T> {
-    base: std::slice::Iter<'a, UniverseEntry<T>>,
+pub struct StableUniverseIter<'a, T> {
+    base: StableVecIter<
+        'a,
+        UniverseEntry<T>,
+        { stable_vec::DEFAULT_CHUNK_SIZE },
+    >,
 }
 
 #[derive(Clone)]
-pub struct UniverseIndexIter<'a, I, T> {
+pub struct StableUniverseIndexIter<'a, I, T> {
     index: I,
-    base: std::slice::Iter<'a, UniverseEntry<T>>,
+    base: StableVecIter<
+        'a,
+        UniverseEntry<T>,
+        { stable_vec::DEFAULT_CHUNK_SIZE },
+    >,
 }
 
-impl<'a, T> Iterator for UniverseIter<'a, T> {
+impl<'a, T> Iterator for StableUniverseIter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -468,7 +290,7 @@ impl<'a, T> Iterator for UniverseIter<'a, T> {
     }
 }
 
-impl<'a, I: IndexingType, T> Iterator for UniverseIndexIter<'a, I, T> {
+impl<'a, I: IndexingType, T> Iterator for StableUniverseIndexIter<'a, I, T> {
     type Item = I;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -485,7 +307,11 @@ impl<'a, I: IndexingType, T> Iterator for UniverseIndexIter<'a, I, T> {
 }
 
 pub struct UniverseIterMut<'a, T> {
-    base: std::slice::IterMut<'a, UniverseEntry<T>>,
+    base: StableVecIterMut<
+        'a,
+        UniverseEntry<T>,
+        { stable_vec::DEFAULT_CHUNK_SIZE },
+    >,
 }
 
 impl<'a, T> Iterator for UniverseIterMut<'a, T> {
@@ -502,16 +328,16 @@ impl<'a, T> Iterator for UniverseIterMut<'a, T> {
     }
 }
 
-impl<'a, I: IndexingType, T> IntoIterator for &'a Universe<I, T> {
+impl<'a, I: IndexingType, T> IntoIterator for &'a StableUniverse<I, T> {
     type Item = &'a T;
-    type IntoIter = UniverseIter<'a, T>;
+    type IntoIter = StableUniverseIter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a, I: IndexingType, T> IntoIterator for &'a mut Universe<I, T> {
+impl<'a, I: IndexingType, T> IntoIterator for &'a mut StableUniverse<I, T> {
     type Item = &'a mut T;
     type IntoIter = UniverseIterMut<'a, T>;
 
@@ -522,7 +348,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a mut Universe<I, T> {
 
 #[derive(Clone)]
 pub struct UniverseEnumeratedIter<'a, I, T> {
-    base: &'a [UniverseEntry<T>],
+    base: &'a StableVec<UniverseEntry<T>>,
     idx: I,
 }
 
@@ -543,7 +369,7 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIter<'a, I, T> {
 }
 
 pub struct UniverseEnumeratedIterMut<'a, I, T> {
-    base: &'a mut [UniverseEntry<T>],
+    base: &'a mut StableVec<UniverseEntry<T>>,
     idx: I,
 }
 
@@ -558,7 +384,9 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIterMut<'a, I, T> {
                 UniverseEntry::Occupied(_) => {
                     // SAFETY: the iterator makes sure that each element
                     // is only handed out once
-                    let v = unsafe { &mut *self.base.as_mut_ptr().add(i) };
+                    let v = unsafe {
+                        &mut *self.base.get_element_pointer_unchecked(i)
+                    };
                     let UniverseEntry::Occupied(v) = v else {
                         unreachable!()
                     };
@@ -573,14 +401,14 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIterMut<'a, I, T> {
 
 #[derive(Clone)]
 pub struct CountedUniverse<I, T> {
-    universe: Universe<I, T>,
+    universe: StableUniverse<I, T>,
     occupied_entries: usize,
 }
 
 impl<I: IndexingType, T> CountedUniverse<I, T> {
     pub const fn new() -> Self {
         Self {
-            universe: Universe::new(),
+            universe: StableUniverse::new(),
             occupied_entries: 0,
         }
     }
@@ -595,10 +423,10 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
         self.universe.clear();
         self.occupied_entries = 0;
     }
-    pub fn indices(&self) -> UniverseIndexIter<I, T> {
+    pub fn indices(&self) -> StableUniverseIndexIter<I, T> {
         self.universe.indices()
     }
-    pub fn iter(&self) -> UniverseIter<T> {
+    pub fn iter(&self) -> StableUniverseIter<T> {
         self.universe.iter()
     }
     pub fn iter_mut(&mut self) -> UniverseIterMut<T> {
@@ -629,9 +457,6 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
     }
     pub fn claim_with_value(&mut self, value: T) -> I {
         self.claim_with(|| value)
-    }
-    pub fn calc_id(&self, entry: &T) -> I {
-        self.universe.calc_id(entry)
     }
     pub fn get(&self, id: I) -> Option<&T> {
         self.universe.get(id)
@@ -694,7 +519,7 @@ impl<I: IndexingType, T> IndexMut<I> for CountedUniverse<I, T> {
 
 impl<'a, I: IndexingType, T> IntoIterator for &'a CountedUniverse<I, T> {
     type Item = &'a T;
-    type IntoIter = UniverseIter<'a, T>;
+    type IntoIter = StableUniverseIter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -711,10 +536,10 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a mut CountedUniverse<I, T> {
 }
 
 impl<I: IndexingType, T, II: IntoIterator<Item = T>> From<II>
-    for Universe<I, T>
+    for StableUniverse<I, T>
 {
     fn from(ii: II) -> Self {
-        let mut u = Universe::default();
+        let mut u = StableUniverse::default();
         for i in ii {
             u.claim_with_value(i);
         }
@@ -722,15 +547,15 @@ impl<I: IndexingType, T, II: IntoIterator<Item = T>> From<II>
     }
 }
 
-impl<I: IndexingType, T> TransmutableContainer for Universe<I, T> {
+impl<I: IndexingType, T> TransmutableContainer for StableUniverse<I, T> {
     type ElementType = T;
 
-    type ContainerType<Q> = Universe<I, Q>;
+    type ContainerType<Q> = StableUniverse<I, Q>;
 
     fn transmute<Q>(
         self,
     ) -> <Self as TransmutableContainer>::ContainerType<Q> {
-        Universe {
+        StableUniverse {
             data: self.data.transmute(),
             first_vacant_entry: None,
             _phantom_data: PhantomData,
