@@ -13,7 +13,7 @@ use crate::{
     extension::ExtensionRegistry,
     record_data::{
         array::Array,
-        field_value::{FieldValue, Object},
+        field_value::{FieldValueUnboxed, Object},
     },
     utils::{
         int_string_conversions::I64_MAX_DECIMAL_DIGITS,
@@ -201,7 +201,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     }
     fn parse_binary_string_after_b(
         &mut self,
-    ) -> Result<FieldValue, TysonParseError> {
+    ) -> Result<FieldValueUnboxed, TysonParseError> {
         let quote = self.read_char_eat_whitespace()?;
         if !['\'', '"'].contains(&quote) {
             return self.err(TysonParseErrorKind::ExpectedQuoteAfterB);
@@ -212,7 +212,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         &mut self,
         quote_kind: u8,
     ) -> Result<String, TysonParseError> {
-        let FieldValue::Text(v) =
+        let FieldValueUnboxed::Text(v) =
             self.parse_string_after_quote(quote_kind, false)?
         else {
             unreachable!()
@@ -223,7 +223,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         &mut self,
         quote_kind: u8,
         binary: bool,
-    ) -> Result<FieldValue, TysonParseError> {
+    ) -> Result<FieldValueUnboxed, TysonParseError> {
         let mut buf = Vec::new();
         let escape_sequences = [
             b'a', // audible bell
@@ -398,7 +398,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             };
         }
         if binary {
-            return Ok(FieldValue::Bytes(buf));
+            return Ok(FieldValueUnboxed::Bytes(buf));
         }
         // verify the last, uncompleted line of the string for utf8-compliance
         match buf[curr_line_begin..].to_str() {
@@ -416,7 +416,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             }
         }
         // SAFETY: we already verified each line separately
-        Ok(FieldValue::Text(unsafe {
+        Ok(FieldValueUnboxed::Text(unsafe {
             String::from_utf8_unchecked(buf)
         }))
     }
@@ -433,7 +433,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     pub fn parse_number(
         &mut self,
         first: u8,
-    ) -> Result<FieldValue, TysonParseError> {
+    ) -> Result<FieldValueUnboxed, TysonParseError> {
         let mut buf = SmallString::<[u8; I64_MAX_DECIMAL_DIGITS]>::new();
         let mut sign = None;
         let mut floating_point = None;
@@ -463,11 +463,13 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     if let Some(idx) = sign {
                         debug_assert!(idx == 0);
                         if buf.as_bytes()[idx] == b'-' {
-                            return Ok(FieldValue::Float(f64::NEG_INFINITY));
+                            return Ok(FieldValueUnboxed::Float(
+                                f64::NEG_INFINITY,
+                            ));
                         }
                         debug_assert!(buf.as_bytes()[idx] == b'+');
                     }
-                    return Ok(FieldValue::Float(f64::INFINITY));
+                    return Ok(FieldValueUnboxed::Float(f64::INFINITY));
                 }
                 b'n' | b'N' => {
                     if !first_byte {
@@ -486,7 +488,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                         });
                     }
                     self.col += 2;
-                    return Ok(FieldValue::Float(f64::NAN));
+                    return Ok(FieldValueUnboxed::Float(f64::NAN));
                 }
                 b'+' | b'-' => {
                     if buf.is_empty() {
@@ -554,17 +556,17 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
         if floating_point.is_none() && exponent.is_none() {
             if digit_count <= I64_MAX_DECIMAL_DIGITS + 1 {
                 if let Ok(v) = buf.parse::<i64>() {
-                    return Ok(FieldValue::Int(v));
+                    return Ok(FieldValueUnboxed::Int(v));
                 }
             }
-            return Ok(FieldValue::BigInt(Box::new(
+            return Ok(FieldValueUnboxed::BigInt(
                 BigInt::parse_bytes(buf.as_bytes(), 10).unwrap(),
-            )));
+            ));
         }
         if self.use_floating_point {
             if let Ok(v) = buf.parse::<f64>() {
                 // if !v.is_nan() && !v.is_infinite() {
-                return Ok(FieldValue::Float(v));
+                return Ok(FieldValueUnboxed::Float(v));
                 // }
             };
         }
@@ -593,26 +595,25 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 BigInt::parse_bytes(buf[e + 1..].as_bytes(), 10).unwrap(),
             ));
         }
-        Ok(FieldValue::BigRational(Box::new(rational)))
+        Ok(FieldValueUnboxed::BigRational(rational))
     }
     fn parse_array_after_bracket(
         &mut self,
-    ) -> Result<FieldValue, TysonParseError> {
-        // PERF: todo: maybe optimize for specific types
-        let mut arr = Vec::new();
+    ) -> Result<FieldValueUnboxed, TysonParseError> {
+        let mut arr = Array::default();
         loop {
             let value = match self.parse_value() {
                 Ok(v) => v,
                 Err(TysonParseError::InvalidSyntax {
                     kind: TysonParseErrorKind::StrayToken(']'),
                     ..
-                }) => return Ok(FieldValue::Array(Array::Mixed(arr))),
+                }) => return Ok(FieldValueUnboxed::Array(arr)),
                 Err(e) => return Err(e),
             };
-            arr.push(value);
+            arr.push_unboxed(value);
             let c = self.read_char_eat_whitespace()?;
             if c == ']' {
-                return Ok(FieldValue::Array(Array::Mixed(arr)));
+                return Ok(FieldValueUnboxed::Array(arr));
             }
             if c != ',' {
                 return self.err(TysonParseErrorKind::StrayToken(c));
@@ -621,14 +622,12 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     }
     fn parse_object_after_brace(
         &mut self,
-    ) -> Result<FieldValue, TysonParseError> {
+    ) -> Result<FieldValueUnboxed, TysonParseError> {
         let mut map = IndexMap::new();
         let mut c = self.consume_char_eat_whitespace()?;
         loop {
             if c == '}' {
-                return Ok(FieldValue::Object(Box::new(Object::KeysStored(
-                    map,
-                ))));
+                return Ok(FieldValueUnboxed::Object(Object::KeysStored(map)));
             }
             let key = if c == '"' || c == '\'' {
                 let key = self.parse_string_token_after_quote(c as u8)?;
@@ -649,7 +648,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 return self.err(TysonParseErrorKind::StrayToken(c));
             }
             let value = self.parse_value()?;
-            map.insert(key, value);
+            map.insert(key, value.into());
             c = self.consume_char_eat_whitespace()?;
             if c == ',' {
                 c = self.consume_char_eat_whitespace()?;
@@ -663,7 +662,7 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
     }
     fn parse_type_after_parenthesis(
         &mut self,
-    ) -> Result<FieldValue, TysonParseError> {
+    ) -> Result<FieldValueUnboxed, TysonParseError> {
         todo!();
     }
     pub fn is_number_start(first: u8) -> bool {
@@ -673,7 +672,9 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
             _ => false,
         }
     }
-    pub fn parse_value(&mut self) -> Result<FieldValue, TysonParseError> {
+    pub fn parse_value(
+        &mut self,
+    ) -> Result<FieldValueUnboxed, TysonParseError> {
         let c = self.consume_char_eat_whitespace()?;
         metamatch!(match c {
             '{' => self.parse_object_after_brace(),
@@ -698,12 +699,12 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                     }
                     self.col += 1;
                 }
-                Ok(FieldValue::Null)
+                Ok(FieldValueUnboxed::Null)
             }
             #[expand((FIRST, REST, VAL) in [
-                ('t', "rue", FieldValue::Bool(true)),
-                ('f', "alse", FieldValue::Bool(false)),
-                ('u', "ndefined", FieldValue::Undefined),
+                ('t', "rue", FieldValueUnboxed::Bool(true)),
+                ('f', "alse", FieldValueUnboxed::Bool(false)),
+                ('u', "ndefined", FieldValueUnboxed::Undefined),
             ])]
             FIRST => {
                 for expected in REST.chars() {
@@ -755,7 +756,7 @@ pub fn parse_tyson(
     input: impl BufRead,
     use_floating_point: bool,
     exts: Option<&ExtensionRegistry>,
-) -> Result<FieldValue, TysonParseError> {
+) -> Result<FieldValueUnboxed, TysonParseError> {
     let mut tp = TysonParser::new(input, use_floating_point, exts);
     let res = tp.parse_value()?;
     tp.reject_further_input()?;
@@ -766,7 +767,7 @@ pub fn parse_tyson_str(
     input: &str,
     use_floating_point: bool,
     exts: Option<&ExtensionRegistry>,
-) -> Result<FieldValue, TysonParseError> {
+) -> Result<FieldValueUnboxed, TysonParseError> {
     // PERF: we could skip a lot of utf8 checking
     // if we already know that this is a string
     parse_tyson(input.as_bytes(), use_floating_point, exts)
@@ -785,11 +786,14 @@ mod test {
     use num::BigInt;
     use rstest::rstest;
 
-    use crate::record_data::{array::Array, field_value::FieldValue};
+    use crate::record_data::{
+        array::Array,
+        field_value::{FieldValue, FieldValueUnboxed},
+    };
 
     use super::{parse_tyson_str, TysonParseError, TysonParseErrorKind};
 
-    fn parse(s: &str) -> Result<FieldValue, TysonParseError> {
+    fn parse(s: &str) -> Result<FieldValueUnboxed, TysonParseError> {
         parse_tyson_str(s, false, None)
     }
 
@@ -818,19 +822,22 @@ mod test {
 
     #[test]
     fn string() {
-        assert_eq!(parse(r#""foo""#), Ok(FieldValue::Text("foo".into())));
+        assert_eq!(
+            parse(r#""foo""#),
+            Ok(FieldValueUnboxed::Text("foo".into()))
+        );
     }
 
     #[test]
     fn single_quoted_string() {
-        assert_eq!(parse("'foo'"), Ok(FieldValue::Text("foo".into())));
+        assert_eq!(parse("'foo'"), Ok(FieldValueUnboxed::Text("foo".into())));
     }
 
     #[rstest]
     #[case("b'1'", b"1")]
     #[case("b'\\xFF'", b"\xFF")]
     fn byte_escapes(#[case] v: &str, #[case] res: &[u8]) {
-        assert_eq!(parse(v), Ok(FieldValue::Bytes(res.to_vec())));
+        assert_eq!(parse(v), Ok(FieldValueUnboxed::Bytes(res.to_vec())));
     }
 
     #[test]
@@ -873,7 +880,7 @@ mod test {
     fn unicode_escape() {
         assert_eq!(
             parse(r#""foo\u{1F4A9}bar""#),
-            Ok(FieldValue::Text("foo\u{1F4A9}bar".into()))
+            Ok(FieldValueUnboxed::Text("foo\u{1F4A9}bar".into()))
         );
     }
 
@@ -881,7 +888,7 @@ mod test {
     fn array() {
         assert_eq!(
             parse(r#" [1,2,3,"4"] "#),
-            Ok(FieldValue::Array(Array::Mixed(vec![
+            Ok(FieldValueUnboxed::Array(Array::Mixed(vec![
                 FieldValue::Int(1),
                 FieldValue::Int(2),
                 FieldValue::Int(3),
@@ -891,11 +898,11 @@ mod test {
     }
     #[test]
     fn null() {
-        assert_eq!(parse("null"), Ok(FieldValue::Null));
+        assert_eq!(parse("null"), Ok(FieldValueUnboxed::Null));
     }
     #[test]
     fn undefined() {
-        assert_eq!(parse("undefined"), Ok(FieldValue::Undefined));
+        assert_eq!(parse("undefined"), Ok(FieldValueUnboxed::Undefined));
     }
     #[rstest]
     #[case("1", 1)]
@@ -906,7 +913,7 @@ mod test {
     #[case(&i64::MAX.to_string(), i64::MAX)]
     #[case(&i64::MIN.to_string(), i64::MIN)]
     fn int(#[case] v: &str, #[case] res: i64) {
-        assert_eq!(parse(v), Ok(FieldValue::Int(res)));
+        assert_eq!(parse(v), Ok(FieldValueUnboxed::Int(res)));
     }
     #[rstest]
     #[case("9223372036854775808")]
@@ -914,9 +921,9 @@ mod test {
     fn big_int(#[case] v: &str) {
         assert_eq!(
             parse(v),
-            Ok(FieldValue::BigInt(Box::new(
+            Ok(FieldValueUnboxed::BigInt(
                 BigInt::parse_bytes(v.as_bytes(), 10).unwrap()
-            )))
+            ))
         );
     }
     #[rstest]
@@ -924,7 +931,7 @@ mod test {
     #[case("+inf", f64::INFINITY)]
     #[case("-inf", f64::NEG_INFINITY)]
     fn inf(#[case] v: &str, #[case] res: f64) {
-        assert_eq!(parse(v), Ok(FieldValue::Float(res)));
+        assert_eq!(parse(v), Ok(FieldValueUnboxed::Float(res)));
     }
     #[rstest]
     #[case("nan")]
@@ -933,7 +940,7 @@ mod test {
     #[case("-NaN")]
     fn nan(#[case] input: &str) {
         assert!(
-            matches!(parse(input), Ok(FieldValue::Float(v)) if v.is_nan())
+            matches!(parse(input), Ok(FieldValueUnboxed::Float(v)) if v.is_nan())
         );
     }
     #[rstest]
@@ -946,9 +953,9 @@ mod test {
 
         assert_eq!(
             parse(input),
-            Ok(FieldValue::Object(Box::new(Object::KeysStored(indexmap![
+            Ok(FieldValueUnboxed::Object(Object::KeysStored(indexmap![
                 key_name.to_string() => FieldValue::Int(3)
-            ])))),
+            ]))),
         );
     }
 }

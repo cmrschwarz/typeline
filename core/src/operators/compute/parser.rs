@@ -581,7 +581,16 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             TokenKind::Exclamation => UnaryOpKind::LogicalNot,
             TokenKind::Tilde => UnaryOpKind::BitwiseNot,
             TokenKind::Identifier(ident) => {
-                return Ok(self.parse_symbol_identifier(ident));
+                let ident = self.parse_symbol_identifier(ident);
+                let Some(tok) = self.lexer.peek_token()? else {
+                    return Ok(ident);
+                };
+                match tok.kind {
+                    TokenKind::LParen => {
+                        return self.parse_function_call(ident);
+                    }
+                    _ => return Ok(ident),
+                }
             }
             TokenKind::Literal(v) => return Ok(Expr::Literal(v)),
 

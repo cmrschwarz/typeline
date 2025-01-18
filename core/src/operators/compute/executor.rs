@@ -1,5 +1,5 @@
 use bstr::ByteSlice;
-use num::{BigInt, FromPrimitive};
+use num::{BigInt, BigRational, FromPrimitive};
 
 use super::{
     ast::{AccessIdx, BinaryOpKind, BuiltinFunction, ExternIdentId},
@@ -63,7 +63,11 @@ use crate::{
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
+    tyson::TysonParser,
     utils::{
+        compare_i64_bigint::{
+            convert_int_to_float, try_convert_bigint_to_i64,
+        },
         index_slice::IndexSlice,
         multi_ref_mut_handout::MultiRefMutHandout,
         universe::{Universe, UniverseMultiRefMutHandout},
@@ -1175,6 +1179,9 @@ fn execute_builtin_func_on_range(
         BuiltinFunction::Cast(FieldValueKind::Int) => {
             execute_cast_int(op_id, arg_range, inserter)
         }
+        BuiltinFunction::Cast(FieldValueKind::Float) => {
+            execute_cast_float(op_id, arg_range, inserter)
+        }
         _ => todo!(),
     }
 }
@@ -1226,12 +1233,165 @@ fn execute_cast_int(
                 }
             }
         }
-        FieldValueSlice::Float(_) => todo!(),
-        FieldValueSlice::BigRational(_) => todo!(),
+        FieldValueSlice::Float(values) => {
+            for (&v, rl) in FieldValueRangeIter::from_range(&range, values) {
+                if v.is_nan() || v.is_infinite() {
+                    inserter.push_error(
+                        OperatorApplicationError::new_s(
+                            format!("cannot cast '{}' to int", v),
+                            op_id,
+                        ),
+                        rl as usize,
+                        true,
+                        false,
+                    );
+                    continue;
+                }
+                #[allow(clippy::cast_precision_loss)]
+                {
+                    // TODO: verify that this is not off by one
+                    if v < (i64::MAX as f64) && v > (i64::MIN as f64) {
+                        inserter.push_int(v as i64, rl as usize, true, false);
+                    }
+                }
+                inserter.push_big_int(
+                    BigInt::from_f64(v).unwrap(),
+                    rl as usize,
+                    true,
+                    false,
+                );
+            }
+        }
+        FieldValueSlice::BigRational(values) => {
+            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+                let v = v.to_integer();
+                if let Some(v) = try_convert_bigint_to_i64(&v) {
+                    inserter.push_int(v, rl as usize, true, false);
+                } else {
+                    inserter.push_big_int(v, rl as usize, true, false);
+                }
+            }
+        }
         FieldValueSlice::Int(_)
         | FieldValueSlice::Bool(_)
         | FieldValueSlice::BigInt(_)
         | FieldValueSlice::Error(_) => {
+            inserter.extend_from_ref_aware_range(range, true, false)
+        }
+        FieldValueSlice::Null(_)
+        | FieldValueSlice::Undefined(_)
+        | FieldValueSlice::Object(_)
+        | FieldValueSlice::Array(_)
+        | FieldValueSlice::Custom(_)
+        | FieldValueSlice::Argument(_)
+        | FieldValueSlice::OpDecl(_)
+        | FieldValueSlice::StreamValueId(_)
+        | FieldValueSlice::FieldReference(_)
+        | FieldValueSlice::SlicedFieldReference(_) => {
+            inserter.push_error(
+                OperatorApplicationError::new_s(
+                    format!("cannot cast '{}' to int", range.base.data.kind()),
+                    op_id,
+                ),
+                range.base.field_count,
+                true,
+                false,
+            );
+        }
+    })
+}
+
+fn execute_cast_float(
+    op_id: OperatorId,
+    range: RefAwareTypedRange<'_>,
+    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+) {
+    metamatch!(match range.base.data {
+        #[expand((REPR, ITER, VAL_BYTES, VAL_ERR) in [
+            (TextInline, RefAwareInlineTextIter, v.as_bytes(), v),
+            (TextBuffer, RefAwareTextBufferIter, v.as_bytes(), v),
+            (BytesInline, RefAwareInlineBytesIter, v, v.to_str_lossy()),
+            (BytesBuffer, RefAwareBytesBufferIter, v, v.to_str_lossy())
+        ])]
+        FieldValueSlice::REPR(data) => {
+            for (v, rl, _) in ITER::from_range(&range, data) {
+                let rl = rl as usize;
+                match lexical_core::parse::<f64>(VAL_BYTES) {
+                    Ok(v) => {
+                        inserter.push_float(v, rl, true, false);
+                    }
+                    Err(e) => {
+                        if matches!(
+                            e,
+                            lexical_core::Error::Overflow(_)
+                                | lexical_core::Error::Underflow(_)
+                        ) {
+                            let mut p =
+                                TysonParser::new(&VAL_BYTES[1..], false, None);
+
+                            if let Ok(v) = p.parse_number(VAL_BYTES[0]) {
+                                inserter.push_field_value_unboxed(
+                                    v, rl, true, false,
+                                );
+                                continue;
+                            }
+                        }
+                        inserter.push_error(
+                            OperatorApplicationError::new_s(
+                                format!(
+                                    "failed to parse '{}' as int",
+                                    VAL_ERR,
+                                ),
+                                op_id,
+                            ),
+                            rl,
+                            true,
+                            false,
+                        );
+                    }
+                }
+            }
+        }
+        FieldValueSlice::Float(_) | FieldValueSlice::BigRational(_) => {
+            inserter.extend_from_ref_aware_range(range, true, false);
+        }
+        FieldValueSlice::Int(values) => {
+            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+                match convert_int_to_float(*v) {
+                    Ok(v) => inserter.push_float(v, rl as usize, true, false),
+                    Err(v) => {
+                        inserter.push_big_rational(v, rl as usize, true, false)
+                    }
+                }
+            }
+        }
+        FieldValueSlice::BigInt(values) => {
+            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+                if let Some(v) = try_convert_bigint_to_i64(v) {
+                    if let Ok(v) = convert_int_to_float(v) {
+                        inserter.push_float(v, rl as usize, true, false);
+                        continue;
+                    }
+                }
+                inserter.push_big_rational(
+                    BigRational::from_integer(v.clone()),
+                    rl as usize,
+                    true,
+                    false,
+                );
+            }
+        }
+        FieldValueSlice::Bool(values) => {
+            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+                inserter.push_float(
+                    f64::from(i8::from(*v)),
+                    rl as usize,
+                    true,
+                    false,
+                );
+            }
+        }
+        FieldValueSlice::Error(_) => {
             inserter.extend_from_ref_aware_range(range, true, false)
         }
         FieldValueSlice::Null(_)

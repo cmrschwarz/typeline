@@ -627,7 +627,7 @@ pub fn parse_single_arg_value(
                         value.to_str().unwrap().to_owned().into_boxed_str(),
                     ));
                 }
-                arg.value = number;
+                arg.value = FieldValue::from(number);
                 return arg;
             }
         }

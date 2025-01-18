@@ -99,7 +99,7 @@ impl TfFromTyson {
     ) {
         match parse_tyson(data, fpm, exts) {
             Ok(v) => {
-                inserter.push_field_value_unpacked(v, rl as usize, true, false)
+                inserter.push_field_value_unboxed(v, rl as usize, true, false)
             }
             Err(e) => inserter.push_error(
                 OperatorApplicationError::new_s(e.to_string(), op_id),

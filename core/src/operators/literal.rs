@@ -17,7 +17,7 @@ use crate::{
         custom_data::CustomDataBox,
         field::FieldIterRef,
         field_data::FieldValueRepr,
-        field_value::{FieldValue, FieldValueKind, Object},
+        field_value::{FieldValue, FieldValueKind, FieldValueUnboxed, Object},
         push_interface::PushInterface,
         stream_value::{StreamValue, StreamValueData},
     },
@@ -341,21 +341,21 @@ pub fn parse_op_bytes(
         insert_count,
     }))
 }
-pub fn field_value_to_literal(v: FieldValue) -> Literal {
+pub fn field_value_to_literal(v: FieldValueUnboxed) -> Literal {
     metamatch!(match v {
         #[expand(REP in [Null, Undefined])]
-        FieldValue::REP => Literal::REP,
+        FieldValueUnboxed::REP => Literal::REP,
 
-        #[expand(REP in [Bool, Int, Float, Bytes, Text, Array,  Custom])]
-        FieldValue::REP(v) => Literal::REP(v),
+        #[expand(REP in [
+            Bool, Int, Float, Bytes, Text, Array,  Custom,
+            BigInt, BigRational, Argument, Object
+        ])]
+        FieldValueUnboxed::REP(v) => Literal::REP(v),
 
-        #[expand(REP in [BigInt, BigRational, Argument, Object])]
-        FieldValue::REP(v) => Literal::REP(*v),
-
-        FieldValue::Error(v) => Literal::Error(v.message().to_owned()),
+        FieldValueUnboxed::Error(v) => Literal::Error(v.message().to_owned()),
 
         #[expand_pattern(REP in [OpDecl, StreamValueId, FieldReference, SlicedFieldReference])]
-        FieldValue::REP(_) => {
+        FieldValueUnboxed::REP(_) => {
             panic!("{} is not a valid literal", v.kind().to_str())
         }
     })

@@ -73,3 +73,16 @@ fn precedence(
     assert_eq!(res, &[expected]);
     Ok(())
 }
+
+#[rstest]
+#[case("float(3)/2", 1.5)]
+fn float_cast(
+    #[case] expr: &str,
+    #[case] expected: f64,
+) -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_compute(expr)?)
+        .run_collect_as::<f64>()?;
+    assert_eq!(res, &[expected]);
+    Ok(())
+}

@@ -349,7 +349,7 @@ impl<'a> ComputeExprLexer<'a> {
             return match res {
                 Ok(v) => Ok(Some(ComputeExprToken {
                     span,
-                    kind: TokenKind::Literal(v),
+                    kind: TokenKind::Literal(v.into()),
                 })),
                 Err(e) => match e {
                     TysonParseError::Io(_) => unreachable!(),

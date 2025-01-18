@@ -16,7 +16,10 @@ use super::{
         FieldValueHeader, FieldValueRepr, FieldValueSize, FieldValueType,
         RunLength,
     },
-    field_value::{FieldReference, FieldValue, Object, SlicedFieldReference},
+    field_value::{
+        FieldReference, FieldValue, FieldValueUnboxed, Object,
+        SlicedFieldReference,
+    },
     field_value_ref::{FieldValueSlice, ValidTypedRange},
     formattable::{Formattable, FormattingContext, RealizedFormatKey},
     iter::{
@@ -577,6 +580,41 @@ pub unsafe trait PushInterface {
                     try_header_rle,
                     try_data_rle,
                 );
+            }
+        })
+    }
+    fn push_field_value_unboxed(
+        &mut self,
+        v: FieldValueUnboxed,
+        run_length: usize,
+        try_header_rle: bool,
+        try_data_rle: bool,
+    ) {
+        metamatch!(match v {
+            FieldValueUnboxed::Null =>
+                self.push_null(run_length, try_header_rle),
+            FieldValueUnboxed::Undefined => {
+                self.push_undefined(run_length, try_header_rle)
+            }
+            #[expand(REP in [
+                Float, Array, Custom, Error,
+                FieldReference, SlicedFieldReference, StreamValueId,
+                Bool, Int, OpDecl, BigInt, BigRational, Argument, Object
+            ])]
+            FieldValueUnboxed::REP(v) => {
+                self.push_fixed_size_type(
+                    v,
+                    run_length,
+                    try_header_rle,
+                    try_data_rle,
+                );
+            }
+            #[expand((REP, PUSH_FN) in [
+                (Text, push_string_check_inline),
+                (Bytes, push_bytes_buffer_check_inline)
+            ])]
+            FieldValueUnboxed::REP(v) => {
+                self.PUSH_FN(v, run_length, try_header_rle, try_data_rle)
             }
         })
     }

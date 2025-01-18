@@ -279,7 +279,7 @@ impl FieldValueKind {
     }
 }
 
-impl PartialEq for FieldValue {
+impl PartialEq for FieldValueRef<'_> {
     fn eq(&self, other: &Self) -> bool {
         metamatch!(match self {
             #[expand(REP in [Null, Undefined])]
@@ -290,10 +290,21 @@ impl PartialEq for FieldValue {
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
             ])]
-            FieldValue::REP(l) => {
-                matches!(other, FieldValue::REP(r) if r == l)
+            FieldValueRef::REP(l) => {
+                matches!(other, FieldValueRef::REP(r) if r == l)
             }
         })
+    }
+}
+
+impl PartialEq for FieldValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref().eq(&other.as_ref())
+    }
+}
+impl PartialEq for FieldValueUnboxed {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref().eq(&other.as_ref())
     }
 }
 
@@ -639,6 +650,13 @@ impl FieldValue {
 }
 
 impl FieldValueUnboxed {
+    pub fn format(
+        &self,
+        ctx: &mut FormattingContext,
+        w: &mut impl MaybeTextWrite,
+    ) -> Result<(), std::io::Error> {
+        self.as_ref().format(ctx, w)
+    }
     pub fn repr(&self) -> FieldValueRepr {
         metamatch!(match self {
             FieldValueUnboxed::Null => FieldValueRepr::Null,
@@ -654,6 +672,9 @@ impl FieldValueUnboxed {
             ])]
             FieldValueUnboxed::REP(_) => FieldValueRepr::REP,
         })
+    }
+    pub fn kind(&self) -> FieldValueKind {
+        self.repr().kind()
     }
 
     pub fn as_ref(&self) -> FieldValueRef {

@@ -1,6 +1,10 @@
 use std::cmp::Ordering;
 
-use num::{bigint::Sign, BigInt};
+use num::{bigint::Sign, BigInt, BigRational, FromPrimitive};
+
+use super::int_string_conversions::{
+    I64_AS_F64_MAX_LOSLESS, I64_AS_F64_MIN_LOSLESS,
+};
 
 pub fn compare_i64_bigint(lhs: i64, rhs: &BigInt) -> Ordering {
     // If signs differ, we can return immediately
@@ -39,6 +43,40 @@ pub fn compare_i64_bigint(lhs: i64, rhs: &BigInt) -> Ordering {
     }
 
     rhs_mag.cmp(&lhs.unsigned_abs())
+}
+
+pub fn try_convert_bigint_to_i64(bi: &BigInt) -> Option<i64> {
+    if bi.sign() == Sign::NoSign {
+        return Some(0);
+    }
+
+    if bi.bits() > 64 {
+        return None;
+    }
+
+    let mag = bi.iter_u64_digits().next().unwrap();
+
+    if bi.sign() == Sign::Minus {
+        const I64_MIN_UNSIGNED: u64 = i64::MAX as u64 + 1;
+        if mag > I64_MIN_UNSIGNED {
+            return None;
+        }
+        return Some(-(mag as i64));
+    }
+
+    if mag > i64::MAX as u64 {
+        return None;
+    }
+    Some(mag as i64)
+}
+
+pub fn convert_int_to_float(v: i64) -> Result<f64, BigRational> {
+    if (I64_AS_F64_MIN_LOSLESS..=I64_AS_F64_MAX_LOSLESS).contains(&v) {
+        #[allow(clippy::cast_precision_loss)]
+        Ok(v as f64)
+    } else {
+        Err(BigRational::from_i64(v).unwrap())
+    }
 }
 
 #[cfg(test)]
