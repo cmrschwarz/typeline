@@ -315,54 +315,58 @@ impl<'a> Transform<'a> for TfCompute<'a> {
             tf_id,
         );
         let mut extern_field_refs = self.extern_field_refs.take_transmute();
-        let mut extern_field_iters = self.extern_field_iters.take_transmute();
-        let extern_field_temp_iter_handouts =
-            self.extern_field_temp_iters.take_transmute();
-        for uf in &self.extern_fields {
-            extern_field_refs.push(
-                jd.field_mgr.get_cow_field_ref(
+        {
+            let mut extern_field_iters =
+                self.extern_field_iters.take_transmute();
+            let mut extern_field_temp_iters =
+                self.extern_field_temp_iters.take_transmute();
+
+            for uf in &self.extern_fields {
+                extern_field_refs.push(jd.field_mgr.get_cow_field_ref(
                     &jd.match_set_mgr,
                     uf.iter_ref.field_id,
-                ),
+                ));
+            }
+            for (uf_id, fr) in extern_field_refs.iter_enumerated() {
+                extern_field_iters.push(jd.field_mgr.get_auto_deref_iter(
+                    self.extern_fields[uf_id].iter_ref.field_id,
+                    fr,
+                    self.extern_fields[uf_id].iter_ref.iter_id,
+                ))
+            }
+
+            let mut output = jd.field_mgr.fields[of_id].borrow_mut();
+            let field_pos = output.iter_hall.get_field_count(&jd.field_mgr);
+            let mut exec = Exectutor {
+                op_id,
+                fm: &jd.field_mgr,
+                msm: &jd.match_set_mgr,
+                compilation: &self.op.compilation,
+                extern_field_iters: &mut extern_field_iters,
+                output: &mut output.iter_hall,
+                temp_fields: &mut self.temp_fields,
+                extern_vars: &mut self.extern_vars,
+                extern_fields: &mut self.extern_fields,
+                extern_field_temp_iters: &mut extern_field_temp_iters,
+            };
+            exec.run(
+                InstructionId::ZERO
+                    ..self.op.compilation.instructions.next_idx(),
+                field_pos,
+                batch_size,
             );
-        }
-        for (uf_id, fr) in extern_field_refs.iter_enumerated() {
-            extern_field_iters.push(jd.field_mgr.get_auto_deref_iter(
-                self.extern_fields[uf_id].iter_ref.field_id,
-                fr,
-                self.extern_fields[uf_id].iter_ref.iter_id,
-            ))
+
+            while let Some(iter) = extern_field_iters.pop() {
+                jd.field_mgr.store_iter_from_ref(
+                    self.extern_fields[extern_field_iters.next_idx()].iter_ref,
+                    iter,
+                );
+            }
+            self.extern_field_iters.reclaim_temp(extern_field_iters);
+            self.extern_field_temp_iters
+                .reclaim_temp_take(&mut extern_field_temp_iters);
         }
 
-        let mut output = jd.field_mgr.fields[of_id].borrow_mut();
-        let field_pos = output.iter_hall.get_field_count(&jd.field_mgr);
-        let mut exec = Exectutor {
-            op_id,
-            fm: &jd.field_mgr,
-            msm: &jd.match_set_mgr,
-            compilation: &self.op.compilation,
-            extern_field_iters: &mut extern_field_iters,
-            output: &mut output.iter_hall,
-            temp_fields: &mut self.temp_fields,
-            extern_vars: &mut self.extern_vars,
-            extern_fields: &mut self.extern_fields,
-            extern_field_temp_iters: extern_field_temp_iter_handouts,
-        };
-        exec.run(
-            InstructionId::ZERO..self.op.compilation.instructions.next_idx(),
-            field_pos,
-            batch_size,
-        );
-        self.extern_field_temp_iters
-            .reclaim_temp_take(&mut exec.extern_field_temp_iters);
-        drop(exec);
-        while let Some(iter) = extern_field_iters.pop() {
-            jd.field_mgr.store_iter_from_ref(
-                self.extern_fields[extern_field_iters.next_idx()].iter_ref,
-                iter,
-            );
-        }
-        self.extern_field_iters.reclaim_temp(extern_field_iters);
         self.extern_field_refs.reclaim_temp(extern_field_refs);
 
         jd.tf_mgr.submit_batch_ready_for_more(tf_id, batch_size, ps);

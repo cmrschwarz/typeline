@@ -97,7 +97,7 @@ pub struct Exectutor<'a, 'b> {
         ExternFieldIdx,
         AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
     >,
-    pub extern_field_temp_iters: StableUniverse<
+    pub extern_field_temp_iters: &'a mut StableUniverse<
         ExternFieldTempIterId,
         RefCell<AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>>,
     >,
@@ -1437,7 +1437,7 @@ impl<'a, 'b> Exectutor<'a, 'b> {
             self.extern_vars,
             self.extern_fields,
             self.extern_field_iters,
-            &self.extern_field_temp_iters,
+            self.extern_field_temp_iters,
             field_pos,
             count,
         );
@@ -1447,7 +1447,7 @@ impl<'a, 'b> Exectutor<'a, 'b> {
             self.extern_vars,
             self.extern_fields,
             self.extern_field_iters,
-            &self.extern_field_temp_iters,
+            self.extern_field_temp_iters,
             field_pos,
             count,
         );
@@ -1522,7 +1522,7 @@ impl<'a, 'b> Exectutor<'a, 'b> {
             self.extern_vars,
             self.extern_fields,
             self.extern_field_iters,
-            &self.extern_field_temp_iters,
+            self.extern_field_temp_iters,
             field_pos,
             count,
         );
@@ -1607,7 +1607,7 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                         let mut iter = get_extern_iter(
                             self.extern_fields,
                             self.extern_field_iters,
-                            &self.extern_field_temp_iters,
+                            self.extern_field_temp_iters,
                             *extern_field_idx,
                             acc.access_idx,
                         );
