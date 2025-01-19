@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod compiler;
 pub mod executor;
+pub mod executor_inserter;
 pub mod lexer;
 pub mod operations;
 pub mod parser;
