@@ -20,6 +20,7 @@ use crate::{
     liveness_analysis::{LivenessData, OperatorLivenessOutput},
     options::session_setup::SessionSetupData,
     record_data::{
+        array::ArrayBuilder,
         field::{CowFieldDataRef, FieldIterRef},
         field_data::FieldData,
         field_data_ref::DestructuredFieldDataRef,
@@ -31,14 +32,17 @@ use crate::{
     },
     typeline_error::TypelineError,
     utils::{
-        index_slice::IndexSlice, index_vec::IndexVec,
-        indexing_type::IndexingType, phantom_slot::PhantomSlot,
-        stable_universe::StableUniverse, temp_vec::TransmutableContainer,
+        index_slice::IndexSlice,
+        index_vec::IndexVec,
+        indexing_type::IndexingType,
+        phantom_slot::PhantomSlot,
+        stable_universe::StableUniverse,
+        temp_vec::{TempVec, TransmutableContainer},
     },
 };
 use ast::{AccessIdx, ExternIdentId, UnboundIdentData};
 use compiler::{Compilation, Compiler, InstructionId, TempFieldIdRaw};
-use executor::{Exectutor, ExternFieldTempIterId};
+use executor::{Executor, ExecutorInputIter, ExternFieldTempIterId};
 use lexer::ComputeExprLexer;
 use parser::ComputeExprParser;
 
@@ -104,6 +108,8 @@ pub struct TfCompute<'a> {
             >,
         >,
     >,
+    executor_iters_temp: TempVec<ExecutorInputIter<'static, 'static>>,
+    array_builder: ArrayBuilder,
 }
 
 pub fn build_op_compute(
@@ -299,6 +305,8 @@ impl Operator for OpCompute {
             extern_field_iters: IndexVec::with_capacity(unbound_fields.len()),
             extern_field_temp_iters: StableUniverse::default(),
             extern_fields: unbound_fields,
+            executor_iters_temp: TempVec::default(),
+            array_builder: ArrayBuilder::default(),
         };
         TransformInstatiation::Single(Box::new(tf))
     }
@@ -337,7 +345,7 @@ impl<'a> Transform<'a> for TfCompute<'a> {
 
             let mut output = jd.field_mgr.fields[of_id].borrow_mut();
             let field_pos = output.iter_hall.get_field_count(&jd.field_mgr);
-            let mut exec = Exectutor {
+            let mut exec = Executor {
                 op_id,
                 fm: &jd.field_mgr,
                 msm: &jd.match_set_mgr,
@@ -348,6 +356,8 @@ impl<'a> Transform<'a> for TfCompute<'a> {
                 extern_vars: &mut self.extern_vars,
                 extern_fields: &mut self.extern_fields,
                 extern_field_temp_iters: &mut extern_field_temp_iters,
+                executor_iters_temp: &mut self.executor_iters_temp,
+                array_builder: &mut self.array_builder,
             };
             exec.run(
                 InstructionId::ZERO

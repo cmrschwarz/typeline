@@ -43,11 +43,12 @@ use crate::{
     index_newtype,
     operators::{errors::OperatorApplicationError, operator::OperatorId},
     record_data::{
-        field::FieldManager,
-        field_data::{FieldData, FixedSizeFieldValueType},
+        array::ArrayBuilder,
+        field::{FieldManager, FieldRefOffset},
+        field_data::{FieldData, FixedSizeFieldValueType, RunLength},
         field_data_ref::DestructuredFieldDataRef,
         field_value::FieldValueKind,
-        field_value_ref::{FieldValueBlock, FieldValueSlice},
+        field_value_ref::{FieldValueBlock, FieldValueRef, FieldValueSlice},
         iter::{
             field_iter::FieldIter,
             field_iterator::{FieldIterOpts, FieldIterator},
@@ -69,8 +70,10 @@ use crate::{
         compare_i64_bigint::{
             convert_int_to_float, try_convert_bigint_to_i64,
         },
+        debuggable_nonmax::DebuggableNonMaxUsize,
         index_slice::IndexSlice,
         stable_universe::StableUniverse,
+        temp_vec::{TempVec, TransmutableContainer},
     },
 };
 use metamatch::metamatch;
@@ -82,9 +85,10 @@ use std::{
 
 index_newtype! {
     pub struct ExternFieldTempIterId(u32);
+    pub struct NextLowestArrayLink(DebuggableNonMaxUsize);
 }
 
-pub struct Exectutor<'a, 'b> {
+pub struct Executor<'a, 'b> {
     pub op_id: OperatorId,
     pub compilation: &'a Compilation,
     pub fm: &'a FieldManager,
@@ -101,6 +105,9 @@ pub struct Exectutor<'a, 'b> {
         ExternFieldTempIterId,
         RefCell<AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>>,
     >,
+    pub executor_iters_temp:
+        &'a mut TempVec<ExecutorInputIter<'static, 'static>>,
+    pub array_builder: &'a mut ArrayBuilder,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -131,6 +138,34 @@ impl<'a, 'b> ExecutorInputIter<'a, 'b> {
             }
             ExecutorInputIter::Atom(iter) => iter.typed_range_fwd(limit),
             ExecutorInputIter::FieldValue(iter) => iter.typed_range_fwd(limit),
+        }
+    }
+
+    fn next_field(
+        &mut self,
+        msm: &MatchSetManager,
+        limit: usize,
+    ) -> Option<(FieldValueRef<'_>, RunLength, Option<FieldRefOffset>)> {
+        match self {
+            ExecutorInputIter::AutoDerefIter(ref_mut) => {
+                ref_mut.next_value(msm, limit)
+            }
+            ExecutorInputIter::FieldIter(field_iter) => {
+                let tf = field_iter.typed_field_fwd(limit)?;
+                if tf.header.shared_value() {
+                    Some((tf.value, tf.header.run_length, None))
+                } else {
+                    Some((tf.value, 1, None))
+                }
+            }
+            ExecutorInputIter::Atom(value) => {
+                let (v, rl) = value.next_field(limit)?;
+                Some((v, rl, None))
+            }
+            ExecutorInputIter::FieldValue(single_value_iter) => {
+                let (v, rl) = single_value_iter.next_field(limit)?;
+                Some((v, rl, None))
+            }
         }
     }
 }
@@ -1410,7 +1445,7 @@ fn execute_cast_float(
     })
 }
 
-impl<'a, 'b> Exectutor<'a, 'b> {
+impl<'a, 'b> Executor<'a, 'b> {
     fn execute_op_binary(
         &mut self,
         kind: BinaryOpKind,
@@ -1549,25 +1584,64 @@ impl<'a, 'b> Exectutor<'a, 'b> {
 
     fn execute_array(
         &mut self,
-        _elements: &[ValueAccess],
+        elements: &[ValueAccess],
         tgt: TargetRef,
         field_pos: usize,
-        _count: usize,
+        count: usize,
     ) {
+        debug_assert!(count > 0);
         let output_tmp_id = match tgt {
             TargetRef::TempField(id) => Some(id),
             TargetRef::Output => None,
             TargetRef::Discard => return,
         };
 
-        let mut _inserter = get_inserter(
+        let mut inserter = get_inserter(
             self.output,
             self.temp_fields,
             output_tmp_id,
             field_pos,
         );
 
-        todo!()
+        let input_iters = &mut *self.executor_iters_temp.borrow_container();
+
+        debug_assert!(self.array_builder.is_empty());
+
+        for e in elements {
+            let mut iter = get_executor_input_iter(
+                e,
+                self.temp_fields,
+                self.extern_vars,
+                self.extern_fields,
+                self.extern_field_iters,
+                self.extern_field_temp_iters,
+                field_pos,
+                1,
+            );
+            let (v, rl, _) = iter.next_field(self.msm, count).unwrap();
+            self.array_builder.push(v, rl as usize);
+            input_iters.push(iter);
+        }
+        let mut rl_rem = count;
+        loop {
+            let len = self.array_builder.available_len();
+            self.array_builder.consume_len(len);
+            rl_rem -= len;
+            let arr = if rl_rem == 0 {
+                self.array_builder.take()
+            } else {
+                self.array_builder.build()
+            };
+            inserter.push_array(arr, len, true, false);
+            if rl_rem == 0 {
+                break;
+            }
+            while let Some(idx) = self.array_builder.drained_idx() {
+                let (v, rl, _) =
+                    input_iters[idx].next_field(self.msm, len).unwrap();
+                self.array_builder.replenish(v, rl as usize);
+            }
+        }
     }
 
     fn execute_move(
@@ -1698,6 +1772,9 @@ impl<'a, 'b> Exectutor<'a, 'b> {
         field_pos: usize,
         count: usize,
     ) {
+        if count == 0 {
+            return;
+        }
         self.handle_batch(insn_range, field_pos, count);
         for ef in self.extern_fields.iter_mut() {
             for slot in &mut *ef.iter_slots {

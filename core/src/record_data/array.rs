@@ -50,6 +50,17 @@ impl Default for Array {
 }
 
 impl Array {
+    pub fn clear(&mut self) {
+        metamatch!(match self {
+            Array::Null(len) | Array::Undefined(len) => *len = 0,
+            #[expand(REP in [
+                Bool, Int, BigInt, BigRational, Bytes, Text, Error, Array, Object,
+                FieldReference, SlicedFieldReference, Custom, Mixed, Float,
+                StreamValueId, Argument, OpDecl
+            ])]
+            Array::REP(a) => a.clear(),
+        })
+    }
     pub fn len(&self) -> usize {
         metamatch!(match self {
             Array::Null(len) | Array::Undefined(len) => *len,
@@ -323,6 +334,10 @@ impl Array {
         self.canonicalize_for_repr(value.repr());
         self.push_raw_unboxed(value);
     }
+    fn push_ref(&mut self, value: FieldValueRef) {
+        self.canonicalize_for_repr(value.repr());
+        self.push_raw_unboxed(value.to_field_value_unboxed());
+    }
     pub fn pop(&mut self) -> Option<FieldValue> {
         Some(metamatch!(match self {
             #[expand(REP in [Null, Undefined])]
@@ -434,6 +449,37 @@ impl Array {
             ])]
             Array::REP(arr) => {
                 ArrayIntoIterUnboxed::REP(arr.into_iter())
+            }
+        })
+    }
+
+    fn set_ref(&mut self, idx: usize, v: FieldValueRef<'_>) {
+        if self.len() == 1 {
+            self.clear();
+            self.push_ref(v);
+            return;
+        }
+        metamatch!(match (self, v) {
+            #[expand_pattern(REP in [Null, Undefined])]
+            (Array::REP(_), FieldValueRef::REP) => (),
+
+            #[expand(REP in [
+                Int, Error, Array,
+                FieldReference, SlicedFieldReference, Custom, Float,
+                StreamValueId, Text, Bytes, BigInt, BigRational, Argument,
+                Object
+            ])]
+            (Array::REP(a), FieldValueRef::REP(v)) => {
+                v.clone_into(&mut a[idx]);
+            }
+
+            (Array::Mixed(a), value) => {
+                a[idx] = value.to_field_value();
+            }
+
+            (arr, value) => {
+                debug_assert!(arr.repr() != Some(value.repr()));
+                arr.make_mixed()[idx] = v.to_field_value();
             }
         })
     }
@@ -570,5 +616,63 @@ impl Iterator for ArrayIntoIter {
 
             ArrayIntoIter::Mixed(iter) => Some(iter.next()?),
         })
+    }
+}
+
+#[derive(Default)]
+pub struct ArrayBuilder {
+    arr: Array,
+    run_lengths: Vec<usize>,
+    drained_indices: Vec<usize>,
+    run_len_available: usize,
+}
+
+impl ArrayBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.arr.is_empty()
+    }
+    pub fn push(&mut self, value: FieldValueRef, rl: usize) {
+        debug_assert!(rl != 0);
+        self.arr.push_ref(value);
+        self.run_lengths.push(rl);
+        if self.run_lengths.len() == 1 {
+            self.run_len_available = rl;
+        } else {
+            self.run_len_available = self.run_len_available.min(rl);
+        }
+    }
+    pub fn drained_idx(&mut self) -> Option<usize> {
+        self.drained_indices.last().copied()
+    }
+    pub fn replenish(&mut self, v: FieldValueRef, rl: usize) {
+        let idx = self.drained_indices.pop().unwrap();
+        self.run_lengths[idx] = rl;
+        self.arr.set_ref(idx, v);
+    }
+    pub fn build(&self) -> Array {
+        self.arr.clone()
+    }
+    pub fn take(&mut self) -> Array {
+        self.drained_indices.clear();
+        self.run_lengths.clear();
+        self.run_len_available = 0;
+        std::mem::take(&mut self.arr)
+    }
+    pub fn available_len(&self) -> usize {
+        self.run_len_available
+    }
+    pub fn consume_len(&mut self, len: usize) {
+        let mut rla = usize::MAX;
+        for (idx, rl) in self.run_lengths.iter_mut().enumerate() {
+            *rl -= len;
+            rla = rla.min(*rl);
+            if *rl == 0 {
+                self.drained_indices.push(idx);
+            }
+        }
+        self.run_len_available = rla;
     }
 }

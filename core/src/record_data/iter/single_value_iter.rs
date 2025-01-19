@@ -6,7 +6,7 @@ use crate::record_data::{
         RUN_LEN_MAX_USIZE,
     },
     field_value::FieldValue,
-    field_value_ref::{TypedRange, ValidTypedRange},
+    field_value_ref::{FieldValueRef, TypedRange, ValidTypedRange},
     scope_manager::Atom,
 };
 
@@ -38,6 +38,22 @@ impl<V: Deref<Target = FieldValue>> SingleValueIter<V> {
             run_len_rem: run_length,
             run_len_total: run_length,
         }
+    }
+    pub fn next_field(
+        &mut self,
+        limit: usize,
+    ) -> Option<(FieldValueRef, RunLength)> {
+        if self.run_len_rem == 0 {
+            return None;
+        }
+
+        let field_count = limit
+            .min(RUN_LEN_MAX_USIZE)
+            .min(self.run_len_rem)
+            .min(RunLength::MAX as usize);
+
+        self.run_len_rem -= field_count;
+        Some((self.value_ref.as_ref(), field_count as RunLength))
     }
     pub fn typed_range_fwd(
         &mut self,

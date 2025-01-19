@@ -12,7 +12,7 @@ use super::{
     },
     field_data_ref::FieldDataRef,
     field_value::{
-        FieldReference, FieldValue, FieldValueKind, Object,
+        FieldReference, FieldValue, FieldValueKind, FieldValueUnboxed, Object,
         SlicedFieldReference,
     },
     iter::field_value_slice_iter::FieldValueSliceIter,
@@ -236,29 +236,32 @@ impl<'a> FieldValueRef<'a> {
             FieldValueRef::REP(v) => FieldValueSlice::REP(from_ref(v)),
         })
     }
-    pub fn to_field_value(&self) -> FieldValue {
+    pub fn to_field_value_unboxed(&self) -> FieldValueUnboxed {
         metamatch!(match *self {
             #[expand(REP in [Null, Undefined])]
-            FieldValueRef::REP => FieldValue::REP,
+            FieldValueRef::REP => FieldValueUnboxed::REP,
 
             #[expand(REP in [
                 Bool, Int, Float, StreamValueId, FieldReference,
                 SlicedFieldReference,
             ])]
-            FieldValueRef::REP(v) => FieldValue::REP(*v),
+            FieldValueRef::REP(v) => FieldValueUnboxed::REP(*v),
 
             #[expand(REP in [Error, Array, Custom, OpDecl])]
-            FieldValueRef::REP(v) => FieldValue::REP(v.clone()),
+            FieldValueRef::REP(v) => FieldValueUnboxed::REP(v.clone()),
 
             #[expand((REP, CONV_FN) in [
                 (Text, to_string),
                 (Bytes, to_vec)
             ])]
-            FieldValueRef::REP(v) => FieldValue::REP(v.CONV_FN()),
+            FieldValueRef::REP(v) => FieldValueUnboxed::REP(v.CONV_FN()),
 
             #[expand(REP in [BigInt, BigRational, Argument, Object])]
-            FieldValueRef::REP(v) => FieldValue::REP(Box::new(v.clone())),
+            FieldValueRef::REP(v) => FieldValueUnboxed::REP(v.clone()),
         })
+    }
+    pub fn to_field_value(&self) -> FieldValue {
+        self.to_field_value_unboxed().into()
     }
     pub fn repr(&self) -> FieldValueRepr {
         self.as_slice().repr()
@@ -343,6 +346,13 @@ impl<'a> TypedField<'a> {
                 run_length: run_len,
             },
             value,
+        }
+    }
+    pub fn value(&self) -> (FieldValueRef<'a>, RunLength) {
+        if self.header.shared_value() {
+            (self.value, self.header.run_length)
+        } else {
+            (self.value, 1)
         }
     }
 }
