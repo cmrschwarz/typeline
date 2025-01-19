@@ -36,6 +36,14 @@ impl<T, const CHUNK_SIZE: usize> Default for StableVec<T, CHUNK_SIZE> {
     }
 }
 
+impl<T> FromIterator<T> for StableVec<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let res = Self::new();
+        res.extend(iter);
+        res
+    }
+}
+
 impl<T, const CHUNK_SIZE: usize> StableVec<T, CHUNK_SIZE> {
     pub const fn new() -> Self {
         assert!(CHUNK_SIZE != 0);
@@ -275,10 +283,20 @@ impl<T> IndexMut<usize> for StableVec<T> {
     }
 }
 
-#[derive(Clone)]
 pub struct StableVecIter<'a, T, const CHUNK_SIZE: usize> {
     vec: &'a StableVec<T, CHUNK_SIZE>,
     pos: usize,
+}
+
+impl<'a, T, const CHUNK_SIZE: usize> Clone
+    for StableVecIter<'a, T, CHUNK_SIZE>
+{
+    fn clone(&self) -> Self {
+        Self {
+            vec: self.vec,
+            pos: self.pos,
+        }
+    }
 }
 
 impl<'a, T, const CHUNK_SIZE: usize> StableVecIter<'a, T, CHUNK_SIZE> {

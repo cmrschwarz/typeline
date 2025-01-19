@@ -1,4 +1,5 @@
 use std::{
+    cell::{Cell, UnsafeCell},
     marker::PhantomData,
     ops::{Index, IndexMut},
 };
@@ -11,11 +12,32 @@ use super::{
     universe::UniverseEntry,
 };
 
-#[derive(Clone)]
 pub struct StableUniverse<I, T> {
-    data: StableVec<UniverseEntry<T>>,
-    first_vacant_entry: Option<DebuggableNonMaxUsize>,
+    data: StableVec<UnsafeCell<UniverseEntry<T>>>,
+    first_vacant_entry: Cell<Option<DebuggableNonMaxUsize>>,
     _phantom_data: PhantomData<I>,
+}
+
+impl<I, T: Clone> Clone for StableUniverse<I, T> {
+    fn clone(&self) -> Self {
+        Self {
+            data: self
+                .data
+                .iter()
+                .map(|entry| match unsafe { &*entry.get() } {
+                    UniverseEntry::Occupied(v) => {
+                        UniverseEntry::Occupied(v.clone())
+                    }
+                    UniverseEntry::Vacant(next) => {
+                        UniverseEntry::Vacant(*next)
+                    }
+                })
+                .map(UnsafeCell::new)
+                .collect(),
+            first_vacant_entry: Cell::new(self.first_vacant_entry.get()),
+            _phantom_data: PhantomData,
+        }
+    }
 }
 
 // if we autoderive this, I would have to implement Default
@@ -29,16 +51,16 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
     pub const fn new() -> Self {
         Self {
             data: StableVec::new(),
-            first_vacant_entry: None,
+            first_vacant_entry: Cell::new(None),
             _phantom_data: PhantomData,
         }
     }
-    fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
-        let res = UniverseEntry::Vacant(self.first_vacant_entry);
+    fn build_vacant_entry(&self, index: usize) -> UniverseEntry<T> {
+        let res = UniverseEntry::Vacant(self.first_vacant_entry.get());
         // SAFETY: we can never have usize::MAX entries before running out of
         // memory. Entries are never ZSTs due to the Vacant index.
-        self.first_vacant_entry =
-            Some(unsafe { DebuggableNonMaxUsize::new_unchecked(index) });
+        self.first_vacant_entry
+            .set(Some(unsafe { DebuggableNonMaxUsize::new_unchecked(index) }));
         res
     }
     pub fn release(&mut self, id: I) {
@@ -47,14 +69,14 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
             self.data.pop();
             return;
         }
-        self.data[index] = self.build_vacant_entry(index);
+        *self.data[index].get_mut() = self.build_vacant_entry(index);
     }
     pub fn used_capacity(&self) -> usize {
         self.data.len()
     }
     pub fn clear(&mut self) {
         self.data.clear();
-        self.first_vacant_entry = None;
+        self.first_vacant_entry.set(None);
     }
     pub fn indices(&self) -> StableUniverseIndexIter<I, T> {
         StableUniverseIndexIter {
@@ -87,91 +109,97 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
     pub fn any_used(&mut self) -> Option<&mut T> {
         self.iter_mut().next()
     }
-    pub fn reserve(&mut self, additional: usize) {
+    pub fn reserve(&self, additional: usize) {
         let mut len = self.data.len();
         for _ in 0..additional {
             let ve = self.build_vacant_entry(len);
-            self.data.push(ve);
+            self.data.push(UnsafeCell::new(ve));
             len += 1;
         }
     }
     /// If id is smaller than `used_capacity()`,
     /// this function is on average O(n) over the amount of vacant
     /// slots in the universe. Avoid where possible.
-    pub fn reserve_id_with(&mut self, id: I, f: impl FnOnce() -> T) -> &mut T {
+    pub fn reserve_id_with(&self, id: I, f: impl FnOnce() -> T) {
         let idx = id.into_usize();
         let used_cap = self.used_capacity();
         if idx >= used_cap {
             self.reserve((idx - used_cap).saturating_sub(1));
-            self.data.push(UniverseEntry::Occupied(f()));
+            self.data
+                .push(UnsafeCell::new(UniverseEntry::Occupied(f())));
         } else {
             let mut vacant_index =
-                self.first_vacant_entry.unwrap().into_usize();
-            let UniverseEntry::Vacant(mut next) = self.data[vacant_index]
+                self.first_vacant_entry.get().unwrap().into_usize();
+            let UniverseEntry::Vacant(next) =
+                (unsafe { &*self.data[vacant_index].get() })
             else {
                 unreachable!()
             };
+            let mut next = *next;
             if vacant_index == idx {
-                self.first_vacant_entry = next;
+                self.first_vacant_entry.set(next);
             } else {
                 loop {
                     let next_idx = next.unwrap().into_usize();
-                    let UniverseEntry::Vacant(next_next) = self.data[next_idx]
+                    let UniverseEntry::Vacant(next_next) =
+                        (unsafe { &*self.data[next_idx].get() })
                     else {
                         unreachable!()
                     };
+                    let next_next = *next_next;
                     if next_idx == idx {
-                        self.data[vacant_index] =
-                            UniverseEntry::Vacant(next_next);
+                        unsafe {
+                            *self.data[vacant_index].get() =
+                                UniverseEntry::Vacant(next_next)
+                        };
                         break;
                     }
                     vacant_index = next_idx;
                     next = next_next;
                 }
             }
-            self.data[idx] = UniverseEntry::Occupied(f());
+            unsafe { *self.data[idx].get() = UniverseEntry::Occupied(f()) };
         }
-        let UniverseEntry::Occupied(v) = &mut self.data[idx] else {
-            unreachable!()
-        };
-        v
     }
     // returns the id that will be used by the next claim
     // useful for cases where claim_with needs to know the id beforehand
     pub fn peek_claim_id(&self) -> I {
-        I::from_usize(if let Some(id) = self.first_vacant_entry {
+        I::from_usize(if let Some(id) = self.first_vacant_entry.get() {
             id.get()
         } else {
             self.data.len()
         })
     }
 
-    pub fn claim_with(&mut self, f: impl FnOnce() -> T) -> I {
-        if let Some(id) = self.first_vacant_entry {
+    pub fn claim_with(&self, f: impl FnOnce() -> T) -> I {
+        if let Some(id) = self.first_vacant_entry.get() {
             let index = id.get();
-            match self.data[index] {
-                UniverseEntry::Vacant(next) => self.first_vacant_entry = next,
+            match unsafe { &*self.data[index].get() } {
+                UniverseEntry::Vacant(next) => {
+                    self.first_vacant_entry.set(*next)
+                }
                 UniverseEntry::Occupied(_) => unreachable!(),
             }
-            self.data[index] = UniverseEntry::Occupied(f());
+            unsafe { *self.data[index].get() = UniverseEntry::Occupied(f()) };
             I::from_usize(index)
         } else {
             let id = self.data.len();
-            self.data.push(UniverseEntry::Occupied(f()));
+            self.data
+                .push(UnsafeCell::new(UniverseEntry::Occupied(f())));
             I::from_usize(id)
         }
     }
-    pub fn claim_with_value(&mut self, value: T) -> I {
+    pub fn claim_with_value(&self, value: T) -> I {
         self.claim_with(|| value)
     }
     pub fn get(&self, id: I) -> Option<&T> {
-        match self.data.get(id.into_usize()) {
+        match self.data.get(id.into_usize()).map(|c| unsafe { &*c.get() }) {
             Some(UniverseEntry::Occupied(v)) => Some(v),
             _ => None,
         }
     }
     pub fn get_mut(&mut self, id: I) -> Option<&mut T> {
-        match self.data.get_mut(id.into_usize()) {
+        match self.data.get_mut(id.into_usize()).map(UnsafeCell::get_mut) {
             Some(UniverseEntry::Occupied(v)) => Some(v),
             _ => None,
         }
@@ -186,7 +214,7 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
         let (a, b) = unsafe {
             let a_ptr = self.data.get_element_pointer_unchecked(idx1);
             let b_ptr = self.data.get_element_pointer_unchecked(idx2);
-            (&mut *a_ptr, &mut *b_ptr)
+            ((*a_ptr).get_mut(), (*b_ptr).get_mut())
         };
         (a.as_option_mut(), b.as_option_mut())
     }
@@ -204,7 +232,7 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
             let a_ptr = self.data.get_element_pointer_unchecked(idx1);
             let b_ptr = self.data.get_element_pointer_unchecked(idx2);
             let c_ptr = self.data.get_element_pointer_unchecked(idx3);
-            (&mut *a_ptr, &mut *b_ptr, &mut *c_ptr)
+            ((*a_ptr).get_mut(), (*b_ptr).get_mut(), (*c_ptr).get_mut())
         };
         (a.as_option_mut(), b.as_option_mut(), c.as_option_mut())
     }
@@ -227,11 +255,17 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
     pub fn next_index_phys(&self) -> I {
         I::from_usize(self.data.len())
     }
+
+    fn extend(&self, iter: impl IntoIterator<Item = T>) {
+        for v in iter.into_iter() {
+            self.claim_with_value(v);
+        }
+    }
 }
 
 // separate impl since only available if T: Default
 impl<I: IndexingType, T: Default> StableUniverse<I, T> {
-    pub fn claim(&mut self) -> I {
+    pub fn claim(&self) -> I {
         self.claim_with(Default::default)
     }
 }
@@ -240,7 +274,7 @@ impl<I: IndexingType, T> Index<I> for StableUniverse<I, T> {
     type Output = T;
     #[inline]
     fn index(&self, index: I) -> &Self::Output {
-        match &self.data[index.into_usize()] {
+        match unsafe { &*self.data[index.into_usize()].get() } {
             UniverseEntry::Occupied(v) => v,
             UniverseEntry::Vacant(_) => panic!("index out of bounds"),
         }
@@ -250,7 +284,7 @@ impl<I: IndexingType, T> Index<I> for StableUniverse<I, T> {
 impl<I: IndexingType, T> IndexMut<I> for StableUniverse<I, T> {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        match &mut self.data[index.into_usize()] {
+        match self.data[index.into_usize()].get_mut() {
             UniverseEntry::Occupied(v) => v,
             UniverseEntry::Vacant(_) => panic!("index out of bounds"),
         }
@@ -261,17 +295,16 @@ impl<I: IndexingType, T> IndexMut<I> for StableUniverse<I, T> {
 pub struct StableUniverseIter<'a, T> {
     base: StableVecIter<
         'a,
-        UniverseEntry<T>,
+        UnsafeCell<UniverseEntry<T>>,
         { stable_vec::DEFAULT_CHUNK_SIZE },
     >,
 }
 
-#[derive(Clone)]
 pub struct StableUniverseIndexIter<'a, I, T> {
     index: I,
     base: StableVecIter<
         'a,
-        UniverseEntry<T>,
+        UnsafeCell<UniverseEntry<T>>,
         { stable_vec::DEFAULT_CHUNK_SIZE },
     >,
 }
@@ -281,7 +314,7 @@ impl<'a, T> Iterator for StableUniverseIter<'a, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            match self.base.next() {
+            match self.base.next().map(|e| unsafe { &*e.get() }) {
                 Some(UniverseEntry::Occupied(v)) => return Some(v),
                 Some(UniverseEntry::Vacant(_)) => continue,
                 None => return None,
@@ -298,7 +331,7 @@ impl<'a, I: IndexingType, T> Iterator for StableUniverseIndexIter<'a, I, T> {
             let next = self.base.next()?;
             let res = self.index;
             self.index = I::from_usize(res.into_usize() + 1);
-            if matches!(next, UniverseEntry::Vacant(_)) {
+            if matches!(unsafe { &*next.get() }, UniverseEntry::Vacant(_)) {
                 continue;
             }
             return Some(res);
@@ -309,7 +342,7 @@ impl<'a, I: IndexingType, T> Iterator for StableUniverseIndexIter<'a, I, T> {
 pub struct UniverseIterMut<'a, T> {
     base: StableVecIterMut<
         'a,
-        UniverseEntry<T>,
+        UnsafeCell<UniverseEntry<T>>,
         { stable_vec::DEFAULT_CHUNK_SIZE },
     >,
 }
@@ -320,8 +353,12 @@ impl<'a, T> Iterator for UniverseIterMut<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             match self.base.next() {
-                Some(UniverseEntry::Occupied(v)) => return Some(v),
-                Some(UniverseEntry::Vacant(_)) => continue,
+                Some(entry) => match entry.get_mut() {
+                    UniverseEntry::Vacant(_) => continue,
+                    UniverseEntry::Occupied(v) => {
+                        return Some(v);
+                    }
+                },
                 None => return None,
             }
         }
@@ -348,7 +385,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a mut StableUniverse<I, T> {
 
 #[derive(Clone)]
 pub struct UniverseEnumeratedIter<'a, I, T> {
-    base: &'a StableVec<UniverseEntry<T>>,
+    base: &'a StableVec<UnsafeCell<UniverseEntry<T>>>,
     idx: I,
 }
 
@@ -359,7 +396,7 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIter<'a, I, T> {
         for i in self.idx.into_usize()..self.base.len() {
             let idx = self.idx;
             self.idx = I::from_usize(i + 1);
-            match &self.base[i] {
+            match unsafe { &*self.base[i].get() } {
                 UniverseEntry::Occupied(v) => return Some((idx, v)),
                 UniverseEntry::Vacant(_) => continue,
             }
@@ -369,7 +406,7 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIter<'a, I, T> {
 }
 
 pub struct UniverseEnumeratedIterMut<'a, I, T> {
-    base: &'a mut StableVec<UniverseEntry<T>>,
+    base: &'a mut StableVec<UnsafeCell<UniverseEntry<T>>>,
     idx: I,
 }
 
@@ -380,12 +417,13 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIterMut<'a, I, T> {
         for i in self.idx.into_usize()..self.base.len() {
             let idx = self.idx;
             self.idx = I::from_usize(i + 1);
-            match &self.base[i] {
+            match unsafe { &*self.base[i].get() } {
                 UniverseEntry::Occupied(_) => {
+                    // polonius lifetime issue workaround
                     // SAFETY: the iterator makes sure that each element
                     // is only handed out once
                     let v = unsafe {
-                        &mut *self.base.get_element_pointer_unchecked(i)
+                        (*self.base.get_element_pointer_unchecked(i)).get_mut()
                     };
                     let UniverseEntry::Occupied(v) = v else {
                         unreachable!()
@@ -441,11 +479,7 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
     pub fn any_used(&mut self) -> Option<&mut T> {
         self.universe.any_used()
     }
-    pub fn reserve_id_with(
-        &mut self,
-        id: I,
-        func: impl FnOnce() -> T,
-    ) -> &mut T {
+    pub fn reserve_id_with(&self, id: I, func: impl FnOnce() -> T) {
         self.universe.reserve_id_with(id, func)
     }
     pub fn peek_claim_id(&self) -> I {
@@ -539,10 +573,8 @@ impl<I: IndexingType, T, II: IntoIterator<Item = T>> From<II>
     for StableUniverse<I, T>
 {
     fn from(ii: II) -> Self {
-        let mut u = StableUniverse::default();
-        for i in ii {
-            u.claim_with_value(i);
-        }
+        let u = StableUniverse::default();
+        u.extend(ii);
         u
     }
 }
@@ -557,7 +589,7 @@ impl<I: IndexingType, T> TransmutableContainer for StableUniverse<I, T> {
     ) -> <Self as TransmutableContainer>::ContainerType<Q> {
         StableUniverse {
             data: self.data.transmute(),
-            first_vacant_entry: None,
+            first_vacant_entry: Cell::new(None),
             _phantom_data: PhantomData,
         }
     }
@@ -567,7 +599,7 @@ impl<I: IndexingType, T> TransmutableContainer for StableUniverse<I, T> {
     ) -> Self {
         Self {
             data: src.data.transmute(),
-            first_vacant_entry: None,
+            first_vacant_entry: Cell::new(None),
             _phantom_data: PhantomData,
         }
     }
