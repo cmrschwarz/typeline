@@ -1,9 +1,10 @@
-use std::cell::RefMut;
+use std::{cell::RefMut, mem::MaybeUninit};
 
 use metamatch::metamatch;
 
 use crate::record_data::{
-    field_data::FieldData, push_interface::PushInterface,
+    field_data::{FieldData, FixedSizeFieldValueType},
+    push_interface::PushInterface,
     varying_type_inserter::VaryingTypeInserter,
 };
 
@@ -152,6 +153,32 @@ unsafe impl PushInterface for ExecutorInserter<'_> {
                     inserter.maybe_text_insertion_stream(
                         run_length
                     )
+                }
+            }
+        }
+    }
+}
+
+impl ExecutorInserter<'_> {
+    pub fn reserve_for_fixed_size<T: FixedSizeFieldValueType>(
+        &mut self,
+        len: usize,
+    ) -> &mut [MaybeUninit<T>] {
+        metamatch! {
+            match self {
+                #[expand(T in [Output, TempField])]
+                ExecutorInserter::T(inserter) => {
+                    inserter.reserve_for_fixed_size(len)
+                }
+            }
+        }
+    }
+    pub unsafe fn add_count(&mut self, count: usize) {
+        metamatch! {
+            match self {
+                #[expand(T in [Output, TempField])]
+                ExecutorInserter::T(inserter) => unsafe {
+                    inserter.add_count(count)
                 }
             }
         }

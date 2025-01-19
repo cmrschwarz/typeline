@@ -7,6 +7,7 @@ use super::{
         Compilation, Instruction, InstructionId, TargetRef, TempFieldIdRaw,
         ValueAccess,
     },
+    executor_inserter::ExecutorInserter,
     operations::{
         add::{
             BinaryOpAddBigIntI64, BinaryOpAddF64F64, BinaryOpAddF64I64,
@@ -69,12 +70,15 @@ use crate::{
             convert_int_to_float, try_convert_bigint_to_i64,
         },
         index_slice::IndexSlice,
-        multi_ref_mut_handout::MultiRefMutHandout,
-        universe::{Universe, UniverseMultiRefMutHandout},
+        stable_universe::StableUniverse,
     },
 };
 use metamatch::metamatch;
-use std::{convert::Infallible, ops::Range};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    convert::Infallible,
+    ops::Range,
+};
 
 index_newtype! {
     pub struct ExternFieldTempIterId(u32);
@@ -93,23 +97,23 @@ pub struct Exectutor<'a, 'b> {
         ExternFieldIdx,
         AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
     >,
-    pub extern_field_temp_iters: Universe<
+    pub extern_field_temp_iters: StableUniverse<
         ExternFieldTempIterId,
-        AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
+        RefCell<AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>>,
     >,
 }
 
 #[allow(clippy::large_enum_variant)]
-pub enum ExecutorInputIter<'a, 'b, 'c> {
+pub enum ExecutorInputIter<'a, 'b> {
     AutoDerefIter(
-        &'a mut AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
+        RefMut<'a, AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>>,
     ),
-    FieldIter(FieldIter<&'c FieldData>),
+    FieldIter(FieldIter<Ref<'a, FieldData>>),
     Atom(AtomIter<'a>),
     FieldValue(FieldValueIter<'a>),
 }
 
-impl<'a, 'b, 'c> ExecutorInputIter<'a, 'b, 'c> {
+impl<'a, 'b> ExecutorInputIter<'a, 'b> {
     pub fn typed_range_fwd(
         &mut self,
         msm: &MatchSetManager,
@@ -131,87 +135,68 @@ impl<'a, 'b, 'c> ExecutorInputIter<'a, 'b, 'c> {
     }
 }
 
-fn get_inserter<'a, const CAP: usize>(
-    output: &'a mut IterHall,
-    temp_field_handouts: &mut MultiRefMutHandout<
-        'a,
-        TempFieldIdRaw,
-        TempField,
-        CAP,
-    >,
+fn get_inserter<'a: 'b, 'b>(
+    output: &'b mut IterHall,
+    temp_fields: &'a IndexSlice<TempFieldIdRaw, TempField>,
     idx: Option<TempFieldIdRaw>,
     field_pos: usize,
-) -> VaryingTypeInserter<&'a mut FieldData> {
+) -> ExecutorInserter<'b> {
     match idx {
         Some(tmp_id) => {
-            let tmp = temp_field_handouts.claim(tmp_id);
-
-            let mut inserter = tmp.data.varying_type_inserter();
-            if tmp.field_pos == usize::MAX {
-                tmp.field_pos = field_pos;
+            let tmp = &temp_fields[tmp_id];
+            let mut inserter = VaryingTypeInserter::new(tmp.data.borrow_mut());
+            if tmp.field_pos.get() == usize::MAX {
+                tmp.field_pos.set(field_pos);
             } else {
-                debug_assert!(tmp.field_pos <= field_pos);
-                inserter.push_undefined(field_pos - tmp.field_pos, true);
+                debug_assert!(tmp.field_pos.get() <= field_pos);
+                inserter.push_undefined(field_pos - tmp.field_pos.get(), true);
             }
-            inserter
+            ExecutorInserter::TempField(inserter)
         }
-        None => output.varying_type_inserter(),
+        None => ExecutorInserter::Output(output.varying_type_inserter()),
     }
 }
 
-fn get_extern_iter<'a, 'b, const ITER_CAP: usize>(
+fn get_extern_iter<'a, 'b>(
     extern_fields: &mut IndexSlice<ExternFieldIdx, ExternField>,
-    extern_field_iters: &mut IndexSlice<
+    extern_field_iters: &IndexSlice<
         ExternFieldIdx,
         AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
     >,
-    extern_field_temp_iter_handouts: &mut UniverseMultiRefMutHandout<
-        'a,
+    extern_field_temp_iters: &'a StableUniverse<
         ExternFieldTempIterId,
-        AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
-        ITER_CAP,
+        RefCell<AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>>,
     >,
     extern_field_idx: ExternFieldIdx,
     access_idx: AccessIdx,
-) -> &'a mut AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>> {
+) -> RefMut<'a, AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>> {
     let ef = &mut extern_fields[extern_field_idx];
     if let Some(iter_slot_idx) = ef.iter_slots[access_idx] {
-        return extern_field_temp_iter_handouts.claim(iter_slot_idx);
+        return extern_field_temp_iters[iter_slot_idx].borrow_mut();
     }
-    let (iter_slot_idx, iter) = extern_field_temp_iter_handouts
-        .claim_new(extern_field_iters[extern_field_idx].clone());
+    let iter_slot_idx = extern_field_temp_iters.claim_with_value(
+        RefCell::new(extern_field_iters[extern_field_idx].clone()),
+    );
     ef.iter_slots[access_idx] = Some(iter_slot_idx);
-    iter
+    extern_field_temp_iters[iter_slot_idx].borrow_mut()
 }
 
-fn get_executor_input_iter<
-    'a,
-    'b,
-    const FIELD_CAP: usize,
-    const ITER_CAP: usize,
->(
+fn get_executor_input_iter<'a, 'b>(
     input: &'a ValueAccess,
+    temp_fields: &'a IndexSlice<TempFieldIdRaw, TempField>,
     extern_vars: &'a IndexSlice<ExternIdentId, ExternVarData>,
     extern_fields: &mut IndexSlice<ExternFieldIdx, ExternField>,
-    extern_field_iters: &mut IndexSlice<
+    extern_field_iters: &IndexSlice<
         ExternFieldIdx,
         AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
     >,
-    temp_field_handouts: &mut MultiRefMutHandout<
-        'a,
-        TempFieldIdRaw,
-        TempField,
-        FIELD_CAP,
-    >,
-    extern_field_temp_iter_handouts: &mut UniverseMultiRefMutHandout<
-        'a,
+    extern_field_temp_iter_handouts: &'a StableUniverse<
         ExternFieldTempIterId,
-        AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>,
-        ITER_CAP,
+        RefCell<AutoDerefIter<'b, FieldIter<DestructuredFieldDataRef<'b>>>>,
     >,
     field_pos: usize,
     count: usize,
-) -> ExecutorInputIter<'a, 'b, 'a> {
+) -> ExecutorInputIter<'a, 'b> {
     match input {
         ValueAccess::Extern(acc) => match &extern_vars[acc.index] {
             ExternVarData::Atom(atom) => ExecutorInputIter::Atom(
@@ -221,7 +206,7 @@ fn get_executor_input_iter<
                 ExecutorInputIter::FieldValue(SingleValueIter::new(v, count))
             }
             ExternVarData::Field(extern_field_idx) => {
-                let iter = get_extern_iter(
+                let mut iter = get_extern_iter(
                     extern_fields,
                     extern_field_iters,
                     extern_field_temp_iter_handouts,
@@ -233,8 +218,9 @@ fn get_executor_input_iter<
             }
         },
         ValueAccess::TempField(tmp_in) => {
-            let temp_field = temp_field_handouts.claim(tmp_in.index);
-            ExecutorInputIter::FieldIter(temp_field.data.iter())
+            let temp_field = temp_fields[tmp_in.index].data.borrow();
+            let iter = FieldIter::from_start(temp_field);
+            ExecutorInputIter::FieldIter(iter)
         }
         ValueAccess::Literal(v) => {
             ExecutorInputIter::FieldValue(SingleValueIter::new(v, count))
@@ -248,7 +234,7 @@ fn insert_binary_op_type_error(
     lhs_kind: FieldValueKind,
     rhs_kind: FieldValueKind,
     count: usize,
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     inserter.push_error(
         OperatorApplicationError::new_s(
@@ -268,7 +254,7 @@ fn insert_binary_op_type_error_iter_rhs(
     lhs_kind: FieldValueKind,
     rhs_iter: &mut ExecutorInputIter,
     mut count: usize,
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     while count > 0 {
         let rhs_range = rhs_iter
@@ -291,7 +277,7 @@ fn execute_binary_op_erroring<Op: BinaryOp>(
     lhs_block: FieldValueBlock<Op::Lhs>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[Op::Rhs],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
     op_id: OperatorId,
 ) {
     let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
@@ -416,7 +402,7 @@ fn execute_binary_op_bigint_fallback<
     lhs_block: FieldValueBlock<Op::Lhs>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[Op::Rhs],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) where
     Op::Rhs: FixedSizeFieldValueType,
 {
@@ -552,7 +538,7 @@ fn execute_binary_op_infallable<Op: BinaryOp<Error = Infallible>>(
     lhs_block: FieldValueBlock<Op::Lhs>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[Op::Rhs],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     let mut rhs_iter = FieldValueRangeIter::from_range(rhs_range, rhs_data);
     match lhs_block {
@@ -627,7 +613,7 @@ fn execute_binary_op_double_int(
     lhs_block: FieldValueBlock<i64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[i64],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     match op_kind {
         BinaryOpKind::Equals => {
@@ -724,7 +710,7 @@ fn execute_binary_op_double_float(
     lhs_block: FieldValueBlock<f64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[f64],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     match op_kind {
         BinaryOpKind::Equals => {
@@ -817,7 +803,7 @@ fn execute_binary_op_int_float(
     lhs_block: FieldValueBlock<i64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[f64],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     match op_kind {
         BinaryOpKind::Equals => {
@@ -910,7 +896,7 @@ fn execute_binary_op_float_int(
     lhs_block: FieldValueBlock<f64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[i64],
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     match op_kind {
         BinaryOpKind::Equals => {
@@ -1005,7 +991,7 @@ fn execute_binary_op_for_int_lhs(
     lhs_range: &RefAwareTypedRange,
     lhs_data: &[i64],
     rhs_iter: &mut ExecutorInputIter,
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     let mut lhs_iter = FieldValueRangeIter::from_range(lhs_range, lhs_data);
     while let Some(lhs_block) = lhs_iter.next_block() {
@@ -1069,7 +1055,7 @@ fn execute_binary_op_for_float_lhs(
     lhs_range: &RefAwareTypedRange,
     lhs_data: &[f64],
     rhs_iter: &mut ExecutorInputIter,
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     let mut lhs_iter = FieldValueRangeIter::from_range(lhs_range, lhs_data);
     while let Some(lhs_block) = lhs_iter.next_block() {
@@ -1129,7 +1115,7 @@ fn execute_binary_op(
     op_kind: BinaryOpKind,
     lhs_range: &RefAwareTypedRange,
     rhs_iter: &mut ExecutorInputIter,
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     match lhs_range.base.data {
         FieldValueSlice::Int(lhs_data) => execute_binary_op_for_int_lhs(
@@ -1173,7 +1159,7 @@ fn execute_builtin_func_on_range(
     op_id: OperatorId,
     kind: BuiltinFunction,
     arg_range: RefAwareTypedRange<'_>,
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     match kind {
         BuiltinFunction::Cast(FieldValueKind::Int) => {
@@ -1189,7 +1175,7 @@ fn execute_builtin_func_on_range(
 fn execute_cast_int(
     op_id: OperatorId,
     range: RefAwareTypedRange<'_>,
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     metamatch!(match range.base.data {
         #[expand((REPR, ITER, VAL_BYTES, VAL_ERR) in [
@@ -1308,7 +1294,7 @@ fn execute_cast_int(
 fn execute_cast_float(
     op_id: OperatorId,
     range: RefAwareTypedRange<'_>,
-    inserter: &mut VaryingTypeInserter<&mut FieldData>,
+    inserter: &mut ExecutorInserter,
 ) {
     metamatch!(match range.base.data {
         #[expand((REPR, ITER, VAL_BYTES, VAL_ERR) in [
@@ -1439,33 +1425,29 @@ impl<'a, 'b> Exectutor<'a, 'b> {
             TargetRef::Output => None,
             TargetRef::Discard => return,
         };
-        let mut temp_field_handouts =
-            self.temp_fields.multi_ref_mut_handout::<3>();
-        let mut extern_field_temp_iter_handouts =
-            self.extern_field_temp_iters.multi_ref_mut_handout::<2>();
         let mut inserter = get_inserter(
             self.output,
-            &mut temp_field_handouts,
+            &*self.temp_fields,
             output_tmp_id,
             field_pos,
         );
         let mut lhs_iter = get_executor_input_iter(
             lhs,
+            self.temp_fields,
             self.extern_vars,
             self.extern_fields,
             self.extern_field_iters,
-            &mut temp_field_handouts,
-            &mut extern_field_temp_iter_handouts,
+            &self.extern_field_temp_iters,
             field_pos,
             count,
         );
         let mut rhs_iter = get_executor_input_iter(
             rhs,
+            self.temp_fields,
             self.extern_vars,
             self.extern_fields,
             self.extern_field_iters,
-            &mut temp_field_handouts,
-            &mut extern_field_temp_iter_handouts,
+            &self.extern_field_temp_iters,
             field_pos,
             count,
         );
@@ -1500,7 +1482,6 @@ impl<'a, 'b> Exectutor<'a, 'b> {
         field_pos: usize,
         count: usize,
     ) {
-        const MAX_ARGS: usize = 1;
         let output_tmp_id = match tgt {
             TargetRef::TempField(id) => Some(id),
             TargetRef::Output => None,
@@ -1508,14 +1489,10 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                 return;
             }
         };
-        let mut temp_field_handouts =
-            self.temp_fields.multi_ref_mut_handout::<{ MAX_ARGS + 1 }>();
-        let mut extern_field_temp_iter_handouts = self
-            .extern_field_temp_iters
-            .multi_ref_mut_handout::<MAX_ARGS>();
+
         let mut inserter = get_inserter(
             self.output,
-            &mut temp_field_handouts,
+            self.temp_fields,
             output_tmp_id,
             field_pos,
         );
@@ -1541,11 +1518,11 @@ impl<'a, 'b> Exectutor<'a, 'b> {
 
         let mut arg_iter = get_executor_input_iter(
             &args[0],
+            self.temp_fields,
             self.extern_vars,
             self.extern_fields,
             self.extern_field_iters,
-            &mut temp_field_handouts,
-            &mut extern_field_temp_iter_handouts,
+            &self.extern_field_temp_iters,
             field_pos,
             count,
         );
@@ -1570,6 +1547,29 @@ impl<'a, 'b> Exectutor<'a, 'b> {
         }
     }
 
+    fn execute_array(
+        &mut self,
+        _elements: &[ValueAccess],
+        tgt: TargetRef,
+        field_pos: usize,
+        _count: usize,
+    ) {
+        let output_tmp_id = match tgt {
+            TargetRef::TempField(id) => Some(id),
+            TargetRef::Output => None,
+            TargetRef::Discard => return,
+        };
+
+        let mut _inserter = get_inserter(
+            self.output,
+            self.temp_fields,
+            output_tmp_id,
+            field_pos,
+        );
+
+        todo!()
+    }
+
     fn execute_move(
         &mut self,
         src: &ValueAccess,
@@ -1582,13 +1582,10 @@ impl<'a, 'b> Exectutor<'a, 'b> {
             TargetRef::Output => None,
             TargetRef::Discard => return,
         };
-        let mut extern_field_temp_iter_handouts =
-            self.extern_field_temp_iters.multi_ref_mut_handout::<1>();
-        let mut temp_handouts = self.temp_fields.multi_ref_mut_handout::<2>();
 
         let mut inserter = get_inserter(
             self.output,
-            &mut temp_handouts,
+            self.temp_fields,
             output_tmp_id,
             field_pos,
         );
@@ -1607,23 +1604,23 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                         inserter.push_field_value_ref(v, count, true, false)
                     }
                     ExternVarData::Field(extern_field_idx) => {
-                        let iter = get_extern_iter(
+                        let mut iter = get_extern_iter(
                             self.extern_fields,
                             self.extern_field_iters,
-                            &mut extern_field_temp_iter_handouts,
+                            &self.extern_field_temp_iters,
                             *extern_field_idx,
                             acc.access_idx,
                         );
                         iter.move_to_field_pos(field_pos);
                         inserter.extend_from_auto_deref_iter(
-                            self.msm, iter, count, true, false,
+                            self.msm, &mut iter, count, true, false,
                         );
                     }
                 }
             }
             ValueAccess::TempField(tmp_in) => {
                 inserter.extend_from_iter(
-                    &mut temp_handouts.claim(tmp_in.index).data.iter(),
+                    &mut self.temp_fields[tmp_in.index].data.borrow().iter(),
                     count,
                     true,
                     false,
@@ -1673,9 +1670,9 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                     target: _,
                 } => todo!(),
                 Instruction::Array {
-                    elements: _,
-                    target: _,
-                } => todo!(),
+                    elements: elems,
+                    target: tgt,
+                } => self.execute_array(elems, *tgt, field_pos, count),
                 Instruction::Move { src, tgt } => {
                     self.execute_move(src, *tgt, field_pos, count);
                 }
@@ -1685,11 +1682,11 @@ impl<'a, 'b> Exectutor<'a, 'b> {
                         *slot = IterStateRaw::default();
                     }
                     debug_assert!(
-                        tmp.field_pos + tmp.data.field_count()
+                        tmp.field_pos.get() + tmp.data.borrow().field_count()
                             == field_pos + count
                     );
-                    tmp.data.clear();
-                    tmp.field_pos = usize::MAX;
+                    tmp.data.borrow_mut().clear();
+                    tmp.field_pos.set(usize::MAX);
                 }
             }
         }

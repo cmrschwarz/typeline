@@ -257,7 +257,7 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
     }
 
     fn extend(&self, iter: impl IntoIterator<Item = T>) {
-        for v in iter.into_iter() {
+        for v in iter {
             self.claim_with_value(v);
         }
     }

@@ -6,7 +6,10 @@ pub mod lexer;
 pub mod operations;
 pub mod parser;
 
-use std::sync::Arc;
+use std::{
+    cell::{Cell, RefCell},
+    sync::Arc,
+};
 
 use crate::{
     chain::ChainId,
@@ -30,7 +33,7 @@ use crate::{
     utils::{
         index_slice::IndexSlice, index_vec::IndexVec,
         indexing_type::IndexingType, phantom_slot::PhantomSlot,
-        temp_vec::TransmutableContainer, universe::Universe,
+        stable_universe::StableUniverse, temp_vec::TransmutableContainer,
     },
 };
 use ast::{AccessIdx, ExternIdentId, UnboundIdentData};
@@ -69,8 +72,8 @@ pub enum ExternVarData {
 }
 
 pub struct TempField {
-    pub field_pos: usize,
-    pub data: FieldData,
+    pub field_pos: Cell<usize>,
+    pub data: RefCell<FieldData>,
     pub iter_slots: Box<IndexSlice<AccessIdx, IterStateRaw>>,
 }
 
@@ -90,12 +93,14 @@ pub struct TfCompute<'a> {
             >,
         >,
     >,
-    extern_field_temp_iters: Universe<
+    extern_field_temp_iters: StableUniverse<
         ExternFieldTempIterId,
         PhantomSlot<
-            AutoDerefIter<
-                'static,
-                FieldIter<DestructuredFieldDataRef<'static>>,
+            RefCell<
+                AutoDerefIter<
+                    'static,
+                    FieldIter<DestructuredFieldDataRef<'static>>,
+                >,
             >,
         >,
     >,
@@ -277,8 +282,8 @@ impl Operator for OpCompute {
         let mut temporaries = IndexVec::new();
         for &slot_count in &self.compilation.temporary_slot_count {
             temporaries.push(TempField {
-                data: FieldData::default(),
-                field_pos: usize::MAX,
+                data: RefCell::new(FieldData::default()),
+                field_pos: Cell::new(usize::MAX),
                 iter_slots: IndexSlice::from_boxed_slice(
                     vec![IterStateRaw::default(); slot_count.into_usize()]
                         .into_boxed_slice(),
@@ -292,7 +297,7 @@ impl Operator for OpCompute {
             temp_fields: temporaries.into_boxed_slice(),
             extern_field_refs: IndexVec::with_capacity(unbound_fields.len()),
             extern_field_iters: IndexVec::with_capacity(unbound_fields.len()),
-            extern_field_temp_iters: Universe::default(),
+            extern_field_temp_iters: StableUniverse::default(),
             extern_fields: unbound_fields,
         };
         TransformInstatiation::Single(Box::new(tf))
@@ -311,7 +316,7 @@ impl<'a> Transform<'a> for TfCompute<'a> {
         );
         let mut extern_field_refs = self.extern_field_refs.take_transmute();
         let mut extern_field_iters = self.extern_field_iters.take_transmute();
-        let extern_field_temp_iters =
+        let extern_field_temp_iter_handouts =
             self.extern_field_temp_iters.take_transmute();
         for uf in &self.extern_fields {
             extern_field_refs.push(
@@ -338,10 +343,10 @@ impl<'a> Transform<'a> for TfCompute<'a> {
             compilation: &self.op.compilation,
             extern_field_iters: &mut extern_field_iters,
             output: &mut output.iter_hall,
-            extern_field_temp_iters,
             temp_fields: &mut self.temp_fields,
             extern_vars: &mut self.extern_vars,
             extern_fields: &mut self.extern_fields,
+            extern_field_temp_iters: extern_field_temp_iter_handouts,
         };
         exec.run(
             InstructionId::ZERO..self.op.compilation.instructions.next_idx(),
