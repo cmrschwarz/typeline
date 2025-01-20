@@ -63,13 +63,18 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
             .set(Some(unsafe { DebuggableNonMaxUsize::new_unchecked(index) }));
         res
     }
-    pub fn release(&mut self, id: I) {
+    pub fn release(&mut self, id: I) -> T {
         let index = id.into_usize();
-        if self.data.len() == index + 1 {
-            self.data.pop();
-            return;
+        let entry = if self.data.len() == index + 1 {
+            self.data.pop().unwrap().into_inner()
+        } else {
+            let vacant = self.build_vacant_entry(index);
+            std::mem::replace(self.data[index].get_mut(), vacant)
+        };
+        match entry {
+            UniverseEntry::Occupied(v) => v,
+            UniverseEntry::Vacant(_) => panic!("released non occupied entry"),
         }
-        *self.data[index].get_mut() = self.build_vacant_entry(index);
     }
     pub fn used_capacity(&self) -> usize {
         self.data.len()
@@ -450,7 +455,7 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
             occupied_entries: 0,
         }
     }
-    pub fn release(&mut self, id: I) {
+    pub fn release(&mut self, id: I) -> T {
         self.occupied_entries -= 1;
         self.universe.release(id)
     }

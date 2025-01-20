@@ -366,16 +366,31 @@ impl<'a> Transform<'a> for TfCompute<'a> {
                 batch_size,
             );
 
-            while let Some(mut iter) = extern_field_iters.pop() {
+            for ef in &mut self.extern_fields {
+                let mut iter = None;
+                for slot in &mut *ef.iter_slots {
+                    if let &mut Some(idx) = slot {
+                        if iter.is_none() {
+                            iter = Some(
+                                extern_field_temp_iters
+                                    .release(idx)
+                                    .into_inner(),
+                            );
+                        }
+                        *slot = None;
+                    }
+                }
+                if iter.is_none() {
+                    iter = extern_field_iters.pop();
+                } else {
+                    extern_field_iters.pop();
+                }
+                let mut iter = iter.unwrap();
                 let rem = batch_size - (iter.get_next_field_pos() - field_pos);
-                // PERF: this means that we iterate over the fields one more
-                // time
                 iter.next_n_fields(rem);
-                jd.field_mgr.store_iter_from_ref(
-                    self.extern_fields[extern_field_iters.next_idx()].iter_ref,
-                    iter,
-                );
+                jd.field_mgr.store_iter_from_ref(ef.iter_ref, iter);
             }
+
             self.extern_field_iters.reclaim_temp(extern_field_iters);
             self.extern_field_temp_iters
                 .reclaim_temp_take(&mut extern_field_temp_iters);

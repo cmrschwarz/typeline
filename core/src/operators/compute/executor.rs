@@ -1776,10 +1776,5 @@ impl<'a, 'b> Executor<'a, 'b> {
             return;
         }
         self.handle_batch(insn_range, field_pos, count);
-        for ef in self.extern_fields.iter_mut() {
-            for slot in &mut *ef.iter_slots {
-                *slot = None;
-            }
-        }
     }
 }
