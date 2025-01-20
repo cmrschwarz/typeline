@@ -1616,7 +1616,7 @@ impl<'a, 'b> Executor<'a, 'b> {
                 self.extern_field_iters,
                 self.extern_field_temp_iters,
                 field_pos,
-                1,
+                count,
             );
             let (v, rl, _) = iter.next_field(self.msm, count).unwrap();
             self.array_builder.push(v, rl as usize);

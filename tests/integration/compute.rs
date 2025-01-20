@@ -5,7 +5,7 @@ use typeline::{
         key::create_op_key, literal::create_op_int, sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
-    record_data::array::Array,
+    record_data::{array::Array, field_value::FieldValue},
     typeline_error::TypelineError,
 };
 
@@ -128,5 +128,39 @@ fn compute_array(
         .add_op(create_op_compute(expr)?)
         .run_collect_as::<Array>()?;
     assert_eq!(res, &[expected]);
+    Ok(())
+}
+
+#[test]
+fn compute_array_of_seq() -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 3, 1)?)
+        .add_op(create_op_compute("[42,17,_]")?)
+        .run_collect_as::<Array>()?;
+    assert_eq!(
+        res,
+        &[
+            Array::Int(vec![42, 17, 0]),
+            Array::Int(vec![42, 17, 1]),
+            Array::Int(vec![42, 17, 2])
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn compute_array_of_mixed() -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 3, 1)?)
+        .add_op(create_op_compute("[null,_]")?)
+        .run_collect_as::<Array>()?;
+    assert_eq!(
+        res,
+        &[
+            Array::Mixed(vec![FieldValue::Null, FieldValue::Int(0)]),
+            Array::Mixed(vec![FieldValue::Null, FieldValue::Int(1)]),
+            Array::Mixed(vec![FieldValue::Null, FieldValue::Int(2)])
+        ]
+    );
     Ok(())
 }

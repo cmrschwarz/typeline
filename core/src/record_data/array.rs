@@ -651,6 +651,9 @@ impl ArrayBuilder {
         let idx = self.drained_indices.pop().unwrap();
         self.run_lengths[idx] = rl;
         self.arr.set_ref(idx, v);
+        if self.drained_indices.is_empty() {
+            self.run_len_available = rl;
+        }
     }
     pub fn build(&self) -> Array {
         self.arr.clone()
