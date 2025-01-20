@@ -1,8 +1,9 @@
 use rstest::rstest;
 use typeline::{
     operators::{
-        compute::create_op_compute, format::create_op_format,
-        key::create_op_key, literal::create_op_int, sequence::create_op_seq,
+        compute::create_op_compute, count::create_op_count,
+        format::create_op_format, key::create_op_key, literal::create_op_int,
+        sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
     record_data::{array::Array, field_value::FieldValue},
@@ -174,5 +175,18 @@ fn compute_nested_array_flattened() -> Result<(), TypelineError> {
         .add_op(create_op_flatten())
         .run_collect_stringified()?;
     assert_eq!(res, &["1", "[2, 0]", "1", "[2, 1]", "1", "[2, 2]"]);
+    Ok(())
+}
+
+#[test]
+fn multi_batch() -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .set_batch_size(3)?
+        .add_op(create_op_seq(0, 8, 1)?)
+        .add_op(create_op_compute("[_]")?)
+        .add_op(create_op_flatten())
+        .add_op(create_op_count())
+        .run_collect_as::<i64>()?;
+    assert_eq!(res, &[8]);
     Ok(())
 }

@@ -270,9 +270,10 @@ impl TfFlatten {
             .action_buffer
             .borrow_mut();
         ab.begin_action_group(self.actor_id);
-        let mut field_idx = bud.iter.get_next_field_pos();
+        let field_pos_start = bud.iter.get_next_field_pos();
         let mut string_store =
             LazyRwLockGuard::new(&bud.session_data.string_store);
+        let mut field_idx = field_pos_start;
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             metamatch!(match range.base.data {
                 #[expand_pattern(REP in [
@@ -314,7 +315,7 @@ impl TfFlatten {
             })
         }
         ab.end_action_group();
-        (field_idx, bud.ps.input_done)
+        (field_idx - field_pos_start, bud.ps.input_done)
     }
 }
 

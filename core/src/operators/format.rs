@@ -1559,7 +1559,7 @@ fn write_fmt_key(
         }
         FormatKeyRef::Field(ident_ref) => {
             field = fm.get_cow_field_ref(msm, ident_ref.field_id);
-            let mut iter = AutoDerefIter::new(
+            let iter = AutoDerefIter::new(
                 fm,
                 ident_ref.field_id,
                 fm.lookup_iter(ident_ref.field_id, &field, ident_ref.iter_id)

@@ -366,7 +366,11 @@ impl<'a> Transform<'a> for TfCompute<'a> {
                 batch_size,
             );
 
-            while let Some(iter) = extern_field_iters.pop() {
+            while let Some(mut iter) = extern_field_iters.pop() {
+                let rem = batch_size - (iter.get_next_field_pos() - field_pos);
+                // PERF: this means that we iterate over the fields one more
+                // time
+                iter.next_n_fields(rem);
                 jd.field_mgr.store_iter_from_ref(
                     self.extern_fields[extern_field_iters.next_idx()].iter_ref,
                     iter,

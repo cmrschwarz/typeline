@@ -90,6 +90,10 @@ fn calc_until_error_rhs_immediate<'a, Lhs, Rhs, Output, Error>(
     (len_min, None)
 }
 
+// SAFETY: this trait is unsafe because it upholds the following invariant:
+// The `calc_until_error**` family of functions **must** initialize
+// (-> write to) the first `n` elements of `res` where `n` is the first return
+// value of the function.
 pub unsafe trait BinaryOp {
     type Lhs: FixedSizeFieldValueType;
     type Rhs: FixedSizeFieldValueType;

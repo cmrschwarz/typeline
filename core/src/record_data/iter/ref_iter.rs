@@ -415,7 +415,7 @@ impl<'a, I: FieldIterator> AutoDerefIter<'a, I> {
             field_mgr,
         }
     }
-    pub fn get_next_field_pos(&mut self) -> usize {
+    pub fn get_next_field_pos(&self) -> usize {
         match &self.deref_iter {
             Some(AnyDerefIter::SlicedFieldRef(iter)) => {
                 iter.get_next_field_pos()
