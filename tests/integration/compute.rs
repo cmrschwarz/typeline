@@ -8,6 +8,7 @@ use typeline::{
     record_data::{array::Array, field_value::FieldValue},
     typeline_error::TypelineError,
 };
+use typeline_ext_utils::flatten::create_op_flatten;
 
 #[test]
 fn compute_add() -> Result<(), TypelineError> {
@@ -162,5 +163,16 @@ fn compute_array_of_mixed() -> Result<(), TypelineError> {
             Array::Mixed(vec![FieldValue::Null, FieldValue::Int(2)])
         ]
     );
+    Ok(())
+}
+
+#[test]
+fn compute_nested_array_flattened() -> Result<(), TypelineError> {
+    let res = ContextBuilder::without_exts()
+        .add_op(create_op_seq(0, 3, 1)?)
+        .add_op(create_op_compute("[1, [2, _]]")?)
+        .add_op(create_op_flatten())
+        .run_collect_stringified()?;
+    assert_eq!(res, &["1", "[2, 0]", "1", "[2, 1]", "1", "[2, 2]"]);
     Ok(())
 }

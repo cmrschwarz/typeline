@@ -1,4 +1,4 @@
-use std::{cell::RefMut, ops::ControlFlow};
+use std::cell::RefMut;
 
 use typeline_core::{
     cli::call_expr::{Argument, CallExpr},
@@ -129,12 +129,12 @@ fn flatten_object(
     field_idx: &mut usize,
     v: &Object,
     rl: u32,
-) -> ControlFlow<()> {
+) {
     let rl = rl as usize;
     let len = v.len();
     if len == 0 {
         ab.push_action(FieldActionKind::Drop, *field_idx, rl);
-        return ControlFlow::Break(());
+        return;
     }
     let elem_count = len * rl;
     if len != 1 {
@@ -160,7 +160,6 @@ fn flatten_object(
             }
         }
     }
-    ControlFlow::Continue(())
 }
 
 fn flatten_array(
@@ -170,12 +169,12 @@ fn flatten_array(
     field_idx: &mut usize,
     v: &Array,
     rl: u32,
-) -> ControlFlow<()> {
+) {
     let rl = rl as usize;
     let len = v.len();
     if len == 0 {
         ab.push_action(FieldActionKind::Drop, *field_idx, rl);
-        return ControlFlow::Continue(());
+        return;
     }
     let elem_count = len * rl;
     if len != 1 {
@@ -223,7 +222,6 @@ fn flatten_array(
             }
         })
     }
-    ControlFlow::Break(())
 }
 
 fn flatten_argument(
@@ -233,7 +231,7 @@ fn flatten_argument(
     field_idx: &mut usize,
     v: &Argument,
     rl: u32,
-) -> ControlFlow<()> {
+) {
     metamatch!(match &v.value {
         FieldValue::Undefined | FieldValue::Null |
         #[expand_pattern(REP in [
@@ -249,7 +247,6 @@ fn flatten_argument(
                 true,
                 false,
             );
-            ControlFlow::Continue(())
         }
 
         FieldValue::Argument(v) => {
@@ -302,16 +299,14 @@ impl TfFlatten {
                     for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                         &range, arguments,
                     ) {
-                        if let ControlFlow::Break(_) = FLATTEN_FN(
+                        FLATTEN_FN(
                             &mut inserter,
                             &mut ab,
                             &mut string_store,
                             &mut field_idx,
                             v,
                             rl,
-                        ) {
-                            break;
-                        }
+                        );
                     }
                 }
                 FieldValueSlice::FieldReference(_)
