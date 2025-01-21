@@ -1956,6 +1956,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd6fa84363f82779bf357a6e193d59f6222c6e26a80b1cc0093a9bcf4eb408bd"
 
 [[package]]
+name = "metamatch"
+version = "0.2.4"
+source = "git+https://github.com/cmrschwarz/metamatch?branch=pre_release#db02864ee83a0a3ada6c7afc5eba2774d92bf251"
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3956,7 +3961,7 @@ dependencies = [
  "indexmap 2.7.0",
  "lexical-core",
  "memchr",
- "metamatch",
+ "metamatch 0.2.4 (git+https://github.com/cmrschwarz/metamatch?branch=pre_release)",
  "num",
  "num-bigint",
  "num-order",
@@ -4082,7 +4087,7 @@ version = "0.1.0"
 dependencies = [
  "bstr",
  "indexmap 2.7.0",
- "metamatch",
+ "metamatch 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "mio",
  "num",
  "num-order",
