@@ -1619,7 +1619,7 @@ impl<'a, 'b> Executor<'a, 'b> {
                 count,
             );
             let (v, rl, _) = iter.next_field(self.msm, count).unwrap();
-            self.array_builder.push(v, rl as usize);
+            self.array_builder.push_value(v, rl as usize);
             input_iters.push(iter);
         }
         let mut rl_rem = count;
@@ -1636,10 +1636,10 @@ impl<'a, 'b> Executor<'a, 'b> {
             if rl_rem == 0 {
                 break;
             }
-            while let Some(idx) = self.array_builder.drained_idx() {
+            while let Some(idx) = self.array_builder.get_drained_idx() {
                 let (v, rl, _) =
                     input_iters[idx].next_field(self.msm, len).unwrap();
-                self.array_builder.replenish(v, rl as usize);
+                self.array_builder.replenish_drained_value(v, rl as usize);
             }
         }
     }

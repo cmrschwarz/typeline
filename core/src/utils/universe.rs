@@ -7,30 +7,28 @@ use std::{
 use arrayvec::ArrayVec;
 
 use super::{
-    debuggable_nonmax::DebuggableNonMaxUsize, get_three_distinct_mut,
-    indexing_type::IndexingType, temp_vec::TransmutableContainer,
+    get_three_distinct_mut, indexing_type::IndexingType,
+    temp_vec::TransmutableContainer,
 };
 
 use super::get_two_distinct_mut;
 
 #[derive(Clone)]
-pub enum UniverseEntry<T> {
+pub enum UniverseEntry<I, T> {
     Occupied(T),
-    // PERF: maybe use the indexing type / a derived non max type
-    // here instead to save memory for u32s, e.g. in `GroupList`
-    Vacant(Option<DebuggableNonMaxUsize>),
+    Vacant(Option<I>),
 }
 
 #[derive(Clone)]
 pub struct Universe<I, T> {
-    data: Vec<UniverseEntry<T>>,
-    first_vacant_entry: Option<DebuggableNonMaxUsize>,
+    data: Vec<UniverseEntry<I, T>>,
+    first_vacant_entry: Option<I>,
     _phantom_data: PhantomData<I>,
 }
 
 pub struct UniverseMultiRefMutHandout<'a, I, T, const CAP: usize> {
-    universe_data: NonNull<UniverseEntry<T>>,
-    first_vacant_entry: &'a mut Option<DebuggableNonMaxUsize>,
+    universe_data: NonNull<UniverseEntry<I, T>>,
+    first_vacant_entry: &'a mut Option<I>,
     len: usize,
     handed_out: ArrayVec<I, CAP>,
 }
@@ -40,7 +38,7 @@ pub unsafe trait RefHandoutStack<I, T> {
     where
         Self: 'b;
     fn claim(&mut self, idx: I) -> (Self::Child<'_>, &mut T);
-    fn assert_unused(&mut self, idx: I) -> NonNull<UniverseEntry<T>>;
+    fn assert_unused(&mut self, idx: I) -> NonNull<UniverseEntry<I, T>>;
 }
 
 pub struct RefHandoutStackNode<'a, I, T, P> {
@@ -50,7 +48,7 @@ pub struct RefHandoutStackNode<'a, I, T, P> {
 }
 
 pub struct RefHandoutStackBase<'a, I, T> {
-    universe_data: NonNull<UniverseEntry<T>>,
+    universe_data: NonNull<UniverseEntry<I, T>>,
     len: usize,
     _phantom: PhantomData<&'a mut Universe<I, T>>,
 }
@@ -78,7 +76,7 @@ unsafe impl<'a, I: IndexingType, T> RefHandoutStack<I, T>
         (child, elem)
     }
 
-    fn assert_unused(&mut self, id: I) -> NonNull<UniverseEntry<T>> {
+    fn assert_unused(&mut self, id: I) -> NonNull<UniverseEntry<I, T>> {
         assert!(id.into_usize() < self.len);
         self.universe_data
     }
@@ -108,13 +106,13 @@ unsafe impl<'a, I: IndexingType, T, P: RefHandoutStack<I, T>>
         (child, elem)
     }
 
-    fn assert_unused(&mut self, idx: I) -> NonNull<UniverseEntry<T>> {
+    fn assert_unused(&mut self, idx: I) -> NonNull<UniverseEntry<I, T>> {
         assert!(idx != self.id);
         self.base.assert_unused(idx)
     }
 }
 
-impl<T> UniverseEntry<T> {
+impl<I, T> UniverseEntry<I, T> {
     pub fn as_option_mut(&mut self) -> Option<&mut T> {
         match self {
             UniverseEntry::Occupied(v) => Some(v),
@@ -150,12 +148,9 @@ impl<I: IndexingType, T> Universe<I, T> {
             _phantom: PhantomData,
         }
     }
-    fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<T> {
+    fn build_vacant_entry(&mut self, index: usize) -> UniverseEntry<I, T> {
         let res = UniverseEntry::Vacant(self.first_vacant_entry);
-        // SAFETY: we can never have usize::MAX entries before running out of
-        // memory. Entries are never ZSTs due to the Vacant index.
-        self.first_vacant_entry =
-            Some(unsafe { DebuggableNonMaxUsize::new_unchecked(index) });
+        self.first_vacant_entry = Some(I::from_usize(index));
         res
     }
     pub fn release(&mut self, id: I) {
@@ -179,12 +174,12 @@ impl<I: IndexingType, T> Universe<I, T> {
             base: self.data.iter(),
         }
     }
-    pub fn iter(&self) -> UniverseIter<T> {
+    pub fn iter(&self) -> UniverseIter<I, T> {
         UniverseIter {
             base: self.data.iter(),
         }
     }
-    pub fn iter_mut(&mut self) -> UniverseIterMut<T> {
+    pub fn iter_mut(&mut self) -> UniverseIterMut<I, T> {
         UniverseIterMut {
             base: self.data.iter_mut(),
         }
@@ -257,7 +252,7 @@ impl<I: IndexingType, T> Universe<I, T> {
     // useful for cases where claim_with needs to know the id beforehand
     pub fn peek_claim_id(&self) -> I {
         I::from_usize(if let Some(id) = self.first_vacant_entry {
-            id.get()
+            id.into_usize()
         } else {
             self.data.len()
         })
@@ -265,7 +260,7 @@ impl<I: IndexingType, T> Universe<I, T> {
 
     pub fn claim_with(&mut self, f: impl FnOnce() -> T) -> I {
         if let Some(id) = self.first_vacant_entry {
-            let index = id.get();
+            let index = id.into_usize();
             match self.data[index] {
                 UniverseEntry::Vacant(next) => self.first_vacant_entry = next,
                 UniverseEntry::Occupied(_) => unreachable!(),
@@ -444,17 +439,17 @@ impl<I: IndexingType, T> IndexMut<I> for Universe<I, T> {
 }
 
 #[derive(Clone)]
-pub struct UniverseIter<'a, T> {
-    base: std::slice::Iter<'a, UniverseEntry<T>>,
+pub struct UniverseIter<'a, I, T> {
+    base: std::slice::Iter<'a, UniverseEntry<I, T>>,
 }
 
 #[derive(Clone)]
 pub struct UniverseIndexIter<'a, I, T> {
     index: I,
-    base: std::slice::Iter<'a, UniverseEntry<T>>,
+    base: std::slice::Iter<'a, UniverseEntry<I, T>>,
 }
 
-impl<'a, T> Iterator for UniverseIter<'a, T> {
+impl<'a, I, T> Iterator for UniverseIter<'a, I, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -484,11 +479,11 @@ impl<'a, I: IndexingType, T> Iterator for UniverseIndexIter<'a, I, T> {
     }
 }
 
-pub struct UniverseIterMut<'a, T> {
-    base: std::slice::IterMut<'a, UniverseEntry<T>>,
+pub struct UniverseIterMut<'a, I, T> {
+    base: std::slice::IterMut<'a, UniverseEntry<I, T>>,
 }
 
-impl<'a, T> Iterator for UniverseIterMut<'a, T> {
+impl<'a, I, T> Iterator for UniverseIterMut<'a, I, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -504,7 +499,7 @@ impl<'a, T> Iterator for UniverseIterMut<'a, T> {
 
 impl<'a, I: IndexingType, T> IntoIterator for &'a Universe<I, T> {
     type Item = &'a T;
-    type IntoIter = UniverseIter<'a, T>;
+    type IntoIter = UniverseIter<'a, I, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -513,7 +508,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a Universe<I, T> {
 
 impl<'a, I: IndexingType, T> IntoIterator for &'a mut Universe<I, T> {
     type Item = &'a mut T;
-    type IntoIter = UniverseIterMut<'a, T>;
+    type IntoIter = UniverseIterMut<'a, I, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
@@ -522,7 +517,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a mut Universe<I, T> {
 
 #[derive(Clone)]
 pub struct UniverseEnumeratedIter<'a, I, T> {
-    base: &'a [UniverseEntry<T>],
+    base: &'a [UniverseEntry<I, T>],
     idx: I,
 }
 
@@ -543,7 +538,7 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIter<'a, I, T> {
 }
 
 pub struct UniverseEnumeratedIterMut<'a, I, T> {
-    base: &'a mut [UniverseEntry<T>],
+    base: &'a mut [UniverseEntry<I, T>],
     idx: I,
 }
 
@@ -598,10 +593,10 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
     pub fn indices(&self) -> UniverseIndexIter<I, T> {
         self.universe.indices()
     }
-    pub fn iter(&self) -> UniverseIter<T> {
+    pub fn iter(&self) -> UniverseIter<I, T> {
         self.universe.iter()
     }
-    pub fn iter_mut(&mut self) -> UniverseIterMut<T> {
+    pub fn iter_mut(&mut self) -> UniverseIterMut<I, T> {
         self.universe.iter_mut()
     }
     pub fn iter_enumerated(&self) -> UniverseEnumeratedIter<I, T> {
@@ -694,7 +689,7 @@ impl<I: IndexingType, T> IndexMut<I> for CountedUniverse<I, T> {
 
 impl<'a, I: IndexingType, T> IntoIterator for &'a CountedUniverse<I, T> {
     type Item = &'a T;
-    type IntoIter = UniverseIter<'a, T>;
+    type IntoIter = UniverseIter<'a, I, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -703,7 +698,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a CountedUniverse<I, T> {
 
 impl<'a, I: IndexingType, T> IntoIterator for &'a mut CountedUniverse<I, T> {
     type Item = &'a mut T;
-    type IntoIter = UniverseIterMut<'a, T>;
+    type IntoIter = UniverseIterMut<'a, I, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()

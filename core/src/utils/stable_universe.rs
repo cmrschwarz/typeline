@@ -5,7 +5,6 @@ use std::{
 };
 
 use super::{
-    debuggable_nonmax::DebuggableNonMaxUsize,
     indexing_type::IndexingType,
     stable_vec::{self, StableVec, StableVecIter, StableVecIterMut},
     temp_vec::TransmutableContainer,
@@ -13,12 +12,12 @@ use super::{
 };
 
 pub struct StableUniverse<I, T> {
-    data: StableVec<UnsafeCell<UniverseEntry<T>>>,
-    first_vacant_entry: Cell<Option<DebuggableNonMaxUsize>>,
+    data: StableVec<UnsafeCell<UniverseEntry<I, T>>>,
+    first_vacant_entry: Cell<Option<I>>,
     _phantom_data: PhantomData<I>,
 }
 
-impl<I, T: Clone> Clone for StableUniverse<I, T> {
+impl<I: IndexingType, T: Clone> Clone for StableUniverse<I, T> {
     fn clone(&self) -> Self {
         Self {
             data: self
@@ -55,12 +54,9 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
             _phantom_data: PhantomData,
         }
     }
-    fn build_vacant_entry(&self, index: usize) -> UniverseEntry<T> {
+    fn build_vacant_entry(&self, index: usize) -> UniverseEntry<I, T> {
         let res = UniverseEntry::Vacant(self.first_vacant_entry.get());
-        // SAFETY: we can never have usize::MAX entries before running out of
-        // memory. Entries are never ZSTs due to the Vacant index.
-        self.first_vacant_entry
-            .set(Some(unsafe { DebuggableNonMaxUsize::new_unchecked(index) }));
+        self.first_vacant_entry.set(Some(I::from_usize(index)));
         res
     }
     pub fn release(&mut self, id: I) -> T {
@@ -89,12 +85,12 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
             base: self.data.iter(),
         }
     }
-    pub fn iter(&self) -> StableUniverseIter<T> {
+    pub fn iter(&self) -> StableUniverseIter<I, T> {
         StableUniverseIter {
             base: self.data.iter(),
         }
     }
-    pub fn iter_mut(&mut self) -> UniverseIterMut<T> {
+    pub fn iter_mut(&mut self) -> UniverseIterMut<I, T> {
         UniverseIterMut {
             base: self.data.iter_mut(),
         }
@@ -170,7 +166,7 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
     // useful for cases where claim_with needs to know the id beforehand
     pub fn peek_claim_id(&self) -> I {
         I::from_usize(if let Some(id) = self.first_vacant_entry.get() {
-            id.get()
+            id.into_usize()
         } else {
             self.data.len()
         })
@@ -178,7 +174,7 @@ impl<I: IndexingType, T> StableUniverse<I, T> {
 
     pub fn claim_with(&self, f: impl FnOnce() -> T) -> I {
         if let Some(id) = self.first_vacant_entry.get() {
-            let index = id.get();
+            let index = id.into_usize();
             match unsafe { &*self.data[index].get() } {
                 UniverseEntry::Vacant(next) => {
                     self.first_vacant_entry.set(*next)
@@ -297,10 +293,10 @@ impl<I: IndexingType, T> IndexMut<I> for StableUniverse<I, T> {
 }
 
 #[derive(Clone)]
-pub struct StableUniverseIter<'a, T> {
+pub struct StableUniverseIter<'a, I, T> {
     base: StableVecIter<
         'a,
-        UnsafeCell<UniverseEntry<T>>,
+        UnsafeCell<UniverseEntry<I, T>>,
         { stable_vec::DEFAULT_CHUNK_SIZE },
     >,
 }
@@ -309,12 +305,12 @@ pub struct StableUniverseIndexIter<'a, I, T> {
     index: I,
     base: StableVecIter<
         'a,
-        UnsafeCell<UniverseEntry<T>>,
+        UnsafeCell<UniverseEntry<I, T>>,
         { stable_vec::DEFAULT_CHUNK_SIZE },
     >,
 }
 
-impl<'a, T> Iterator for StableUniverseIter<'a, T> {
+impl<'a, I, T> Iterator for StableUniverseIter<'a, I, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -344,15 +340,15 @@ impl<'a, I: IndexingType, T> Iterator for StableUniverseIndexIter<'a, I, T> {
     }
 }
 
-pub struct UniverseIterMut<'a, T> {
+pub struct UniverseIterMut<'a, I, T> {
     base: StableVecIterMut<
         'a,
-        UnsafeCell<UniverseEntry<T>>,
+        UnsafeCell<UniverseEntry<I, T>>,
         { stable_vec::DEFAULT_CHUNK_SIZE },
     >,
 }
 
-impl<'a, T> Iterator for UniverseIterMut<'a, T> {
+impl<'a, I, T> Iterator for UniverseIterMut<'a, I, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -372,7 +368,7 @@ impl<'a, T> Iterator for UniverseIterMut<'a, T> {
 
 impl<'a, I: IndexingType, T> IntoIterator for &'a StableUniverse<I, T> {
     type Item = &'a T;
-    type IntoIter = StableUniverseIter<'a, T>;
+    type IntoIter = StableUniverseIter<'a, I, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -381,7 +377,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a StableUniverse<I, T> {
 
 impl<'a, I: IndexingType, T> IntoIterator for &'a mut StableUniverse<I, T> {
     type Item = &'a mut T;
-    type IntoIter = UniverseIterMut<'a, T>;
+    type IntoIter = UniverseIterMut<'a, I, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
@@ -390,7 +386,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a mut StableUniverse<I, T> {
 
 #[derive(Clone)]
 pub struct UniverseEnumeratedIter<'a, I, T> {
-    base: &'a StableVec<UnsafeCell<UniverseEntry<T>>>,
+    base: &'a StableVec<UnsafeCell<UniverseEntry<I, T>>>,
     idx: I,
 }
 
@@ -411,7 +407,7 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIter<'a, I, T> {
 }
 
 pub struct UniverseEnumeratedIterMut<'a, I, T> {
-    base: &'a mut StableVec<UnsafeCell<UniverseEntry<T>>>,
+    base: &'a mut StableVec<UnsafeCell<UniverseEntry<I, T>>>,
     idx: I,
 }
 
@@ -442,10 +438,18 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIterMut<'a, I, T> {
     }
 }
 
-#[derive(Clone)]
 pub struct CountedUniverse<I, T> {
     universe: StableUniverse<I, T>,
     occupied_entries: usize,
+}
+
+impl<I: IndexingType, T: Clone> Clone for CountedUniverse<I, T> {
+    fn clone(&self) -> Self {
+        Self {
+            universe: self.universe.clone(),
+            occupied_entries: self.occupied_entries,
+        }
+    }
 }
 
 impl<I: IndexingType, T> CountedUniverse<I, T> {
@@ -469,10 +473,10 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
     pub fn indices(&self) -> StableUniverseIndexIter<I, T> {
         self.universe.indices()
     }
-    pub fn iter(&self) -> StableUniverseIter<T> {
+    pub fn iter(&self) -> StableUniverseIter<I, T> {
         self.universe.iter()
     }
-    pub fn iter_mut(&mut self) -> UniverseIterMut<T> {
+    pub fn iter_mut(&mut self) -> UniverseIterMut<I, T> {
         self.universe.iter_mut()
     }
     pub fn iter_enumerated(&self) -> UniverseEnumeratedIter<I, T> {
@@ -558,7 +562,7 @@ impl<I: IndexingType, T> IndexMut<I> for CountedUniverse<I, T> {
 
 impl<'a, I: IndexingType, T> IntoIterator for &'a CountedUniverse<I, T> {
     type Item = &'a T;
-    type IntoIter = StableUniverseIter<'a, T>;
+    type IntoIter = StableUniverseIter<'a, I, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -567,7 +571,7 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a CountedUniverse<I, T> {
 
 impl<'a, I: IndexingType, T> IntoIterator for &'a mut CountedUniverse<I, T> {
     type Item = &'a mut T;
-    type IntoIter = UniverseIterMut<'a, T>;
+    type IntoIter = UniverseIterMut<'a, I, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()

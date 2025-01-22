@@ -634,7 +634,7 @@ impl ArrayBuilder {
     pub fn is_empty(&self) -> bool {
         self.arr.is_empty()
     }
-    pub fn push(&mut self, value: FieldValueRef, rl: usize) {
+    pub fn push_value(&mut self, value: FieldValueRef, rl: usize) {
         debug_assert!(rl != 0);
         self.arr.push_ref(value);
         self.run_lengths.push(rl);
@@ -644,10 +644,10 @@ impl ArrayBuilder {
             self.run_len_available = self.run_len_available.min(rl);
         }
     }
-    pub fn drained_idx(&mut self) -> Option<usize> {
+    pub fn get_drained_idx(&mut self) -> Option<usize> {
         self.drained_indices.last().copied()
     }
-    pub fn replenish(&mut self, v: FieldValueRef, rl: usize) {
+    pub fn replenish_drained_value(&mut self, v: FieldValueRef, rl: usize) {
         let idx = self.drained_indices.pop().unwrap();
         self.run_lengths[idx] = rl;
         self.arr.set_ref(idx, v);

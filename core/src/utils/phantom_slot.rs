@@ -13,7 +13,7 @@ use std::{
 /// This type is mainly intended for usage with `transmute_vec`
 #[repr(transparent)]
 pub struct PhantomSlot<T> {
-    data: ManuallyDrop<T>,
+    _internal: ManuallyDrop<T>,
 }
 
 unsafe impl<T> Send for PhantomSlot<T> {}
