@@ -4,7 +4,6 @@ use std::{
     fs::File,
     io::Cursor,
     mem::ManuallyDrop,
-    net::TcpListener,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
@@ -22,7 +21,7 @@ use typeline_core::{
         custom_data::CustomData,
         formattable::{format_maybe_text, format_maybe_text_raw},
     },
-    utils::maybe_text::MaybeText,
+    utils::{io::find_free_port, maybe_text::MaybeText},
 };
 use zip::write::FileOptions;
 
@@ -205,10 +204,6 @@ impl WindowAwareSeleniumDriver {
         self.active_window = window.clone();
         Ok(())
     }
-}
-
-fn find_free_port() -> std::io::Result<u16> {
-    Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
 
 impl SeleniumWindow {

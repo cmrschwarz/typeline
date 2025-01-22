@@ -21,9 +21,9 @@ use super::{
 };
 
 #[derive(Debug)]
-pub struct UnderflowError;
+pub struct SubUnderflowError;
 
-impl ErrorToOperatorApplicationError for UnderflowError {
+impl ErrorToOperatorApplicationError for SubUnderflowError {
     fn to_operator_application_error(
         self,
         op_id: crate::operators::operator::OperatorId,
@@ -39,7 +39,7 @@ fn i64_sub_overflow_check(
     lhs_v: __m256i,
     rhs_v: __m256i,
     res_v: __m256i,
-) -> Result<(), (usize, UnderflowError)> {
+) -> Result<(), (usize, SubUnderflowError)> {
     let of_mask = unsafe {
         // We have an overflow iff we have different signed inputs and the
         // sign of the first input does not equal the sign of the output
@@ -56,7 +56,18 @@ fn i64_sub_overflow_check(
     if of_mask == 0 {
         return Ok(());
     }
-    Err((of_mask.leading_zeros() as usize, UnderflowError))
+    Err((of_mask.leading_zeros() as usize, SubUnderflowError))
+}
+
+fn i64_sub(
+    lhs: __m256i,
+    rhs: __m256i,
+) -> (__m256i, Result<(), (usize, SubUnderflowError)>) {
+    let res = unsafe { _mm256_sub_epi64(lhs, rhs) };
+    match i64_sub_overflow_check(lhs, rhs, res) {
+        Ok(()) => (res, Ok(())),
+        Err((idx, e)) => (res, Err((idx, e))),
+    }
 }
 
 pub type BinaryOpSubI64I64 = BinaryOpAvx2Adapter<BinaryOpSubI64I64Avx2>;
@@ -65,27 +76,20 @@ unsafe impl BinaryOpAvx2Aware for BinaryOpSubI64I64Avx2 {
     type Lhs = i64;
     type Rhs = i64;
     type Output = i64;
-    type Error = UnderflowError;
+    type Error = SubUnderflowError;
 
     fn try_calc_single(
         lhs: &Self::Lhs,
         rhs: &Self::Rhs,
     ) -> Result<Self::Output, Self::Error> {
-        lhs.checked_add(*rhs).ok_or(UnderflowError)
+        lhs.checked_add(*rhs).ok_or(SubUnderflowError)
     }
     fn calc_until_error_avx2<'a>(
         lhs: &[Self::Lhs],
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        calc_until_error_avx2(
-            lhs,
-            rhs,
-            res,
-            |lhs, rhs| unsafe { _mm256_sub_epi64(lhs, rhs) },
-            i64_sub_overflow_check,
-            Self::try_calc_single,
-        )
+        calc_until_error_avx2(lhs, rhs, res, i64_sub, Self::try_calc_single)
     }
     fn calc_until_error_lhs_immediate_avx2<'a>(
         lhs: &Self::Lhs,
@@ -96,8 +100,7 @@ unsafe impl BinaryOpAvx2Aware for BinaryOpSubI64I64Avx2 {
             lhs,
             rhs,
             res,
-            |lhs, rhs| unsafe { _mm256_sub_epi64(lhs, rhs) },
-            i64_sub_overflow_check,
+            i64_sub,
             Self::try_calc_single,
         )
     }
@@ -110,8 +113,7 @@ unsafe impl BinaryOpAvx2Aware for BinaryOpSubI64I64Avx2 {
             lhs,
             rhs,
             res,
-            |lhs, rhs| unsafe { _mm256_sub_epi64(lhs, rhs) },
-            i64_sub_overflow_check,
+            i64_sub,
             Self::try_calc_single,
         )
     }

@@ -1,6 +1,7 @@
 use std::{
     io::{BufRead, ErrorKind, Read, Write},
     marker::PhantomData,
+    net::TcpListener,
     ops::Index,
 };
 
@@ -11,6 +12,10 @@ use super::{
     text_write::{MaybeTextWrite, TextWrite},
     utf8_codepoint_len_from_first_byte, MAX_UTF8_CHAR_LEN,
 };
+
+pub fn find_free_port() -> std::io::Result<u16> {
+    Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
+}
 
 pub struct PointerWriter {
     ptr: *mut u8,

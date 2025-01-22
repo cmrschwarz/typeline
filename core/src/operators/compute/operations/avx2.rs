@@ -134,8 +134,7 @@ pub fn calc_until_error_avx2<'a, Error>(
     lhs: &[i64],
     rhs: &[i64],
     res: &'a mut [MaybeUninit<i64>],
-    operation: impl Fn(__m256i, __m256i) -> __m256i,
-    error_check: impl Fn(__m256i, __m256i, __m256i) -> Result<(), (usize, Error)>,
+    operation: impl Fn(__m256i, __m256i) -> (__m256i, Result<(), (usize, Error)>),
     base_case: impl Fn(&i64, &i64) -> Result<i64, Error>,
 ) -> (usize, Option<Error>) {
     let len_min = lhs.len().min(rhs.len()).min(res.len());
@@ -153,14 +152,15 @@ pub fn calc_until_error_avx2<'a, Error>(
             #[allow(clippy::cast_ptr_alignment)]
             let rhs_v = _mm256_loadu_si256(rhs_p.add(i).cast::<__m256i>());
 
-            let res_v = operation(lhs_v, rhs_v);
+            let (res_v, e) = operation(lhs_v, rhs_v);
 
             #[allow(clippy::cast_ptr_alignment)]
             _mm256_storeu_si256(res_p.add(i).cast::<__m256i>(), res_v);
 
-            if let Err((err_idx, err)) = error_check(lhs_v, rhs_v, res_v) {
+            if let Err((err_idx, err)) = e {
                 return (i + err_idx, Some(err));
             }
+
             i += 4;
         }
 
@@ -180,8 +180,7 @@ pub fn calc_until_error_avx2_lhs_immediate<'a, Error>(
     lhs: &i64,
     rhs: &[i64],
     res: &'a mut [MaybeUninit<i64>],
-    operation: impl Fn(__m256i, __m256i) -> __m256i,
-    error_check: impl Fn(__m256i, __m256i, __m256i) -> Result<(), (usize, Error)>,
+    operation: impl Fn(__m256i, __m256i) -> (__m256i, Result<(), (usize, Error)>),
     base_case: impl Fn(&i64, &i64) -> Result<i64, Error>,
 ) -> (usize, Option<Error>) {
     let len_min = rhs.len().min(res.len());
@@ -196,14 +195,15 @@ pub fn calc_until_error_avx2_lhs_immediate<'a, Error>(
             #[allow(clippy::cast_ptr_alignment)]
             let rhs_v = _mm256_loadu_si256(rhs_p.add(i).cast::<__m256i>());
 
-            let res_v = operation(lhs_v, rhs_v);
+            let (res_v, e) = operation(lhs_v, rhs_v);
 
             #[allow(clippy::cast_ptr_alignment)]
             _mm256_storeu_si256(res_p.add(i).cast::<__m256i>(), res_v);
 
-            if let Err((err_idx, err)) = error_check(lhs_v, rhs_v, res_v) {
+            if let Err((err_idx, err)) = e {
                 return (i + err_idx, Some(err));
             }
+
             i += 4;
         }
 
@@ -223,8 +223,7 @@ pub fn calc_until_error_avx2_rhs_immediate<'a, Error>(
     lhs: &[i64],
     rhs: &i64,
     res: &'a mut [MaybeUninit<i64>],
-    operation: impl Fn(__m256i, __m256i) -> __m256i,
-    error_check: impl Fn(__m256i, __m256i, __m256i) -> Result<(), (usize, Error)>,
+    operation: impl Fn(__m256i, __m256i) -> (__m256i, Result<(), (usize, Error)>),
     base_case: impl Fn(&i64, &i64) -> Result<i64, Error>,
 ) -> (usize, Option<Error>) {
     let len_min = lhs.len().min(res.len());
@@ -239,14 +238,15 @@ pub fn calc_until_error_avx2_rhs_immediate<'a, Error>(
             #[allow(clippy::cast_ptr_alignment)]
             let lhs_v = _mm256_loadu_si256(lhs_p.add(i).cast::<__m256i>());
 
-            let res_v = operation(lhs_v, rhs_v);
+            let (res_v, e) = operation(lhs_v, rhs_v);
 
             #[allow(clippy::cast_ptr_alignment)]
             _mm256_storeu_si256(res_p.add(i).cast::<__m256i>(), res_v);
 
-            if let Err((err_idx, err)) = error_check(lhs_v, rhs_v, res_v) {
+            if let Err((err_idx, err)) = e {
                 return (i + err_idx, Some(err));
             }
+
             i += 4;
         }
 
