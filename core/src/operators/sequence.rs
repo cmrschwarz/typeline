@@ -1,4 +1,11 @@
-use std::fmt::Write;
+use std::{
+    arch::x86_64::{
+        _mm256_add_epi64, _mm256_set1_epi64x, _mm256_setr_epi64x,
+        _mm256_storeu_si256,
+    },
+    fmt::Write,
+    mem::MaybeUninit,
+};
 
 use arrayvec::ArrayVec;
 
@@ -18,6 +25,7 @@ use crate::{
 };
 
 use super::{
+    compute::operations::avx2::AVX2_I64_ELEM_COUNT,
     errors::OperatorCreationError,
     operator::{Operator, OperatorName},
     utils::{
@@ -106,6 +114,33 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
     data.insert(0, b'1');
 }
 
+const AVX2_MIN_ELEM_COUNT: usize = 8;
+unsafe fn generate_seq_avx2(
+    start: i64,
+    step: i64,
+    iterations: usize,
+    out: &mut [MaybeUninit<i64>],
+) {
+    unsafe {
+        let stride = _mm256_set1_epi64x(4 * step);
+        let mut arr = _mm256_setr_epi64x(
+            start,
+            start + step,
+            start + 2 * step,
+            start + 3 * step,
+        );
+
+        _mm256_storeu_si256(out.as_mut_ptr().cast(), arr);
+        for i in 1..iterations {
+            arr = _mm256_add_epi64(arr, stride);
+            _mm256_storeu_si256(
+                out.as_mut_ptr().add(i * AVX2_I64_ELEM_COUNT).cast(),
+                arr,
+            );
+        }
+    }
+}
+
 impl GeneratorSequence for SequenceGenerator {
     type Inserter<'a> = &'a mut Field;
     fn seq_len_total(&self) -> u64 {
@@ -130,12 +165,27 @@ impl GeneratorSequence for SequenceGenerator {
     fn advance_sequence(
         &mut self,
         output_field: &mut Self::Inserter<'_>,
-        count: usize,
+        mut count: usize,
     ) {
         let iter_hall = &mut output_field.iter_hall;
         if self.non_string_reads {
             let mut inserter = iter_hall.fixed_size_type_inserter::<i64>();
-            inserter.drop_and_reserve(count);
+            if count >= AVX2_MIN_ELEM_COUNT {
+                let iterations = count / AVX2_I64_ELEM_COUNT;
+                let avx_count = iterations * AVX2_I64_ELEM_COUNT;
+                unsafe {
+                    let res = inserter.claim_uninit(avx_count);
+                    generate_seq_avx2(
+                        self.current_value,
+                        self.ss.step,
+                        iterations,
+                        res,
+                    );
+                    self.current_value += avx_count as i64 * self.ss.step;
+                }
+                count -= avx_count;
+            }
+            inserter.reserve(count);
             for _ in 0..count {
                 inserter.push(self.current_value);
                 self.current_value += self.ss.step;
@@ -153,7 +203,7 @@ impl GeneratorSequence for SequenceGenerator {
                         .iter()
                         .copied(),
                 );
-                inserter.drop_and_reserve(count, int_str.len());
+                inserter.reserve(count, int_str.len());
                 for _ in 0..count {
                     inserter.push_may_rereserve(unsafe {
                         std::str::from_utf8_unchecked(&int_str)
@@ -170,7 +220,7 @@ impl GeneratorSequence for SequenceGenerator {
                 // reimplement that with a heuristic resrevation size maybe
                 // in this special case we could do a perfect reserve and then
                 // avoid checking all together
-                inserter.drop_and_reserve(count, int_str.len());
+                inserter.drop_and_rereserve(count, int_str.len());
                 inserter.push_may_rereserve(&int_str);
                 for _ in 1..count {
                     int_str = i64_to_str(false, self.current_value);

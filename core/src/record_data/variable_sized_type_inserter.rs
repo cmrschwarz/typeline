@@ -96,7 +96,7 @@ pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
             self.get_raw().commit(fmt);
         }
     }
-    fn drop_and_reserve(
+    fn drop_and_rereserve(
         &mut self,
         new_max_inserts: usize,
         new_expected_size: usize,
@@ -106,11 +106,7 @@ pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
                 .drop_and_reserve(new_max_inserts, new_expected_size);
         }
     }
-    fn commit_and_reserve(
-        &mut self,
-        new_max_inserts: usize,
-        new_expected_size: usize,
-    ) {
+    fn reserve(&mut self, new_max_inserts: usize, new_expected_size: usize) {
         let fmt = self.current_element_format();
         unsafe {
             self.get_raw().commit_and_reserve(
@@ -163,7 +159,7 @@ pub unsafe trait VariableSizeTypeInserter<'a>: Sized {
                 false,
             );
         }
-        self.drop_and_reserve(max_rem, v.len());
+        self.drop_and_rereserve(max_rem, v.len());
     }
 }
 

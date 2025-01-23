@@ -96,7 +96,7 @@ impl TfTypename {
             bud.field_mgr.fields[bud.output_field_id].borrow_mut();
         let mut inserter = output_field.iter_hall.inline_str_inserter();
         // TODO: get rid of these hardcoded reserves
-        inserter.drop_and_reserve(bud.batch_size, 3);
+        inserter.reserve(bud.batch_size, 3);
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             match range.base.data {
                 FieldValueSlice::Undefined(_)

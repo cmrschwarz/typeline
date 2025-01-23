@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, mem::MaybeUninit};
 
 use crate::utils::range_contains;
 
@@ -129,7 +129,22 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
                 .drop_and_reserve(Self::element_size(), new_max_inserts);
         }
     }
-    pub fn commit_and_reserve(&mut self, new_max_inserts: usize) {
+    pub unsafe fn claim_uninit(
+        &mut self,
+        count: usize,
+    ) -> &mut [MaybeUninit<T>] {
+        if self.raw.count + count > self.raw.max {
+            self.reserve(count);
+        }
+        self.raw.count += count;
+        let res = self.raw.data_ptr;
+        unsafe {
+            self.raw.data_ptr =
+                self.raw.data_ptr.add(count * std::mem::size_of::<T>());
+            std::slice::from_raw_parts_mut(res.cast(), count)
+        }
+    }
+    pub fn reserve(&mut self, new_max_inserts: usize) {
         unsafe {
             self.raw
                 .commit_and_reserve(Self::element_format(), new_max_inserts);
@@ -138,7 +153,7 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
     #[inline(always)]
     pub fn push(&mut self, v: T) {
         if self.raw.count >= self.raw.max {
-            self.commit_and_reserve(
+            self.reserve(
                 (self.raw.fd.data.len() / std::mem::size_of::<T>()).max(4),
             );
         }
@@ -171,7 +186,7 @@ impl<'a, T: FieldValueType + PartialEq + Clone> FixedSizeTypeInserter<'a, T> {
 
     pub fn extend<I: Iterator<Item = T>>(&mut self, mut iter: I) {
         if let (_, Some(count)) = iter.size_hint() {
-            self.commit_and_reserve(count);
+            self.reserve(count);
             unsafe {
                 let mut ptr = self.raw.data_ptr.cast::<T>();
                 for v in (&mut iter).take(count) {
