@@ -210,6 +210,7 @@ impl Compiler<'_> {
             self.release_ssa_value_raw(&v.value)
         }
     }
+
     #[allow(clippy::needless_pass_by_value)]
     fn defer_release_intermediate(&mut self, v: IntermediateValue) {
         match v.value {

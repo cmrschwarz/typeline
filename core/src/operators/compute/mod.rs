@@ -1,10 +1,12 @@
 pub mod ast;
+pub mod binary_op;
 pub mod compiler;
 pub mod executor;
 pub mod executor_inserter;
 pub mod lexer;
 pub mod operations;
 pub mod parser;
+pub mod unary_op;
 
 use std::{
     cell::{Cell, RefCell},

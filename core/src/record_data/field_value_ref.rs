@@ -93,10 +93,16 @@ pub enum FieldValueSlice<'a> {
     SlicedFieldReference(&'a [SlicedFieldReference]),
 }
 
-#[derive(Clone, Copy)]
 pub enum FieldValueBlock<'a, T> {
     Plain(&'a [T]),
     WithRunLength(&'a T, RunLength),
+}
+
+impl<'a, T> Copy for FieldValueBlock<'a, T> {}
+impl<'a, T> Clone for FieldValueBlock<'a, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
 }
 
 pub enum DynFieldValueBlock<'a> {
