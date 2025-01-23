@@ -4022,6 +4022,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "typeline_core",
+ "typeline_ext_utils",
  "url",
  "webpki-roots",
 ]
@@ -4085,6 +4086,7 @@ dependencies = [
 name = "typeline_ext_utils"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "bstr",
  "indexmap 2.7.0",
  "metamatch 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -4092,6 +4094,7 @@ dependencies = [
  "num",
  "num-order",
  "primes",
+ "regex",
  "rstest",
  "typeline_core",
 ]

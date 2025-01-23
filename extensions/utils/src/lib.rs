@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use avg::parse_op_avg;
+use chunks::parse_op_chunks;
 use collect::parse_op_collect;
 use dup::{parse_op_drop, parse_op_dup};
 use eliminate_errors::parse_op_eliminate_errors;
@@ -10,8 +11,10 @@ use filter::parse_op_filter;
 use flatten::parse_op_flatten;
 use from_tyson::create_op_from_tyson;
 use head::parse_op_head;
+use join::parse_op_join;
 use max::parse_op_max;
 use primes::parse_op_primes;
+use sequence::{parse_op_seq, SequenceMode};
 use string_utils::{
     create_op_chars, create_op_lines, create_op_to_tyson, create_op_trim,
 };
@@ -31,6 +34,7 @@ use typeline_core::{
 use typename::create_op_typename;
 
 pub mod avg;
+pub mod chunks;
 pub mod collect;
 pub mod dup;
 pub mod eliminate_errors;
@@ -40,9 +44,11 @@ pub mod filter;
 pub mod flatten;
 pub mod from_tyson;
 pub mod head;
+pub mod join;
 pub mod lines;
 pub mod max;
 pub mod primes;
+pub mod sequence;
 pub mod string_utils;
 pub mod sum;
 pub mod tail;
@@ -81,6 +87,18 @@ impl Extension for UtilsExtension {
             "sum" => parse_op_sum(&expr)?,
             "avg" => parse_op_avg(&expr)?,
             "max" => parse_op_max(&expr)?,
+            "chunks" => parse_op_chunks(sess, arg)?,
+            "join" | "j" => parse_op_join(&expr)?,
+            "seq" => parse_op_seq(sess, &expr, SequenceMode::Sequence, false)?,
+            "seqn" => parse_op_seq(sess, &expr, SequenceMode::Sequence, true)?,
+            "enum" => parse_op_seq(sess, &expr, SequenceMode::Enum, false)?,
+            "enumn" => parse_op_seq(sess, &expr, SequenceMode::Enum, true)?,
+            "enum-u" => {
+                parse_op_seq(sess, &expr, SequenceMode::EnumUnbounded, false)?
+            }
+            "enumn-u" => {
+                parse_op_seq(sess, &expr, SequenceMode::EnumUnbounded, true)?
+            }
             "eliminate_errors" | "ee" => parse_op_eliminate_errors(&expr)?,
             "filter" => parse_op_filter(&expr)?,
             "primes" => parse_op_primes(&expr)?,

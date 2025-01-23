@@ -5,7 +5,6 @@ use typeline::{
         compute::create_op_compute,
         foreach::create_op_foreach,
         print::{create_op_print_with_opts, PrintOptions},
-        sequence::create_op_enum_unbounded,
         utils::writable::MutexedWriteableTargetOwner,
     },
     options::chain_settings::SettingConversionError,
@@ -20,7 +19,6 @@ use typeline_core::{
         file_reader::create_op_file_reader_custom,
         fork::create_op_fork,
         format::create_op_format,
-        join::create_op_join_str,
         key::create_op_key,
         literal::{
             create_op_error, create_op_int_n, create_op_literal,
@@ -29,7 +27,6 @@ use typeline_core::{
         nop_copy::create_op_nop_copy,
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
         select::create_op_select,
-        sequence::{create_op_enum, create_op_seq, create_op_seqn},
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::{
@@ -40,7 +37,14 @@ use typeline_core::{
     utils::test_utils::{ErroringStream, SliceReader, TricklingStream},
 };
 use typeline_ext_utils::{
-    dup::create_op_dup, string_utils::create_op_chars, sum::create_op_sum,
+    dup::create_op_dup,
+    join::create_op_join_str,
+    sequence::{
+        create_op_enum, create_op_enum_unbounded, create_op_seq,
+        create_op_seqn,
+    },
+    string_utils::create_op_chars,
+    sum::create_op_sum,
     tail::create_op_tail,
 };
 
@@ -103,6 +107,8 @@ fn trickling_stream() -> Result<(), TypelineError> {
 #[case(3)]
 #[case(4)]
 fn sequence(#[case] batch_size: usize) -> Result<(), TypelineError> {
+    use typeline_ext_utils::sequence::create_op_seq;
+
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)
         .unwrap()

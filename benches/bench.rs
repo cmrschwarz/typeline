@@ -8,12 +8,10 @@ use typeline::{
         foreach::create_op_foreach,
         forkcat::create_op_forkcat,
         format::create_op_format,
-        join::create_op_join,
         regex::{
             create_op_regex, create_op_regex_lines, create_op_regex_with_opts,
             RegexOptions,
         },
-        sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
     typeline_error::{ContextualizedTypelineError, TypelineError},
@@ -22,8 +20,8 @@ use typeline::{
     },
 };
 use typeline_ext_utils::{
-    head::create_op_head, string_utils::create_op_lines, sum::create_op_sum,
-    tail::create_op_tail,
+    head::create_op_head, join::create_op_join, sequence::create_op_seq,
+    string_utils::create_op_lines, sum::create_op_sum, tail::create_op_tail,
 };
 
 #[allow(unused)]

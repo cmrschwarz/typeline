@@ -10,7 +10,6 @@ use typeline_core::{
     operators::{
         file_reader::create_op_file_reader_custom,
         format::create_op_format,
-        join::{create_op_join, create_op_join_str},
         key::create_op_key,
         literal::{
             create_op_error, create_op_int, create_op_literal, create_op_str,
@@ -18,13 +17,16 @@ use typeline_core::{
         },
         regex::{create_op_regex_with_opts, RegexOptions},
         select::create_op_select,
-        sequence::{create_op_enum, create_op_seq, create_op_seqn},
     },
     options::context_builder::ContextBuilder,
     typeline_error::TypelineError,
     utils::test_utils::{ErroringStream, SliceReader},
 };
-use typeline_ext_utils::dup::create_op_dup;
+use typeline_ext_utils::{
+    dup::create_op_dup,
+    join::{create_op_join, create_op_join_str},
+    sequence::{create_op_enum, create_op_seq, create_op_seqn},
+};
 
 #[test]
 fn join() -> Result<(), TypelineError> {

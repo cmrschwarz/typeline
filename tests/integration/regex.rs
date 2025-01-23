@@ -10,14 +10,15 @@ use typeline_core::{
             create_op_regex, create_op_regex_lines, create_op_regex_with_opts,
             RegexOptions,
         },
-        sequence::create_op_seq,
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
     typeline_error::TypelineError,
     utils::{int_string_conversions::i64_to_str, test_utils::SliceReader},
 };
-use typeline_ext_utils::{dup::create_op_dup, string_utils::create_op_lines};
+use typeline_ext_utils::{
+    dup::create_op_dup, sequence::create_op_seq, string_utils::create_op_lines,
+};
 
 #[test]
 fn lines_regex() -> Result<(), TypelineError> {
@@ -122,6 +123,8 @@ fn large_batch_seq(
     #[case] count: i64,
     #[case] batch_size: usize,
 ) -> Result<(), TypelineError> {
+    use typeline_ext_utils::sequence::create_op_seq;
+
     let re = regex::Regex::new(r"\d{1,3}").unwrap();
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)

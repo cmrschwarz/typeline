@@ -6,17 +6,19 @@ use typeline_core::{
     operators::{
         forkcat::create_op_forkcat,
         format::create_op_format,
-        join::create_op_join,
         literal::create_op_str,
         nop::create_op_nop,
         regex::create_op_regex,
-        sequence::{create_op_seq, create_op_seqn},
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
     typeline_error::TypelineError,
 };
-use typeline_ext_utils::dup::create_op_dup;
+use typeline_ext_utils::{
+    dup::create_op_dup,
+    join::create_op_join,
+    sequence::{create_op_seq, create_op_seqn},
+};
 
 #[test]
 fn empty_forkcat() -> Result<(), TypelineError> {

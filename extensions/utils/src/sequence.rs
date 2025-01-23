@@ -9,9 +9,19 @@ use std::{
 
 use arrayvec::ArrayVec;
 
-use crate::{
+use typeline_core::{
     cli::call_expr::{CallExpr, Span},
-    liveness_analysis::VarLivenessSlotKind,
+    context::SessionData,
+    liveness_analysis::{LivenessData, VarLivenessSlotKind},
+    operators::{
+        compute::operations::avx2::AVX2_I64_ELEM_COUNT,
+        errors::OperatorCreationError,
+        operator::{Operator, OperatorId, OperatorName},
+        utils::{
+            basic_generator::{BasicGenerator, BasicGeneratorWrapper},
+            generator_transform_update::{GeneratorMode, GeneratorSequence},
+        },
+    },
     options::session_setup::SessionSetupData,
     record_data::{
         field::Field, variable_sized_type_inserter::VariableSizeTypeInserter,
@@ -21,16 +31,6 @@ use crate::{
         int_string_conversions::{
             i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
         },
-    },
-};
-
-use super::{
-    compute::operations::avx2::AVX2_I64_ELEM_COUNT,
-    errors::OperatorCreationError,
-    operator::{Operator, OperatorName},
-    utils::{
-        basic_generator::{BasicGenerator, BasicGeneratorWrapper},
-        generator_transform_update::{GeneratorMode, GeneratorSequence},
     },
 };
 
@@ -262,9 +262,9 @@ impl BasicGenerator for OpSequence {
 
     fn on_liveness_computed(
         &mut self,
-        sess: &mut crate::context::SessionData,
-        ld: &crate::liveness_analysis::LivenessData,
-        op_id: crate::operators::operator::OperatorId,
+        sess: &mut SessionData,
+        ld: &LivenessData,
+        op_id: OperatorId,
     ) {
         let output_id = sess.operator_bases[op_id].outputs_start;
         self.non_string_reads = ld

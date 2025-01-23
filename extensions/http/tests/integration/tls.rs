@@ -4,14 +4,14 @@ use super::https_mock_server::{
 };
 use reqwest::{Certificate, ClientBuilder};
 use typeline_core::{
-    operators::{format::create_op_format, sequence::create_op_seqn},
-    options::context_builder::ContextBuilder,
-    typeline_error::TypelineError,
+    operators::format::create_op_format,
+    options::context_builder::ContextBuilder, typeline_error::TypelineError,
     utils::io::find_free_port,
 };
 use typeline_ext_http::{
     http::create_op_GET_with_opts, tls_client::TlsSettings,
 };
+use typeline_ext_utils::sequence::create_op_seqn;
 
 // silence warning generated bv the proc macro. annoying.
 // MSRV(1.81): use `#[expect]` instead

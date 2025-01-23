@@ -1,16 +1,13 @@
 use rstest::rstest;
 use typeline_core::{
     operators::{
-        chunks::create_op_chunks,
         compute::{create_op_compute, create_op_to_int},
         file_reader::create_op_file_reader_custom,
         foreach::create_op_foreach,
         forkcat::create_op_forkcat,
-        join::create_op_join,
         literal::{create_op_literal, create_op_v, Literal},
         regex::{create_op_regex_with_opts, RegexOptions},
         select::create_op_select,
-        sequence::{create_op_enum, create_op_seq, create_op_seqn},
     },
     options::{
         context_builder::ContextBuilder, session_setup::SessionSetupOptions,
@@ -21,14 +18,17 @@ use typeline_core::{
 };
 use typeline_ext_utils::{
     avg::create_op_avg,
+    chunks::create_op_chunks,
     collect::create_op_collect,
     dup::create_op_dup,
     eliminate_errors::create_op_eliminate_errors,
     explode::create_op_explode,
     flatten::create_op_flatten,
     head::create_op_head,
+    join::create_op_join,
     max::create_op_max,
     primes::create_op_primes,
+    sequence::{create_op_enum, create_op_seq, create_op_seqn},
     string_utils::create_op_lines,
     sum::create_op_sum,
     tail::{create_op_tail, create_op_tail_add},

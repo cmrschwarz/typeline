@@ -7,7 +7,6 @@ use typeline_core::{
         errors::{OperatorApplicationError, OperatorCreationError},
         literal::create_op_int,
         operator::OperatorId,
-        sequence::create_op_seqn,
     },
     options::context_builder::ContextBuilder,
     record_data::{
@@ -18,6 +17,7 @@ use typeline_core::{
     utils::indexing_type::IndexingType,
 };
 use typeline_ext_python::py::create_op_py;
+use typeline_ext_utils::sequence::create_op_seqn;
 
 #[test]
 fn python_basic() -> Result<(), TypelineError> {

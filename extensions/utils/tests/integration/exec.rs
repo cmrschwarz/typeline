@@ -1,9 +1,7 @@
 use typeline_core::{
     operators::{
         foreach::create_op_foreach,
-        join::create_op_join,
         print::{create_op_print_with_opts, PrintOptions},
-        sequence::create_op_seq,
         utils::writable::MutexedWriteableTargetOwner,
     },
     options::{
@@ -13,6 +11,8 @@ use typeline_core::{
 };
 use typeline_ext_utils::{
     exec::create_op_exec_from_strings,
+    join::create_op_join,
+    sequence::create_op_seq,
     string_utils::{create_op_lines, create_op_trim},
 };
 

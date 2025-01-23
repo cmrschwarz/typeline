@@ -4,14 +4,12 @@ use typeline::operators::{
     string_sink::{create_op_string_sink, StringSinkHandle},
 };
 use typeline_core::{
-    operators::{
-        literal::{create_op_int, create_op_str},
-        sequence::create_op_seqn,
-    },
+    operators::literal::{create_op_int, create_op_str},
     options::context_builder::ContextBuilder,
     typeline_error::TypelineError,
     utils::test_utils::int_sequence_strings,
 };
+use typeline_ext_utils::sequence::create_op_seqn;
 
 #[test]
 fn simple_aggregate() -> Result<(), TypelineError> {

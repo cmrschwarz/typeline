@@ -1,9 +1,21 @@
 use metamatch::metamatch;
-use once_cell::sync::Lazy;
 use regex::Regex;
 use std::{collections::VecDeque, sync::Arc};
+use typeline_core::{
+    context::SessionData,
+    job::Job,
+    operators::{
+        errors::{OperatorApplicationError, OperatorCreationError},
+        operator::{
+            Operator, OperatorId, OperatorName, PreboundOutputsMap,
+            TransformInstatiation,
+        },
+        print::typed_slice_zst_str,
+        transform::{Transform, TransformId, TransformState},
+    },
+};
 
-use crate::{
+use typeline_core::{
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
     job::{JobData, TransformManager},
     options::chain_settings::{
@@ -51,13 +63,6 @@ use crate::{
         text_write::MaybeTextWritePanicAdapter,
         universe::{RefHandoutStack, Universe},
     },
-};
-
-use super::{
-    errors::{OperatorApplicationError, OperatorCreationError},
-    operator::{Operator, OperatorName, TransformInstatiation},
-    print::typed_slice_zst_str,
-    transform::{Transform, TransformId, TransformState},
 };
 
 #[derive(Clone)]
@@ -125,12 +130,13 @@ pub struct TfJoin<'a> {
     buffer: MaybeText,
 }
 
-static ARG_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^(?:join|j)(?<insert_count>[0-9]+)?(-(?<drop_incomplete>d))?$",
-    )
-    .unwrap()
-});
+static ARG_REGEX: std::sync::LazyLock<Regex> =
+    std::sync::LazyLock::new(|| {
+        Regex::new(
+            r"^(?:join|j)(?<insert_count>[0-9]+)?(-(?<drop_incomplete>d))?$",
+        )
+        .unwrap()
+    });
 pub fn argument_matches_op_join(arg: &str) -> bool {
     ARG_REGEX.is_match(arg)
 }
@@ -745,7 +751,7 @@ impl Operator for OpJoin {
         "join".into()
     }
 
-    fn debug_op_name(&self) -> super::operator::OperatorName {
+    fn debug_op_name(&self) -> OperatorName {
         let mut str = String::from("join");
         str.push_str(
             self.join_count
@@ -759,29 +765,25 @@ impl Operator for OpJoin {
         str.into()
     }
 
-    fn output_count(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: super::operator::OperatorId,
-    ) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
 
     fn has_dynamic_outputs(
         &self,
-        _sess: &crate::context::SessionData,
-        _op_id: super::operator::OperatorId,
+        _sess: &SessionData,
+        _op_id: OperatorId,
     ) -> bool {
         false
     }
 
     fn build_transforms<'a>(
         &'a self,
-        job: &mut crate::job::Job<'a>,
+        job: &mut Job<'a>,
         tf_state: &mut TransformState,
-        _op_id: super::operator::OperatorId,
-        _prebound_outputs: &super::operator::PreboundOutputsMap,
-    ) -> super::operator::TransformInstatiation<'a> {
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
+    ) -> TransformInstatiation<'a> {
         let jd = &mut job.job_data;
         let input_field_ref_offset = jd.field_mgr.register_field_reference(
             tf_state.output_field,

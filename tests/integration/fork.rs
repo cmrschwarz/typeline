@@ -5,12 +5,12 @@ use typeline_core::{
         fork::create_op_fork,
         literal::{create_op_int, create_op_str},
         regex::create_op_regex,
-        sequence::create_op_seq,
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     options::context_builder::ContextBuilder,
     typeline_error::TypelineError,
 };
+use typeline_ext_utils::sequence::create_op_seq;
 
 #[rstest]
 #[case(1)]
@@ -18,6 +18,8 @@ use typeline_core::{
 #[case(3)]
 #[case(4)]
 fn unlink_after_fork(#[case] batch_size: usize) -> Result<(), TypelineError> {
+    use typeline_ext_utils::sequence::create_op_seq;
+
     let ss = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .set_batch_size(batch_size)

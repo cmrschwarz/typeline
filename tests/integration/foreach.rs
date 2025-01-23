@@ -1,19 +1,20 @@
 use typeline::operators::{
-    chunks::create_op_chunks,
     count::create_op_count,
     regex::{create_op_regex_with_opts, RegexOptions},
-    sequence::create_op_seq,
 };
 use typeline_core::{
-    operators::{
-        foreach::create_op_foreach, join::create_op_join,
-        literal::create_op_str_n, sequence::create_op_seqn,
-    },
+    operators::{foreach::create_op_foreach, literal::create_op_str_n},
     options::context_builder::ContextBuilder,
     record_data::field_value::FieldValue,
     typeline_error::TypelineError,
 };
-use typeline_ext_utils::{dup::create_op_dup, sum::create_op_sum};
+use typeline_ext_utils::{
+    chunks::create_op_chunks,
+    dup::create_op_dup,
+    join::create_op_join,
+    sequence::{create_op_seq, create_op_seqn},
+    sum::create_op_sum,
+};
 
 #[test]
 fn empty_foreach() -> Result<(), TypelineError> {

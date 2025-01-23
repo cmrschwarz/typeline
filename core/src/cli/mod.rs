@@ -4,7 +4,6 @@ use crate::{
         atom::parse_op_atom,
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
-        chunks::parse_op_chunks,
         compute::parse_op_compute,
         count::parse_op_count,
         file_reader::{parse_op_file_reader, parse_op_stdin},
@@ -12,7 +11,6 @@ use crate::{
         fork::parse_op_fork,
         forkcat::parse_op_forkcat,
         format::parse_op_format,
-        join::parse_op_join,
         key::parse_op_key,
         literal::{
             parse_op_bytes, parse_op_error, parse_op_int,
@@ -26,7 +24,6 @@ use crate::{
         print::parse_op_print,
         regex::parse_op_regex,
         select::parse_op_select,
-        sequence::{parse_op_seq, SequenceMode},
         to_str::parse_op_to_str,
         transparent::parse_op_transparent,
     },
@@ -207,7 +204,7 @@ pub fn parse_operator_data(
         "null" => parse_op_literal_zst(&expr, Literal::Null)?,
         "undefined" => parse_op_literal_zst(&expr, Literal::Undefined)?,
         "to_str" => parse_op_to_str(sess, expr)?,
-        "join" | "j" => parse_op_join(&expr)?,
+
         "r" | "regex" => parse_op_regex(sess, expr)?,
         "_" => parse_op_last_cli_output(sess, &expr)?,
         "c" | "compute" => parse_op_compute(sess, &expr)?,
@@ -217,21 +214,12 @@ pub fn parse_operator_data(
         "stdin" | "in" => parse_op_stdin(sess, expr)?,
         "key" => parse_op_key(sess, arg)?,
         "select" => parse_op_select(&expr)?,
-        "seq" => parse_op_seq(sess, &expr, SequenceMode::Sequence, false)?,
-        "seqn" => parse_op_seq(sess, &expr, SequenceMode::Sequence, true)?,
-        "enum" => parse_op_seq(sess, &expr, SequenceMode::Enum, false)?,
-        "enumn" => parse_op_seq(sess, &expr, SequenceMode::Enum, true)?,
-        "enum-u" => {
-            parse_op_seq(sess, &expr, SequenceMode::EnumUnbounded, false)?
-        }
-        "enumn-u" => {
-            parse_op_seq(sess, &expr, SequenceMode::EnumUnbounded, true)?
-        }
+
         "count" => parse_op_count(&expr)?,
         "nop" | "tl" => parse_op_nop(&expr)?,
         "fork" => parse_op_fork(arg)?,
         "foreach" | "fe" => parse_op_foreach(sess, arg)?,
-        "chunks" => parse_op_chunks(sess, &mut arg)?,
+
         "forkcat" | "fc" => parse_op_forkcat(sess, arg)?,
         "call" => parse_op_call(&expr)?,
         "callcc" => parse_op_call_concurrent(&expr)?,

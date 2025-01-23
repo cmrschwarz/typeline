@@ -2,11 +2,19 @@ use std::iter;
 
 use num::Integer;
 
-use crate::{
-    chain::{ChainId, SubchainIndex},
+use typeline_core::{
+    chain::{Chain, ChainId, SubchainIndex},
     cli::call_expr::{Argument, CallExpr, Span},
+    context::SessionData,
     job::{add_transform_to_job, Job, JobData},
-    operators::operator::TransformInstatiation,
+    liveness_analysis::{BasicBlockId, LivenessData},
+    operators::{
+        operator::{
+            OffsetInChain, OperatorName, OutputFieldKind,
+            TransformInstatiation,
+        },
+        transform::DefaultTransformName,
+    },
     options::session_setup::SessionSetupData,
     record_data::{
         group_track::{GroupTrackIterId, GroupTrackIterRef},
@@ -16,7 +24,7 @@ use crate::{
     utils::indexing_type::IndexingType,
 };
 
-use super::{
+use typeline_core::operators::{
     errors::OperatorCreationError,
     nop::create_op_nop,
     operator::{
@@ -63,21 +71,17 @@ pub fn create_op_chunks_with_spans(
 }
 
 impl Operator for OpChunks {
-    fn default_name(&self) -> super::operator::OperatorName {
+    fn default_name(&self) -> OperatorName {
         "chunks".into()
     }
 
-    fn output_count(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: OperatorId,
-    ) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         0
     }
 
     fn has_dynamic_outputs(
         &self,
-        _sess: &crate::context::SessionData,
+        _sess: &SessionData,
         _op_id: OperatorId,
     ) -> bool {
         false
@@ -85,10 +89,10 @@ impl Operator for OpChunks {
 
     fn output_field_kind(
         &self,
-        _sess: &crate::context::SessionData,
+        _sess: &SessionData,
         _op_id: OperatorId,
-    ) -> super::operator::OutputFieldKind {
-        super::operator::OutputFieldKind::SameAsInput
+    ) -> OutputFieldKind {
+        OutputFieldKind::SameAsInput
     }
 
     fn setup(
@@ -111,7 +115,7 @@ impl Operator for OpChunks {
         tf_state: &mut TransformState,
         op_id: OperatorId,
         prebound_outputs: &PreboundOutputsMap,
-    ) -> super::operator::TransformInstatiation<'a> {
+    ) -> TransformInstatiation<'a> {
         let chain_id =
             job.job_data.session_data.operator_bases[op_id].chain_id;
         let subchain_id = job.job_data.session_data.chains[chain_id].subchains
@@ -209,13 +213,10 @@ impl Operator for OpChunks {
                 next_actor_ref,
             );
 
-        #[cfg(feature = "debug_state")]
-        {
-            job.job_data.group_track_manager.group_tracks
-                [trailer_tf_state.output_group_track_id]
-                .borrow_mut()
-                .corresponding_header = Some(group_track);
-        }
+        job.job_data.group_track_manager.group_tracks
+            [trailer_tf_state.output_group_track_id]
+            .borrow_mut()
+            .set_corresponding_header(Some(group_track));
 
         let trailer_tf_id = add_transform_to_job(
             &mut job.job_data,
@@ -237,12 +238,12 @@ impl Operator for OpChunks {
 
     fn update_bb_for_op(
         &self,
-        sess: &crate::context::SessionData,
-        ld: &mut crate::liveness_analysis::LivenessData,
+        sess: &SessionData,
+        ld: &mut LivenessData,
         _op_id: OperatorId,
-        op_n: super::operator::OffsetInChain,
-        cn: &crate::chain::Chain,
-        bb_id: crate::liveness_analysis::BasicBlockId,
+        op_n: OffsetInChain,
+        cn: &Chain,
+        bb_id: BasicBlockId,
     ) -> bool {
         ld.basic_blocks[bb_id]
             .calls
@@ -291,7 +292,7 @@ impl<'a> Transform<'a> for TfChunksHeader {
         &self,
         _jd: &JobData,
         _tf_id: TransformId,
-    ) -> super::transform::DefaultTransformName {
+    ) -> DefaultTransformName {
         "chunks_header".into()
     }
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {
@@ -398,7 +399,7 @@ impl<'a> Transform<'a> for TfChunksTrailer {
         &self,
         _jd: &JobData,
         _tf_id: TransformId,
-    ) -> super::transform::DefaultTransformName {
+    ) -> DefaultTransformName {
         "chunks_trailer".into()
     }
     fn update(&mut self, jd: &mut JobData<'a>, tf_id: TransformId) {

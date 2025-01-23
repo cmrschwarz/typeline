@@ -2,7 +2,6 @@ use rstest::rstest;
 use typeline::{
     operators::{
         operator::OperatorId,
-        sequence::create_op_enum,
         string_sink::{create_op_string_sink, StringSinkHandle},
     },
     utils::indexing_type::IndexingType,
@@ -18,12 +17,12 @@ use typeline_core::{
             create_op_stream_error, create_op_stream_str, create_op_v,
         },
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
-        sequence::create_op_seq,
     },
     options::context_builder::ContextBuilder,
     typeline_error::TypelineError,
     utils::{int_string_conversions::i64_to_str, test_utils::SliceReader},
 };
+use typeline_ext_utils::sequence::{create_op_enum, create_op_seq};
 
 #[test]
 fn debug_format_surrounds_with_quotes() -> Result<(), TypelineError> {

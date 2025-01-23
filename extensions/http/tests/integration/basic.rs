@@ -3,13 +3,13 @@ use typeline_core::{
         format::create_op_format,
         print::{create_op_print_with_opts, PrintOptions},
         regex::create_op_regex,
-        sequence::create_op_seqn,
         utils::writable::MutexedWriteableTargetOwner,
     },
     options::context_builder::ContextBuilder,
     typeline_error::TypelineError,
 };
 use typeline_ext_http::http::create_op_GET;
+use typeline_ext_utils::sequence::create_op_seqn;
 
 pub fn setup_mockito_test_server() -> mockito::ServerGuard {
     let mut server = mockito::Server::new();

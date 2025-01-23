@@ -1054,6 +1054,17 @@ impl GroupTrack {
                 .wrapping_add(self.group_lengths.len()),
         )
     }
+
+    pub fn set_corresponding_header(
+        &mut self,
+        #[cfg_attr(not(feature = "debug_state"), allow(unused_variables))]
+        header: Option<GroupTrackId>,
+    ) {
+        #[cfg(feature = "debug_state")]
+        {
+            self.corresponding_header = header;
+        }
+    }
 }
 
 pub fn pass_on_leading_groups_to_parent_raw(
