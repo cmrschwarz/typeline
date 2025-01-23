@@ -31,8 +31,9 @@ use crate::{
     },
     record_data::{
         array::Array,
-        field_value::{FieldValue, FieldValueKind, Object, ObjectKeysStored},
+        field_value::{FieldValue, FieldValueKind},
         formattable::{FormattingContext, RealizedFormatKey},
+        object::{Object, ObjectKeysStored},
         scope_manager::{ScopeId, DEFAULT_SCOPE_ID},
     },
     typeline_error::TypelineError,
@@ -1311,8 +1312,7 @@ mod test {
             cli_args_into_arguments_iter, parse_call_expr, CliArgumentError,
         },
         record_data::{
-            array::Array,
-            field_value::{FieldValue, Object},
+            array::Array, field_value::FieldValue, object::Object,
             scope_manager::DEFAULT_SCOPE_ID,
         },
     };

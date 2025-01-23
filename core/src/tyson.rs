@@ -12,8 +12,7 @@ use thiserror::Error;
 use crate::{
     extension::ExtensionRegistry,
     record_data::{
-        array::Array,
-        field_value::{FieldValueUnboxed, Object},
+        array::Array, field_value::FieldValueUnboxed, object::Object,
     },
     utils::{
         int_string_conversions::I64_MAX_DECIMAL_DIGITS,
@@ -949,7 +948,7 @@ mod test {
     #[case("{\"baz\": 3}", "baz")]
     #[case("{\u{d8}: 3}", "\u{d8}")]
     fn object_keys(#[case] input: &str, #[case] key_name: &str) {
-        use crate::record_data::field_value::Object;
+        use crate::record_data::object::Object;
 
         assert_eq!(
             parse(input),

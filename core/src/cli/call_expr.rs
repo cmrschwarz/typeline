@@ -10,8 +10,9 @@ use crate::{
     },
     record_data::{
         array::Array,
-        field_value::{FieldValue, FieldValueKind, Object, ObjectKeysStored},
+        field_value::{FieldValue, FieldValueKind},
         formattable::{Formattable, FormattingContext, RealizedFormatKey},
+        object::{Object, ObjectKeysStored},
         scope_manager::ScopeId,
     },
     utils::{

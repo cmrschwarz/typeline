@@ -19,11 +19,12 @@ use typeline_core::{
     record_data::{
         field::{FieldId, FieldManager, FieldRefOffset},
         field_data::FieldData,
-        field_value::{FieldValue, Object},
+        field_value::FieldValue,
         field_value_ref::FieldValueSlice,
         iter::ref_iter::RefAwareFieldValueRangeIter,
         iter_hall::FieldIterId,
         match_set::{MatchSetId, MatchSetManager},
+        object::Object,
         push_interface::PushInterface,
         scope_manager::ScopeManager,
         varying_type_inserter::VaryingTypeInserter,

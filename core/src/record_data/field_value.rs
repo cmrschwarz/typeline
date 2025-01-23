@@ -1,6 +1,5 @@
 use std::{any::Any, fmt::Display, mem::ManuallyDrop};
 
-use indexmap::IndexMap;
 use metamatch::metamatch;
 use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
 
@@ -11,7 +10,6 @@ use crate::{
     utils::{
         force_cast,
         maybe_text::{MaybeText, MaybeTextRef},
-        string_store::StringStoreEntry,
         text_write::MaybeTextWrite,
     },
 };
@@ -23,6 +21,7 @@ use super::{
     field_data::{FieldValueRepr, FieldValueType, FixedSizeFieldValueType},
     field_value_ref::{FieldValueRef, FieldValueRefMut},
     formattable::{Formattable, FormattingContext},
+    object::Object,
     scope_manager::OpDeclRef,
     stream_value::StreamValueId,
 };
@@ -123,15 +122,6 @@ pub struct Undefined;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GroupSeparator;
 
-pub type ObjectKeysStored = IndexMap<String, FieldValue>;
-pub type ObjectKeysInterned = IndexMap<StringStoreEntry, FieldValue>;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Object {
-    KeysStored(ObjectKeysStored),
-    KeysInterned(ObjectKeysInterned),
-}
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FieldReference {
     pub field_ref_offset: FieldRefOffset,
@@ -166,49 +156,6 @@ impl FieldReference {
 impl From<FieldRefOffset> for FieldReference {
     fn from(field_ref_offset: FieldRefOffset) -> Self {
         FieldReference { field_ref_offset }
-    }
-}
-
-impl Default for Object {
-    fn default() -> Self {
-        Object::KeysStored(IndexMap::default())
-    }
-}
-
-impl Object {
-    pub fn new_keys_stored() -> Object {
-        Object::KeysStored(IndexMap::default())
-    }
-    pub fn len(&self) -> usize {
-        match self {
-            Object::KeysStored(d) => d.len(),
-            Object::KeysInterned(d) => d.len(),
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn clear(&mut self) {
-        match self {
-            Object::KeysStored(o) => o.clear(),
-            Object::KeysInterned(o) => o.clear(),
-        }
-    }
-    pub fn push_stored_key(&mut self, key: String, value: FieldValue) {
-        if let Object::KeysStored(o) = self {
-            o.insert(key, value);
-        } else {
-            unreachable!()
-        }
-    }
-}
-
-impl FromIterator<(String, FieldValue)> for Object {
-    fn from_iter<I: IntoIterator<Item = (String, FieldValue)>>(
-        iter: I,
-    ) -> Self {
-        Object::KeysStored(IndexMap::from_iter(iter))
     }
 }
 

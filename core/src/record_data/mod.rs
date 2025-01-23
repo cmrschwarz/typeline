@@ -18,6 +18,7 @@ pub mod iter;
 pub mod iter_hall;
 pub mod iter_hall_action_applicator;
 pub mod match_set;
+pub mod object;
 pub mod push_interface;
 pub mod record_buffer;
 pub mod record_set;

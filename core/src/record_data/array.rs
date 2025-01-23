@@ -14,8 +14,9 @@ use crate::{
 use super::{
     custom_data::CustomDataBox,
     field_data::{FieldValueRepr, FixedSizeFieldValueType},
-    field_value::{FieldReference, Object, SlicedFieldReference},
+    field_value::{FieldReference, SlicedFieldReference},
     field_value_ref::FieldValueRef,
+    object::Object,
     scope_manager::OpDeclRef,
     stream_value::StreamValueId,
 };

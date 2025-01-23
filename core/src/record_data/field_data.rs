@@ -2,8 +2,7 @@ use super::{
     array::Array,
     custom_data::CustomDataBox,
     field_value::{
-        FieldReference, FieldValueKind, Null, Object, SlicedFieldReference,
-        Undefined,
+        FieldReference, FieldValueKind, Null, SlicedFieldReference, Undefined,
     },
     field_value_ref::value_as_bytes,
     iter::{
@@ -15,6 +14,7 @@ use super::{
         },
     },
     match_set::MatchSetManager,
+    object::Object,
     scope_manager::OpDeclRef,
     varying_type_inserter::VaryingTypeInserter,
 };

@@ -2,8 +2,9 @@ use std::{borrow::Cow, ops::Deref};
 
 use super::{
     array::Array,
-    field_value::{FieldValue, FieldValueUnboxed, Object},
+    field_value::{FieldValue, FieldValueUnboxed},
     field_value_ref::FieldValueRef,
+    object::Object,
 };
 use num::{BigInt, FromPrimitive};
 use serde::{

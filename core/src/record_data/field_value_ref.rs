@@ -12,10 +12,11 @@ use super::{
     },
     field_data_ref::FieldDataRef,
     field_value::{
-        FieldReference, FieldValue, FieldValueKind, FieldValueUnboxed, Object,
+        FieldReference, FieldValue, FieldValueKind, FieldValueUnboxed,
         SlicedFieldReference,
     },
     iter::field_value_slice_iter::FieldValueSliceIter,
+    object::Object,
     scope_manager::OpDeclRef,
     stream_value::StreamValueId,
 };

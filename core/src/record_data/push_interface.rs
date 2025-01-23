@@ -17,8 +17,7 @@ use super::{
         RunLength,
     },
     field_value::{
-        FieldReference, FieldValue, FieldValueUnboxed, Object,
-        SlicedFieldReference,
+        FieldReference, FieldValue, FieldValueUnboxed, SlicedFieldReference,
     },
     field_value_ref::{FieldValueSlice, ValidTypedRange},
     formattable::{Formattable, FormattingContext, RealizedFormatKey},
@@ -32,6 +31,7 @@ use super::{
         },
     },
     match_set::MatchSetManager,
+    object::Object,
     stream_value::{StreamValueId, StreamValueManager},
 };
 use crate::{

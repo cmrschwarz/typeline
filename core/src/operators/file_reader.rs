@@ -22,7 +22,7 @@ use crate::{
     record_data::{
         field::FieldIterRef,
         field_data::INLINE_STR_MAX_LEN,
-        field_value::ObjectKeysStored,
+        object::ObjectKeysStored,
         push_interface::PushInterface,
         stream_value::{
             StreamValue, StreamValueBufferMode, StreamValueData,

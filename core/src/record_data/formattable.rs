@@ -14,10 +14,8 @@ use crate::{
     operators::errors::OperatorApplicationError,
     options::chain_settings::RationalsPrintMode,
     record_data::{
-        array::Array,
-        field_value::{Object, Undefined},
-        scope_manager::OpDeclRef,
-        stream_value::StreamValueData,
+        array::Array, field_value::Undefined, object::Object,
+        scope_manager::OpDeclRef, stream_value::StreamValueData,
     },
     utils::{
         counting_writer::{

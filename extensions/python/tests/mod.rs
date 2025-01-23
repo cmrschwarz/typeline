@@ -9,10 +9,7 @@ use typeline_core::{
         operator::OperatorId,
     },
     options::context_builder::ContextBuilder,
-    record_data::{
-        array::Array,
-        field_value::{FieldValue, Object},
-    },
+    record_data::{array::Array, field_value::FieldValue, object::Object},
     typeline_error::TypelineError,
     utils::indexing_type::IndexingType,
 };

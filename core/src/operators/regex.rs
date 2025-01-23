@@ -18,9 +18,7 @@ use crate::{
         field::{Field, FieldId, FieldRefOffset},
         field_action::FieldActionKind,
         field_data::{FieldData, FieldValueRepr, RunLength},
-        field_value::{
-            FieldReference, FieldValue, ObjectKeysStored, SlicedFieldReference,
-        },
+        field_value::{FieldReference, FieldValue, SlicedFieldReference},
         field_value_ref::FieldValueSlice,
         formattable::RealizedFormatKey,
         iter::{
@@ -33,6 +31,7 @@ use crate::{
             },
         },
         iter_hall::{FieldIterId, IterKind},
+        object::ObjectKeysStored,
         push_interface::PushInterface,
         stream_value::StorageAgnosticStreamValueDataRef,
         varying_type_inserter::VaryingTypeInserter,

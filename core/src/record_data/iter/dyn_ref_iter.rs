@@ -17,7 +17,7 @@ use super::super::{
     array::Array,
     custom_data::CustomDataBox,
     field_data::RunLength,
-    field_value::{FieldReference, Object, SlicedFieldReference},
+    field_value::{FieldReference, SlicedFieldReference},
     field_value_ref::{FieldValueRef, ValidTypedRange},
     iter::{
         field_value_slice_iter::{
@@ -25,6 +25,7 @@ use super::super::{
         },
         ref_iter::{AnyRefSliceIter, RangeOffsets, RefAwareTypedRange},
     },
+    object::Object,
     stream_value::StreamValueId,
 };
 
