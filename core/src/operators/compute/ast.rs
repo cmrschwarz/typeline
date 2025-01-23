@@ -160,6 +160,14 @@ impl UnaryOpKind {
         };
         Precedence::from_usize(v)
     }
+    pub fn to_str(self) -> &'static str {
+        match self {
+            UnaryOpKind::LogicalNot => "!",
+            UnaryOpKind::BitwiseNot => "~",
+            UnaryOpKind::UnaryPlus => "+",
+            UnaryOpKind::UnaryMinus => "-",
+        }
+    }
 }
 
 impl BinaryOpKind {
@@ -270,6 +278,12 @@ impl BinaryOpKind {
 }
 
 impl Display for BinaryOpKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_str())
+    }
+}
+
+impl Display for UnaryOpKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.to_str())
     }

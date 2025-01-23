@@ -2,7 +2,9 @@ use bstr::ByteSlice;
 use num::{BigInt, BigRational, FromPrimitive};
 
 use super::{
-    ast::{AccessIdx, BinaryOpKind, BuiltinFunction, ExternIdentId},
+    ast::{
+        AccessIdx, BinaryOpKind, BuiltinFunction, ExternIdentId, UnaryOpKind,
+    },
     compiler::{
         Compilation, Instruction, InstructionId, TargetRef, TempFieldIdRaw,
         ValueAccess,
@@ -13,6 +15,7 @@ use super::{
             BinaryOpAddBigIntI64, BinaryOpAddF64F64, BinaryOpAddF64I64,
             BinaryOpAddI64F64, BinaryOpAddI64I64,
         },
+        bitwise_not::UnaryOpBitwiseNotI64,
         div::{
             BinaryOpDivF64F64, BinaryOpDivF64I64, BinaryOpDivI64F64,
             BinaryOpDivI64I64,
@@ -21,12 +24,14 @@ use super::{
         ge::{BasicBinaryOpGe, BinaryOpGeF64F64, BinaryOpGeI64I64},
         gt::{BasicBinaryOpGt, BinaryOpGtF64F64, BinaryOpGtI64I64},
         le::{BasicBinaryOpLe, BinaryOpLeF64F64, BinaryOpLeI64I64},
+        logical_not::UnaryOpLogicalNotI64,
         lt::{BasicBinaryOpLt, BinaryOpLtF64F64, BinaryOpLtI64I64},
         mul::{
             BinaryOpMulBigIntI64, BinaryOpMulF64F64, BinaryOpMulF64I64,
             BinaryOpMulI64F64, BinaryOpMulI64I64,
         },
         ne::{BasicBinaryOpNe, BinaryOpNeF64F64, BinaryOpNeI64I64},
+        negate::{UnaryOpNegateF64, UnaryOpNegateI64},
         pow::{
             BinaryOpPowBigIntI64, BinaryOpPowF64F64, BinaryOpPowF64I64,
             BinaryOpPowI64F64, BinaryOpPowI64I64,
@@ -35,7 +40,7 @@ use super::{
             BinaryOpSubBigIntI64, BinaryOpSubF64F64, BinaryOpSubF64I64,
             BinaryOpSubI64F64, BinaryOpSubI64I64,
         },
-        BinaryOp, ErrorToOperatorApplicationError,
+        BinaryOp, ErrorToOperatorApplicationError, UnaryOp,
     },
     ExternField, ExternFieldIdx, ExternVarData, TempField,
 };
@@ -263,6 +268,24 @@ fn get_executor_input_iter<'a, 'b>(
     }
 }
 
+fn insert_unary_op_type_error(
+    op_id: OperatorId,
+    op_kind: UnaryOpKind,
+    value_kind: FieldValueKind,
+    count: usize,
+    inserter: &mut ExecutorInserter,
+) {
+    inserter.push_error(
+        OperatorApplicationError::new_s(
+            format!("invalid operands for unary op: {op_kind} `{value_kind}`"),
+            op_id,
+        ),
+        count,
+        true,
+        false,
+    );
+}
+
 fn insert_binary_op_type_error(
     op_id: OperatorId,
     op_kind: BinaryOpKind,
@@ -425,6 +448,86 @@ fn execute_binary_op_erroring<Op: BinaryOp>(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+fn execute_unary_op_erroring<Op: UnaryOp>(
+    range: &RefAwareTypedRange,
+    data: &[Op::Value],
+    inserter: &mut ExecutorInserter,
+    op_id: OperatorId,
+) {
+    let mut iter = FieldValueRangeIter::from_range(range, data);
+    while let Some(block) = iter.next_block() {
+        match block {
+            FieldValueBlock::Plain(block_data) => {
+                let len = block_data.len();
+                let mut i = 0;
+                while i < len {
+                    let res =
+                        inserter.reserve_for_fixed_size::<Op::Output>(len - i);
+                    let (len, err) =
+                        Op::calc_until_error(&block_data[i..], res);
+                    unsafe {
+                        inserter.add_count(len);
+                    }
+                    i += len;
+                    if let Some(e) = err {
+                        inserter.push_error(
+                            e.to_operator_application_error(op_id),
+                            1,
+                            true,
+                            true,
+                        );
+                        i += 1;
+                    }
+                }
+            }
+            FieldValueBlock::WithRunLength(val, rl) => {
+                match Op::try_calc_single(val) {
+                    Ok(v) => inserter.push_fixed_size_type(
+                        v,
+                        rl as usize,
+                        true,
+                        false,
+                    ),
+                    Err(e) => {
+                        inserter.push_error(
+                            e.to_operator_application_error(op_id),
+                            rl as usize,
+                            true,
+                            true,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn execute_unary_op_infallible<Op: UnaryOp<Error = Infallible>>(
+    range: &RefAwareTypedRange,
+    data: &[Op::Value],
+    inserter: &mut ExecutorInserter,
+) {
+    let mut iter = FieldValueRangeIter::from_range(range, data);
+    while let Some(block) = iter.next_block() {
+        match block {
+            FieldValueBlock::Plain(block_data) => {
+                let bd_len = block_data.len();
+                let res =
+                    inserter.reserve_for_fixed_size::<Op::Output>(bd_len);
+                let (len, _) = Op::calc_until_error(block_data, res);
+                debug_assert!(bd_len == len);
+                unsafe {
+                    inserter.add_count(len);
+                }
+            }
+            FieldValueBlock::WithRunLength(val, rl) => {
+                let v = Op::try_calc_single(val).unwrap();
+                inserter.push_fixed_size_type(v, rl as usize, true, false)
             }
         }
     }
@@ -1144,7 +1247,101 @@ fn execute_binary_op_for_float_lhs(
     }
 }
 
-fn execute_binary_op(
+fn execute_unary_op_int(
+    op_id: OperatorId,
+    op_kind: UnaryOpKind,
+    range: &RefAwareTypedRange,
+    data: &[i64],
+    inserter: &mut ExecutorInserter,
+) {
+    match op_kind {
+        UnaryOpKind::UnaryMinus => {
+            execute_unary_op_erroring::<UnaryOpNegateI64>(
+                range, data, inserter, op_id,
+            )
+        }
+        UnaryOpKind::UnaryPlus => {
+            inserter.extend_from_ref_aware_range(range, true, false);
+        }
+        UnaryOpKind::BitwiseNot => execute_unary_op_erroring::<
+            UnaryOpBitwiseNotI64,
+        >(range, data, inserter, op_id),
+        UnaryOpKind::LogicalNot => execute_unary_op_erroring::<
+            UnaryOpLogicalNotI64,
+        >(range, data, inserter, op_id),
+    }
+}
+
+fn execute_unary_op_float(
+    op_id: OperatorId,
+    op_kind: UnaryOpKind,
+    range: &RefAwareTypedRange,
+    data: &[f64],
+    inserter: &mut ExecutorInserter,
+) {
+    match op_kind {
+        UnaryOpKind::UnaryMinus => execute_unary_op_infallible::<
+            UnaryOpNegateF64,
+        >(range, data, inserter),
+        UnaryOpKind::UnaryPlus => {
+            inserter.extend_from_ref_aware_range(range, true, false);
+        }
+        UnaryOpKind::BitwiseNot | UnaryOpKind::LogicalNot => {
+            insert_unary_op_type_error(
+                op_id,
+                op_kind,
+                range.base.data.repr().kind(),
+                range.base.field_count,
+                inserter,
+            )
+        }
+    }
+}
+
+fn execute_unary_op_on_range(
+    op_id: OperatorId,
+    op_kind: UnaryOpKind,
+    range: &RefAwareTypedRange,
+    inserter: &mut ExecutorInserter,
+) {
+    match range.base.data {
+        FieldValueSlice::Int(data) => {
+            execute_unary_op_int(op_id, op_kind, range, data, inserter)
+        }
+        FieldValueSlice::Float(data) => {
+            execute_unary_op_float(op_id, op_kind, range, data, inserter)
+        }
+        FieldValueSlice::BigInt(_) => todo!(),
+        FieldValueSlice::BigRational(_) => todo!(),
+        FieldValueSlice::Null(_)
+        | FieldValueSlice::Undefined(_)
+        | FieldValueSlice::Bool(_)
+        | FieldValueSlice::TextInline(_)
+        | FieldValueSlice::TextBuffer(_)
+        | FieldValueSlice::BytesInline(_)
+        | FieldValueSlice::BytesBuffer(_)
+        | FieldValueSlice::Object(_)
+        | FieldValueSlice::Array(_)
+        | FieldValueSlice::Custom(_)
+        | FieldValueSlice::Error(_)
+        | FieldValueSlice::Argument(_)
+        | FieldValueSlice::OpDecl(_)
+        | FieldValueSlice::StreamValueId(_) => {
+            // PERF: we could consume more values from rhs here
+            insert_unary_op_type_error(
+                op_id,
+                op_kind,
+                range.base.data.repr().kind(),
+                range.base.field_count,
+                inserter,
+            )
+        }
+        FieldValueSlice::FieldReference(_)
+        | FieldValueSlice::SlicedFieldReference(_) => unreachable!(),
+    }
+}
+
+fn execute_binary_op_on_lhs_range(
     op_id: OperatorId,
     msm: &MatchSetManager,
     op_kind: BinaryOpKind,
@@ -1193,7 +1390,7 @@ fn execute_binary_op(
 fn execute_builtin_func_on_range(
     op_id: OperatorId,
     kind: BuiltinFunction,
-    arg_range: RefAwareTypedRange<'_>,
+    arg_range: &RefAwareTypedRange<'_>,
     inserter: &mut ExecutorInserter,
 ) {
     match kind {
@@ -1209,7 +1406,7 @@ fn execute_builtin_func_on_range(
 
 fn execute_cast_int(
     op_id: OperatorId,
-    range: RefAwareTypedRange<'_>,
+    range: &RefAwareTypedRange<'_>,
     inserter: &mut ExecutorInserter,
 ) {
     metamatch!(match range.base.data {
@@ -1220,7 +1417,7 @@ fn execute_cast_int(
             (BytesBuffer, RefAwareBytesBufferIter, v, v.to_str_lossy())
         ])]
         FieldValueSlice::REPR(data) => {
-            for (v, rl, _) in ITER::from_range(&range, data) {
+            for (v, rl, _) in ITER::from_range(range, data) {
                 let rl = rl as usize;
                 match lexical_core::parse::<i64>(VAL_BYTES) {
                     Ok(v) => {
@@ -1255,7 +1452,7 @@ fn execute_cast_int(
             }
         }
         FieldValueSlice::Float(values) => {
-            for (&v, rl) in FieldValueRangeIter::from_range(&range, values) {
+            for (&v, rl) in FieldValueRangeIter::from_range(range, values) {
                 if v.is_nan() || v.is_infinite() {
                     inserter.push_error(
                         OperatorApplicationError::new_s(
@@ -1284,7 +1481,7 @@ fn execute_cast_int(
             }
         }
         FieldValueSlice::BigRational(values) => {
-            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+            for (v, rl) in FieldValueRangeIter::from_range(range, values) {
                 let v = v.to_integer();
                 if let Some(v) = try_convert_bigint_to_i64(&v) {
                     inserter.push_int(v, rl as usize, true, false);
@@ -1294,7 +1491,7 @@ fn execute_cast_int(
             }
         }
         FieldValueSlice::Bool(values) => {
-            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+            for (v, rl) in FieldValueRangeIter::from_range(range, values) {
                 inserter.push_int(i64::from(*v), rl as usize, true, false);
             }
         }
@@ -1328,7 +1525,7 @@ fn execute_cast_int(
 
 fn execute_cast_float(
     op_id: OperatorId,
-    range: RefAwareTypedRange<'_>,
+    range: &RefAwareTypedRange<'_>,
     inserter: &mut ExecutorInserter,
 ) {
     metamatch!(match range.base.data {
@@ -1339,7 +1536,7 @@ fn execute_cast_float(
             (BytesBuffer, RefAwareBytesBufferIter, v, v.to_str_lossy())
         ])]
         FieldValueSlice::REPR(data) => {
-            for (v, rl, _) in ITER::from_range(&range, data) {
+            for (v, rl, _) in ITER::from_range(range, data) {
                 let rl = rl as usize;
                 match lexical_core::parse::<f64>(VAL_BYTES) {
                     Ok(v) => {
@@ -1381,7 +1578,7 @@ fn execute_cast_float(
             inserter.extend_from_ref_aware_range(range, true, false);
         }
         FieldValueSlice::Int(values) => {
-            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+            for (v, rl) in FieldValueRangeIter::from_range(range, values) {
                 match convert_int_to_float(*v) {
                     Ok(v) => inserter.push_float(v, rl as usize, true, false),
                     Err(v) => {
@@ -1391,7 +1588,7 @@ fn execute_cast_float(
             }
         }
         FieldValueSlice::BigInt(values) => {
-            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+            for (v, rl) in FieldValueRangeIter::from_range(range, values) {
                 if let Some(v) = try_convert_bigint_to_i64(v) {
                     if let Ok(v) = convert_int_to_float(v) {
                         inserter.push_float(v, rl as usize, true, false);
@@ -1407,7 +1604,7 @@ fn execute_cast_float(
             }
         }
         FieldValueSlice::Bool(values) => {
-            for (v, rl) in FieldValueRangeIter::from_range(&range, values) {
+            for (v, rl) in FieldValueRangeIter::from_range(range, values) {
                 inserter.push_float(
                     f64::from(i8::from(*v)),
                     rl as usize,
@@ -1446,7 +1643,53 @@ fn execute_cast_float(
 }
 
 impl<'a, 'b> Executor<'a, 'b> {
-    fn execute_op_binary(
+    fn execute_unary_op(
+        &mut self,
+        kind: UnaryOpKind,
+        value: &ValueAccess,
+        tgt: TargetRef,
+        field_pos: usize,
+        count: usize,
+    ) {
+        let output_tmp_id = match tgt {
+            TargetRef::TempField(id) => Some(id),
+            TargetRef::Output => None,
+            TargetRef::Discard => return,
+        };
+        let mut inserter = get_inserter(
+            self.output,
+            &*self.temp_fields,
+            output_tmp_id,
+            field_pos,
+        );
+        let mut value_iter = get_executor_input_iter(
+            value,
+            self.temp_fields,
+            self.extern_vars,
+            self.extern_fields,
+            self.extern_field_iters,
+            self.extern_field_temp_iters,
+            field_pos,
+            count,
+        );
+
+        let mut count_rem = count;
+
+        while count_rem > 0 {
+            let range = value_iter
+                .typed_range_fwd(self.msm, count_rem, FieldIterOpts::default())
+                .unwrap();
+
+            count_rem -= range.base.field_count;
+
+            execute_unary_op_on_range(self.op_id, kind, &range, &mut inserter);
+            if count_rem == 0 {
+                break;
+            }
+        }
+    }
+
+    fn execute_binary_op(
         &mut self,
         kind: BinaryOpKind,
         lhs: &ValueAccess,
@@ -1495,7 +1738,7 @@ impl<'a, 'b> Executor<'a, 'b> {
 
             count_rem -= lhs_range.base.field_count;
 
-            execute_binary_op(
+            execute_binary_op_on_lhs_range(
                 self.op_id,
                 self.msm,
                 kind,
@@ -1573,7 +1816,7 @@ impl<'a, 'b> Executor<'a, 'b> {
             execute_builtin_func_on_range(
                 self.op_id,
                 kind,
-                arg_range,
+                &arg_range,
                 &mut inserter,
             );
             if count_rem == 0 {
@@ -1715,17 +1958,18 @@ impl<'a, 'b> Executor<'a, 'b> {
         for insn in &self.compilation.instructions[insn_range] {
             match insn {
                 Instruction::OpUnary {
-                    kind: _,
-                    value: _,
-                    target: _,
-                } => todo!(),
+                    kind,
+                    value,
+                    target,
+                } => self
+                    .execute_unary_op(*kind, value, *target, field_pos, count),
                 Instruction::OpBinary {
                     kind,
                     lhs,
                     rhs,
                     target,
                 } => {
-                    self.execute_op_binary(
+                    self.execute_binary_op(
                         *kind, lhs, rhs, *target, field_pos, count,
                     );
                 }

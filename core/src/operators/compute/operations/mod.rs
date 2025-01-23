@@ -1,13 +1,16 @@
 pub mod add;
 pub mod avx2;
+pub mod bitwise_not;
 pub mod div;
 pub mod eq;
 pub mod ge;
 pub mod gt;
 pub mod le;
+pub mod logical_not;
 pub mod lt;
 pub mod mul;
 pub mod ne;
+pub mod negate;
 pub mod pow;
 pub mod sub;
 
@@ -90,10 +93,10 @@ fn calc_until_error_rhs_immediate<'a, Lhs, Rhs, Output, Error>(
     (len_min, None)
 }
 
-// SAFETY: this trait is unsafe because it upholds the following invariant:
-// The `calc_until_error**` family of functions **must** initialize
-// (-> write to) the first `n` elements of `res` where `n` is the first return
-// value of the function.
+// SAFETY: The `calc_until_error**` family of functions **must** initialize
+// the first `n` elements of `res` where `n` is the first return value of
+// the function. This trait is unsafe because this is not enforced
+// by the compiler.
 pub unsafe trait BinaryOp {
     type Lhs: FixedSizeFieldValueType;
     type Rhs: FixedSizeFieldValueType;
@@ -127,5 +130,33 @@ pub unsafe trait BinaryOp {
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
         calc_until_error_rhs_immediate(lhs, rhs, res, Self::try_calc_single)
+    }
+}
+
+// SAFETY: `calc_until_error` must initialize
+// the first `n` elements of `res` where `n` is the first return value
+// of the function
+pub unsafe trait UnaryOp {
+    type Value: FixedSizeFieldValueType;
+    type Output: FixedSizeFieldValueType;
+    type Error: Debug + ErrorToOperatorApplicationError;
+
+    fn try_calc_single(lhs: &Self::Value)
+        -> Result<Self::Output, Self::Error>;
+
+    fn calc_until_error<'a>(
+        values: &[Self::Value],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        let len_min = values.len().min(res.len());
+        for i in 0..len_min {
+            match Self::try_calc_single(&values[i]) {
+                Ok(v) => res[i] = MaybeUninit::new(v),
+                Err(e) => {
+                    return (i, Some(e));
+                }
+            }
+        }
+        (len_min, None)
     }
 }

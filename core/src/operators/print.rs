@@ -355,7 +355,7 @@ pub fn handle_tf_print_raw(
                     );
                     output_field
                         .iter_hall
-                        .extend_from_ref_aware_range(range, true, false);
+                        .extend_from_ref_aware_range(&range, true, false);
                     *outputs_produced = *handled_field_count;
                 }
             }

@@ -679,14 +679,14 @@ pub unsafe trait PushInterface {
     ) {
         // PERF: could optimize this
         self.extend_from_ref_aware_range(
-            RefAwareTypedRange::without_refs(range),
+            &RefAwareTypedRange::without_refs(range),
             try_header_rle,
             try_data_rle,
         )
     }
     fn extend_from_ref_aware_range(
         &mut self,
-        range: RefAwareTypedRange,
+        range: &RefAwareTypedRange,
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
@@ -705,7 +705,7 @@ pub unsafe trait PushInterface {
                 (BytesBuffer, Bytes, RefAwareBytesBufferIter, push_bytes),
             ])]
             FieldValueSlice::REP(vals) => {
-                for (v, rl, _offset) in ITER::from_range(&range, vals) {
+                for (v, rl, _offset) in ITER::from_range(range, vals) {
                     self.PUSH_FN(v, rl as usize, try_header_rle, try_data_rle);
                 }
             }
@@ -727,7 +727,7 @@ pub unsafe trait PushInterface {
             ])]
             FieldValueSlice::REP(vals) => {
                 for (v, rl) in
-                    RefAwareFieldValueRangeIter::from_range(&range, vals)
+                    RefAwareFieldValueRangeIter::from_range(range, vals)
                 {
                     self.push_fixed_size_type(
                         VAL,
@@ -760,7 +760,7 @@ pub unsafe trait PushInterface {
             | FieldValueSlice::OpDecl(_)
             | FieldValueSlice::StreamValueId(_) => {
                 self.extend_from_ref_aware_range(
-                    RefAwareTypedRange::without_refs(range),
+                    &RefAwareTypedRange::without_refs(range),
                     try_header_rle,
                     try_data_rle,
                 );
@@ -834,7 +834,7 @@ pub unsafe trait PushInterface {
             | FieldValueSlice::OpDecl(_)
             | FieldValueSlice::StreamValueId(_) => {
                 self.extend_from_ref_aware_range(
-                    range,
+                    &range,
                     try_header_rle,
                     try_data_rle,
                 );
@@ -1204,7 +1204,7 @@ pub unsafe trait PushInterface {
         {
             count -= range.base.field_count;
             self.extend_from_ref_aware_range(
-                range,
+                &range,
                 try_header_rle,
                 try_data_rle,
             );
