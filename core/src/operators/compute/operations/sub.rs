@@ -82,7 +82,7 @@ unsafe impl BinaryOpAvx2Aware for BinaryOpSubI64I64Avx2 {
         lhs: &Self::Lhs,
         rhs: &Self::Rhs,
     ) -> Result<Self::Output, Self::Error> {
-        lhs.checked_add(*rhs).ok_or(SubUnderflowError)
+        lhs.checked_sub(*rhs).ok_or(SubUnderflowError)
     }
     fn calc_until_error_avx2<'a>(
         lhs: &[Self::Lhs],
@@ -130,7 +130,7 @@ unsafe impl BinaryOp for BinaryOpSubI64BigInt {
         lhs: &Self::Lhs,
         rhs: &Self::Rhs,
     ) -> Result<Self::Output, Self::Error> {
-        Ok(lhs + rhs)
+        Ok(lhs - rhs)
     }
 }
 
@@ -145,7 +145,7 @@ unsafe impl BinaryOp for BinaryOpSubBigIntI64 {
         lhs: &Self::Lhs,
         rhs: &Self::Rhs,
     ) -> Result<Self::Output, Self::Error> {
-        Ok(lhs + rhs)
+        Ok(lhs - rhs)
     }
 }
 

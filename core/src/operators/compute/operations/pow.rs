@@ -1,6 +1,6 @@
 use std::convert::Infallible;
 
-use num::BigInt;
+use num::{BigInt, FromPrimitive};
 
 use crate::operators::errors::OperatorApplicationError;
 
@@ -50,6 +50,24 @@ unsafe impl BinaryOp for BinaryOpPowBigIntI64 {
     ) -> Result<Self::Output, Self::Error> {
         // TODO: handle larger cases
         Ok(lhs.pow(u32::try_from(*rhs).expect("todo handle overflow")))
+    }
+}
+
+pub struct BinaryOpPowI64BigInt;
+unsafe impl BinaryOp for BinaryOpPowI64BigInt {
+    type Lhs = i64;
+    type Rhs = BigInt;
+    type Output = BigInt;
+    type Error = Infallible;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        // TODO: handle larger cases
+        Ok(BigInt::from_i64(*lhs)
+            .unwrap()
+            .pow(u32::try_from(rhs).expect("todo handle overflow")))
     }
 }
 
