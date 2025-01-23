@@ -7,7 +7,6 @@ use std::{
 use typeline_core::{
     extension::{Extension, ExtensionRegistry},
     operators::{
-        count::create_op_count,
         foreach::create_op_foreach,
         format::create_op_format,
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
@@ -165,6 +164,8 @@ nm0000019,Federico Fellini,1920,1993,writer;director;actor,tt0056801;tt0050783;t
 fn imdb_director_count(
     #[case] batch_size: usize,
 ) -> Result<(), TypelineError> {
+    use typeline_ext_utils::count::create_op_count;
+
     let target =
         MutexedReadableTargetOwner::new(Cursor::new(IMDB_CSV_EXAMPLE));
 

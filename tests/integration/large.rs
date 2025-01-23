@@ -1,9 +1,8 @@
 use typeline::{
-    operators::{count::create_op_count, regex::create_op_regex},
-    options::context_builder::ContextBuilder,
-    typeline_error::TypelineError,
+    operators::regex::create_op_regex,
+    options::context_builder::ContextBuilder, typeline_error::TypelineError,
 };
-use typeline_ext_utils::sequence::create_op_seq;
+use typeline_ext_utils::{count::create_op_count, sequence::create_op_seq};
 
 #[test]
 fn multibatch_count() -> Result<(), TypelineError> {

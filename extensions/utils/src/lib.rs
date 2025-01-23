@@ -3,6 +3,7 @@
 use avg::parse_op_avg;
 use chunks::parse_op_chunks;
 use collect::parse_op_collect;
+use count::parse_op_count;
 use dup::{parse_op_drop, parse_op_dup};
 use eliminate_errors::parse_op_eliminate_errors;
 use exec::parse_op_exec;
@@ -36,6 +37,7 @@ use typename::create_op_typename;
 pub mod avg;
 pub mod chunks;
 pub mod collect;
+pub mod count;
 pub mod dup;
 pub mod eliminate_errors;
 pub mod exec;
@@ -85,6 +87,7 @@ impl Extension for UtilsExtension {
             "explode" => parse_op_explode(&expr)?,
             "flatten" => parse_op_flatten(&expr)?,
             "sum" => parse_op_sum(&expr)?,
+            "count" => parse_op_count(&expr)?,
             "avg" => parse_op_avg(&expr)?,
             "max" => parse_op_max(&expr)?,
             "chunks" => parse_op_chunks(sess, arg)?,

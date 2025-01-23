@@ -3,7 +3,6 @@ pub mod atom;
 pub mod call;
 pub mod call_concurrent;
 pub mod compute;
-pub mod count;
 pub mod errors;
 pub mod field_value_sink;
 pub mod file_reader;

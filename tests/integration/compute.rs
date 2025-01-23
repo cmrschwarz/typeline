@@ -1,15 +1,16 @@
 use rstest::rstest;
 use typeline::{
     operators::{
-        compute::create_op_compute, count::create_op_count,
-        format::create_op_format, key::create_op_key, literal::create_op_int,
+        compute::create_op_compute, format::create_op_format,
+        key::create_op_key, literal::create_op_int,
     },
     options::context_builder::ContextBuilder,
     record_data::{array::Array, field_value::FieldValue},
     typeline_error::TypelineError,
 };
 use typeline_ext_utils::{
-    flatten::create_op_flatten, sequence::create_op_seq,
+    count::create_op_count, flatten::create_op_flatten,
+    sequence::create_op_seq,
 };
 
 #[test]

@@ -1,11 +1,21 @@
-use crate::{
-    cli::call_expr::CallExpr,
-    job::JobData,
-    liveness_analysis::OperatorLivenessOutput,
+use typeline_core::{
+    chain::ChainId,
+    cli::call_expr::{CallExpr, Span},
+    context::SessionData,
+    job::{Job, JobData},
+    liveness_analysis::{
+        BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
+    },
+    operators::operator::{
+        OffsetInChain, OperatorDataId, OperatorId, OperatorName,
+        OperatorOffsetInChain, PreboundOutputsMap,
+    },
+    options::session_setup::SessionSetupData,
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
+    typeline_error::TypelineError,
 };
 
-use super::{
+use typeline_core::operators::{
     errors::OperatorCreationError,
     operator::{Operator, TransformInstatiation},
     transform::{Transform, TransformId, TransformState},
@@ -20,32 +30,28 @@ pub struct TfCount {
 }
 
 impl Operator for OpCount {
-    fn default_name(&self) -> super::operator::OperatorName {
+    fn default_name(&self) -> OperatorName {
         "count".into()
     }
 
-    fn output_count(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: super::operator::OperatorId,
-    ) -> usize {
+    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
 
     fn has_dynamic_outputs(
         &self,
-        _sess: &crate::context::SessionData,
-        _op_id: super::operator::OperatorId,
+        _sess: &SessionData,
+        _op_id: OperatorId,
     ) -> bool {
         false
     }
 
     fn build_transforms<'a>(
         &'a self,
-        job: &mut crate::job::Job<'a>,
+        job: &mut Job<'a>,
         tf_state: &mut TransformState,
-        _op_id: super::operator::OperatorId,
-        _prebound_outputs: &super::operator::PreboundOutputsMap,
+        _op_id: OperatorId,
+        _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         TransformInstatiation::Single(Box::new(TfCount {
             count: 0,
@@ -56,12 +62,12 @@ impl Operator for OpCount {
 
     fn update_variable_liveness(
         &self,
-        _sess: &crate::context::SessionData,
-        _ld: &mut crate::liveness_analysis::LivenessData,
-        _op_offset_after_last_write: super::operator::OffsetInChain,
-        _op_id: super::operator::OperatorId,
-        _bb_id: crate::liveness_analysis::BasicBlockId,
-        _input_field: crate::liveness_analysis::OpOutputIdx,
+        _sess: &SessionData,
+        _ld: &mut LivenessData,
+        _op_offset_after_last_write: OffsetInChain,
+        _op_id: OperatorId,
+        _bb_id: BasicBlockId,
+        _input_field: OpOutputIdx,
         output: &mut OperatorLivenessOutput,
     ) {
         output.flags.input_accessed = false;
@@ -70,23 +76,20 @@ impl Operator for OpCount {
 
     fn setup(
         &mut self,
-        sess: &mut crate::options::session_setup::SessionSetupData,
-        op_data_id: super::operator::OperatorDataId,
-        chain_id: crate::chain::ChainId,
-        offset_in_chain: super::operator::OperatorOffsetInChain,
-        span: crate::cli::call_expr::Span,
-    ) -> Result<
-        super::operator::OperatorId,
-        crate::typeline_error::TypelineError,
-    > {
+        sess: &mut SessionSetupData,
+        op_data_id: OperatorDataId,
+        chain_id: ChainId,
+        offset_in_chain: OperatorOffsetInChain,
+        span: Span,
+    ) -> Result<OperatorId, TypelineError> {
         Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
     }
 
     fn on_liveness_computed(
         &mut self,
-        _sess: &mut crate::context::SessionData,
-        _ld: &crate::liveness_analysis::LivenessData,
-        _op_id: super::operator::OperatorId,
+        _sess: &mut SessionData,
+        _ld: &LivenessData,
+        _op_id: OperatorId,
     ) {
     }
 }

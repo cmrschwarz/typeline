@@ -5,7 +5,6 @@ use crate::{
         call::parse_op_call,
         call_concurrent::parse_op_call_concurrent,
         compute::parse_op_compute,
-        count::parse_op_count,
         file_reader::{parse_op_file_reader, parse_op_stdin},
         foreach::parse_op_foreach,
         fork::parse_op_fork,
@@ -214,12 +213,9 @@ pub fn parse_operator_data(
         "stdin" | "in" => parse_op_stdin(sess, expr)?,
         "key" => parse_op_key(sess, arg)?,
         "select" => parse_op_select(&expr)?,
-
-        "count" => parse_op_count(&expr)?,
         "nop" | "tl" => parse_op_nop(&expr)?,
         "fork" => parse_op_fork(arg)?,
         "foreach" | "fe" => parse_op_foreach(sess, arg)?,
-
         "forkcat" | "fc" => parse_op_forkcat(sess, arg)?,
         "call" => parse_op_call(&expr)?,
         "callcc" => parse_op_call_concurrent(&expr)?,

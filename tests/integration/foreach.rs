@@ -1,7 +1,4 @@
-use typeline::operators::{
-    count::create_op_count,
-    regex::{create_op_regex_with_opts, RegexOptions},
-};
+use typeline::operators::regex::{create_op_regex_with_opts, RegexOptions};
 use typeline_core::{
     operators::{foreach::create_op_foreach, literal::create_op_str_n},
     options::context_builder::ContextBuilder,
@@ -10,6 +7,7 @@ use typeline_core::{
 };
 use typeline_ext_utils::{
     chunks::create_op_chunks,
+    count::create_op_count,
     dup::create_op_dup,
     join::create_op_join,
     sequence::{create_op_seq, create_op_seqn},
