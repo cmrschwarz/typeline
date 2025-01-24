@@ -1,9 +1,14 @@
 use crate::{
     index_newtype,
-    record_data::field_value::FieldValue,
+    record_data::{
+        field_value::FieldValue,
+        object::{Object, ObjectKeysInterned},
+    },
     utils::{
-        index_slice::IndexSlice, index_vec::IndexVec,
+        index_slice::IndexSlice,
+        index_vec::IndexVec,
         indexing_type::IndexingType,
+        string_store::{StringStore, StringStoreEntry},
     },
 };
 
@@ -79,8 +84,12 @@ pub enum Instruction {
         else_start: Option<InstructionId>,
         continuation: InstructionId,
     },
-    Object {
-        mappings: Box<[(ValueAccess, Option<ValueAccess>)]>,
+    ObjectKeysInterned {
+        mappings: Box<[(StringStoreEntry, ValueAccess)]>,
+        target: TargetRef,
+    },
+    ObjectKeysStored {
+        mappings: Box<[(ValueAccess, ValueAccess)]>,
         target: TargetRef,
     },
     Array {
@@ -106,6 +115,7 @@ pub struct SsaTemporary {
 }
 
 pub struct Compiler<'a> {
+    string_store: &'a mut StringStore,
     let_bindings: &'a IndexSlice<LetBindingId, LetBindingData>,
     unbound_idents: &'a mut IndexSlice<ExternIdentId, UnboundIdentData>,
     let_value_mappings: IndexVec<LetBindingId, SsaValue>,
@@ -120,6 +130,12 @@ pub struct Compiler<'a> {
 pub struct Compilation {
     pub instructions: IndexVec<InstructionId, Instruction>,
     pub temporary_slot_count: IndexVec<TempFieldIdRaw, AccessIdx>,
+}
+
+enum ObjectMappings {
+    Literal(Object),
+    KeysInterned(Vec<(StringStoreEntry, ValueAccess)>),
+    KeysStored(Vec<(ValueAccess, ValueAccess)>),
 }
 
 impl SsaValue {
@@ -395,35 +411,37 @@ impl Compiler<'_> {
                 }
             }
             Expr::Object(o) => {
-                let mut mappings = Vec::new();
-                for (key, value) in o.into_vec() {
-                    let mut key = self.compile_expr_for_temp_target(key);
-                    let key_v = key.take_value_accessed(
-                        &mut self.ssa_temporaries,
-                        self.unbound_idents,
-                    );
-                    self.defer_release_intermediate(key);
-                    if let Some(value) = value {
-                        let mut value =
-                            self.compile_expr_for_temp_target(value);
-                        mappings.push((
-                            key_v,
-                            Some(value.take_value_accessed(
-                                &mut self.ssa_temporaries,
-                                self.unbound_idents,
+                let mappings = self.compile_object_mappings(o);
+                let (ssa_id, temp_id) = self.claim_ssa_temporary();
+                match mappings {
+                    ObjectMappings::Literal(object) => {
+                        self.emit_pending_clears();
+                        return IntermediateValue {
+                            value: SsaValue::Literal(FieldValue::Object(
+                                Box::new(object),
                             )),
-                        ));
-                        self.defer_release_intermediate(value);
-                    } else {
-                        mappings.push((key_v, None));
+                            release_after_use: false,
+                        };
+                    }
+                    ObjectMappings::KeysInterned(mappings) => {
+                        self.instructions.push(
+                            Instruction::ObjectKeysInterned {
+                                mappings: mappings.into_boxed_slice(),
+                                target: TargetRef::TempField(temp_id.index),
+                            },
+                        );
+                        self.emit_pending_clears();
+                    }
+                    ObjectMappings::KeysStored(mappings) => {
+                        self.instructions.push(
+                            Instruction::ObjectKeysStored {
+                                mappings: mappings.into_boxed_slice(),
+                                target: TargetRef::TempField(temp_id.index),
+                            },
+                        );
+                        self.emit_pending_clears();
                     }
                 }
-                let (ssa_id, temp_id) = self.claim_ssa_temporary();
-                self.instructions.push(Instruction::Object {
-                    mappings: mappings.into_boxed_slice(),
-                    target: TargetRef::TempField(temp_id.index),
-                });
-                self.emit_pending_clears();
                 IntermediateValue {
                     value: SsaValue::Temporary(ssa_id),
                     release_after_use: true,
@@ -488,6 +506,86 @@ impl Compiler<'_> {
                 IntermediateValue::undef()
             }
         }
+    }
+
+    fn compile_object_mappings(
+        &mut self,
+        obj: Box<[(Expr, Option<Expr>)]>,
+    ) -> ObjectMappings {
+        let obj = obj.into_vec();
+        let mut all_keys_known = true;
+        let mut all_values_known = true;
+        // TODO: we could do some complex constant folding algorithm here
+        // but for now this is all we are gonna do
+        for (k, v) in &obj {
+            all_keys_known |= matches!(k, Expr::Literal(FieldValue::Text(_)));
+            all_values_known |= matches!(v, None | Some(Expr::Literal(_)))
+        }
+
+        if all_keys_known && all_values_known {
+            let mut res = ObjectKeysInterned::new();
+            for (key, value) in obj {
+                let Expr::Literal(FieldValue::Text(s)) = key else {
+                    unreachable!()
+                };
+                let key = self.string_store.intern_moved(s);
+                let value = match value {
+                    None => FieldValue::Undefined,
+                    Some(Expr::Literal(value)) => value,
+                    _ => unreachable!(),
+                };
+                res.insert(key, value);
+            }
+            return ObjectMappings::Literal(Object::KeysInterned(res));
+        }
+
+        if all_keys_known {
+            let mut mappings = Vec::new();
+            for (key, value) in obj {
+                let Expr::Literal(FieldValue::Text(s)) = key else {
+                    unreachable!()
+                };
+                let key = self.string_store.intern_moved(s);
+                let mut value = if let Some(value) = value {
+                    self.compile_expr_for_temp_target(value)
+                } else {
+                    IntermediateValue::undef()
+                };
+                mappings.push((
+                    key,
+                    value.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                ));
+                self.defer_release_intermediate(value);
+            }
+            return ObjectMappings::KeysInterned(mappings);
+        }
+
+        let mut mappings = Vec::new();
+        for (key, value) in obj {
+            let mut key = self.compile_expr_for_temp_target(key);
+            let key_v = key.take_value_accessed(
+                &mut self.ssa_temporaries,
+                self.unbound_idents,
+            );
+            self.defer_release_intermediate(key);
+            let mut value = if let Some(value) = value {
+                self.compile_expr_for_temp_target(value)
+            } else {
+                IntermediateValue::undef()
+            };
+            mappings.push((
+                key_v,
+                value.take_value_accessed(
+                    &mut self.ssa_temporaries,
+                    self.unbound_idents,
+                ),
+            ));
+            self.defer_release_intermediate(value);
+        }
+        ObjectMappings::KeysStored(mappings)
     }
 
     fn compile_expr_for_given_target(
@@ -592,9 +690,8 @@ impl Compiler<'_> {
                 self.compile_block(block, target);
             }
             Expr::Object(o) => {
-                let mut mappings = Vec::new();
-                for (key, value) in o.into_vec() {
-                    if discard {
+                if discard {
+                    for (key, value) in o.into_vec() {
                         self.compile_expr_for_given_target(
                             key,
                             TargetRef::Discard,
@@ -605,36 +702,33 @@ impl Compiler<'_> {
                                 TargetRef::Discard,
                             );
                         }
-                    } else {
-                        let mut key = self.compile_expr_for_temp_target(key);
-                        let key_v = key.take_value_accessed(
-                            &mut self.ssa_temporaries,
-                            self.unbound_idents,
-                        );
-                        self.defer_release_intermediate(key);
-                        if let Some(value) = value {
-                            let mut value =
-                                self.compile_expr_for_temp_target(value);
-                            mappings.push((
-                                key_v,
-                                Some(value.take_value_accessed(
-                                    &mut self.ssa_temporaries,
-                                    self.unbound_idents,
-                                )),
-                            ));
-                            self.defer_release_intermediate(value);
-                        } else {
-                            mappings.push((key_v, None));
-                        }
+                    }
+                    return;
+                }
+                let mappings = self.compile_object_mappings(o);
+                match mappings {
+                    ObjectMappings::Literal(object) => {
+                        self.instructions.push(Instruction::Move {
+                            src: ValueAccess::Literal(FieldValue::Object(
+                                Box::new(object),
+                            )),
+                            tgt: target,
+                        });
+                    }
+                    ObjectMappings::KeysInterned(mappings) => self
+                        .instructions
+                        .push(Instruction::ObjectKeysInterned {
+                            mappings: mappings.into_boxed_slice(),
+                            target,
+                        }),
+                    ObjectMappings::KeysStored(mappings) => {
+                        self.instructions.push(Instruction::ObjectKeysStored {
+                            mappings: mappings.into_boxed_slice(),
+                            target,
+                        })
                     }
                 }
-                if !discard {
-                    self.instructions.push(Instruction::Object {
-                        mappings: mappings.into_boxed_slice(),
-                        target,
-                    });
-                    self.emit_pending_clears();
-                }
+                self.emit_pending_clears();
             }
             Expr::Array(arr) => {
                 let mut elements = Vec::new();
@@ -717,11 +811,13 @@ impl Compiler<'_> {
     }
 
     pub fn compile(
+        stding_store: &mut StringStore,
         expr: Expr,
         let_bindings: &IndexSlice<LetBindingId, LetBindingData>,
         unbound_idents: &mut IndexSlice<ExternIdentId, UnboundIdentData>,
     ) -> Compilation {
         let mut compiler = Compiler {
+            string_store: stding_store,
             let_bindings,
             unbound_idents,
             let_value_mappings: IndexVec::new(),

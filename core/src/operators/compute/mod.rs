@@ -42,7 +42,10 @@ use crate::{
         temp_vec::{TempVec, TransmutableContainer},
     },
 };
-use ast::{AccessIdx, ExternIdentId, UnboundIdentData};
+use ast::{
+    AccessIdx, Expr, ExternIdentId, LetBindingData, LetBindingId,
+    UnboundIdentData,
+};
 use compiler::{Compilation, Compiler, InstructionId, TempFieldIdRaw};
 use executor::{Executor, ExecutorInputIter, ExternFieldTempIterId};
 use lexer::ComputeExprLexer;
@@ -57,9 +60,16 @@ use super::{
     transform::{Transform, TransformId, TransformState},
 };
 
+// we compile during setup because we need e.g. the string store
+pub enum ComputeExpression {
+    Ast(ast::Expr),
+    Compiled(Compilation),
+}
+
 pub struct OpCompute {
+    expr: ComputeExpression,
     unbound_refs: IndexVec<ExternIdentId, UnboundIdentData>,
-    compilation: Compilation,
+    let_bindings: IndexVec<LetBindingId, LetBindingData>,
 }
 
 index_newtype! {
@@ -126,16 +136,15 @@ pub fn build_op_compute(
         &mut unbound_refs,
         &mut let_bindings,
     );
+
     let expr = p.parse().map_err(|e| {
         OperatorCreationError::new_s(e.stringify_error("<expr>"), span)
     })?;
 
-    let compilation =
-        Compiler::compile(expr, &let_bindings, &mut unbound_refs);
-
     Ok(Box::new(OpCompute {
+        expr: ComputeExpression::Ast(expr),
         unbound_refs,
-        compilation,
+        let_bindings,
     }))
 }
 
@@ -151,6 +160,22 @@ impl Operator for OpCompute {
         for r in &mut self.unbound_refs {
             r.name_interned = sess.string_store.intern_cloned(&r.name);
         }
+        let ComputeExpression::Ast(expr) = std::mem::replace(
+            &mut self.expr,
+            ComputeExpression::Ast(Expr::Literal(FieldValue::Undefined)),
+        ) else {
+            unreachable!()
+        };
+
+        let compilation = Compiler::compile(
+            &mut sess.string_store,
+            expr,
+            &self.let_bindings,
+            &mut self.unbound_refs,
+        );
+
+        self.expr = ComputeExpression::Compiled(compilation);
+
         Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
     }
     fn default_name(&self) -> super::operator::OperatorName {
@@ -288,7 +313,12 @@ impl Operator for OpCompute {
             idents.push(ExternVarData::Field(field_idx));
         }
         let mut temporaries = IndexVec::new();
-        for &slot_count in &self.compilation.temporary_slot_count {
+
+        let ComputeExpression::Compiled(compilation) = &self.expr else {
+            unreachable!()
+        };
+
+        for &slot_count in &compilation.temporary_slot_count {
             temporaries.push(TempField {
                 data: RefCell::new(FieldData::default()),
                 field_pos: Cell::new(usize::MAX),
@@ -347,11 +377,17 @@ impl<'a> Transform<'a> for TfCompute<'a> {
 
             let mut output = jd.field_mgr.fields[of_id].borrow_mut();
             let field_pos = output.iter_hall.get_field_count(&jd.field_mgr);
+
+            let ComputeExpression::Compiled(compilation) = &self.op.expr
+            else {
+                unreachable!()
+            };
+
             let mut exec = Executor {
                 op_id,
                 fm: &jd.field_mgr,
                 msm: &jd.match_set_mgr,
-                compilation: &self.op.compilation,
+                compilation,
                 extern_field_iters: &mut extern_field_iters,
                 output: &mut output.iter_hall,
                 temp_fields: &mut self.temp_fields,
@@ -362,8 +398,7 @@ impl<'a> Transform<'a> for TfCompute<'a> {
                 array_builder: &mut self.array_builder,
             };
             exec.run(
-                InstructionId::ZERO
-                    ..self.op.compilation.instructions.next_idx(),
+                InstructionId::ZERO..compilation.instructions.next_idx(),
                 field_pos,
                 batch_size,
             );

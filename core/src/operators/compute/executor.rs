@@ -833,7 +833,11 @@ impl<'a, 'b> Executor<'a, 'b> {
                     else_start: _,
                     continuation: _,
                 } => {}
-                Instruction::Object {
+                Instruction::ObjectKeysInterned {
+                    mappings: _,
+                    target: _,
+                } => todo!(),
+                Instruction::ObjectKeysStored {
                     mappings: _,
                     target: _,
                 } => todo!(),
