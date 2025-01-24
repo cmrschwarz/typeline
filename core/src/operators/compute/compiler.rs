@@ -520,8 +520,8 @@ impl Compiler<'_> {
         // TODO: we could do some complex constant folding algorithm here
         // but for now this is all we are gonna do
         for (k, v) in &obj {
-            all_keys_known |= matches!(k, Expr::Literal(FieldValue::Text(_)));
-            all_values_known |= matches!(v, None | Some(Expr::Literal(_)))
+            all_keys_known &= matches!(k, Expr::Literal(FieldValue::Text(_)));
+            all_values_known &= matches!(v, None | Some(Expr::Literal(_)))
         }
 
         if all_keys_known && all_values_known {
