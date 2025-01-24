@@ -34,7 +34,7 @@ use typeline_core::{
         field::FieldId,
         field_data::{FieldData, FieldValueRepr},
         field_value::FieldValue,
-        field_value_deserialize::{ArrayVisitor, DeCowStr},
+        field_value_deserialize::{ArrayVisitor, DeCowStr, ObjectVisitor},
         group_track::GroupTrackIterRef,
         iter_hall::IterKind,
         object::Object,
@@ -60,6 +60,7 @@ pub struct OpJsonl {
     first_line: Option<FieldValue>,
     reader: Mutex<Option<AnyBufReader>>,
     use_null: bool,
+    objectify: bool,
 }
 
 pub enum Input {
@@ -105,6 +106,7 @@ struct JsonlReadOptions<'a> {
     dyn_access: bool,
     first_line_value: Option<&'a FieldValue>,
     zst_to_push: FieldValueRepr,
+    objectify: bool,
 }
 
 struct ReadStatus {
@@ -156,13 +158,17 @@ impl Operator for OpJsonl {
             .input
             .create_buf_reader()
             .and_then(|mut r| {
-                let first = gather_field_names_from_first(
-                    &mut sess.string_store,
-                    &mut r.aquire(),
-                    &mut self.var_names,
-                    &mut Vec::new(),
-                )?;
-                Ok((r, first))
+                if self.objectify {
+                    Ok((r, None))
+                } else {
+                    let first_row = gather_field_names_from_first(
+                        &mut sess.string_store,
+                        &mut r.aquire(),
+                        &mut self.var_names,
+                        &mut Vec::new(),
+                    )?;
+                    Ok((r, Some(first_row)))
+                }
             })
             .map_err(|e| {
                 OperatorSetupError::new_s(
@@ -170,7 +176,7 @@ impl Operator for OpJsonl {
                     op_id,
                 )
             })?;
-        self.first_line = Some(first_line);
+        self.first_line = first_line;
         self.reader.lock().unwrap().replace(reader);
         Ok(op_id)
     }
@@ -444,6 +450,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                         self.op.first_line.as_ref()
                     },
                     zst_to_push: self.zst_to_push,
+                    objectify: self.op.objectify,
                 },
                 &mut status,
             )
@@ -884,8 +891,8 @@ fn read_in_lines<'a>(
             if !self.update_last_field_access() {
                 return Ok(Dummy);
             }
-            let v = ArrayVisitor.visit_seq(seq)?;
-            self.inserters[InserterIndex(0)].push_array(v, 1, true, false);
+            let arr = ArrayVisitor.visit_seq(seq)?;
+            self.inserters[InserterIndex(0)].push_array(arr, 1, true, false);
             Ok(Dummy)
         }
 
@@ -893,6 +900,15 @@ fn read_in_lines<'a>(
         where
             A: serde::de::MapAccess<'de>,
         {
+            if self.opts.objectify {
+                if !self.update_last_field_access() {
+                    return Ok(Dummy);
+                }
+                let obj = ObjectVisitor.visit_map(map)?;
+                self.inserters[InserterIndex(0)]
+                    .push_object(obj, 1, true, false);
+                return Ok(Dummy);
+            }
             while let Some(key) = map.next_key::<DeCowStr<'de>>()? {
                 let key_idx = self.ss.intern_cow(key.into());
                 match self.inserter_map.entry(key_idx) {
@@ -1026,6 +1042,7 @@ fn read_in_lines<'a>(
 pub fn create_op_jsonl(
     input: ReadableTarget,
     use_null: bool,
+    objectify: bool,
 ) -> Box<dyn Operator> {
     Box::new(OpJsonl {
         input,
@@ -1034,14 +1051,20 @@ pub fn create_op_jsonl(
         first_line: None,
         reader: Mutex::new(None),
         use_null,
+        objectify,
     })
 }
 
 pub fn create_op_jsonl_from_file(
     input_file: impl Into<PathBuf>,
     use_null: bool,
+    objectify: bool,
 ) -> Box<dyn Operator> {
-    create_op_jsonl(ReadableTarget::File(input_file.into()), use_null)
+    create_op_jsonl(
+        ReadableTarget::File(input_file.into()),
+        use_null,
+        objectify,
+    )
 }
 
 pub fn parse_op_jsonl(
@@ -1053,15 +1076,22 @@ pub fn parse_op_jsonl(
         return Err(expr.error_require_exact_positional_count(1).into());
     }
     let mut use_null = false;
-    // TODO: this is non exhaustive.
-    // add proper, generalized cli parsing code ala CLAP
+    let mut objectify = false;
+    // TODO: this is getting annoying, and error prone.
+    // Add proper, generalized cli parsing code ala CLAP
     if let Some(flags) = flags {
         if flags.get("-n").is_some() {
             use_null = true;
         }
     }
+    if let Some(flags) = flags {
+        if flags.get("-o").is_some() {
+            objectify = true;
+        }
+    }
     Ok(Some(create_op_jsonl_from_file(
         args[0].try_into_text(expr.op_name, sess)?.to_string(),
         use_null,
+        objectify,
     )))
 }
