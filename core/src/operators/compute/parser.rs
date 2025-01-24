@@ -300,10 +300,18 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             Tok::DoubleAmpersandEquals => Op::LogicalAndAssign,
             TokenKind::DoubleEquals => Op::Equals,
 
-            TokenKind::LBracket => return self.parse_bracket_access(lhs),
-            TokenKind::Dot => return self.parse_dot_access(lhs),
-            TokenKind::LParen => return self.parse_function_call(lhs),
-
+            TokenKind::LBracket => {
+                let expr = self.parse_bracket_access(lhs)?;
+                return self.parse_expression_after_value(expr, min_prec);
+            }
+            TokenKind::Dot => {
+                let expr = self.parse_dot_access(lhs)?;
+                return self.parse_expression_after_value(expr, min_prec);
+            }
+            TokenKind::LParen => {
+                let expr = self.parse_function_call(lhs)?;
+                return self.parse_expression_after_value(expr, min_prec);
+            }
             TokenKind::Literal(_)
             | TokenKind::Identifier(_)
             | TokenKind::Let
