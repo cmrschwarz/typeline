@@ -125,6 +125,7 @@ pub enum BuiltinFunction {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Expr {
     Literal(FieldValue),
+    Parentheses(Box<Expr>),
     Reference {
         ident_id: IdentId,
         access_idx: AccessIdx,
@@ -139,7 +140,7 @@ pub enum Expr {
     },
     IfExpr(Box<IfExpr>),
     Block(Block),
-    Object(Box<[(Expr, Option<Expr>)]>),
+    Object(Vec<(Expr, Option<Expr>)>),
     Array(Vec<Expr>),
     FunctionCall {
         lhs: Box<Expr>,

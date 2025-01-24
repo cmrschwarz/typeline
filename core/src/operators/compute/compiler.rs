@@ -505,14 +505,16 @@ impl Compiler<'_> {
                 };
                 IntermediateValue::undef()
             }
+            Expr::Parentheses(expr) => {
+                self.compile_expr_for_temp_target(*expr)
+            }
         }
     }
 
     fn compile_object_mappings(
         &mut self,
-        obj: Box<[(Expr, Option<Expr>)]>,
+        obj: Vec<(Expr, Option<Expr>)>,
     ) -> ObjectMappings {
-        let obj = obj.into_vec();
         let mut all_keys_known = true;
         let mut all_values_known = true;
         // TODO: we could do some complex constant folding algorithm here
@@ -689,9 +691,9 @@ impl Compiler<'_> {
                 debug_assert!(discard || !block.trailing_semicolon);
                 self.compile_block(block, target);
             }
-            Expr::Object(o) => {
+            Expr::Object(obj) => {
                 if discard {
-                    for (key, value) in o.into_vec() {
+                    for (key, value) in obj {
                         self.compile_expr_for_given_target(
                             key,
                             TargetRef::Discard,
@@ -705,7 +707,7 @@ impl Compiler<'_> {
                     }
                     return;
                 }
-                let mappings = self.compile_object_mappings(o);
+                let mappings = self.compile_object_mappings(obj);
                 match mappings {
                     ObjectMappings::Literal(object) => {
                         self.instructions.push(Instruction::Move {
@@ -806,6 +808,9 @@ impl Compiler<'_> {
                     let v = self.compile_expr_for_temp_target(*expr);
                     self.let_value_mappings.push(v.value);
                 };
+            }
+            Expr::Parentheses(expr) => {
+                self.compile_expr_for_given_target(*expr, target)
             }
         }
     }

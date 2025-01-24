@@ -68,6 +68,7 @@ fn cast_to_int() -> Result<(), TypelineError> {
 #[case("2**10+1", 1025)]
 #[case("2**10+1*2", 1026)]
 #[case("2**(10+1)*2", 4096)]
+#[case("2**(10+1)*2", 4096)]
 fn precedence(
     #[case] expr: &str,
     #[case] expected: i64,

@@ -16,6 +16,7 @@ use crate::{
 };
 
 use super::parser::{ComputeExprParseError, ParseErrorKind};
+use arrayvec::ArrayVec;
 use bstr::ByteSlice;
 use metamatch::metamatch;
 use unicode_ident::{is_xid_continue, is_xid_start};
@@ -25,7 +26,7 @@ pub struct ComputeExprLexer<'a> {
     offset: usize,
     line: u32,
     col: u16,
-    lookahead: Option<ComputeExprToken<'a>>,
+    lookahead: ArrayVec<ComputeExprToken<'a>, 2>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -137,7 +138,7 @@ impl<'a> ComputeExprLexer<'a> {
             offset: 0,
             line: 0,
             col: 0,
-            lookahead: None,
+            lookahead: ArrayVec::new(),
         }
     }
     pub fn next_token_start(&self) -> ComputeExprSpan {
@@ -164,11 +165,11 @@ impl<'a> ComputeExprLexer<'a> {
         }
     }
 
-    pub fn munch_or_eof_err(
+    pub fn consume_token_or_eof_err(
         &mut self,
         expected: &'static str,
     ) -> Result<ComputeExprToken<'a>, ComputeExprParseError<'a>> {
-        let Some(tok) = self.munch_token()? else {
+        let Some(tok) = self.consume_token()? else {
             return Err(self.eof_error(expected));
         };
         Ok(tok)
@@ -176,40 +177,69 @@ impl<'a> ComputeExprLexer<'a> {
     pub fn peek_token(
         &mut self,
     ) -> Result<Option<&ComputeExprToken<'a>>, ComputeExprParseError<'a>> {
-        if self.lookahead.is_some() {
-            return Ok(self.lookahead.as_ref());
+        if !self.lookahead.is_empty() {
+            return Ok(self.lookahead.first());
         }
-        self.lookahead = self.munch_token()?;
-        Ok(self.lookahead.as_ref())
+        let Some(tok) = self.munch_token_raw()? else {
+            return Ok(None);
+        };
+        self.lookahead.push(tok);
+        Ok(self.lookahead.first())
+    }
+    pub fn peek_second_token(
+        &mut self,
+    ) -> Result<Option<&ComputeExprToken<'a>>, ComputeExprParseError<'a>> {
+        while self.lookahead.len() < 2 {
+            let Some(tok) = self.munch_token_raw()? else {
+                return Ok(None);
+            };
+            self.lookahead.push(tok);
+        }
+        Ok(self.lookahead.get(1))
     }
     pub fn peek_token_kind(
         &mut self,
     ) -> Result<Option<&TokenKind<'a>>, ComputeExprParseError<'a>> {
-        if self.lookahead.is_none() {
-            self.lookahead = self.munch_token()?;
-        }
-        Ok(self.lookahead.as_ref().map(|t| &t.kind))
+        self.peek_token().map(|t| t.map(|t| &t.kind))
     }
-    pub fn peek_token_mut(
+    pub fn peek_two_token_kinds(
         &mut self,
-    ) -> Result<&mut Option<ComputeExprToken<'a>>, ComputeExprParseError<'a>>
-    {
-        if self.lookahead.is_some() {
-            return Ok(&mut self.lookahead);
+    ) -> Result<
+        Option<(&TokenKind<'a>, Option<&TokenKind<'a>>)>,
+        ComputeExprParseError<'a>,
+    > {
+        if self.lookahead.is_empty() {
+            let Some(tok1) = self.munch_token_raw()? else {
+                return Ok(None);
+            };
+            self.lookahead.push(tok1);
         }
-        self.lookahead = self.munch_token()?;
-        Ok(&mut self.lookahead)
+        if self.lookahead.len() < 2 {
+            let Some(tok2) = self.munch_token_raw()? else {
+                return Ok(Some((&self.lookahead[0].kind, None)));
+            };
+            self.lookahead.push(tok2);
+        }
+        Ok(Some((
+            &self.lookahead[0].kind,
+            Some(&self.lookahead[1].kind),
+        )))
     }
     pub fn drop_token(&mut self) {
-        debug_assert!(self.lookahead.is_some());
-        self.lookahead.take();
+        debug_assert!(!self.lookahead.is_empty());
+        self.lookahead.swap_remove(0);
     }
-    pub fn munch_token(
+    pub fn consume_token(
         &mut self,
     ) -> Result<Option<ComputeExprToken<'a>>, ComputeExprParseError<'a>> {
-        if self.lookahead.is_some() {
-            return Ok(self.lookahead.take());
+        if !self.lookahead.is_empty() {
+            return Ok(self.lookahead.swap_pop(0));
         }
+        self.munch_token_raw()
+    }
+    fn munch_token_raw(
+        &mut self,
+    ) -> Result<Option<ComputeExprToken<'a>>, ComputeExprParseError<'a>> {
         let offset_prev = self.offset;
         let mut res = None;
         for (begin, end, c) in self.input[self.offset..].char_indices() {
@@ -244,6 +274,8 @@ impl<'a> ComputeExprLexer<'a> {
                 ('[', LBracket),
                 (']', RBracket),
                 (',', Comma),
+                (':', Colon),
+                (';', Semicolon),
             ])]
             CHAR => {
                 self.offset += 1;
@@ -285,6 +317,7 @@ impl<'a> ComputeExprLexer<'a> {
                 ('-', Minus, MinusEquals),
                 ('/', Slash, SlashEquals),
                 ('~', Tilde, TildeEquals),
+                ('%', Percent, PercentEquals),
                 ('!', Exclamation, ExclamationEquals),
                 ('=', Equals, DoubleEquals),
             ])]
@@ -518,7 +551,7 @@ mod test {
     ) {
         let mut lx = ComputeExprLexer::new(input.as_bytes());
         let mut tokens = Vec::new();
-        while let Some(tok) = lx.munch_token().unwrap() {
+        while let Some(tok) = lx.consume_token().unwrap() {
             tokens.push(tok);
         }
         assert_eq!(tokens, output.into_iter().collect::<Vec<_>>());

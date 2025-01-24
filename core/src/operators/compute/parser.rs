@@ -191,7 +191,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                 return Err(ComputeExprParseError {
                     span: peek.span,
                     kind: ParseErrorKind::UnexpectedToken {
-                        got: self.lexer.munch_token()?.unwrap().kind,
+                        got: self.lexer.consume_token()?.unwrap().kind,
                         expected: "expression, `,` or `)`",
                     },
                 });
@@ -297,7 +297,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         open_paren: ComputeExprSpan,
     ) -> Result<Expr, ComputeExprParseError<'i>> {
         let res = self.parse_expression(Precedence::ZERO)?;
-        let trailing_token = self.lexer.munch_token()?;
+        let trailing_token = self.lexer.consume_token()?;
         let trailing_token_span = if let Some(trailing) = trailing_token {
             if matches!(trailing.kind, TokenKind::RParen) {
                 return Ok(res);
@@ -319,7 +319,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         matching: fn(&TokenKind) -> bool,
         expected_err_msg: &'static str,
     ) -> Result<ComputeExprToken<'i>, ComputeExprParseError<'i>> {
-        let Some(tok) = self.lexer.munch_token()? else {
+        let Some(tok) = self.lexer.consume_token()? else {
             return Err(self.lexer.eof_error(expected_err_msg));
         };
         if !matching(&tok.kind) {
@@ -388,11 +388,10 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         first_key_expr: Expr,
     ) -> Result<Expr, ComputeExprParseError<'i>> {
         let mut kv_pairs = Vec::new();
-
-        let mut trailing_comma_observed = None;
         let mut key_expr = first_key_expr;
+        let mut value_expr = None;
         loop {
-            let Some(token_after_key_expr) = self.lexer.munch_token()? else {
+            let Some(mut t) = self.lexer.consume_token()? else {
                 return Err(ComputeExprParseError {
                     span: open_brace_span,
                     kind: ParseErrorKind::UnmatchedParenthesis {
@@ -401,41 +400,49 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                     },
                 });
             };
-            match token_after_key_expr.kind {
-                TokenKind::Colon => {
-                    let value = self.parse_expression(Precedence::ZERO)?;
-                    kv_pairs.push((key_expr, Some(value)));
-                    trailing_comma_observed = None;
-                }
+            if t.kind == TokenKind::Colon {
+                value_expr = Some(self.parse_expression(Precedence::ZERO)?);
+                t = self.lexer.consume_token_or_eof_err("`,` or `}`")?;
+            }
+            kv_pairs.push((key_expr, value_expr.take()));
+            match t.kind {
                 TokenKind::Comma => {
-                    kv_pairs.push((key_expr, None));
-                    if let Some(span) = trailing_comma_observed {
-                        return Err(ComputeExprParseError {
-                            span: token_after_key_expr.span,
-                            kind: ParseErrorKind::DoubleComma {
-                                context: DoubleCommaContext::Object,
-                                first_comma: span,
-                            },
-                        });
+                    // trailing comma
+                    if let Some(TokenKind::RBrace) =
+                        self.lexer.peek_token_kind()?
+                    {
+                        self.lexer.drop_token();
+                        return Ok(Expr::Object(kv_pairs));
                     }
-                    trailing_comma_observed = Some(token_after_key_expr.span);
                 }
                 TokenKind::RBrace => {
-                    kv_pairs.push((key_expr, None));
-                    return Ok(Expr::Object(kv_pairs.into_boxed_slice()));
+                    return Ok(Expr::Object(kv_pairs));
                 }
                 _ => {
                     return Err(ComputeExprParseError {
-                        span: token_after_key_expr.span,
+                        span: t.span,
                         kind: ParseErrorKind::UnexpectedToken {
-                            got: token_after_key_expr.kind,
-                            expected: "`:`, `,` or `}`",
+                            got: t.kind,
+                            expected: if value_expr.is_some() {
+                                "`,` or `}`"
+                            } else {
+                                "`:`, `,` or `}`"
+                            },
                         },
                     })
                 }
             }
 
-            key_expr = self.parse_expression(Precedence::ZERO)?;
+            if let Some((
+                &TokenKind::Identifier(ident),
+                Some(TokenKind::Colon | TokenKind::Comma),
+            )) = self.lexer.peek_two_token_kinds()?
+            {
+                key_expr = Expr::Literal(FieldValue::Text(ident.to_string()));
+                self.lexer.drop_token();
+            } else {
+                key_expr = self.parse_expression(Precedence::ZERO)?;
+            }
         }
     }
 
@@ -443,6 +450,16 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         &mut self,
         open_brace_span: ComputeExprSpan,
     ) -> Result<Expr, ComputeExprParseError<'i>> {
+        if let Some((
+            &TokenKind::Identifier(ident),
+            Some(TokenKind::Colon | TokenKind::Comma),
+        )) = self.lexer.peek_two_token_kinds()?
+        {
+            let first_key = Expr::Literal(FieldValue::Text(ident.to_string()));
+            self.lexer.drop_token();
+            return self.parse_object(open_brace_span, first_key);
+        }
+
         let first_expr = self.parse_expression(Precedence::ZERO)?;
         let Some(next_tok) = self.lexer.peek_token()? else {
             return Err(ComputeExprParseError {
@@ -471,7 +488,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                 ))
             }
             _ => {
-                let next_tok = self.lexer.munch_token()?.unwrap();
+                let next_tok = self.lexer.consume_token()?.unwrap();
                 Err(ComputeExprParseError {
                     span: open_brace_span,
                     kind: ParseErrorKind::UnexpectedToken {
@@ -551,8 +568,9 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         &mut self,
         _let_kw_span: ComputeExprSpan,
     ) -> Result<Expr, ComputeExprParseError<'i>> {
-        let ident_tok =
-            self.lexer.munch_or_eof_err("identifier after `let`")?;
+        let ident_tok = self
+            .lexer
+            .consume_token_or_eof_err("identifier after `let`")?;
         let TokenKind::Identifier(ident) = ident_tok.kind else {
             return Err(ComputeExprParseError {
                 span: ident_tok.span,
@@ -575,7 +593,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
     }
 
     fn parse_value(&mut self) -> Result<Expr, ComputeExprParseError<'i>> {
-        let Some(tok) = self.lexer.munch_token()? else {
+        let Some(tok) = self.lexer.consume_token()? else {
             return Err(self.lexer.empty_error());
         };
         let unary_op = match tok.kind {
@@ -692,7 +710,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
     }
     pub fn parse(&mut self) -> Result<Expr, ComputeExprParseError<'i>> {
         let res = self.parse_expression(Precedence::ZERO)?;
-        if let Some(tok) = self.lexer.munch_token()? {
+        if let Some(tok) = self.lexer.consume_token()? {
             return Err(ComputeExprParseError {
                 span: tok.span,
                 kind: ParseErrorKind::TrailingToken(tok.kind),
@@ -772,6 +790,25 @@ mod test {
                 Expr::Literal(FieldValue::Int(1)),
                 Expr::Literal(FieldValue::Int(2)),
                 Expr::Literal(FieldValue::Int(3)),
+            ]),
+        )
+    }
+
+    #[test]
+    fn test_parse_object() {
+        test_parse(
+            "{foo: 3, bar: 'asdf'}",
+            [],
+            [],
+            Expr::Object(vec![
+                (
+                    Expr::Literal(FieldValue::Text("foo".to_owned())),
+                    Some(Expr::Literal(FieldValue::Int(3))),
+                ),
+                (
+                    Expr::Literal(FieldValue::Text("bar".to_owned())),
+                    Some(Expr::Literal(FieldValue::Text("asdf".to_owned()))),
+                ),
             ]),
         )
     }
