@@ -22,7 +22,7 @@ use crate::{
         field::{FieldManager, FieldRefOffset},
         field_data::{FieldData, RunLength},
         field_data_ref::DestructuredFieldDataRef,
-        field_value::FieldValueKind,
+        field_value::{FieldValue, FieldValueKind},
         field_value_ref::{FieldValueRef, FieldValueSlice},
         iter::{
             field_iter::FieldIter,
@@ -37,7 +37,7 @@ use crate::{
         },
         iter_hall::{IterHall, IterStateRaw},
         match_set::MatchSetManager,
-        object::ObjectKeysInternedBuilder,
+        object::{Object, ObjectKeysInternedBuilder},
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -678,6 +678,112 @@ impl<'a, 'b> Executor<'a, 'b> {
         }
     }
 
+    fn execute_dot_access(
+        &mut self,
+        op_id: OperatorId,
+        lhs: &ValueAccess,
+        ident: StringStoreEntry,
+        ident_str: &str,
+        field_pos: usize,
+        target: TargetRef,
+        count: usize,
+    ) {
+        debug_assert!(count > 0);
+        let output_tmp_id = match target {
+            TargetRef::TempField(id) => Some(id),
+            TargetRef::Output => None,
+            TargetRef::Discard => return,
+        };
+
+        let mut iter = get_executor_input_iter(
+            lhs,
+            self.temp_fields,
+            self.extern_vars,
+            self.extern_fields,
+            self.extern_field_iters,
+            self.extern_field_temp_iters,
+            field_pos,
+            count,
+        );
+
+        let mut inserter = get_inserter(
+            self.output,
+            self.temp_fields,
+            output_tmp_id,
+            field_pos,
+        );
+
+        let mut count_rem = count;
+
+        while count_rem > 0 {
+            let range = iter
+                .typed_range_fwd(self.msm, count_rem, FieldIterOpts::default())
+                .unwrap();
+
+            count_rem -= range.base.field_count;
+
+            metamatch!(match range.base.data {
+                FieldValueSlice::Object(objects) => {
+                    for (v, rl) in
+                        FieldValueRangeIter::from_range(&range, objects)
+                    {
+                        let rl = rl as usize;
+                        match v {
+                            Object::KeysStored(obj) => {
+                                inserter.push_field_value_unpacked(
+                                    obj.get(ident_str)
+                                        .unwrap_or(&FieldValue::Undefined)
+                                        .clone(),
+                                    rl,
+                                    true,
+                                    false,
+                                );
+                            }
+                            Object::KeysInterned(obj) => {
+                                inserter.push_field_value_unpacked(
+                                    obj.get(&ident)
+                                        .unwrap_or(&FieldValue::Undefined)
+                                        .clone(),
+                                    rl,
+                                    true,
+                                    false,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                FieldValueSlice::Error(_) => {
+                    inserter.extend_from_ref_aware_range(&range, true, false);
+                }
+                #[expand_pattern(T in [
+                    Null, Undefined, TextInline, TextBuffer, BytesInline,
+                    BytesBuffer, Bool, Int, BigInt, Float, BigRational,
+                    Array, Custom, Argument, OpDecl, StreamValueId,
+                    FieldReference, SlicedFieldReference,
+                ])]
+                FieldValueSlice::T(_) => {
+                    inserter.push_error(
+                        OperatorApplicationError::new_s(
+                            format!(
+                                "cannot cast '{}' to int",
+                                range.base.data.kind()
+                            ),
+                            op_id,
+                        ),
+                        range.base.field_count,
+                        true,
+                        false,
+                    );
+                }
+            });
+
+            if count_rem == 0 {
+                break;
+            }
+        }
+    }
+
     fn execute_array(
         &mut self,
         elements: &[ValueAccess],
@@ -917,6 +1023,15 @@ impl<'a, 'b> Executor<'a, 'b> {
                     elements: elems,
                     target,
                 } => self.execute_array(elems, *target, field_pos, count),
+                Instruction::DotAccess {
+                    lhs,
+                    ident,
+                    ident_str,
+                    target,
+                } => self.execute_dot_access(
+                    self.op_id, lhs, *ident, ident_str, field_pos, *target,
+                    count,
+                ),
                 Instruction::Move { src, tgt } => {
                     self.execute_move(src, *tgt, field_pos, count);
                 }
@@ -933,7 +1048,6 @@ impl<'a, 'b> Executor<'a, 'b> {
                     tmp.field_pos.set(usize::MAX);
                 }
                 Instruction::ArrayAccess { .. } => todo!(),
-                Instruction::DotAccess { .. } => todo!(),
             }
         }
     }

@@ -104,6 +104,7 @@ pub enum Instruction {
     DotAccess {
         lhs: ValueAccess,
         ident: StringStoreEntry,
+        ident_str: String,
         target: TargetRef,
     },
     ClearTemporary(TempFieldId),
@@ -345,7 +346,8 @@ impl Compiler<'_> {
                         &mut self.ssa_temporaries,
                         self.unbound_idents,
                     ),
-                    ident: self.string_store.intern_moved(ident),
+                    ident: self.string_store.intern_cloned(&ident),
+                    ident_str: ident,
                     target: TargetRef::TempField(temp_id.index),
                 });
                 self.release_intermediate(lhs);
@@ -694,7 +696,8 @@ impl Compiler<'_> {
                         &mut self.ssa_temporaries,
                         self.unbound_idents,
                     ),
-                    ident: self.string_store.intern_moved(ident),
+                    ident: self.string_store.intern_cloned(&ident),
+                    ident_str: ident,
                     target,
                 });
                 self.release_intermediate(lhs);
