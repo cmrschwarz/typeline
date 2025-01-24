@@ -773,11 +773,14 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
 mod test {
     use crate::{
         operators::compute::{
-            ast::{BinaryOpKind, Expr, UnaryOpKind},
+            ast::{
+                AccessIdx, BinaryOpKind, Expr, ExternIdentId, IdentId,
+                UnaryOpKind,
+            },
             lexer::ComputeExprLexer,
         },
         record_data::field_value::FieldValue,
-        utils::index_vec::IndexVec,
+        utils::{index_vec::IndexVec, indexing_type::IndexingType},
     };
 
     use super::ComputeExprParser;
@@ -840,6 +843,55 @@ mod test {
                 Expr::Literal(FieldValue::Int(2)),
                 Expr::Literal(FieldValue::Int(3)),
             ]),
+        )
+    }
+
+    #[test]
+    fn test_parse_array_access() {
+        test_parse(
+            "foo[42]",
+            ["foo".to_owned()],
+            [],
+            Expr::ArrayAccess {
+                lhs: Box::new(Expr::Reference {
+                    ident_id: IdentId::Unbound(ExternIdentId::ZERO),
+                    access_idx: AccessIdx::ZERO,
+                }),
+                index: Box::new(Expr::Literal(FieldValue::Int(42))),
+            },
+        )
+    }
+
+    #[test]
+    fn test_parse_array_access_after_array() {
+        test_parse(
+            "[1,2,3][42]",
+            [],
+            [],
+            Expr::ArrayAccess {
+                lhs: Box::new(Expr::Array(vec![
+                    Expr::Literal(FieldValue::Int(1)),
+                    Expr::Literal(FieldValue::Int(2)),
+                    Expr::Literal(FieldValue::Int(3)),
+                ])),
+                index: Box::new(Expr::Literal(FieldValue::Int(42))),
+            },
+        )
+    }
+
+    #[test]
+    fn test_parse_dot_access() {
+        test_parse(
+            "foo.bar",
+            ["foo".to_owned()],
+            [],
+            Expr::DotAccess {
+                lhs: Box::new(Expr::Reference {
+                    ident_id: IdentId::Unbound(ExternIdentId::ZERO),
+                    access_idx: AccessIdx::ZERO,
+                }),
+                ident: "bar".to_owned(),
+            },
         )
     }
 
