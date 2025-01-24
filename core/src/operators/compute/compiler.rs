@@ -96,6 +96,16 @@ pub enum Instruction {
         elements: Box<[ValueAccess]>,
         target: TargetRef,
     },
+    ArrayAccess {
+        lhs: ValueAccess,
+        index: ValueAccess,
+        target: TargetRef,
+    },
+    DotAccess {
+        lhs: ValueAccess,
+        ident: StringStoreEntry,
+        target: TargetRef,
+    },
     ClearTemporary(TempFieldId),
     Move {
         src: ValueAccess,
@@ -322,6 +332,45 @@ impl Compiler<'_> {
                     target: TargetRef::TempField(temp_id.index),
                 });
                 self.release_intermediate(subexpr_v);
+                IntermediateValue {
+                    value: SsaValue::Temporary(ssa_id),
+                    release_after_use: true,
+                }
+            }
+            Expr::DotAccess { lhs, ident } => {
+                let mut lhs = self.compile_expr_for_temp_target(*lhs);
+                let (ssa_id, temp_id) = self.claim_ssa_temporary();
+                self.instructions.push(Instruction::DotAccess {
+                    lhs: lhs.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    ident: self.string_store.intern_moved(ident),
+                    target: TargetRef::TempField(temp_id.index),
+                });
+                self.release_intermediate(lhs);
+                IntermediateValue {
+                    value: SsaValue::Temporary(ssa_id),
+                    release_after_use: true,
+                }
+            }
+            Expr::ArrayAccess { lhs, index } => {
+                let mut lhs = self.compile_expr_for_temp_target(*lhs);
+                let mut rhs = self.compile_expr_for_temp_target(*index);
+                let (ssa_id, temp_id) = self.claim_ssa_temporary();
+                self.instructions.push(Instruction::ArrayAccess {
+                    lhs: lhs.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    index: rhs.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    target: TargetRef::TempField(temp_id.index),
+                });
+                self.release_intermediate(lhs);
+                self.release_intermediate(rhs);
                 IntermediateValue {
                     value: SsaValue::Temporary(ssa_id),
                     release_after_use: true,
@@ -637,6 +686,35 @@ impl Compiler<'_> {
                     target,
                 });
                 self.release_intermediate(subexpr);
+            }
+            Expr::DotAccess { lhs, ident } => {
+                let mut lhs = self.compile_expr_for_temp_target(*lhs);
+                self.instructions.push(Instruction::DotAccess {
+                    lhs: lhs.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    ident: self.string_store.intern_moved(ident),
+                    target,
+                });
+                self.release_intermediate(lhs);
+            }
+            Expr::ArrayAccess { lhs, index } => {
+                let mut lhs = self.compile_expr_for_temp_target(*lhs);
+                let mut index = self.compile_expr_for_temp_target(*index);
+                self.instructions.push(Instruction::ArrayAccess {
+                    lhs: lhs.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    index: index.take_value_accessed(
+                        &mut self.ssa_temporaries,
+                        self.unbound_idents,
+                    ),
+                    target,
+                });
+                self.release_intermediate(lhs);
+                self.release_intermediate(index);
             }
             Expr::OpBinary { kind, children } => {
                 let [lhs, rhs] = *children;

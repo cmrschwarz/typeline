@@ -168,7 +168,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
         &mut self,
         lhs: Expr,
     ) -> Result<Expr, ComputeExprParseError<'i>> {
-        self.lexer.drop_token();
+        self.lexer.drop_token(); // open paren
         let mut args = Vec::new();
         let mut comma_found = false;
         loop {
@@ -202,6 +202,54 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                 self.lexer.drop_token();
             }
         }
+    }
+
+    fn parse_dot_access(
+        &mut self,
+        lhs: Expr,
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
+        self.lexer.drop_token(); // the dot
+        let t = self.lexer.consume_token_or_eof_err("identifier")?;
+        let ident = match t.kind {
+            TokenKind::Identifier(ident) => ident.to_owned(),
+            TokenKind::Literal(FieldValue::Int(v)) => v.to_string(),
+            TokenKind::Literal(FieldValue::BigInt(v)) => v.to_string(),
+            _ => {
+                return Err(ComputeExprParseError {
+                    span: t.span,
+                    kind: ParseErrorKind::UnexpectedToken {
+                        got: self.lexer.consume_token()?.unwrap().kind,
+                        expected: "identifier",
+                    },
+                });
+            }
+        };
+        Ok(Expr::DotAccess {
+            lhs: Box::new(lhs),
+            ident,
+        })
+    }
+
+    fn parse_bracket_access(
+        &mut self,
+        lhs: Expr,
+    ) -> Result<Expr, ComputeExprParseError<'i>> {
+        self.lexer.drop_token(); // the bracket
+        let expr = self.parse_expression(Precedence::ZERO)?;
+        let t = self.lexer.consume_token_or_eof_err("`]`")?;
+        if t.kind != TokenKind::RBracket {
+            return Err(ComputeExprParseError {
+                span: t.span,
+                kind: ParseErrorKind::UnexpectedToken {
+                    got: t.kind,
+                    expected: "`]`",
+                },
+            });
+        }
+        Ok(Expr::ArrayAccess {
+            lhs: Box::new(lhs),
+            index: Box::new(expr),
+        })
     }
 
     fn parse_expression_after_value(
@@ -252,6 +300,8 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             Tok::DoubleAmpersandEquals => Op::LogicalAndAssign,
             TokenKind::DoubleEquals => Op::Equals,
 
+            TokenKind::LBracket => return self.parse_bracket_access(lhs),
+            TokenKind::Dot => return self.parse_dot_access(lhs),
             TokenKind::LParen => return self.parse_function_call(lhs),
 
             TokenKind::Literal(_)
@@ -260,7 +310,6 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             | TokenKind::RParen
             | TokenKind::LBrace
             | TokenKind::RBrace
-            | TokenKind::LBracket
             | TokenKind::RBracket
             | TokenKind::Tilde
             | TokenKind::Exclamation

@@ -85,7 +85,6 @@ pub enum BinaryOpKind {
     LogicalOrAssign,
     LogicalXorAssign,
 
-    Access,
     Assign,
 }
 
@@ -142,6 +141,14 @@ pub enum Expr {
     Block(Block),
     Object(Vec<(Expr, Option<Expr>)>),
     Array(Vec<Expr>),
+    ArrayAccess {
+        lhs: Box<Expr>,
+        index: Box<Expr>,
+    },
+    DotAccess {
+        lhs: Box<Expr>,
+        ident: String,
+    },
     FunctionCall {
         lhs: Box<Expr>,
         args: Box<[Expr]>,
@@ -175,8 +182,6 @@ impl BinaryOpKind {
     pub fn prec(self) -> super::parser::Precedence {
         #[allow(clippy::match_same_arms)]
         let v = match self {
-            BinaryOpKind::Access => 16,
-
             BinaryOpKind::PowerOf => 13,
 
             BinaryOpKind::Multiply => 12,
@@ -227,8 +232,6 @@ impl BinaryOpKind {
     }
     pub fn to_str(self) -> &'static str {
         match self {
-            BinaryOpKind::Access => "[]",
-
             BinaryOpKind::PowerOf => "**",
 
             BinaryOpKind::Multiply => "*",

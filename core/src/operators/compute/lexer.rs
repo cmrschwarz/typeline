@@ -99,6 +99,7 @@ pub enum TokenKind<'a> {
     Colon,
     Comma,
     Semicolon,
+    Dot,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -276,6 +277,7 @@ impl<'a> ComputeExprLexer<'a> {
                 (',', Comma),
                 (':', Colon),
                 (';', Semicolon),
+                ('.', Dot),
             ])]
             CHAR => {
                 self.offset += 1;
@@ -498,6 +500,7 @@ impl<'a> TokenKind<'a> {
             TokenKind::Colon => ":",
             TokenKind::Comma => ",",
             TokenKind::Semicolon => ";",
+            TokenKind::Dot => ".",
         })
     }
 }

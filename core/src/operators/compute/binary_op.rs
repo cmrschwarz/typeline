@@ -521,7 +521,6 @@ fn execute_binary_op_double_int(
         BinaryOpKind::LogicalAndAssign => todo!(),
         BinaryOpKind::LogicalOrAssign => todo!(),
         BinaryOpKind::LogicalXorAssign => todo!(),
-        BinaryOpKind::Access => todo!(),
         BinaryOpKind::Assign => todo!(),
     }
 }
@@ -614,7 +613,6 @@ fn execute_binary_op_int_bigint(
         BinaryOpKind::LogicalAndAssign => todo!(),
         BinaryOpKind::LogicalOrAssign => todo!(),
         BinaryOpKind::LogicalXorAssign => todo!(),
-        BinaryOpKind::Access => todo!(),
         BinaryOpKind::Assign => todo!(),
     }
 }
@@ -707,7 +705,6 @@ fn execute_binary_op_double_float(
         BinaryOpKind::LogicalXorAssign => todo!(),
         BinaryOpKind::AddAssign => todo!(),
         BinaryOpKind::SubtractAssign => todo!(),
-        BinaryOpKind::Access => todo!(),
         BinaryOpKind::Assign => todo!(),
     }
 }
@@ -800,7 +797,6 @@ fn execute_binary_op_int_float(
         BinaryOpKind::LogicalAndAssign => todo!(),
         BinaryOpKind::LogicalOrAssign => todo!(),
         BinaryOpKind::LogicalXorAssign => todo!(),
-        BinaryOpKind::Access => todo!(),
         BinaryOpKind::Assign => todo!(),
     }
 }
@@ -894,7 +890,6 @@ fn execute_binary_op_float_int(
         BinaryOpKind::LogicalAndAssign => todo!(),
         BinaryOpKind::LogicalOrAssign => todo!(),
         BinaryOpKind::LogicalXorAssign => todo!(),
-        BinaryOpKind::Access => todo!(),
         BinaryOpKind::Assign => todo!(),
     }
 }

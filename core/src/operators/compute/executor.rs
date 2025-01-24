@@ -932,6 +932,8 @@ impl<'a, 'b> Executor<'a, 'b> {
                     tmp.data.borrow_mut().clear();
                     tmp.field_pos.set(usize::MAX);
                 }
+                Instruction::ArrayAccess { .. } => todo!(),
+                Instruction::DotAccess { .. } => todo!(),
             }
         }
     }
