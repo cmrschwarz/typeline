@@ -22,7 +22,13 @@ pub struct TfNop {}
 pub fn parse_op_nop(
     expr: &CallExpr,
 ) -> Result<Box<dyn Operator>, OperatorCreationError> {
-    if expr.require_at_most_one_plaintext_arg()? == Some(b"-c") {
+    // TODO: proper parsing
+    if expr
+        .split_flags_arg(true)
+        .0
+        .map(|f| f.contains_key("-c"))
+        .unwrap_or(false)
+    {
         Ok(create_op_nop_copy())
     } else {
         Ok(create_op_nop())

@@ -134,7 +134,7 @@ fn simple_aggregate() -> Result<(), TypelineError> {
 fn leading_aggregate() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
         SessionSetupOptions::with_default_extensions(),
-        [",v=42"],
+        [",v=42", "f={:??}"],
     )?
     .run_collect_stringified()?;
     assert_eq!(res, ["undefined", "42"]);

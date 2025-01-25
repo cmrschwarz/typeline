@@ -606,7 +606,7 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
         let Some(first) = args.first() else {
             return false;
         };
-        let FieldValue::Object(_) = &first.value else {
+        let FieldValue::Object(_) = first.value.deref_argument() else {
             return false;
         };
         if assume_flags_if_single_obj || first.span == Span::FlagsObject {
@@ -628,7 +628,7 @@ impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
             return (None, self.args.as_ref());
         }
         let args = self.args.as_ref();
-        let FieldValue::Object(obj) = &args[0].value else {
+        let FieldValue::Object(obj) = &args[0].value.deref_argument() else {
             return (None, args);
         };
         let Object::KeysStored(obj) = &**obj else {

@@ -1,5 +1,4 @@
 use crate::{
-    cli::call_expr::CallExpr,
     job::JobData,
     liveness_analysis::LivenessData,
     record_data::{
@@ -9,8 +8,6 @@ use crate::{
 };
 
 use super::{
-    errors::OperatorCreationError,
-    nop::create_op_nop,
     operator::{Operator, OperatorId},
     transform::{Transform, TransformId, TransformState},
     utils::basic_transform_update::{basic_transform_update, BasicUpdateData},
@@ -30,15 +27,6 @@ pub struct TfNopCopy {
     input_field_ref_offset: FieldRefOffset,
 }
 
-pub fn parse_op_nop_copy(
-    expr: &CallExpr,
-) -> Result<Box<dyn Operator>, OperatorCreationError> {
-    if expr.require_at_most_one_plaintext_arg()? == Some(b"-c") {
-        Ok(create_op_nop_copy())
-    } else {
-        Ok(create_op_nop())
-    }
-}
 pub fn create_op_nop_copy() -> Box<dyn Operator> {
     Box::new(OpNopCopy::default())
 }

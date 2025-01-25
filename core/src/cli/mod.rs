@@ -376,7 +376,7 @@ pub fn parse_block_until_end<'a>(
 
         if expr.append_mode && append_group_start.is_none() {
             if args.len() == arg_count_start {
-                args.push(create_nop_arg(source_scope));
+                args.push(create_nop_copy_arg(source_scope));
             }
             append_group_start = Some(args.len() - 1);
         }
@@ -712,10 +712,21 @@ pub fn wrap_expr_in_key(
     }
 }
 
-pub fn create_nop_arg(source_scope: ScopeId) -> Argument {
+pub fn create_nop_copy_arg(source_scope: ScopeId) -> Argument {
     Argument::generated_from_field_value(
         FieldValue::Array(Array::Argument(vec![
             Argument::generated_from_name("nop", source_scope),
+            Argument {
+                value: FieldValue::Object(Box::new(Object::KeysStored(
+                    ObjectKeysStored::from_iter([(
+                        "-c".to_string(),
+                        FieldValue::Undefined,
+                    )]),
+                ))),
+                source_scope,
+                span: Span::Generated,
+                meta_info: None,
+            },
         ])),
         source_scope,
         MetaInfo::EndKind(CallExprEndKind::Generated),
@@ -940,7 +951,7 @@ pub fn parse_list_after_start<'a>(
 
         if modes.append_mode && append_group_start.is_none() {
             if args.is_empty() {
-                args.push(create_nop_arg(source_scope));
+                args.push(create_nop_copy_arg(source_scope));
             }
             append_group_start = Some(args.len() - 1);
         }
@@ -1208,7 +1219,7 @@ pub fn parse_cli_raw<'a>(
 
         if expr.append_mode && aggregation_start.is_none() {
             if res.args.is_empty() {
-                res.args.push(create_nop_arg(scope_id));
+                res.args.push(create_nop_copy_arg(scope_id));
             }
             aggregation_start = Some(res.args.len() - 1);
         }
@@ -1218,7 +1229,6 @@ pub fn parse_cli_raw<'a>(
                 let agg =
                     create_aggregate(scope_id, res.args.drain(agg_start..));
                 res.args.push(agg);
-                continue;
             }
         }
         res.args.push(expr.arg);
