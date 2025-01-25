@@ -192,22 +192,6 @@ impl Operator for OpFieldValueSink {
         "field_value_sink".into()
     }
 
-    fn output_count(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: super::operator::OperatorId,
-    ) -> usize {
-        1
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: super::operator::OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn output_field_kind(
         &self,
         _sess: &crate::context::SessionData,

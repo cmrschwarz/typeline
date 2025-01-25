@@ -55,14 +55,6 @@ impl Operator for OpCollect {
         1
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn build_transforms<'a>(
         &'a self,
         job: &mut Job,

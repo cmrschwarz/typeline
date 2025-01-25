@@ -2,7 +2,6 @@ use metamatch::metamatch;
 use regex::Regex;
 use std::{collections::VecDeque, sync::Arc};
 use typeline_core::{
-    context::SessionData,
     job::Job,
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
@@ -763,18 +762,6 @@ impl Operator for OpJoin {
             str.push_str("-d");
         }
         str.into()
-    }
-
-    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
-        1
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
     }
 
     fn build_transforms<'a>(

@@ -88,14 +88,6 @@ impl Operator for OpSel {
         typeline_core::operators::operator::InputFieldKind::Dummy
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &typeline_core::context::SessionData,
-        _op_id: typeline_core::operators::operator::OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn build_transforms<'a>(
         &'a self,
         job: &mut typeline_core::job::Job<'a>,

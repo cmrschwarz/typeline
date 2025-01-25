@@ -69,14 +69,6 @@ impl Operator for OpTail {
         0
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn on_liveness_computed(
         &mut self,
         sess: &mut SessionData,

@@ -224,6 +224,14 @@ impl Operator for OpCsv {
         self.var_names.len()
     }
 
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        true
+    }
+
     fn output_field_kind(
         &self,
         _sess: &SessionData,
@@ -268,14 +276,6 @@ impl Operator for OpCsv {
             }
         }
         Ok(op_id)
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        true
     }
 
     fn update_variable_liveness(

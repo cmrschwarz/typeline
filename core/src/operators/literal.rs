@@ -127,14 +127,6 @@ impl Operator for OpLiteral {
         1
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: super::operator::OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn build_transforms<'a>(
         &'a self,
         job: &mut crate::job::Job<'a>,

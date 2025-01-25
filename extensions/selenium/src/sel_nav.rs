@@ -50,22 +50,6 @@ impl Operator for OpSelNav {
         "sel_nav".into()
     }
 
-    fn output_count(
-        &self,
-        _sess: &typeline_core::context::SessionData,
-        _op_id: typeline_core::operators::operator::OperatorId,
-    ) -> usize {
-        1
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &typeline_core::context::SessionData,
-        _op_id: typeline_core::operators::operator::OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn update_variable_liveness(
         &self,
         _sess: &typeline_core::context::SessionData,

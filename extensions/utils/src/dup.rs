@@ -51,14 +51,6 @@ impl Operator for OpDup {
         OutputFieldKind::SameAsInput
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn update_variable_liveness(
         &self,
         _sess: &SessionData,

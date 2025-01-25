@@ -41,14 +41,6 @@ impl Operator for OpSuccessUpdator {
         0
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn update_variable_liveness(
         &self,
         _sess: &crate::context::SessionData,

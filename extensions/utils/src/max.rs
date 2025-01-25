@@ -1,6 +1,5 @@
 use typeline_core::{
     cli::call_expr::CallExpr,
-    context::SessionData,
     job::{Job, JobData},
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
@@ -42,18 +41,6 @@ impl Operator for OpMax {
         &self,
     ) -> typeline_core::operators::operator::OperatorName {
         "max".into()
-    }
-
-    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
-        1
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
     }
 
     fn build_transforms<'a>(

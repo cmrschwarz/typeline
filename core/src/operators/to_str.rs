@@ -138,14 +138,6 @@ impl Operator for OpToStr {
         1
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: super::operator::OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn update_variable_liveness(
         &self,
         _sess: &crate::context::SessionData,

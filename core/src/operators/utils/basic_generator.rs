@@ -83,22 +83,6 @@ impl<T: BasicGenerator> Operator for BasicGeneratorWrapper<T> {
         BasicGenerator::default_name(&self.base)
     }
 
-    fn output_count(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: crate::operators::operator::OperatorId,
-    ) -> usize {
-        1
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: crate::operators::operator::OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn build_transforms<'a>(
         &'a self,
         job: &mut crate::job::Job<'a>,

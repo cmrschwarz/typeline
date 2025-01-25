@@ -201,14 +201,6 @@ impl Operator for OpExec {
         Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn update_variable_liveness(
         &self,
         sess: &SessionData,

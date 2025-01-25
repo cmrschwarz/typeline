@@ -1830,14 +1830,6 @@ impl Operator for OpFormat {
         1
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn register_output_var_names(
         &self,
         ld: &mut LivenessData,

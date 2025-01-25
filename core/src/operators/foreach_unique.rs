@@ -61,14 +61,6 @@ impl Operator for OpForeachUnique {
         0
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn output_field_kind(
         &self,
         _sess: &crate::context::SessionData,

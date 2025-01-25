@@ -78,9 +78,7 @@ impl Operator for OpExplode {
     fn default_name(&self) -> OperatorName {
         "explode".into()
     }
-    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
-        1
-    }
+
     fn has_dynamic_outputs(
         &self,
         _sess: &SessionData,

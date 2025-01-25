@@ -145,6 +145,14 @@ impl Operator for OpJsonl {
         self.var_names.len() + 1
     }
 
+    fn has_dynamic_outputs(
+        &self,
+        _sess: &SessionData,
+        _op_id: OperatorId,
+    ) -> bool {
+        true
+    }
+
     fn setup(
         &mut self,
         sess: &mut SessionSetupData,
@@ -179,14 +187,6 @@ impl Operator for OpJsonl {
         self.first_line = first_line;
         self.reader.lock().unwrap().replace(reader);
         Ok(op_id)
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        true
     }
 
     fn update_variable_liveness(

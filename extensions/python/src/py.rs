@@ -95,10 +95,6 @@ impl Operator for OpPy {
         "py".into()
     }
 
-    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
-        1
-    }
-
     fn register_output_var_names(
         &self,
         ld: &mut LivenessData,
@@ -127,14 +123,6 @@ impl Operator for OpPy {
             }
         }
         Ok(sess.add_op(op_data_id, chain_id, operator_offset_in_chain, span))
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
     }
 
     fn update_variable_liveness(

@@ -2,7 +2,6 @@ use metamatch::metamatch;
 use std::io::BufRead;
 use typeline_core::{
     self,
-    context::SessionData,
     extension::ExtensionRegistry,
     job::{Job, JobData},
     operators::{
@@ -52,18 +51,6 @@ impl Operator for OpFromTyson {
         &self,
     ) -> typeline_core::operators::operator::OperatorName {
         "from_tyson".into()
-    }
-
-    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
-        1
-    }
-
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
     }
 
     fn build_transforms<'a>(

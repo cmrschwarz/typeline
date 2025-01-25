@@ -79,14 +79,6 @@ impl Operator for OpChunks {
         0
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn output_field_kind(
         &self,
         _sess: &SessionData,

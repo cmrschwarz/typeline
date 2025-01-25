@@ -63,16 +63,6 @@ impl Operator for OpFlatten {
     fn default_name(&self) -> OperatorName {
         "flatten".into()
     }
-    fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
-        1
-    }
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
 
     fn on_liveness_computed(
         &mut self,

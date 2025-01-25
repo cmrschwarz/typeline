@@ -303,14 +303,6 @@ impl Operator for OpCallConcurrent {
         0
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &crate::context::SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        false
-    }
-
     fn build_transforms<'a>(
         &'a self,
         job: &mut Job<'a>,

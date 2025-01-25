@@ -792,15 +792,6 @@ impl Operator for OpForkCat {
         0
     }
 
-    fn has_dynamic_outputs(
-        &self,
-        _sess: &SessionData,
-        _op_id: OperatorId,
-    ) -> bool {
-        // if the case, done by the subchains
-        false
-    }
-
     fn output_field_kind(
         &self,
         _sess: &SessionData,
