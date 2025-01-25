@@ -181,6 +181,11 @@ impl<W: std::io::Write> From<W> for TextWriteIoAdapter<W> {
 
 #[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut)]
 pub struct TextWriteFormatAdapter<W: std::fmt::Write>(pub W);
+impl<W: std::fmt::Write> TextWriteFormatAdapter<W> {
+    pub fn into_inner(self) -> W {
+        self.0
+    }
+}
 
 impl<W: std::fmt::Write> TextWrite for TextWriteFormatAdapter<W> {
     unsafe fn write_text_unchecked(
@@ -359,6 +364,11 @@ impl<W: MaybeTextWrite> MaybeTextWrite for MaybeTextWriteFlaggedAdapter<W> {
 
 #[derive(Clone)]
 pub struct MaybeTextWritePanicAdapter<W: TextWrite>(pub W);
+impl<W: TextWrite> MaybeTextWritePanicAdapter<W> {
+    pub fn into_inner(self) -> W {
+        self.0
+    }
+}
 
 impl<W: TextWrite> std::io::Write for MaybeTextWritePanicAdapter<W> {
     fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {

@@ -68,6 +68,8 @@ pub enum ComputeExpression {
 }
 
 pub struct OpCompute {
+    #[cfg(feature = "debug_state")]
+    expr_str: String,
     expr: ComputeExpression,
     unbound_refs: IndexVec<ExternIdentId, UnboundIdentData>,
     let_bindings: IndexVec<LetBindingId, LetBindingData>,
@@ -143,7 +145,14 @@ pub fn build_op_compute(
         OperatorCreationError::new_s(e.stringify_error("<expr>"), span)
     })?;
 
+    #[cfg(feature = "debug_state")]
+    use crate::utils::escaped_writer::{
+        escape_to_string, ESCAPE_DOUBLE_QUOTES,
+    };
+
     Ok(Box::new(OpCompute {
+        #[cfg(feature = "debug_state")]
+        expr_str: escape_to_string(fmt, &ESCAPE_DOUBLE_QUOTES),
         expr: ComputeExpression::Ast(expr),
         unbound_refs,
         let_bindings,
@@ -181,7 +190,14 @@ impl Operator for OpCompute {
         Ok(sess.add_op(op_data_id, chain_id, offset_in_chain, span))
     }
     fn default_name(&self) -> super::operator::OperatorName {
-        "compute".into()
+        "c".into()
+    }
+    fn debug_op_name(&self) -> super::operator::OperatorName {
+        #[cfg(feature = "debug_state")]
+        return format!("c=\"{}\"", self.expr_str).into();
+
+        #[cfg(not(feature = "debug_state"))]
+        "c".into()
     }
 
     fn register_output_var_names(

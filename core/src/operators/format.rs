@@ -61,6 +61,7 @@ use crate::{
     utils::{
         debuggable_nonmax::DebuggableNonMaxUsize,
         divide_by_char_len,
+        escaped_writer::{escape_to_text_write, ESCAPE_DOUBLE_QUOTES},
         index_slice::IndexSlice,
         index_vec::IndexVec,
         indexing_type::IndexingType,
@@ -68,7 +69,7 @@ use crate::{
         io::PointerWriter,
         lazy_lock_guard::LazyRwLockGuard,
         string_store::{StringStore, StringStoreEntry},
-        text_write::TextWriteIoAdapter,
+        text_write::{TextWrite, TextWriteFormatAdapter, TextWriteIoAdapter},
         universe::CountedUniverse,
         MAX_UTF8_CHAR_LEN,
     },
@@ -1826,6 +1827,15 @@ impl Operator for OpFormat {
         "format".into()
     }
 
+    fn debug_op_name(&self) -> super::operator::OperatorName {
+        let mut res = TextWriteFormatAdapter("format=".to_string());
+
+        for f in &self.parts {
+            display_format_part(&mut res, f, &self.refs).unwrap();
+        }
+        res.into_inner().into()
+    }
+
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {
         1
     }
@@ -1957,6 +1967,102 @@ impl Operator for OpFormat {
             stream_buffer_size,
         };
         TransformInstatiation::Single(Box::new(tf))
+    }
+}
+
+pub fn display_format_width_spec(
+    res: &mut impl TextWrite,
+    s: &FormatWidthSpec,
+    refs: &IndexSlice<FormatKeyRefId, FormatKeyRefData>,
+) -> Result<(), std::io::Error> {
+    match s {
+        FormatWidthSpec::Value(v) => res.write_text_fmt(format_args!("{v}")),
+        FormatWidthSpec::Ref(format_key_ref_id) => {
+            res.write_text_fmt(format_args!(
+                "{}$",
+                refs[*format_key_ref_id].name.as_ref().unwrap()
+            ))
+        }
+    }
+}
+
+pub fn display_format_key(
+    res: &mut impl TextWrite,
+    f: &FormatKey,
+    refs: &IndexSlice<FormatKeyRefId, FormatKeyRefData>,
+) -> Result<(), std::io::Error> {
+    // TODO: do a better job jere
+    if let Some(name) = &refs[f.ref_idx].name {
+        res.write_all_text("{")?;
+        escape_to_text_write(res, name.as_bytes(), &ESCAPE_DOUBLE_QUOTES)?;
+    } else {
+        res.write_all_text("{")?;
+    }
+
+    if f.float_precision.is_some()
+        || f.min_char_count.is_some()
+        || f.opts != FormatOptions::default()
+    {
+        res.write_all_text(":")?;
+    }
+
+    if let Some(f) = f.opts.fill {
+        let align = match f.alignment {
+            FormatFillAlignment::Right => '<',
+            FormatFillAlignment::Left => '>',
+            FormatFillAlignment::Center => '^',
+        };
+        res.write_text_fmt(format_args!(
+            "{}{}",
+            f.fill_char.unwrap_or(' '),
+            align
+        ))?;
+    }
+
+    if f.opts.add_plus_sign {
+        res.write_all_text("+")?;
+    }
+
+    match f.opts.pretty_print {
+        PrettyPrintFormat::Regular => (),
+        PrettyPrintFormat::Pretty => res.write_all_text("#")?,
+        PrettyPrintFormat::Compact => res.write_all_text("##")?,
+    }
+
+    if f.opts.zero_pad_numbers {
+        res.write_all_text("0")?;
+    }
+
+    if let Some(cc) = &f.min_char_count {
+        display_format_width_spec(res, cc, refs)?;
+    }
+    if let Some(prec) = &f.float_precision {
+        res.write_all_text(".")?;
+        display_format_width_spec(res, prec, refs)?;
+    }
+    match f.opts.type_repr {
+        TypeReprFormat::Regular => (),
+        TypeReprFormat::Typed => res.write_all_text("?")?,
+        TypeReprFormat::Debug => res.write_all_text("??")?,
+    }
+
+    res.write_all_text("}")?;
+    Ok(())
+}
+
+pub fn display_format_part(
+    res: &mut impl TextWrite,
+    f: &FormatPart,
+    refs: &IndexSlice<FormatKeyRefId, FormatKeyRefData>,
+) -> Result<(), std::io::Error> {
+    match f {
+        FormatPart::ByteLiteral(t) => {
+            escape_to_text_write(res, t, &ESCAPE_DOUBLE_QUOTES)
+        }
+        FormatPart::TextLiteral(t) => {
+            escape_to_text_write(res, t.as_bytes(), &ESCAPE_DOUBLE_QUOTES)
+        }
+        FormatPart::Key(k) => display_format_key(res, k, refs),
     }
 }
 
@@ -2166,7 +2272,9 @@ impl<'a> Transform<'a> for TfFormat<'a> {
                         if print_plain {
                             inserter.append(chunk);
                         } else {
-                            inserter.append(chunk.as_escaped_text(b'"'));
+                            inserter.append(
+                                chunk.as_escaped_text(&ESCAPE_DOUBLE_QUOTES),
+                            );
                         }
                     }
                     StreamValueData::StaticText { .. }

@@ -27,8 +27,9 @@ use typeline_core::{
     operators::{
         errors::{OperatorApplicationError, OperatorCreationError},
         format::{
-            access_format_key_refs, parse_format_string, FormatKey,
-            FormatKeyRefData, FormatKeyRefId, FormatPart, FormatPartIndex,
+            access_format_key_refs, display_format_part, parse_format_string,
+            FormatKey, FormatKeyRefData, FormatKeyRefId, FormatPart,
+            FormatPartIndex,
         },
         operator::{
             OffsetInChain, Operator, OperatorDataId, OperatorId,
@@ -177,6 +178,19 @@ impl Operator for OpExec {
         &self,
     ) -> typeline_core::operators::operator::OperatorName {
         "exec".into()
+    }
+
+    fn debug_op_name(
+        &self,
+    ) -> typeline_core::operators::operator::OperatorName {
+        let mut name = "[ exec".to_string();
+        for f in &self.fmt_parts {
+            name.push_str(" \"");
+            display_format_part(&mut name, f, &self.refs).unwrap();
+            name.push('"');
+        }
+        name.push_str(" ]");
+        name.into()
     }
 
     fn output_count(&self, _sess: &SessionData, _op_id: OperatorId) -> usize {

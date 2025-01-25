@@ -11,7 +11,8 @@ use crate::{
     },
     typeline_error::TypelineError,
     utils::{
-        escaped_writer::EscapedWriter, string_store::StringStoreEntry,
+        escaped_writer::{EscapedWriter, ESCAPE_DOUBLE_QUOTES},
+        string_store::StringStoreEntry,
         text_write::TextWrite,
     },
 };
@@ -67,7 +68,8 @@ impl OperatorDeclaration for MacroOpDecl {
         w: &mut dyn crate::utils::text_write::MaybeTextWrite,
     ) -> std::io::Result<()> {
         w.write_all_text("[ \"")?;
-        let mut ew = EscapedWriter::new(w.as_text_write(), b'\"');
+        let mut ew =
+            EscapedWriter::new(w.as_text_write(), &ESCAPE_DOUBLE_QUOTES);
         ew.write_all_text(self.name_stored())?;
         drop(ew);
         w.write_all_text("\", [")?;

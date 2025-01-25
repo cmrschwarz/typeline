@@ -22,7 +22,9 @@ use crate::{
             CharLimitedLengthAndCharsCountingWriter,
             LengthAndCharsCountingWriter, LengthCountingWriter,
         },
-        escaped_writer::EscapedWriter,
+        escaped_writer::{
+            escape_to_maybe_text_write, EscapedWriter, ESCAPE_DOUBLE_QUOTES,
+        },
         int_string_conversions::{bool_to_str, i64_digits},
         lazy_lock_guard::LazyRwLockGuard,
         maybe_text::MaybeTextRef,
@@ -314,9 +316,9 @@ impl Formattable<'_, '_> for [u8] {
         } else {
             w.write_all_text("b\"")?;
         }
-        let mut ew = EscapedWriter::new(w, b'"');
-        std::io::Write::write_all(&mut ew, self)?;
-        ew.into_inner()?.write_all_text("\"")
+        escape_to_maybe_text_write(w, self, &ESCAPE_DOUBLE_QUOTES)?;
+
+        w.write_all_text("\"")
     }
     fn length_total(&self, opts: &mut Self::Context) -> usize {
         if opts.type_repr_format == TypeReprFormat::Regular {
@@ -327,6 +329,7 @@ impl Formattable<'_, '_> for [u8] {
         w.len
     }
 }
+
 impl Formattable<'_, '_> for str {
     type Context = ValueFormattingOpts;
     fn refuses_truncation(&self, opts: &mut Self::Context) -> bool {
@@ -350,7 +353,7 @@ impl Formattable<'_, '_> for str {
         } else {
             w.write_all_text("\"")?;
         }
-        let mut ew = EscapedWriter::new(w, b'"');
+        let mut ew = EscapedWriter::new(w, &ESCAPE_DOUBLE_QUOTES);
         TextWrite::write_all_text(&mut ew, self)?;
         ew.into_inner()?.write_all_text("\"")
     }
@@ -683,7 +686,7 @@ impl Formattable<'_, '_> for OperatorApplicationError {
             }
         };
         w.write_text_fmt(format_args!("{sv}(error)\"")).unwrap();
-        let mut ew = EscapedWriter::new(w, b'"');
+        let mut ew = EscapedWriter::new(w, &ESCAPE_DOUBLE_QUOTES);
         TextWrite::write_all_text(&mut ew, self.message())?;
         ew.into_inner().unwrap().write_all_text("\"")
     }
@@ -944,7 +947,7 @@ impl<'a, 'b> Formattable<'a, 'b> for StreamValue<'_> {
             Ok(())
         }
         if typed {
-            let mut w_esc = EscapedWriter::new(w, b'"');
+            let mut w_esc = EscapedWriter::new(w, &ESCAPE_DOUBLE_QUOTES);
             write_parts(self, &mut w_esc)?;
             w = w_esc.into_inner()?;
         } else {
@@ -995,7 +998,7 @@ pub fn calc_fmt_layout<'a, 'b, F: Formattable<'a, 'b> + ?Sized>(
 
 pub fn format_bytes(w: &mut impl TextWrite, v: &[u8]) -> std::io::Result<()> {
     w.write_all_text("b\"")?;
-    let mut w = EscapedWriter::new(w, b'"');
+    let mut w = EscapedWriter::new(w, &ESCAPE_DOUBLE_QUOTES);
     std::io::Write::write_all(&mut w, v)?;
     w.into_inner().unwrap().write_all_text("\"")?;
     Ok(())
@@ -1018,7 +1021,7 @@ pub fn format_maybe_text_raw(
                 return w.write_all_text(t);
             }
             w.write_all_text("\"")?;
-            let mut ew = EscapedWriter::new(w, b'"');
+            let mut ew = EscapedWriter::new(w, &ESCAPE_DOUBLE_QUOTES);
             TextWrite::write_all_text(&mut ew, t)?;
             ew.into_inner().unwrap().write_all_text("\"")
         }
@@ -1027,7 +1030,7 @@ pub fn format_maybe_text_raw(
                 return std::io::Write::write_all(w, b);
             }
             w.write_all_text("\"")?;
-            let mut ew = EscapedWriter::new(w, b'"');
+            let mut ew = EscapedWriter::new(w, &ESCAPE_DOUBLE_QUOTES);
             std::io::Write::write_all(&mut ew, b)?;
             ew.into_inner().unwrap().write_all_text("\"")
         }
@@ -1045,7 +1048,7 @@ pub fn format_maybe_text(
                 return w.write_all_text(t);
             }
             w.write_all_text("\"")?;
-            let mut ew = EscapedWriter::new(w, b'"');
+            let mut ew = EscapedWriter::new(w, &ESCAPE_DOUBLE_QUOTES);
             TextWrite::write_all_text(&mut ew, t)?;
             ew.into_inner().unwrap().write_all_text("\"")
         }
@@ -1057,7 +1060,7 @@ pub fn format_maybe_text(
                 ));
             }
             w.write_all_text("\"")?;
-            let mut ew = EscapedWriter::new(w, b'"');
+            let mut ew = EscapedWriter::new(w, &ESCAPE_DOUBLE_QUOTES);
             std::io::Write::write_all(&mut ew, b)?;
             ew.into_inner().unwrap().write_all_text("\"")
         }
@@ -1069,7 +1072,7 @@ pub fn format_quoted_string_raw(
     v: &str,
 ) -> std::io::Result<()> {
     w.write_all_text("\"")?;
-    let mut w = EscapedWriter::new(w, b'"');
+    let mut w = EscapedWriter::new(w, &ESCAPE_DOUBLE_QUOTES);
     std::io::Write::write_all(&mut w, v.as_bytes())?;
     w.into_inner().unwrap().write_all_text("\"")?;
     Ok(())

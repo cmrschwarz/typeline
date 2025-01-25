@@ -1483,9 +1483,12 @@ impl<'a> StreamValueData<'a> {
             StreamValueData::Single(_) => todo!(),
         }
     }
-    pub fn as_escaped_text(&self, quote_to_escape: u8) -> Self {
+    pub fn as_escaped_text<'e, const ESCAPE_MAP_LEN: usize>(
+        &self,
+        escape_map: &'e [(u8, &'e str); ESCAPE_MAP_LEN],
+    ) -> Self {
         // PERF: might be able to optimize this
-        let mut w = EscapedWriter::new(String::new(), quote_to_escape);
+        let mut w = EscapedWriter::new(String::new(), escape_map);
         w.write_all(self.as_bytes()).unwrap();
         Self::from_string(w.into_inner().unwrap())
     }

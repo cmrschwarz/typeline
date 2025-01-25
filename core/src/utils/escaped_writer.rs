@@ -5,24 +5,28 @@ use bstr::ByteSlice;
 
 use super::{
     printable_unicode::is_char_printable,
-    text_write::{MaybeTextWrite, TextWrite, TextWriteFormatAdapter},
+    text_write::{
+        MaybeTextWrite, TextWrite, TextWriteFormatAdapter, TextWriteIoAdapter,
+    },
     utf8_codepoint_len_from_first_byte, MAX_UTF8_CHAR_LEN,
 };
 
-pub struct EscapedWriter<W: TextWrite> {
+pub struct EscapedWriter<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize = 1> {
     base: W,
     incomplete_char_missing_len: u8,
     buffer_offset: u8,
-    quote_to_escape: u8,
+    escape_map: &'a [(u8, &'a str); ESCAPE_MAP_LEN],
     // worst case length is storing the 4 escaped bytes of a
     // broken utf-8 codepoint ('\xFF' * 4) -> 16 bytes
     // PERF: it would probably be better not to have this here
     // and recompute the broken char instead
     buffer: ArrayVec<u8, 16>,
 }
-pub struct EscapedFmtWriter<F: std::fmt::Write>(
-    EscapedWriter<EscapedWriterFmtAdapter<F>>,
-);
+pub struct EscapedFmtWriter<
+    'a,
+    F: std::fmt::Write,
+    const ESCAPE_MAP_LEN: usize = 1,
+>(EscapedWriter<'a, EscapedWriterFmtAdapter<F>, ESCAPE_MAP_LEN>);
 struct EscapedWriterFmtAdapter<F: std::fmt::Write>(F);
 
 const HEX_DIGITS_UPPER: [u8; 16] = [
@@ -74,13 +78,18 @@ fn push_char<const C: usize>(c: char, output: &mut ArrayVec<u8, C>) {
     }
 }
 
-impl<W: TextWrite> EscapedWriter<W> {
-    pub fn new(base: W, quote_to_escape: u8) -> Self {
+impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize>
+    EscapedWriter<'a, W, ESCAPE_MAP_LEN>
+{
+    pub fn new(
+        base: W,
+        escape_map: &'a [(u8, &'a str); ESCAPE_MAP_LEN],
+    ) -> Self {
         Self {
             base,
             incomplete_char_missing_len: 0,
             buffer_offset: 0,
-            quote_to_escape,
+            escape_map,
             buffer: ArrayVec::new(),
         }
     }
@@ -90,11 +99,16 @@ impl<W: TextWrite> EscapedWriter<W> {
     }
 }
 
-impl<W: std::fmt::Write> EscapedFmtWriter<W> {
-    pub fn new(base: W, quote_to_escape: u8) -> Self {
+impl<'a, W: std::fmt::Write, const ESCAPE_MAP_LEN: usize>
+    EscapedFmtWriter<'a, W, ESCAPE_MAP_LEN>
+{
+    pub fn new(
+        base: W,
+        escape_map: &'a [(u8, &'a str); ESCAPE_MAP_LEN],
+    ) -> Self {
         Self(EscapedWriter::new(
             EscapedWriterFmtAdapter(base),
-            quote_to_escape,
+            escape_map,
         ))
     }
     pub fn into_inner(self) -> Result<W, std::fmt::Error> {
@@ -123,13 +137,17 @@ impl<F: std::fmt::Write> TextWrite for EscapedWriterFmtAdapter<F> {
     }
 }
 
-impl<W: std::fmt::Write> std::fmt::Write for EscapedFmtWriter<W> {
+impl<'a, W: std::fmt::Write, const ESCAPE_MAP_LEN: usize> std::fmt::Write
+    for EscapedFmtWriter<'a, W, ESCAPE_MAP_LEN>
+{
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         std::io::Write::write_all(&mut self.0, s.as_bytes())
             .map_err(|_| std::fmt::Error)
     }
 }
-impl<W: std::fmt::Write> std::io::Write for EscapedFmtWriter<W> {
+impl<'a, W: std::fmt::Write, const ESCAPE_MAP_LEN: usize> std::io::Write
+    for EscapedFmtWriter<'a, W, ESCAPE_MAP_LEN>
+{
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.write(buf)
     }
@@ -139,7 +157,9 @@ impl<W: std::fmt::Write> std::io::Write for EscapedFmtWriter<W> {
     }
 }
 
-impl<W: TextWrite> std::io::Write for EscapedWriter<W> {
+impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> std::io::Write
+    for EscapedWriter<'a, W, ESCAPE_MAP_LEN>
+{
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let mut buf_offset = 0;
         if self.incomplete_char_missing_len != 0 {
@@ -217,10 +237,16 @@ impl<W: TextWrite> std::io::Write for EscapedWriter<W> {
                     buf_offset += end;
                     continue 'handle_escapes;
                 }
-                if c == '\\'
-                    || c == self.quote_to_escape as char
-                    || !is_char_printable(c)
-                {
+
+                let mut escape = None;
+                for (x, rep) in self.escape_map {
+                    if *x == c as u8 {
+                        escape = Some(*rep);
+                        break;
+                    }
+                }
+
+                if c == '\\' || escape.is_some() || !is_char_printable(c) {
                     match unsafe {
                         self.base
                             .write_text_unchecked(&buf[buf_offset..][..start])
@@ -289,7 +315,9 @@ impl<W: TextWrite> std::io::Write for EscapedWriter<W> {
     }
 }
 
-impl<W: TextWrite> TextWrite for EscapedWriter<W> {
+impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> TextWrite
+    for EscapedWriter<'a, W, ESCAPE_MAP_LEN>
+{
     unsafe fn write_text_unchecked(
         &mut self,
         buf: &[u8],
@@ -312,7 +340,9 @@ impl<W: TextWrite> TextWrite for EscapedWriter<W> {
         std::io::Write::write_all(self, buf.as_bytes())
     }
 }
-impl<W: TextWrite> MaybeTextWrite for EscapedWriter<W> {
+impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> MaybeTextWrite
+    for EscapedWriter<'a, W, ESCAPE_MAP_LEN>
+{
     fn as_text_write(&mut self) -> &mut dyn TextWrite {
         self
     }
@@ -324,27 +354,73 @@ impl<W: TextWrite> MaybeTextWrite for EscapedWriter<W> {
     }
 }
 
-impl<W: TextWrite> Drop for EscapedWriter<W> {
+impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> Drop
+    for EscapedWriter<'a, W, ESCAPE_MAP_LEN>
+{
     fn drop(&mut self) {
         let _ = std::io::Write::flush(self);
     }
 }
 
-pub fn escape_to_string(input: &[u8], quote_to_escape: u8) -> String {
+pub const ESCAPE_SINGLE_QUOTES: [(u8, &str); 1] = [(b'\'', "\\\'")];
+pub const ESCAPE_DOUBLE_QUOTES: [(u8, &str); 1] = [(b'\"', "\\\"")];
+
+pub fn escape_to_string<'a, const ESCAPE_MAP_LEN: usize>(
+    input: &[u8],
+    escape_map: &'a [(u8, &'a str); ESCAPE_MAP_LEN],
+) -> String {
     let mut res = String::new();
     let mut w =
-        EscapedWriter::new(TextWriteFormatAdapter(&mut res), quote_to_escape);
+        EscapedWriter::new(TextWriteFormatAdapter(&mut res), escape_map);
     std::io::Write::write_all(&mut w, input).unwrap();
     drop(w);
     res
+}
+
+pub fn escape_to_writer<'a, const ESCAPE_MAP_LEN: usize>(
+    out: impl std::io::Write,
+    input: &[u8],
+    escape_map: &'a [(u8, &'a str); ESCAPE_MAP_LEN],
+) -> Result<(), std::io::Error> {
+    let mut w = EscapedWriter::new(TextWriteIoAdapter(out), escape_map);
+    std::io::Write::write_all(&mut w, input)
+}
+
+pub fn escape_to_formatter<'a, const ESCAPE_MAP_LEN: usize>(
+    out: &mut std::fmt::Formatter,
+    input: &[u8],
+    escape_map: &'a [(u8, &'a str); ESCAPE_MAP_LEN],
+) -> Result<(), std::fmt::Error> {
+    let mut w = EscapedWriter::new(TextWriteFormatAdapter(out), escape_map);
+    std::io::Write::write_all(&mut w, input).or(Err(std::fmt::Error))
+}
+
+pub fn escape_to_maybe_text_write<'a, const ESCAPE_MAP_LEN: usize>(
+    out: &mut (impl MaybeTextWrite + ?Sized),
+    input: &[u8],
+    escape_map: &'a [(u8, &'a str); ESCAPE_MAP_LEN],
+) -> Result<(), std::io::Error> {
+    let mut w = EscapedWriter::new(out, escape_map);
+    std::io::Write::write_all(&mut w, input)
+}
+
+pub fn escape_to_text_write<'a, const ESCAPE_MAP_LEN: usize>(
+    out: &mut (impl TextWrite + ?Sized),
+    input: &[u8],
+    escape_map: &'a [(u8, &'a str); ESCAPE_MAP_LEN],
+) -> Result<(), std::io::Error> {
+    let mut w = EscapedWriter::new(out, escape_map);
+    std::io::Write::write_all(&mut w, input)
 }
 
 #[cfg(test)]
 mod test {
     use rstest::rstest;
 
+    use super::ESCAPE_DOUBLE_QUOTES;
+
     fn escape(input: &[u8]) -> String {
-        super::escape_to_string(input, b'"')
+        super::escape_to_string(input, &ESCAPE_DOUBLE_QUOTES)
     }
 
     #[test]

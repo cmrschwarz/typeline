@@ -38,7 +38,7 @@ use crate::{
     },
     typeline_error::TypelineError,
     utils::{
-        escaped_writer::EscapedFmtWriter,
+        escaped_writer::{EscapedFmtWriter, ESCAPE_DOUBLE_QUOTES},
         indexing_type::IndexingType,
         int_string_conversions::{
             bool_to_str, f64_to_str, i64_to_str, usize_to_str,
@@ -840,7 +840,7 @@ impl Operator for OpRegex {
         let mut res = String::from("regex");
         self.opts.push_opts_arg(&mut res);
         res.push_str("=\"");
-        let mut w = EscapedFmtWriter::new(res, b'\"');
+        let mut w = EscapedFmtWriter::new(res, &ESCAPE_DOUBLE_QUOTES);
         w.write_str(&self.regex_text).unwrap();
         let mut res = w.into_inner().unwrap();
         res.push('\"');
