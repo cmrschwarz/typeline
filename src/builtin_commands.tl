@@ -1,5 +1,5 @@
 macro:=mv
-    py="[
+    c="[
         [ 'key', '_in'],
         [ 'key', '_out', [ 'f', _[1] ] ],
         [ 'exec', 'mv', '{_in}', '{_out}']
@@ -7,7 +7,7 @@ macro:=mv
 end
 
 macro:=ls
-    py="[
+    c="[
         [ 'exec', 'ls', '-1'],
         [ 'lines']
     ]"

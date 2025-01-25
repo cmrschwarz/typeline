@@ -252,8 +252,10 @@ impl Compiler<'_> {
             }
         }
     }
-    fn emit_pending_clears(&mut self) {
-        for mut temp_id in self.pending_clear_instructions.iter().copied() {
+    fn emit_pending_clears(&mut self, retain: usize) {
+        for mut temp_id in
+            self.pending_clear_instructions[retain..].iter().copied()
+        {
             self.instructions.push(Instruction::ClearTemporary(temp_id));
             temp_id.generation += 1;
             self.unused_temporaries.push(temp_id);
@@ -462,11 +464,12 @@ impl Compiler<'_> {
                 }
             }
             Expr::Object(o) => {
+                let clears_before = self.pending_clear_count();
                 let mappings = self.compile_object_mappings(o);
                 let (ssa_id, temp_id) = self.claim_ssa_temporary();
                 match mappings {
                     ObjectMappings::Literal(object) => {
-                        self.emit_pending_clears();
+                        self.emit_pending_clears(clears_before);
                         return IntermediateValue {
                             value: SsaValue::Literal(FieldValue::Object(
                                 Box::new(object),
@@ -481,7 +484,7 @@ impl Compiler<'_> {
                                 target: TargetRef::TempField(temp_id.index),
                             },
                         );
-                        self.emit_pending_clears();
+                        self.emit_pending_clears(clears_before);
                     }
                     ObjectMappings::KeysStored(mappings) => {
                         self.instructions.push(
@@ -490,7 +493,7 @@ impl Compiler<'_> {
                                 target: TargetRef::TempField(temp_id.index),
                             },
                         );
-                        self.emit_pending_clears();
+                        self.emit_pending_clears(clears_before);
                     }
                 }
                 IntermediateValue {
@@ -500,6 +503,7 @@ impl Compiler<'_> {
             }
             Expr::Array(arr) => {
                 let mut elements = Vec::new();
+                let pending_clears_before = self.pending_clear_count();
                 for e in arr {
                     let mut v = self.compile_expr_for_temp_target(e);
                     elements.push(v.take_value_accessed(
@@ -513,7 +517,7 @@ impl Compiler<'_> {
                     elements: elements.into_boxed_slice(),
                     target: TargetRef::TempField(temp_id.index),
                 });
-                self.emit_pending_clears();
+                self.emit_pending_clears(pending_clears_before);
                 IntermediateValue {
                     value: SsaValue::Temporary(ssa_id),
                     release_after_use: true,
@@ -788,6 +792,7 @@ impl Compiler<'_> {
                     }
                     return;
                 }
+                let clear_count_before = self.pending_clear_count();
                 let mappings = self.compile_object_mappings(obj);
                 match mappings {
                     ObjectMappings::Literal(object) => {
@@ -811,9 +816,10 @@ impl Compiler<'_> {
                         })
                     }
                 }
-                self.emit_pending_clears();
+                self.emit_pending_clears(clear_count_before);
             }
             Expr::Array(arr) => {
+                let clear_count_before = self.pending_clear_count();
                 let mut elements = Vec::new();
                 for e in arr {
                     if discard {
@@ -835,13 +841,14 @@ impl Compiler<'_> {
                         elements: elements.into_boxed_slice(),
                         target,
                     });
-                    self.emit_pending_clears();
+                    self.emit_pending_clears(clear_count_before);
                 }
             }
             Expr::FunctionCall { lhs, args } => {
                 let Expr::BuiltinFunction(kind) = *lhs else {
                     unimplemented!("extern function calls");
                 };
+                let clear_count_before = self.pending_clear_count();
                 let mut elements = Vec::new();
                 for e in args {
                     if discard {
@@ -867,7 +874,7 @@ impl Compiler<'_> {
                         args: elements.into_boxed_slice(),
                         target,
                     });
-                    self.emit_pending_clears();
+                    self.emit_pending_clears(clear_count_before);
                 }
             }
             Expr::BuiltinFunction(_) => {
@@ -927,5 +934,9 @@ impl Compiler<'_> {
             instructions: compiler.instructions,
             temporary_slot_count,
         }
+    }
+
+    fn pending_clear_count(&self) -> usize {
+        self.pending_clear_instructions.len()
     }
 }

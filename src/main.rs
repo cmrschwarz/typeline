@@ -145,7 +145,7 @@ fn insert_tlrc(
             Some(&*buf)
         }
     } else {
-        Some(&include_bytes!("./tlrc")[0..])
+        Some(&include_bytes!("./builtin_commands.tl")[0..])
     };
     if let Some(source) = rc_source {
         let mut data = parse_cli_args_from_bytes(source).map_err(|e| {
