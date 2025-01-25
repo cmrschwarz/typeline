@@ -651,7 +651,7 @@ fn parse_modes(
         ));
     }
 
-    if argv.get(i) == Some(&b'+') && len > i + 1 {
+    if argv.get(i) == Some(&b',') && len > i + 1 {
         append_mode = true;
         i += 1;
     }
@@ -661,9 +661,9 @@ fn parse_modes(
         i += 1;
     }
 
-    if !append_mode && transparent_mode && argv.get(i) == Some(&b'+') {
+    if !append_mode && transparent_mode && argv.get(i) == Some(&b',') {
         return Err(CliArgumentError::new(
-            "append mode `+` must be specified before transparent mode `_`",
+            "append mode `,` must be specified before transparent mode `_`",
             span.subslice_offsets(i, i + 1),
         ));
     }

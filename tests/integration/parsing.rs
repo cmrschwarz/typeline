@@ -122,10 +122,22 @@ fn parse_setting_assignment() -> Result<(), TypelineError> {
 fn simple_aggregate() -> Result<(), TypelineError> {
     let res = ContextBuilder::from_cli_arg_strings(
         SessionSetupOptions::with_default_extensions(),
-        ["v=17", "+v=42"],
+        ["v=17", ",v=42"],
     )?
     .run_collect_stringified()?;
     assert_eq!(res, ["17", "42"]);
+
+    Ok(())
+}
+
+#[test]
+fn leading_aggregate() -> Result<(), TypelineError> {
+    let res = ContextBuilder::from_cli_arg_strings(
+        SessionSetupOptions::with_default_extensions(),
+        [",v=42"],
+    )?
+    .run_collect_stringified()?;
+    assert_eq!(res, ["undefined", "42"]);
 
     Ok(())
 }
