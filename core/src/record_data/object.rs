@@ -40,13 +40,6 @@ impl Object {
             Object::KeysInterned(o) => o.clear(),
         }
     }
-    pub fn push_stored_key(&mut self, key: String, value: FieldValue) {
-        if let Object::KeysStored(o) = self {
-            o.insert(key, value);
-        } else {
-            unreachable!()
-        }
-    }
 }
 
 impl FromIterator<(String, FieldValue)> for Object {

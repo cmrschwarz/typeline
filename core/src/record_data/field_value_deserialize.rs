@@ -4,7 +4,7 @@ use super::{
     array::Array,
     field_value::{FieldValue, FieldValueUnboxed},
     field_value_ref::FieldValueRef,
-    object::Object,
+    object::{Object, ObjectKeysStored},
 };
 use num::{BigInt, FromPrimitive};
 use serde::{
@@ -352,11 +352,11 @@ impl<'de> Visitor<'de> for ObjectVisitor {
     where
         A: serde::de::MapAccess<'de>,
     {
-        let mut obj = Object::default();
+        let mut obj = ObjectKeysStored::default();
         while let Some((key, value)) = map.next_entry()? {
-            obj.push_stored_key(key, value);
+            obj.insert(key, value);
         }
-        Ok(obj)
+        Ok(Object::KeysStored(obj))
     }
 }
 

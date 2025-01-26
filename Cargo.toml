@@ -81,16 +81,19 @@ typeline_ext_csv = { version = "0.1.0", path = "./extensions/csv", optional = tr
 typeline_ext_json = { path = "./extensions/json", optional = true }
 typeline_ext_selenium = { version = "0.1.0", path = "./extensions/selenium", optional = true }
 
-[profile.release]
-panic = "abort"
-lto = "thin"
-
 [profile.dev]
 panic = "unwind"
 debug = true
 
-[profile.bench]
+[profile.release]
+panic = "abort"
+lto = "thin"
+opt-level = 3
+strip = "all"
+
+[profile.profile]
 inherits = "release"
+strip = "none"
 debug = true
 
 [features]
