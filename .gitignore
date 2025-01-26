@@ -10,11 +10,19 @@
 /chromedriver*
 /geckodriver*
 
-# benchmarking output
+# cargo flamegraph
 /flamegraph.svg
 /perf.data
 /perf.data.old
+
+# coverage reports
 /coverage.cobertura.xml
+
+# samply
+/profile.json
+
+
+# rust compiler ICEs
 /rustc-ice-*
 
 # debug log outputs in the root directory
