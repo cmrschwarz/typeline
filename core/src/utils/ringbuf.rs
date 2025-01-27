@@ -487,6 +487,27 @@ impl<const ALIGN: usize> RingBuf<ALIGN> {
         let p = self.data.as_ptr().cast_const();
         p..unsafe { p.add(self.cap) }
     }
+
+    pub fn data_slices_mut(
+        &mut self,
+        mut start: usize,
+        len: usize,
+    ) -> (&mut [u8], &mut [u8]) {
+        let (s1, s2) = self.as_slices_mut();
+        if s1.len() <= start {
+            start -= s1.len();
+            return (&mut [], &mut s1[start..start + len]);
+        }
+        if start + len <= s1.len() {
+            return (&mut s1[start..start + len], &mut []);
+        }
+        let s2_start = start - s1.len();
+        let s1_used = s1.len() - start;
+        (
+            &mut s1[start..],
+            &mut s2[s2_start..s2_start + len - s1_used],
+        )
+    }
 }
 
 impl<const ALIGN: usize> Write for RingBuf<ALIGN> {

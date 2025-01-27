@@ -89,7 +89,7 @@ debug = true
 panic = "abort"
 lto = "thin"
 opt-level = 3
-strip = "all"
+strip = "symbols"
 
 [profile.profile]
 inherits = "release"

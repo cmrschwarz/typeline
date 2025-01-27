@@ -4,7 +4,7 @@ use super::{
     field_value::{
         FieldReference, FieldValueKind, Null, SlicedFieldReference, Undefined,
     },
-    field_value_ref::value_as_bytes,
+    field_value_ref::{drop_field_value_slice, value_as_bytes},
     iter::{
         field_iterator::FieldIterOpts,
         ref_iter::{
@@ -741,16 +741,16 @@ impl FieldData {
                 break;
             };
             unsafe {
-                let kind = range.data.repr();
-                let len = range.data.len();
-                FieldValueSlice::drop_from_kind(
+                let repr = range.data.repr();
+                let len = range.data.size();
+                drop_field_value_slice(
+                    repr,
                     if slice_start_pos < l1 {
                         d1.add(slice_start_pos)
                     } else {
                         d2.add(slice_start_pos - l1)
                     },
                     len,
-                    kind,
                 );
             }
         }

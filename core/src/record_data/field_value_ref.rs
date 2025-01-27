@@ -94,6 +94,29 @@ pub enum FieldValueSlice<'a> {
     SlicedFieldReference(&'a [SlicedFieldReference]),
 }
 
+pub enum FieldValueSliceMut<'a> {
+    Null(usize),
+    Undefined(usize),
+    Bool(&'a mut [bool]),
+    Int(&'a mut [i64]),
+    BigInt(&'a mut [BigInt]),
+    Float(&'a mut [f64]),
+    BigRational(&'a mut [BigRational]),
+    TextInline(&'a mut str),
+    TextBuffer(&'a mut [String]),
+    BytesInline(&'a mut [u8]),
+    BytesBuffer(&'a mut [Vec<u8>]),
+    Object(&'a mut [Object]),
+    Array(&'a mut [Array]),
+    Custom(&'a mut [CustomDataBox]),
+    Error(&'a mut [OperatorApplicationError]),
+    Argument(&'a mut [Argument]),
+    OpDecl(&'a mut [OpDeclRef]),
+    StreamValueId(&'a mut [StreamValueId]),
+    FieldReference(&'a mut [FieldReference]),
+    SlicedFieldReference(&'a mut [SlicedFieldReference]),
+}
+
 pub enum FieldValueBlock<'a, T> {
     Plain(&'a [T]),
     WithRunLength(&'a T, RunLength),
@@ -173,6 +196,9 @@ pub unsafe fn slice_as_bytes<T>(v: &[T]) -> &[u8] {
 }
 
 unsafe fn drop_slice<T>(slice_start_ptr: *mut u8, len: usize) {
+    if len == 0 {
+        return;
+    }
     unsafe {
         let droppable = std::slice::from_raw_parts_mut(
             slice_start_ptr.cast::<ManuallyDrop<T>>(),
@@ -469,42 +495,139 @@ impl<'a> FieldValueSlice<'a> {
         }
         values.len() == self.len()
     }
-    pub unsafe fn drop_from_kind(
-        ptr: *mut u8,
-        len: usize,
+
+    pub fn size(&self) -> usize {
+        self.as_bytes().len()
+    }
+}
+
+pub unsafe fn drop_field_value_slice(
+    repr: FieldValueRepr,
+    ptr: *mut u8,
+    data_size: usize,
+) {
+    unsafe {
+        metamatch!(match repr {
+            #[expand((REP, TYPE) in [
+                (BigInt, BigInt),
+                (BigRational, BigRational),
+                (TextBuffer, String),
+                (BytesBuffer, Vec<u8>),
+                (Object, Object),
+                (Array, Array),
+                (Argument, Argument),
+                (OpDecl, OpDeclRef),
+                (Custom, CustomDataBox),
+                (Error, OperatorApplicationError)
+            ])]
+            FieldValueRepr::REP => {
+                #[allow(clippy::assertions_on_constants)]
+                {
+                    debug_assert!(
+                        !<TYPE as FieldValueType>::TRIVIALLY_COPYABLE
+                    );
+                    debug_assert_eq!(
+                        data_size % std::mem::size_of::<TYPE>(),
+                        0
+                    );
+                }
+                drop_slice::<TYPE>(
+                    ptr,
+                    data_size / std::mem::size_of::<TYPE>(),
+                );
+            }
+            #[expand_pattern(REP in [
+                Null, Undefined, Bool, Int, Float, TextInline, BytesInline,
+                StreamValueId, FieldReference, SlicedFieldReference,
+            ])]
+            FieldValueRepr::REP => {
+                debug_assert!(repr.is_trivially_copyable(), "{repr}");
+            }
+        })
+    }
+}
+
+impl<'a> FieldValueSliceMut<'a> {
+    pub fn as_const(&'a self) -> FieldValueSlice<'a> {
+        metamatch!(match self {
+            #[expand(REP in [Undefined, Null])]
+            FieldValueSliceMut::REP(len) => FieldValueSlice::REP(*len),
+
+            #[expand(REP in [
+                BytesInline, TextInline,
+                Bool, Int, BigInt, Float, BigRational,
+                StreamValueId, FieldReference, SlicedFieldReference, Error,
+                BytesBuffer, TextBuffer, Object, Array, Argument, OpDecl, Custom
+            ])]
+            FieldValueSliceMut::REP(s) => FieldValueSlice::REP(s),
+        })
+    }
+    pub fn run_len(&self) -> usize {
+        self.as_const().run_len()
+    }
+    pub fn size(&self) -> usize {
+        self.as_const().size()
+    }
+    pub fn repr(&self) -> FieldValueRepr {
+        self.as_const().repr()
+    }
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        metamatch!(match self {
+            FieldValueSliceMut::Undefined(_) | FieldValueSliceMut::Null(_) => {
+                std::ptr::null_mut()
+            }
+            #[expand(REP in [
+                BytesInline, TextInline,
+                Bool, Int, BigInt, Float, BigRational, StreamValueId,
+                FieldReference, SlicedFieldReference, Error,
+                BytesBuffer, TextBuffer, Object, Array, Argument,
+                OpDecl, Custom
+            ])]
+            FieldValueSliceMut::REP(v) => (*v).as_mut_ptr().cast(),
+        })
+    }
+    pub unsafe fn from_raw_parts<R: FieldDataRef>(
         repr: FieldValueRepr,
-    ) {
+        data: *mut u8,
+        len: usize,
+        field_count: usize,
+    ) -> FieldValueSliceMut<'a> {
         unsafe {
             metamatch!(match repr {
-                #[expand((REP, TYPE) in [
-                    (BigInt, BigInt),
-                    (BigRational, BigRational),
-                    (TextBuffer, String),
-                    (BytesBuffer, Vec<u8>),
-                    (Object, Object),
-                    (Array, Array),
-                    (Argument, Argument),
-                    (OpDecl, OpDeclRef),
-                    (Custom, CustomDataBox),
-                    (Error, OperatorApplicationError)
-                ])]
-                FieldValueRepr::REP => {
-                    #[allow(clippy::assertions_on_constants)]
-                    {
-                        debug_assert!(
-                            !<TYPE as FieldValueType>::TRIVIALLY_COPYABLE
-                        );
-                    }
-                    drop_slice::<TYPE>(ptr, len)
+                FieldValueRepr::Undefined => {
+                    FieldValueSliceMut::Undefined(field_count)
                 }
-                #[expand_pattern(REP in [
-                    Null, Undefined, Bool, Int, Float, TextInline, BytesInline,
-                    StreamValueId, FieldReference, SlicedFieldReference,
+                FieldValueRepr::Null => FieldValueSliceMut::Null(field_count),
+
+                FieldValueRepr::TextInline => {
+                    FieldValueSliceMut::TextInline(
+                        std::str::from_utf8_unchecked_mut(
+                            std::slice::from_raw_parts_mut(data, len),
+                        ),
+                    )
+                }
+
+                #[expand(REP in [
+                    Bool, Int, BigInt, Float, BigRational, TextBuffer, BytesInline,
+                    BytesBuffer, Object, Array, Custom, Error, StreamValueId,
+                    FieldReference, SlicedFieldReference, Argument, OpDecl
                 ])]
                 FieldValueRepr::REP => {
-                    debug_assert!(repr.is_trivially_copyable(), "{repr}");
+                    FieldValueSliceMut::REP(std::slice::from_raw_parts_mut(
+                        data.cast(),
+                        field_count,
+                    ))
                 }
             })
+        }
+    }
+    pub unsafe fn drop_in_place_mut(mut self) {
+        unsafe {
+            drop_field_value_slice(
+                self.repr(),
+                self.as_mut_ptr(),
+                self.as_const().size(),
+            )
         }
     }
 }

@@ -14,6 +14,7 @@ use crate::{
             field_value_flags::{self, LEADING_PADDING_BIT_COUNT},
             FieldValueFormat, FieldValueRepr,
         },
+        field_value_ref::drop_field_value_slice,
         iter_hall::CowVariant,
     },
     utils::{
@@ -438,11 +439,12 @@ impl IterHallActionApplicator {
         }
     }
 
+    // TODO: this is a bit of a mess. We should probably split this up.
     #[allow(clippy::mut_mut)]
     fn drop_dead_headers(
         &mut self,
         headers: &mut VecDeque<FieldValueHeader>,
-        data: Option<&mut FieldDataBuffer>,
+        mut data: Option<&mut FieldDataBuffer>,
         iters: &mut [&mut IterState],
         drop_instructions: HeaderDropInstructions,
         origin_field_data_size: usize,
@@ -455,29 +457,56 @@ impl IterHallActionApplicator {
         let mut leading_headers_to_drain = 0;
         let mut iter_idx_fwd = 0;
         let mut header_idx_new = 0;
-        let mut dead_data_leading_rem = drop_instructions.leading_drop;
+        let dead_data_leading_total = drop_instructions.leading_drop;
+        let mut dead_data_leading_rem = dead_data_leading_total;
         let mut partial_header_dropped_elem_count = 0;
 
         while leading_headers_to_drain < headers.len() {
             let h = &mut headers[leading_headers_to_drain];
-            let h_ds = h.total_size_unique();
-            if dead_data_leading_rem < h_ds {
+            let header_size_old = h.total_size_unique();
+            let header_padding_old = h.leading_padding();
+            let mut size_alive = 0;
+
+            if dead_data_leading_rem < header_size_old {
                 let header_elem_size = h.fmt.size as usize;
-                let header_padding = h.leading_padding();
                 partial_header_dropped_elem_count =
-                    ((dead_data_leading_rem - header_padding)
+                    ((dead_data_leading_rem - header_padding_old)
                         / header_elem_size) as RunLength;
+                size_alive = (h.run_length - partial_header_dropped_elem_count)
+                    as usize
+                    * h.fmt.size as usize;
                 h.run_length -= partial_header_dropped_elem_count;
                 h.set_leading_padding(drop_instructions.first_header_padding);
+            }
 
+            if h.repr.needs_drop() {
+                if let Some(data) = data.as_mut() {
+                    let (s1, s2) = data.data_slices_mut(
+                        dead_data_leading_total - dead_data_leading_rem
+                            + header_padding_old,
+                        header_size_old - header_padding_old - size_alive,
+                    );
+                    for s in [s1, s2] {
+                        unsafe {
+                            drop_field_value_slice(
+                                h.fmt.repr,
+                                s.as_mut_ptr(),
+                                s.len(),
+                            );
+                        }
+                    }
+                }
+            }
+
+            if dead_data_leading_rem < header_size_old {
                 break;
             }
-            dead_data_leading_rem -= h_ds;
+            dead_data_leading_rem -= header_size_old;
             leading_headers_to_drain += 1;
             if h.deleted() {
                 continue;
             }
-            debug_assert_eq!(h_ds, 0);
+            debug_assert_eq!(header_size_old, 0);
             self.preserved_headers.push(*h);
 
             while iter_idx_fwd < iters.len() {
@@ -543,8 +572,9 @@ impl IterHallActionApplicator {
             }
             let header_idx = last_header_alive - 1;
             let h = &mut headers[header_idx];
-            let h_ds = h.total_size_unique();
-            if trailing_drop_rem < h_ds {
+            let header_padding = h.leading_padding();
+            let header_size_old = h.total_size_unique();
+            if trailing_drop_rem < header_size_old {
                 let header_elem_size = h.fmt.size as usize;
                 let elems_to_drop = trailing_drop_rem / header_elem_size;
                 debug_assert_eq!(
@@ -552,11 +582,33 @@ impl IterHallActionApplicator {
                     trailing_drop_rem
                 );
                 h.run_length -= elems_to_drop as RunLength;
+
+                let header_size_new = h.total_size_unique();
+                let data_size_header_start = data_size_after - header_size_new;
+
+                if header_size_old != header_size_new && h.repr.needs_drop() {
+                    if let Some(data) = data.as_mut() {
+                        let (s1, s2) = data.data_slices_mut(
+                            field_data_size
+                                - (trailing_drop_total - trailing_drop_rem)
+                                - (header_size_old - header_padding),
+                            header_size_old - header_size_new,
+                        );
+                        for s in [s1, s2] {
+                            unsafe {
+                                drop_field_value_slice(
+                                    h.fmt.repr,
+                                    s.as_mut_ptr(),
+                                    s.len(),
+                                );
+                            }
+                        }
+                    }
+                }
                 for it in &mut iters[iter_idx_bwd..] {
                     it.header_idx -= dropped_headers_back;
                 }
-                let data_size_header_start =
-                    data_size_after - h.total_size_unique();
+
                 while iter_idx_bwd > iter_idx_fwd {
                     let it = &mut iters[iter_idx_bwd - 1];
                     let mut old_header_idx = it.header_idx;
@@ -583,12 +635,12 @@ impl IterHallActionApplicator {
                 break;
             }
             last_header_alive -= 1;
-            trailing_drop_rem -= h_ds;
+            trailing_drop_rem -= header_size_old;
             if h.deleted() {
                 dropped_headers_back += 1;
                 continue;
             }
-            debug_assert_eq!(h_ds, 0);
+            debug_assert_eq!(header_size_old, 0);
             self.preserved_headers.push(*h);
             while iter_idx_bwd > iter_idx_fwd {
                 let it = &mut iters[iter_idx_bwd - 1];
@@ -635,7 +687,6 @@ impl IterHallActionApplicator {
         }
 
         if let Some(data) = data {
-            // LEAK this leaks all resources of the data. //TODO: drop before
             data.drop_front(drop_instructions.physical_drop_leading());
             data.drop_back(drop_instructions.trailing_drop);
         }
