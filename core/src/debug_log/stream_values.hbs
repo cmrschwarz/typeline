@@ -1,5 +1,5 @@
-{{let "stream_values_id" update_id "_stream_values" }}
-{{let "collapsed_stream_values_id" update_id "_collapsed_stream_values" }}
+{{let "stream_values_id" "stream_values" }} {{! (unique_id "stream_values_") }}
+{{let "collapsed_stream_values_id" "collapsed_stream_values" }} {{! (unique_id "collapsed_stream_values_") }}
 
 <div class="stream-value-container">
     <div
@@ -90,7 +90,7 @@
                                                     {{data.range.start}}..{{data.range.end}}
                                                 {{/if}}
                                             </td>
-                                            <td>{{data.value}}</td>
+                                            <td class="stream-value-data">{{data.value}}</td>
                                         </tr>
                                     {{/each}}
                                     </tbody>

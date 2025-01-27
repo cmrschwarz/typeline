@@ -360,6 +360,19 @@ body {
     text-align: center;
 }
 
+.field-row > .data {
+    max-width: 300px;
+    overflow-x: auto;
+}
+
+.field-row > .data.text-inline,
+.field-row > .data.text-buffer,
+.field-row > .data.bytes-inline,
+.field-row > .data.bytes-buffer {
+    text-align: left;
+}
+
+
 .field th {
     text-align: center;
     font-weight: normal;
@@ -594,4 +607,9 @@ body {
 
 .stream-value-data-table tr:last-of-type td {
     border-bottom: none;
+}
+
+.stream-value-data-table .stream-value-data {
+    max-width: 300px;
+    overflow-x: auto;
 }

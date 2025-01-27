@@ -178,7 +178,7 @@
                     {{row.size}}
                     {{/if}}
                 </td>
-                <td class="data{{flag_shadow_data}}">{{row.value}}</td>
+                <td class="data{{flag_shadow_data}} {{row.repr}}">{{row.value}}</td>
                 <td>
                     {{>iter_list iters=row.iters update_id=update_id}}
                 </td>
