@@ -572,8 +572,8 @@ impl IterHallActionApplicator {
             }
             let header_idx = last_header_alive - 1;
             let h = &mut headers[header_idx];
-            let header_padding = h.leading_padding();
             let header_size_old = h.total_size_unique();
+            let mut header_size_new = 0;
             if trailing_drop_rem < header_size_old {
                 let header_elem_size = h.fmt.size as usize;
                 let elems_to_drop = trailing_drop_rem / header_elem_size;
@@ -583,28 +583,9 @@ impl IterHallActionApplicator {
                 );
                 h.run_length -= elems_to_drop as RunLength;
 
-                let header_size_new = h.total_size_unique();
+                header_size_new = h.total_size_unique();
                 let data_size_header_start = data_size_after - header_size_new;
 
-                if header_size_old != header_size_new && h.repr.needs_drop() {
-                    if let Some(data) = data.as_mut() {
-                        let (s1, s2) = data.data_slices_mut(
-                            field_data_size
-                                - (trailing_drop_total - trailing_drop_rem)
-                                - (header_size_old - header_padding),
-                            header_size_old - header_size_new,
-                        );
-                        for s in [s1, s2] {
-                            unsafe {
-                                drop_field_value_slice(
-                                    h.fmt.repr,
-                                    s.as_mut_ptr(),
-                                    s.len(),
-                                );
-                            }
-                        }
-                    }
-                }
                 for it in &mut iters[iter_idx_bwd..] {
                     it.header_idx -= dropped_headers_back;
                 }
@@ -632,8 +613,32 @@ impl IterHallActionApplicator {
                         data_size_header_start;
                     iter_idx_bwd -= 1;
                 }
+            }
+            let size_to_del = header_size_old - header_size_new;
+            if size_to_del > 0 && h.repr.needs_drop() {
+                if let Some(data) = data.as_mut() {
+                    let (s1, s2) = data.data_slices_mut(
+                        field_data_size
+                            - (trailing_drop_total - trailing_drop_rem)
+                            - size_to_del,
+                        size_to_del,
+                    );
+                    for s in [s1, s2] {
+                        unsafe {
+                            drop_field_value_slice(
+                                h.fmt.repr,
+                                s.as_mut_ptr(),
+                                s.len(),
+                            );
+                        }
+                    }
+                }
+            }
+
+            if trailing_drop_rem < header_size_old {
                 break;
             }
+
             last_header_alive -= 1;
             trailing_drop_rem -= header_size_old;
             if h.deleted() {
