@@ -573,7 +573,9 @@ impl IterHallActionApplicator {
             let header_idx = last_header_alive - 1;
             let h = &mut headers[header_idx];
             let header_size_old = h.total_size_unique();
-            let mut header_size_new = 0;
+            // we use this for the deletion size below so we always want to
+            // include the padding
+            let mut header_size_remaining = h.leading_padding();
             if trailing_drop_rem < header_size_old {
                 let header_elem_size = h.fmt.size as usize;
                 let elems_to_drop = trailing_drop_rem / header_elem_size;
@@ -583,8 +585,9 @@ impl IterHallActionApplicator {
                 );
                 h.run_length -= elems_to_drop as RunLength;
 
-                header_size_new = h.total_size_unique();
-                let data_size_header_start = data_size_after - header_size_new;
+                header_size_remaining = h.total_size_unique();
+                let data_size_header_start =
+                    data_size_after - header_size_remaining;
 
                 for it in &mut iters[iter_idx_bwd..] {
                     it.header_idx -= dropped_headers_back;
@@ -614,7 +617,7 @@ impl IterHallActionApplicator {
                     iter_idx_bwd -= 1;
                 }
             }
-            let size_to_del = header_size_old - header_size_new;
+            let size_to_del = header_size_old - header_size_remaining;
             if size_to_del > 0 && h.repr.needs_drop() {
                 if let Some(data) = data.as_mut() {
                     let (s1, s2) = data.data_slices_mut(
