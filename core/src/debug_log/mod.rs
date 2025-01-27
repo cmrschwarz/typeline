@@ -650,6 +650,7 @@ pub fn field_data_to_json(
         let is_end_of_curr_header = iter.field_run_length_fwd() == 1;
         let header_idx = iter.get_next_header_index();
         let header_offs = iter.field_run_length_bwd();
+        let field_pos = iter.get_next_field_pos();
         let mut iters_end = iters_start;
 
         while iters_end < iters.len() {
@@ -678,9 +679,9 @@ pub fn field_data_to_json(
             let del_count_prev = del_count;
             del_count = 0;
             let dead_slots = if cfg!(feature = "debug_log_lenient") {
-                *dead_slots.get(iter.get_next_field_pos()).unwrap_or(&0)
+                *dead_slots.get(field_pos).unwrap_or(&0)
             } else {
-                dead_slots[iter.get_next_field_pos()]
+                dead_slots[field_pos]
             };
             dead_slots - del_count_prev
         };
@@ -720,6 +721,7 @@ pub fn field_data_to_json(
         }
 
         rows.push(json!({
+            "field_pos": field_pos,
             "dead_slots": dead_slot_count,
             "shadow_meta": shadow_meta,
             "shadow_data": shadow_data,
@@ -938,6 +940,7 @@ fn group_track_to_json(
         let parent_group_advancement;
         let group_len_rem;
         let mut iters_end = iters_start;
+        let field_pos = iter.field_pos();
 
         if passed {
             dead_slot_count =
@@ -973,7 +976,7 @@ fn group_track_to_json(
             group_len_rem = iter.group_len_rem();
 
             while let Some(it) = gt.iter_states.get(iters_end) {
-                if it.get().field_pos > iter.field_pos() + 1 {
+                if it.get().field_pos > field_pos + 1 {
                     break;
                 }
                 iters_end += 1;
@@ -1015,6 +1018,7 @@ fn group_track_to_json(
         }
 
         rows.push(json!({
+            "field_pos": field_pos,
             "parent_group_advancement": parent_group_advancement,
             "group_idx": group_idx,
             "passed": passed_count_rem,

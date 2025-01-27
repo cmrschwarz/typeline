@@ -26,7 +26,7 @@
         <thead>
             <th
                 class="header-row"
-                colspan="5"
+                colspan="6"
                 onclick="toggle_collapsable('{{field_container_id}}', '{{collapsed_field_container_id}}', 'inline-block')"
             >
                 <div class="header tooltip-parent">
@@ -68,7 +68,7 @@
             </th>
         </thead>
         <thead>
-            <th colspan="5">
+            <th colspan="6">
                 <div class="iter-list-descriptor-wrapper">
                     <div class="iter-list-descriptor">Leading Iters:</div>
                     {{>iter_list iters=this.iters_before_start update_id=update_id}}
@@ -76,7 +76,7 @@
             </th>
         </thead>
         <thead>
-            <th colspan="5">
+            <th colspan="6">
                 <div class="ref-list">
                     <div class="desc">References:</div>
                     <div class="ref size-placeholder">9</div>
@@ -91,6 +91,7 @@
             </th>
         </thead>
         <thead>
+            <th class="field-table-header">#</th>
             <th class="field-table-header">Meta</th>
             <th class="field-table-header">RL</th>
             <th class="field-table-header">Size</th>
@@ -102,7 +103,7 @@
             {{~let "update_id" ../update_id}}
             {{#each (range row.dead_slots) as |id|}}
             <tr class="field-row dead-row">
-                <td colspan="5">
+                <td colspan="6">
                     <div class="dead-row-placeholder">
                         <div class="meta-list">
                             <div class="padding">0</div>
@@ -133,6 +134,11 @@
                 onmouseleave="unhighlight('{{update_id}}_sv_{{row.value}}')"
                 {{/if}}
             >
+                <td class="field-pos">
+                    {{#if (not row.deleted)}}
+                    {{row.field_pos}}
+                    {{/if}}
+                </td>
                 <td>
                     <div class="meta-list">
                         {{#if (eq row.padding 0)}}
@@ -178,7 +184,9 @@
                     {{row.size}}
                     {{/if}}
                 </td>
-                <td class="data{{flag_shadow_data}} {{row.repr}}">{{row.value}}</td>
+                <td class="data{{flag_shadow_data}} {{row.repr}}">
+                    {{row.value}}
+                </td>
                 <td>
                     {{>iter_list iters=row.iters update_id=update_id}}
                 </td>
@@ -186,7 +194,7 @@
             {{/each}}
             {{#if iters_after_end}}
             <tr class="field-row">
-                <td colspan="4"></td>
+                <td colspan="6"></td>
                 <td>
                     {{>iter_list iters=iters_after_end update_id=update_id}}
                 </td>

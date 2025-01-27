@@ -91,6 +91,7 @@
             </th>
         </thead>
         <thead>
+            <th class="group-track-table-header">#</th>
             <th class="group-track-table-header tooltip-parent">
                 PGA
                 <span class="tooltip-text">
@@ -106,7 +107,7 @@
             {{~let "update_id" ../update_id~}}
             {{#each (range row.dead_slots)}}
             <tr class="group-track-row dead-row">
-                <td colspan="4">
+                <td colspan="5">
                     <div class="dead-row-placeholder">
                         <div class="group-idx">0</div>
                         <div class="group-len-rem">0</div>
@@ -121,8 +122,15 @@
             {{~let "flag_shadow" " flag-shadow"~}}
             {{/if}}
             <tr class="group-track-row">
-                <td class="starts-new-parent-group{{flag_shadow}}">{{row.parent_group_advancement}}</td>
-                <td class="group-idx{{flag_shadow}}">{{row.group_idx}}</td>
+                <td class="field-pos">
+                    {{row.group_len}}
+                </td>
+                <td class="starts-new-parent-group{{flag_shadow}}">
+                    {{row.parent_group_advancement}}
+                </td>
+                <td class="group-idx{{flag_shadow}}">
+                    {{row.group_idx}}
+                </td>
                 <td class="group-len-rem{{flag_shadow}}">
                     {{#if row.is_group_start}}
                     {{row.group_len}}
@@ -135,7 +143,7 @@
             {{/each}}
             {{#if iters_after_end}}
             <tr class="field-row">
-                <td colspan="2"></td>
+                <td colspan="5"></td>
                  <td>
                     {{>iter_list iters=iters_after_end update_id=update_id}}
                 </td>
