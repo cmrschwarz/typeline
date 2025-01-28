@@ -12,8 +12,9 @@ use crate::record_data::field_data::FixedSizeFieldValueType;
 use std::fmt::Debug;
 
 use super::{
-    calc_until_error, calc_until_error_lhs_immediate,
-    calc_until_error_rhs_immediate, BinaryOp, ErrorToOperatorApplicationError,
+    calc_until_error, calc_until_error_lhs_immediate_baseline,
+    calc_until_error_rhs_immediate_baseline, BinaryOp,
+    ErrorToOperatorApplicationError,
 };
 
 // avx2 -> 256 bit registers -> 4 i64 elements
@@ -578,7 +579,12 @@ unsafe impl<OP: BinaryOpAvx2Aware> BinaryOp for BinaryOpAvx2Adapter<OP> {
         {
             OP::calc_until_error_rhs_immediate_avx2(lhs, rhs, res)
         } else {
-            calc_until_error_rhs_immediate(lhs, rhs, res, OP::try_calc_single)
+            calc_until_error_rhs_immediate_baseline(
+                lhs,
+                rhs,
+                res,
+                OP::try_calc_single,
+            )
         }
     }
 
@@ -592,7 +598,12 @@ unsafe impl<OP: BinaryOpAvx2Aware> BinaryOp for BinaryOpAvx2Adapter<OP> {
         {
             OP::calc_until_error_lhs_immediate_avx2(lhs, rhs, res)
         } else {
-            calc_until_error_lhs_immediate(lhs, rhs, res, OP::try_calc_single)
+            calc_until_error_lhs_immediate_baseline(
+                lhs,
+                rhs,
+                res,
+                OP::try_calc_single,
+            )
         }
     }
 }

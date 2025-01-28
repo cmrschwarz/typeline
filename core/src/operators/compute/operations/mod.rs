@@ -57,7 +57,7 @@ fn calc_until_error<'a, Lhs, Rhs, Output, Error>(
     (len_min, None)
 }
 
-fn calc_until_error_lhs_immediate<'a, Lhs, Rhs, Output, Error>(
+fn calc_until_error_lhs_immediate_baseline<'a, Lhs, Rhs, Output, Error>(
     lhs: &Lhs,
     rhs: &[Rhs],
     res: &'a mut [MaybeUninit<Output>],
@@ -75,7 +75,7 @@ fn calc_until_error_lhs_immediate<'a, Lhs, Rhs, Output, Error>(
     (len_min, None)
 }
 
-fn calc_until_error_rhs_immediate<'a, Lhs, Rhs, Output, Error>(
+fn calc_until_error_rhs_immediate_baseline<'a, Lhs, Rhs, Output, Error>(
     lhs: &[Lhs],
     rhs: &Rhs,
     res: &'a mut [MaybeUninit<Output>],
@@ -121,7 +121,12 @@ pub unsafe trait BinaryOp {
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        calc_until_error_lhs_immediate(lhs, rhs, res, Self::try_calc_single)
+        calc_until_error_lhs_immediate_baseline(
+            lhs,
+            rhs,
+            res,
+            Self::try_calc_single,
+        )
     }
 
     fn calc_until_error_rhs_immediate<'a>(
@@ -129,7 +134,12 @@ pub unsafe trait BinaryOp {
         rhs: &Self::Rhs,
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        calc_until_error_rhs_immediate(lhs, rhs, res, Self::try_calc_single)
+        calc_until_error_rhs_immediate_baseline(
+            lhs,
+            rhs,
+            res,
+            Self::try_calc_single,
+        )
     }
 }
 
