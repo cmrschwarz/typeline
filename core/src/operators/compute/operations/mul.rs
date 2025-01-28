@@ -13,7 +13,10 @@ use num::BigInt;
 
 use crate::operators::errors::OperatorApplicationError;
 
-use super::{BinaryOp, ErrorToOperatorApplicationError};
+use super::{
+    avx2::{BinaryOpAvx2Adapter, BinaryOpAvx2Aware},
+    BinaryOp, ErrorToOperatorApplicationError,
+};
 
 #[derive(Debug)]
 pub struct MulOverflowError;
@@ -30,8 +33,9 @@ impl ErrorToOperatorApplicationError for MulOverflowError {
     }
 }
 
-pub struct BinaryOpMulI64I64;
-unsafe impl BinaryOp for BinaryOpMulI64I64 {
+pub type BinaryOpMulI64I64 = BinaryOpAvx2Adapter<BinaryOpMulI64I64Avx2>;
+pub struct BinaryOpMulI64I64Avx2;
+unsafe impl BinaryOpAvx2Aware for BinaryOpMulI64I64Avx2 {
     type Lhs = i64;
     type Rhs = i64;
     type Output = i64;
@@ -44,7 +48,7 @@ unsafe impl BinaryOp for BinaryOpMulI64I64 {
         lhs.checked_mul(*rhs).ok_or(MulOverflowError)
     }
 
-    fn calc_until_error<'a>(
+    fn calc_until_error_avx2<'a>(
         lhs: &[Self::Lhs],
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
@@ -52,7 +56,7 @@ unsafe impl BinaryOp for BinaryOpMulI64I64 {
         unsafe { multiply_arrays_hybrid(lhs, rhs, res) }
     }
 
-    fn calc_until_error_lhs_immediate<'a>(
+    fn calc_until_error_lhs_immediate_avx2<'a>(
         lhs: &Self::Lhs,
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
@@ -60,7 +64,7 @@ unsafe impl BinaryOp for BinaryOpMulI64I64 {
         unsafe { multiply_arrays_hybrid_lhs_immediate(*lhs, rhs, res) }
     }
 
-    fn calc_until_error_rhs_immediate<'a>(
+    fn calc_until_error_rhs_immediate_avx2<'a>(
         lhs: &[Self::Lhs],
         rhs: &Self::Rhs,
         res: &'a mut [MaybeUninit<Self::Output>],
