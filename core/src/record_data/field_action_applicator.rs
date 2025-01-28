@@ -1086,7 +1086,7 @@ mod test {
             &mut fd.field_count,
             &mut iter_state_refs,
         );
-        let mut iter = fd.iter();
+        let mut iter = fd.iter(false);
         let mut results = Vec::new();
         while let Some(field) = iter.typed_field_fwd(usize::MAX) {
             results

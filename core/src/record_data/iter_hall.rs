@@ -469,6 +469,7 @@ impl IterHall {
                         .header_start_data_pos_pre_padding
                         + h.leading_padding(),
                 },
+                true,
             )
         }
     }

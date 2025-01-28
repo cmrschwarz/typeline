@@ -8,10 +8,7 @@ pub struct TfSuccessUpdator {
 use crate::{
     cli::call_expr::CallExpr,
     job::JobData,
-    record_data::{
-        field_value_ref::FieldValueSlice, iter::field_iterator::FieldIterOpts,
-        iter_hall::FieldIterId,
-    },
+    record_data::{field_value_ref::FieldValueSlice, iter_hall::FieldIterId},
 };
 
 use super::{
@@ -86,11 +83,7 @@ impl Transform<'_> for TfSuccessUpdator {
 
         // PERF: we could optimize this
         let mut rem = batch_size;
-        while let Some(range) = iter.typed_range_fwd(
-            &jd.match_set_mgr,
-            rem,
-            FieldIterOpts::default(),
-        ) {
+        while let Some(range) = iter.typed_range_fwd(&jd.match_set_mgr, rem) {
             if matches!(range.base.data, FieldValueSlice::Error(_)) {
                 self.success = false;
             }

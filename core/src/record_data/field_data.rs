@@ -6,7 +6,7 @@ use super::{
     },
     field_value_ref::{drop_field_value_slice, value_as_bytes},
     iter::{
-        field_iterator::FieldIterOpts,
+        field_iterator::FieldIterRangeOptions,
         ref_iter::{
             AutoDerefIter, RefAwareBytesBufferIter,
             RefAwareFieldValueRangeIter, RefAwareInlineBytesIter,
@@ -707,7 +707,7 @@ impl Clone for FieldData {
             field_count: 0, // set by copy
         };
         let fd_ref = &mut fd;
-        let mut iter = self.iter();
+        let mut iter = self.iter(true);
         FieldData::copy(&mut iter, &mut |f| f(fd_ref));
         fd
     }
@@ -729,12 +729,13 @@ impl FieldData {
         let (d1, d2) = self.data.as_slices_mut();
         let l1 = d1.len();
         let (d1, d2) = (d1.as_mut_ptr(), d2.as_mut_ptr());
-        let mut iter = self.iter();
+        let mut iter = self.iter(false);
         loop {
             let slice_start_pos = iter.get_next_field_data();
             let Some(range) = iter.typed_range_fwd(
                 usize::MAX,
-                FieldIterOpts::default().with_allow_header_ring_wrap(true),
+                FieldIterRangeOptions::default()
+                    .with_allow_pointing_at_dead(true),
             ) else {
                 break;
             };
@@ -774,9 +775,9 @@ impl FieldData {
     // this is technically safe, but will leak unless paired with a
     // header that matches the contained type ranges (which itself is not safe)
     pub fn append_data_to(&self, target: &mut FieldDataBuffer) {
-        let mut iter = self.iter();
+        let mut iter = self.iter(true);
         while let Some(tr) =
-            iter.typed_range_fwd(usize::MAX, FieldIterOpts::default())
+            iter.typed_range_fwd(usize::MAX, FieldIterRangeOptions::default())
         {
             unsafe { append_data(tr.data, &mut |f| f(target)) };
         }
@@ -788,7 +789,7 @@ impl FieldData {
     ) -> usize {
         let mut fields_copied = 0;
         while let Some(tr) =
-            iter.typed_range_fwd(usize::MAX, FieldIterOpts::default())
+            iter.typed_range_fwd(usize::MAX, FieldIterRangeOptions::default())
         {
             unsafe {
                 append_data(tr.data, &mut |f: &mut dyn Fn(
@@ -802,7 +803,7 @@ impl FieldData {
         fields_copied
     }
     pub fn append_from_other(&mut self, other: &FieldData) -> usize {
-        let mut iter = other.iter();
+        let mut iter = other.iter(true);
         Self::copy(&mut iter, &mut |f| f(self))
     }
     pub fn append_from_iter(
@@ -817,7 +818,7 @@ impl FieldData {
     ) -> usize {
         let mut copied_fields = 0;
         while let Some(tr) =
-            iter.typed_range_fwd(usize::MAX, FieldIterOpts::default())
+            iter.typed_range_fwd(usize::MAX, FieldIterRangeOptions::default())
         {
             copied_fields += tr.field_count;
             targets_applicator(&mut |fd| {
@@ -848,11 +849,7 @@ impl FieldData {
         let mut copied_fields = 0;
         // by setting the deleted flag here, we can avoid copying deleted
         // records
-        while let Some(tr) = iter.typed_range_fwd(
-            match_set_mgr,
-            usize::MAX,
-            FieldIterOpts::default(),
-        ) {
+        while let Some(tr) = iter.typed_range_fwd(match_set_mgr, usize::MAX) {
             copied_fields += tr.base.field_count;
             if tr.refs.is_none() {
                 targets_applicator(&mut |fd| {
@@ -961,8 +958,8 @@ impl FieldData {
         copied_fields
     }
     #[allow(clippy::iter_not_returning_iterator)]
-    pub fn iter(&self) -> FieldIter<&'_ FieldData> {
-        FieldIter::from_start(self)
+    pub fn iter(&self, skip_dead: bool) -> FieldIter<&'_ FieldData> {
+        FieldIter::from_start(self, skip_dead)
     }
     pub unsafe fn internals_mut(&mut self) -> FieldDataInternalsMut {
         FieldDataInternalsMut {

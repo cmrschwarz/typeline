@@ -26,7 +26,7 @@ use crate::{
         field_value_ref::{FieldValueRef, FieldValueSlice},
         iter::{
             field_iter::FieldIter,
-            field_iterator::{FieldIterOpts, FieldIterator},
+            field_iterator::{FieldIterRangeOptions, FieldIterator},
             field_value_slice_iter::FieldValueRangeIter,
             ref_iter::{
                 AutoDerefIter, RefAwareBytesBufferIter,
@@ -102,16 +102,16 @@ impl<'a, 'b> ExecutorInputIter<'a, 'b> {
         &mut self,
         msm: &MatchSetManager,
         limit: usize,
-        opts: FieldIterOpts,
     ) -> Option<RefAwareTypedRange> {
         match self {
             ExecutorInputIter::AutoDerefIter(iter) => {
-                iter.typed_range_fwd(msm, limit, opts)
+                iter.typed_range_fwd(msm, limit)
             }
             ExecutorInputIter::FieldIter(iter) => {
-                Some(RefAwareTypedRange::without_refs(
-                    iter.typed_range_fwd(limit, opts)?,
-                ))
+                Some(RefAwareTypedRange::without_refs(iter.typed_range_fwd(
+                    limit,
+                    FieldIterRangeOptions::default(),
+                )?))
             }
             ExecutorInputIter::Atom(iter) => iter.typed_range_fwd(limit),
             ExecutorInputIter::FieldValue(iter) => iter.typed_range_fwd(limit),
@@ -231,7 +231,13 @@ fn get_executor_input_iter<'a, 'b>(
         },
         ValueAccess::TempField(tmp_in) => {
             let temp_field = temp_fields[tmp_in.index].data.borrow();
-            let iter = FieldIter::from_start(temp_field);
+            // we can skip the check for deleted fields here because
+            // we never delete data from temp fields
+            let iter = FieldIter::from_start(temp_field, false);
+            debug_assert!(iter
+                .get_next_header()
+                .map(|h| !h.fmt.deleted())
+                .unwrap_or(true));
             ExecutorInputIter::FieldIter(iter)
         }
         ValueAccess::Literal(v) => {
@@ -529,9 +535,8 @@ impl<'a, 'b> Executor<'a, 'b> {
         let mut count_rem = count;
 
         while count_rem > 0 {
-            let range = value_iter
-                .typed_range_fwd(self.msm, count_rem, FieldIterOpts::default())
-                .unwrap();
+            let range =
+                value_iter.typed_range_fwd(self.msm, count_rem).unwrap();
 
             count_rem -= range.base.field_count;
 
@@ -585,9 +590,8 @@ impl<'a, 'b> Executor<'a, 'b> {
         let mut count_rem = count;
 
         while count_rem > 0 {
-            let lhs_range = lhs_iter
-                .typed_range_fwd(self.msm, count_rem, FieldIterOpts::default())
-                .unwrap();
+            let lhs_range =
+                lhs_iter.typed_range_fwd(self.msm, count_rem).unwrap();
 
             count_rem -= lhs_range.base.field_count;
 
@@ -660,9 +664,8 @@ impl<'a, 'b> Executor<'a, 'b> {
         let mut count_rem = count;
 
         while count_rem > 0 {
-            let arg_range = arg_iter
-                .typed_range_fwd(self.msm, count_rem, FieldIterOpts::default())
-                .unwrap();
+            let arg_range =
+                arg_iter.typed_range_fwd(self.msm, count_rem).unwrap();
 
             count_rem -= arg_range.base.field_count;
 
@@ -716,9 +719,7 @@ impl<'a, 'b> Executor<'a, 'b> {
         let mut count_rem = count;
 
         while count_rem > 0 {
-            let range = iter
-                .typed_range_fwd(self.msm, count_rem, FieldIterOpts::default())
-                .unwrap();
+            let range = iter.typed_range_fwd(self.msm, count_rem).unwrap();
 
             count_rem -= range.base.field_count;
 
@@ -964,12 +965,15 @@ impl<'a, 'b> Executor<'a, 'b> {
                 }
             }
             ValueAccess::TempField(tmp_in) => {
-                inserter.extend_from_iter(
-                    &mut self.temp_fields[tmp_in.index].data.borrow().iter(),
-                    count,
-                    true,
-                    false,
-                );
+                let tf = self.temp_fields[tmp_in.index].data.borrow();
+                let mut iter = tf.iter(false);
+                // we can skip the check for deleted fields here because
+                // we never delete data from temp fields
+                debug_assert!(iter
+                    .get_next_header()
+                    .map(|h| !h.fmt.deleted())
+                    .unwrap_or(true));
+                inserter.extend_from_iter(&mut iter, count, true, false);
             }
             ValueAccess::Literal(v) => {
                 inserter.push_field_value_ref(v, count, true, false)

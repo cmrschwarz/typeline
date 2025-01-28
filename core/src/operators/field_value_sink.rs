@@ -5,7 +5,7 @@ use crate::{
         field_value::FieldValue,
         field_value_ref::FieldValueSlice,
         iter::{
-            field_iterator::{FieldIterOpts, FieldIterator},
+            field_iterator::FieldIterator,
             field_value_slice_iter::FieldValueRangeIter,
             ref_iter::{
                 AutoDerefIter, RefAwareBytesBufferIter,
@@ -151,7 +151,9 @@ impl FieldValueDataStorage {
     pub fn take_flat(&mut self) -> Vec<FieldValue> {
         match self {
             FieldValueDataStorage::Rle(data) => {
-                let mut iter = data.iter();
+                let mut iter = data.iter(false);
+                // no deads in here
+                debug_assert!(iter.is_next_valid_alive());
                 let mut res = Vec::new();
                 while let Some(v) = iter.typed_field_fwd(1) {
                     res.push(v.value.to_field_value());
@@ -244,11 +246,9 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
             AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
         let mut fvs = self.handle.lock().unwrap();
         let mut field_pos = fvs.field_count();
-        while let Some(range) = iter.typed_range_fwd(
-            &jd.match_set_mgr,
-            usize::MAX,
-            FieldIterOpts::default(),
-        ) {
+        while let Some(range) =
+            iter.typed_range_fwd(&jd.match_set_mgr, usize::MAX)
+        {
             metamatch!(match range.base.data {
                 #[expand(REP in [Null, Undefined])]
                 FieldValueSlice::REP(_) => {

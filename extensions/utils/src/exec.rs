@@ -54,7 +54,6 @@ use typeline_core::{
         formattable::RealizedFormatKey,
         iter::{
             field_iter::FieldIter,
-            field_iterator::FieldIterOpts,
             field_value_slice_iter::FieldValueRangeIter,
             iter_adapters::UnfoldIterRunLength,
             ref_iter::{
@@ -452,9 +451,7 @@ impl<'a> TfExec<'a> {
         iter: &mut AutoDerefIter<FieldIter<R>>,
     ) {
         let mut cmd_idx = cmd_offset;
-        while let Some(range) =
-            iter.typed_range_fwd(msm, usize::MAX, FieldIterOpts::default())
-        {
+        while let Some(range) = iter.typed_range_fwd(msm, usize::MAX) {
             metamatch!(match range.base.data {
                 #[expand((REP, ITER) in [
                     (TextInline, RefAwareInlineTextIter),

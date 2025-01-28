@@ -140,7 +140,7 @@ fn unwrap_render_error(re: RenderError) -> std::io::Error {
 fn add_field_data_dead_slots(fd: impl FieldDataRef, dead_slots: &mut [usize]) {
     let mut iter = FieldIter::from_start_allow_dead(fd);
     for ds in dead_slots {
-        *ds = (*ds).max(iter.skip_dead_fields());
+        *ds = (*ds).max(iter.skip_dead_fields_fwd());
         #[cfg(feature = "debug_log_lenient")]
         if !iter.is_next_valid() {
             break;

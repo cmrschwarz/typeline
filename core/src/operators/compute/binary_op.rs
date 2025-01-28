@@ -9,7 +9,6 @@ use crate::{
         field_value::FieldValueKind,
         field_value_ref::{FieldValueBlock, FieldValueSlice},
         iter::{
-            field_iterator::FieldIterOpts,
             field_value_slice_iter::FieldValueRangeIter,
             ref_iter::RefAwareTypedRange,
         },
@@ -82,9 +81,7 @@ fn insert_binary_op_type_error_iter_rhs(
     inserter: &mut ExecutorInserter,
 ) {
     while count > 0 {
-        let rhs_range = rhs_iter
-            .typed_range_fwd(msm, count, FieldIterOpts::default())
-            .unwrap();
+        let rhs_range = rhs_iter.typed_range_fwd(msm, count).unwrap();
         insert_binary_op_type_error(
             op_id,
             kind,
@@ -907,9 +904,7 @@ fn execute_binary_op_for_int_lhs(
     while let Some(lhs_block) = lhs_iter.next_block() {
         let mut rem = lhs_block.len();
         while rem > 0 {
-            let rhs_range = rhs_iter
-                .typed_range_fwd(msm, rem, FieldIterOpts::default())
-                .unwrap();
+            let rhs_range = rhs_iter.typed_range_fwd(msm, rem).unwrap();
             rem -= rhs_range.base.field_count;
 
             match rhs_range.base.data {
@@ -976,9 +971,7 @@ fn execute_binary_op_for_float_lhs(
     while let Some(lhs_block) = lhs_iter.next_block() {
         let mut rem = lhs_block.len();
         while rem > 0 {
-            let rhs_range = rhs_iter
-                .typed_range_fwd(msm, rem, FieldIterOpts::default())
-                .unwrap();
+            let rhs_range = rhs_iter.typed_range_fwd(msm, rem).unwrap();
             rem -= rhs_range.base.field_count;
 
             match rhs_range.base.data {

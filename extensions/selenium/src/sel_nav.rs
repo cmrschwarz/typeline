@@ -8,15 +8,10 @@ use typeline_core::{
     },
     options::session_setup::SessionSetupData,
     record_data::{
-        custom_data::CustomData,
-        field_value::FieldReference,
+        custom_data::CustomData, field_value::FieldReference,
         field_value_ref::FieldValueSlice,
-        iter::{
-            field_iterator::FieldIterOpts,
-            field_value_slice_iter::FieldValueRangeIter,
-        },
-        iter_hall::FieldIterId,
-        push_interface::PushInterface,
+        iter::field_value_slice_iter::FieldValueRangeIter,
+        iter_hall::FieldIterId, push_interface::PushInterface,
     },
     typeline_error::TypelineError,
 };
@@ -112,11 +107,9 @@ impl<'a> Transform<'a> for TfSelNav<'a> {
         let mut output = jd.field_mgr.fields[tf.output_field].borrow_mut();
         let (bs, ps) = jd.tf_mgr.claim_batch(tf_id);
         let mut bs_rem = bs;
-        while let Some(range) = input_iter.typed_range_fwd(
-            &jd.match_set_mgr,
-            bs_rem,
-            FieldIterOpts::default(),
-        ) {
+        while let Some(range) =
+            input_iter.typed_range_fwd(&jd.match_set_mgr, bs_rem)
+        {
             bs_rem -= range.base.field_count;
             match range.base.data {
                 FieldValueSlice::Custom(data) => {

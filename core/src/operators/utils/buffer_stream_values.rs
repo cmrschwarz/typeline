@@ -1,9 +1,8 @@
 use crate::record_data::{
     field_value_ref::FieldValueSlice,
     iter::{
-        field_iterator::{FieldIterOpts, FieldIterator},
-        field_value_slice_iter::FieldValueRangeIter,
-        ref_iter::AutoDerefIter,
+        field_iterator::FieldIterator,
+        field_value_slice_iter::FieldValueRangeIter, ref_iter::AutoDerefIter,
     },
     match_set::MatchSetManager,
     stream_value::{StreamValueId, StreamValueManager},
@@ -36,9 +35,7 @@ pub fn buffer_remaining_stream_values_in_auto_deref_iter<I: FieldIterator>(
     contiguous: bool,
 ) -> usize {
     let mut lines = 0;
-    while let Some(range) =
-        iter.typed_range_fwd(match_set_mgr, limit, FieldIterOpts::default())
-    {
+    while let Some(range) = iter.typed_range_fwd(match_set_mgr, limit) {
         if let FieldValueSlice::StreamValueId(svs) = range.base.data {
             lines += buffer_remaining_stream_values_in_sv_iter(
                 sv_mgr,

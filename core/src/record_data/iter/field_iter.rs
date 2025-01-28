@@ -12,7 +12,9 @@ use super::{
         field_data_ref::FieldDataRef,
         field_value_ref::{TypedField, TypedRange, ValidTypedRange},
     },
-    field_iterator::{FieldIterOpts, FieldIterator},
+    field_iterator::{
+        FieldIterRangeOptions, FieldIterScanOptions, FieldIterator,
+    },
 };
 
 #[repr(C)]
@@ -44,11 +46,15 @@ impl<R: FieldDataRef> Clone for FieldIter<R> {
 }
 
 impl<R: FieldDataRef> FieldIter<R> {
-    pub unsafe fn from_iter_location(fdr: R, loc: IterLocation) -> Self {
+    pub unsafe fn from_iter_location(
+        fdr: R,
+        loc: IterLocation,
+        skip_dead: bool,
+    ) -> Self {
         let headers = fdr.headers();
         debug_assert!(loc.header_idx <= headers.len());
         if headers.len() == loc.header_idx {
-            return FieldIter::from_start(fdr);
+            return FieldIter::from_start(fdr, skip_dead);
         }
         let h = headers[loc.header_idx];
         let mut res = FieldIter {
@@ -61,14 +67,18 @@ impl<R: FieldDataRef> FieldIter<R> {
             header_fmt: h.fmt,
             _phantom_data: PhantomData,
         };
-        res.skip_dead_fields();
+        res.skip_dead_fields_fwd();
         res
     }
-    pub unsafe fn from_field_location(fdr: R, loc: FieldLocation) -> Self {
+    pub unsafe fn from_field_location(
+        fdr: R,
+        loc: FieldLocation,
+        skip_dead: bool,
+    ) -> Self {
         let headers = fdr.headers();
         debug_assert!(loc.header_idx <= headers.len());
         if headers.len() == loc.header_idx {
-            return FieldIter::from_start(fdr);
+            return FieldIter::from_start(fdr, skip_dead);
         }
         let h = headers[loc.header_idx];
         let data_pos = {
@@ -91,7 +101,7 @@ impl<R: FieldDataRef> FieldIter<R> {
             header_fmt: h.fmt,
             _phantom_data: PhantomData,
         };
-        res.skip_dead_fields();
+        res.skip_dead_fields_fwd();
         res
     }
     pub fn into_iter_state(
@@ -154,13 +164,15 @@ impl<R: FieldDataRef> FieldIter<R> {
             _phantom_data: PhantomData,
         }
     }
-    pub fn from_start(fdr: R) -> Self {
+    pub fn from_start(fdr: R, skip_dead: bool) -> Self {
         let mut res = Self::from_start_allow_dead(fdr);
-        res.skip_dead_fields();
+        if skip_dead {
+            res.skip_dead_fields_fwd();
+        }
         res
     }
-    pub fn from_end(fdr: R) -> Self {
-        Self {
+    pub fn from_end(fdr: R, skip_dead: bool) -> Self {
+        let mut res = Self {
             field_pos: fdr.field_count(),
             data: fdr.data().len(),
             header_idx: fdr.headers().len(),
@@ -169,9 +181,16 @@ impl<R: FieldDataRef> FieldIter<R> {
             header_fmt: FieldValueFormat::default(),
             fdr,
             _phantom_data: PhantomData,
+        };
+        if skip_dead {
+            res.skip_dead_fields_bwd();
         }
+        res
     }
-    pub fn skip_dead_fields(&mut self) -> usize {
+    pub fn skip_dead_fields_bwd(&mut self) -> usize {
+        todo!("implement this")
+    }
+    pub fn skip_dead_fields_fwd(&mut self) -> usize {
         if !self.header_fmt.deleted() {
             return 0;
         }
@@ -277,12 +296,14 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         }
         self.data - self.header_fmt.leading_padding()
     }
-    fn get_next_field_header(&self) -> FieldValueHeader {
-        debug_assert!(self.is_next_valid());
-        FieldValueHeader {
+    fn get_next_header(&self) -> Option<FieldValueHeader> {
+        if !self.is_next_valid() {
+            return None;
+        }
+        Some(FieldValueHeader {
             fmt: self.header_fmt,
             run_length: self.header_rl_total,
-        }
+        })
     }
     fn get_next_field_header_data_start(&self) -> usize {
         self.data
@@ -407,7 +428,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
-        opts: FieldIterOpts,
+        opts: FieldIterScanOptions,
     ) -> usize {
         if n == 0 {
             // edge case: allow advancing by zero even after the end
@@ -469,7 +490,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
                 stride_rem -= rem;
                 return n - stride_rem;
             }
-            if curr_header_rem > stride_rem {
+            if !self.header_fmt.deleted() && curr_header_rem > stride_rem {
                 self.header_rl_offset += stride_rem as RunLength;
                 self.field_pos += stride_rem;
                 return n;
@@ -511,7 +532,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
-        opts: FieldIterOpts,
+        opts: FieldIterScanOptions,
     ) -> usize {
         // HACK // SAFETY
         // TODO: this currently does **not** respect data_ring_wrap
@@ -529,7 +550,9 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         if stride_rem == 0 {
             return 1;
         }
-        if self.header_rl_offset as usize > stride_rem {
+        if !self.header_fmt.deleted()
+            && self.header_rl_offset as usize > stride_rem
+        {
             self.header_rl_offset -= stride_rem as RunLength;
             self.field_pos -= stride_rem;
             return stride_rem;
@@ -562,7 +585,9 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             {
                 return n - stride_rem;
             }
-            if self.header_rl_total as usize > stride_rem {
+            if !self.header_fmt.deleted()
+                && self.header_rl_total as usize > stride_rem
+            {
                 self.header_rl_offset -= stride_rem as RunLength;
                 self.field_pos -= stride_rem;
                 return n;
@@ -617,7 +642,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
     fn typed_range_fwd(
         &mut self,
         limit: usize,
-        opts: FieldIterOpts,
+        opts: FieldIterRangeOptions,
     ) -> Option<ValidTypedRange> {
         if limit == 0 || !self.is_next_valid() {
             return None;
@@ -632,10 +657,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         let field_count = self.next_n_fields_with_fmt(
             limit,
             [fmt.repr],
-            opts.with_invert_kinds_check(false)
-                .with_allow_header_ring_wrap(false)
-                .with_allow_data_ring_wrap(false)
-                .with_allow_different_kind_if_dead(false),
+            FieldIterScanOptions::default(),
         );
         let data_end = self.get_prev_field_data_end();
         let mut oversize_end = 0;
@@ -643,6 +665,9 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         if self.field_run_length_bwd() != 0 {
             header_end += 1;
             oversize_end = self.header_rl_total - self.header_rl_offset;
+        }
+        if !opts.allow_pointing_at_dead() {
+            self.skip_dead_fields_fwd();
         }
         let range = TypedRange::new(
             &self.fdr,
@@ -660,7 +685,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
     fn typed_range_bwd(
         &mut self,
         limit: usize,
-        opts: FieldIterOpts,
+        opts: FieldIterRangeOptions,
     ) -> Option<ValidTypedRange> {
         if limit == 0 || !self.is_prev_valid() {
             return None;
@@ -677,12 +702,13 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         let field_count = self.prev_n_fields_with_fmt(
             limit - 1,
             [fmt.repr],
-            opts.with_invert_kinds_check(false)
-                .with_allow_data_ring_wrap(false)
-                .with_allow_header_ring_wrap(false),
+            FieldIterScanOptions::default(),
         ) + 1;
         let header_start = self.header_idx;
         let data_start = self.get_next_field_data();
+        if !opts.allow_pointing_at_dead() {
+            self.skip_dead_fields_bwd();
+        }
         let range = TypedRange::new(
             &self.fdr,
             fmt,
@@ -708,7 +734,7 @@ mod test {
         field_action::{FieldAction, FieldActionKind},
         field_action_applicator::FieldActionApplicator,
         field_data::FieldData,
-        iter::field_iterator::{FieldIterOpts, FieldIterator},
+        iter::field_iterator::{FieldIterRangeOptions, FieldIterator},
         push_interface::PushInterface,
     };
 
@@ -728,8 +754,10 @@ mod test {
             &mut fd.field_count,
             &mut [],
         );
-        let mut iter = fd.iter();
-        let range = iter.typed_range_fwd(5, FieldIterOpts::default()).unwrap();
+        let mut iter = fd.iter(false);
+        let range = iter
+            .typed_range_fwd(5, FieldIterRangeOptions::default())
+            .unwrap();
         assert_eq!(range.field_count, 1);
     }
 }

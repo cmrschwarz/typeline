@@ -37,7 +37,7 @@ use crate::{
             RealizedFormatKey,
         },
         iter::{
-            field_iterator::{FieldIterOpts, FieldIterator},
+            field_iterator::FieldIterator,
             field_value_slice_iter::FieldValueRangeIter,
             iter_adapters::UnfoldIterRunLength,
             ref_iter::{
@@ -242,9 +242,7 @@ pub fn handle_tf_print_raw(
         .lookup_iter(input_field_id, &input_field, print.iter_id)
         .bounded(0, batch_size);
     let mut iter = AutoDerefIter::new(fm, input_field_id, base_iter);
-    'iter: while let Some(range) =
-        iter.typed_range_fwd(msm, usize::MAX, FieldIterOpts::default())
-    {
+    'iter: while let Some(range) = iter.typed_range_fwd(msm, usize::MAX) {
         metamatch!(match range.base.data {
             FieldValueSlice::Null(_) if print.opts.ignore_nulls => {
                 *handled_field_count += range.base.field_count;

@@ -11,7 +11,9 @@ use crate::record_data::{
 use super::{
     super::field_data_ref::FieldDataRef,
     field_iter::FieldIter,
-    field_iterator::{FieldIterOpts, FieldIterator},
+    field_iterator::{
+        FieldIterRangeOptions, FieldIterScanOptions, FieldIterator,
+    },
 };
 
 #[derive(Clone)]
@@ -95,9 +97,9 @@ where
     fn get_prev_field_data_end(&self) -> usize {
         self.iter.get_prev_field_data_end()
     }
-    fn get_next_field_header(&self) -> FieldValueHeader {
+    fn get_next_header(&self) -> Option<FieldValueHeader> {
         debug_assert!(self.is_next_valid());
-        self.iter.get_next_field_header()
+        self.iter.get_next_header()
     }
     fn get_next_field_header_data_start(&self) -> usize {
         debug_assert!(self.is_next_valid());
@@ -160,7 +162,7 @@ where
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
-        opts: FieldIterOpts,
+        opts: FieldIterScanOptions,
     ) -> usize {
         let n = n.min(self.range_fwd());
         self.iter.next_n_fields_with_fmt(n, kinds, opts)
@@ -169,7 +171,7 @@ where
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
-        opts: FieldIterOpts,
+        opts: FieldIterScanOptions,
     ) -> usize {
         let n = n.min(self.range_bwd());
         self.iter.prev_n_fields_with_fmt(n, kinds, opts)
@@ -183,14 +185,14 @@ where
     fn typed_range_fwd(
         &mut self,
         limit: usize,
-        opts: FieldIterOpts,
+        opts: FieldIterRangeOptions,
     ) -> Option<ValidTypedRange> {
         self.iter.typed_range_fwd(limit.min(self.range_fwd()), opts)
     }
     fn typed_range_bwd(
         &mut self,
         limit: usize,
-        opts: FieldIterOpts,
+        opts: FieldIterRangeOptions,
     ) -> Option<ValidTypedRange> {
         self.iter.typed_range_bwd(limit.min(self.range_bwd()), opts)
     }

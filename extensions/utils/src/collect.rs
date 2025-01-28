@@ -23,7 +23,6 @@ use typeline_core::{
         group_track::GroupTrackIterRef,
         iter::{
             dyn_ref_iter::RefAwareDynFieldValueRangeIter,
-            field_iterator::FieldIterOpts,
             field_value_slice_iter::FieldValueRangeIter,
         },
         iter_hall::FieldIterId,
@@ -145,7 +144,6 @@ impl TfCollect {
             let Some(range) = bud.iter.typed_range_fwd(
                 bud.match_set_mgr,
                 group_iter.group_len_rem().min(batch_size_rem),
-                FieldIterOpts::default(),
             ) else {
                 break;
             };

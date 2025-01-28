@@ -1,7 +1,7 @@
 use crate::record_data::match_set::MatchSetManager;
 
 use super::{
-    field_iterator::{FieldIterOpts, FieldIterator},
+    field_iterator::FieldIterator,
     ref_iter::{AutoDerefIter, RefAwareTypedRange},
     single_value_iter::{AtomIter, FieldValueIter},
 };
@@ -18,11 +18,10 @@ impl<'a, I: FieldIterator> SingleValOrAutoDerefIter<'a, I> {
         &mut self,
         msm: &MatchSetManager,
         limit: usize,
-        opts: FieldIterOpts,
     ) -> Option<RefAwareTypedRange> {
         match self {
             SingleValOrAutoDerefIter::Iter(iter) => {
-                iter.typed_range_fwd(msm, limit, opts)
+                iter.typed_range_fwd(msm, limit)
             }
             SingleValOrAutoDerefIter::Atom(iter) => {
                 iter.typed_range_fwd(limit)

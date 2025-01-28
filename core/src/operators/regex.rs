@@ -22,7 +22,7 @@ use crate::{
         field_value_ref::FieldValueSlice,
         formattable::RealizedFormatKey,
         iter::{
-            field_iterator::{FieldIterOpts, FieldIterator},
+            field_iterator::FieldIterator,
             field_value_slice_iter::FieldValueRangeIter,
             ref_iter::{
                 AutoDerefIter, RangeOffsets, RefAwareBytesBufferIter,
@@ -1108,11 +1108,9 @@ impl<'a> Transform<'a> for TfRegex<'a> {
             if rbs.batch_size_reached() {
                 break;
             }
-            let Some(range) = iter.typed_range_fwd(
-                &jd.match_set_mgr,
-                max_run_len,
-                FieldIterOpts::default(),
-            ) else {
+            let Some(range) =
+                iter.typed_range_fwd(&jd.match_set_mgr, max_run_len)
+            else {
                 break;
             };
             let mut rmis = RegexMatchInnerState {
@@ -1126,9 +1124,9 @@ impl<'a> Transform<'a> for TfRegex<'a> {
             };
             metamatch!(match range.base.data {
                 #[expand((REP, ITER) in [
-                (TextInline, RefAwareInlineTextIter),
-                (TextBuffer, RefAwareTextBufferIter),
-            ])]
+                    (TextInline, RefAwareInlineTextIter),
+                    (TextBuffer, RefAwareTextBufferIter),
+                ])]
                 FieldValueSlice::REP(text) => {
                     if let Some(tr) = &mut text_regex {
                         for (v, rl, offsets) in ITER::from_range(&range, text)

@@ -44,7 +44,7 @@ use crate::{
         },
         field_value::{Null, Undefined},
         iter::{
-            field_iterator::FieldIterOpts,
+            field_iterator::FieldIterRangeOptions,
             ref_iter::{RefAwareBytesBufferIter, RefAwareTextBufferIter},
         },
     },
@@ -1183,7 +1183,7 @@ pub unsafe trait PushInterface {
         try_data_rle: bool,
     ) {
         while let Some(range) =
-            iter.typed_range_fwd(count, FieldIterOpts::default())
+            iter.typed_range_fwd(count, FieldIterRangeOptions::default())
         {
             count -= range.field_count;
             self.extend_from_valid_range(range, try_header_rle, try_data_rle);
@@ -1199,9 +1199,7 @@ pub unsafe trait PushInterface {
         try_header_rle: bool,
         try_data_rle: bool,
     ) {
-        while let Some(range) =
-            iter.typed_range_fwd(msm, count, FieldIterOpts::default())
-        {
+        while let Some(range) = iter.typed_range_fwd(msm, count) {
             count -= range.base.field_count;
             self.extend_from_ref_aware_range(
                 &range,

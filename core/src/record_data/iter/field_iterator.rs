@@ -17,7 +17,7 @@ use super::{
 };
 
 #[bitfield(u8, default = 0b00000)]
-pub struct FieldIterOpts {
+pub struct FieldIterScanOptions {
     #[bit(0, rw)]
     stop_on_dead: bool,
     #[bit(1, rw)]
@@ -28,6 +28,12 @@ pub struct FieldIterOpts {
     allow_data_ring_wrap: bool,
     #[bit(4, rw)]
     invert_kinds_check: bool,
+}
+
+#[bitfield(u8, default = 0b0)]
+pub struct FieldIterRangeOptions {
+    #[bit(0, rw)]
+    allow_pointing_at_dead: bool,
 }
 
 // While this type does not implement the `std::iter::Iterator` trait directly,
@@ -49,7 +55,7 @@ pub trait FieldIterator: Sized + Clone {
     fn get_prev_field_data_end(&self) -> usize;
     // if the cursor is in the middle of a header, *that* header will be
     // returned, not the one after it
-    fn get_next_field_header(&self) -> FieldValueHeader;
+    fn get_next_header(&self) -> Option<FieldValueHeader>;
     fn get_next_field_header_data_start(&self) -> usize;
     fn get_next_field_header_ref(&self) -> &FieldValueHeader {
         &self.field_data_ref().headers()[self.get_next_header_index()]
@@ -59,6 +65,9 @@ pub trait FieldIterator: Sized + Clone {
     fn get_next_typed_field(&mut self) -> TypedField;
     fn field_run_length_fwd(&self) -> RunLength;
     fn field_run_length_bwd(&self) -> RunLength;
+    fn is_next_valid_alive(&self) -> bool {
+        self.get_next_header().map(|h| !h.deleted()).unwrap_or(true)
+    }
     fn field_run_length_fwd_oversize(&self) -> RunLength {
         if self.field_run_length_bwd() != 0 {
             return self.field_run_length_fwd();
@@ -98,27 +107,35 @@ pub trait FieldIterator: Sized + Clone {
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
-        opts: FieldIterOpts,
+        opts: FieldIterScanOptions,
     ) -> usize;
     fn prev_n_fields_with_fmt<const N: usize>(
         &mut self,
         n: usize,
         kinds: [FieldValueRepr; N],
-        opts: FieldIterOpts,
+        opts: FieldIterScanOptions,
     ) -> usize;
-    fn move_to_field_pos(&mut self, field_pos: usize) -> usize {
+    fn move_to_field_pos(&mut self, field_pos: usize) {
         let curr = self.get_next_field_pos();
         match curr.cmp(&field_pos) {
-            Ordering::Equal => 0,
-            Ordering::Less => self.next_n_fields(field_pos - curr, true),
-            Ordering::Greater => self.prev_n_fields(curr - field_pos, true),
+            Ordering::Equal => (),
+            Ordering::Less => {
+                let diff = field_pos - curr;
+                let adv = self.next_n_fields(diff, true);
+                debug_assert_eq!(diff, adv);
+            }
+            Ordering::Greater => {
+                let diff = curr - field_pos;
+                let adv = self.prev_n_fields(diff, true);
+                debug_assert_eq!(diff, adv);
+            }
         }
     }
     fn next_n_fields(&mut self, n: usize, allow_ring_wrap: bool) -> usize {
         self.next_n_fields_with_fmt(
             n,
             [],
-            FieldIterOpts::default()
+            FieldIterScanOptions::default()
                 .with_allow_header_ring_wrap(allow_ring_wrap)
                 .with_allow_data_ring_wrap(allow_ring_wrap)
                 .with_invert_kinds_check(true),
@@ -128,7 +145,7 @@ pub trait FieldIterator: Sized + Clone {
         self.prev_n_fields_with_fmt(
             n,
             [],
-            FieldIterOpts::default()
+            FieldIterScanOptions::default()
                 .with_allow_header_ring_wrap(allow_ring_wrap)
                 .with_allow_data_ring_wrap(allow_ring_wrap)
                 .with_invert_kinds_check(true),
@@ -146,12 +163,12 @@ pub trait FieldIterator: Sized + Clone {
     fn typed_range_fwd(
         &mut self,
         limit: usize,
-        opts: FieldIterOpts,
+        opts: FieldIterRangeOptions,
     ) -> Option<ValidTypedRange>;
     fn typed_range_bwd(
         &mut self,
         limit: usize,
-        opts: FieldIterOpts,
+        opts: FieldIterRangeOptions,
     ) -> Option<ValidTypedRange>;
     fn bounded(self, backwards: usize, forwards: usize) -> BoundedIter<Self> {
         BoundedIter::new_relative(self, backwards, forwards)

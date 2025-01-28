@@ -14,10 +14,7 @@ use typeline_core::{
         field_action::FieldActionKind,
         field_value_ref::{FieldValueBlock, FieldValueSlice},
         group_track::GroupTrackIterRef,
-        iter::{
-            field_iterator::FieldIterOpts,
-            field_value_slice_iter::FieldValueRangeIter,
-        },
+        iter::field_value_slice_iter::FieldValueRangeIter,
         iter_hall::FieldIterId,
     },
     utils::max_index::{max_index_bool, max_index_f64, max_index_i64},
@@ -164,11 +161,7 @@ impl Transform<'_> for TfMax {
             }
 
             let range = iter
-                .typed_range_fwd(
-                    &jd.match_set_mgr,
-                    gs_rem.min(bs_rem),
-                    FieldIterOpts::default(),
-                )
+                .typed_range_fwd(&jd.match_set_mgr, gs_rem.min(bs_rem))
                 .unwrap();
             group_track_iter.next_n_fields(range.base.field_count);
             bs_rem -= range.base.field_count;

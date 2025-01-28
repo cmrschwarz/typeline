@@ -18,7 +18,7 @@ use crate::{
             Formattable, FormattingContext, RealizedFormatKey, TypeReprFormat,
         },
         iter::{
-            field_iterator::{FieldIterOpts, FieldIterator},
+            field_iterator::FieldIterator,
             field_value_slice_iter::FieldValueRangeIter,
             ref_iter::{
                 AutoDerefIter, RefAwareBytesBufferIter,
@@ -329,11 +329,9 @@ impl<'a> Transform<'a> for TfStringSink<'a> {
             LazyRwLockGuard::new(&jd.session_data.string_store);
         // interruption meaning error or group separator
         let mut last_interruption_end = field_pos;
-        while let Some(range) = iter.typed_range_fwd(
-            &jd.match_set_mgr,
-            usize::MAX,
-            FieldIterOpts::default(),
-        ) {
+        while let Some(range) =
+            iter.typed_range_fwd(&jd.match_set_mgr, usize::MAX)
+        {
             metamatch!(match range.base.data {
                 FieldValueSlice::Null(_) => {
                     push_str(&mut out, NULL_STR, range.base.field_count);

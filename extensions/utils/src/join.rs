@@ -33,7 +33,7 @@ use typeline_core::{
         },
         group_track::GroupTrackIterRef,
         iter::{
-            field_iterator::{FieldIterOpts, FieldIterator},
+            field_iterator::FieldIterator,
             field_value_slice_iter::FieldValueRangeIter,
             ref_iter::{
                 AutoDerefIter, RefAwareBytesBufferIter,
@@ -930,13 +930,8 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                     .skip_single_elem_groups(ps.input_done, batch_size_rem);
                 let mut rem = count;
                 while rem > 0 {
-                    let range = iter
-                        .typed_range_fwd(
-                            &jd.match_set_mgr,
-                            rem,
-                            FieldIterOpts::default(),
-                        )
-                        .unwrap();
+                    let range =
+                        iter.typed_range_fwd(&jd.match_set_mgr, rem).unwrap();
                     rem -= range.base.field_count;
                     output_inserter
                         .extend_from_ref_aware_range_stringified_smart_ref(
@@ -962,7 +957,6 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                 desired_group_len_rem
                     .min(batch_size_rem)
                     .min(record_group_iter.group_len_rem()),
-                FieldIterOpts::default(),
             ) else {
                 break;
             };

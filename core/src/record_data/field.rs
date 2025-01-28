@@ -111,11 +111,14 @@ impl<'a> CowFieldDataRef<'a> {
         }
     }
     #[allow(clippy::iter_not_returning_iterator)]
-    pub fn iter(self) -> FieldIter<CowFieldDataRef<'a>> {
-        FieldIter::from_start(self)
+    pub fn iter(self, skip_dead: bool) -> FieldIter<CowFieldDataRef<'a>> {
+        FieldIter::from_start(self, skip_dead)
     }
-    pub fn iter_from_end(self) -> FieldIter<CowFieldDataRef<'a>> {
-        FieldIter::from_end(self)
+    pub fn iter_from_end(
+        self,
+        skip_dead: bool,
+    ) -> FieldIter<CowFieldDataRef<'a>> {
+        FieldIter::from_end(self, skip_dead)
     }
     pub fn headers(&'a self) -> &'a VecDeque<FieldValueHeader> {
         &self.headers_ref
@@ -525,7 +528,7 @@ impl FieldManager {
             | FieldDataSource::Alias(src_field_id) => {
                 let fr = self.get_cow_field_ref_raw(src_field_id);
                 let mut iter =
-                    FieldIter::from_start(fr.destructured_field_ref());
+                    FieldIter::from_start(fr.destructured_field_ref(), true);
                 FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
             FieldDataSource::DataCow { source: cds, .. } => {
@@ -538,7 +541,8 @@ impl FieldManager {
                     &mut src.iter_hall.field_data.headers,
                 );
                 let fr = self.get_cow_field_ref_raw(cds.src_field_id);
-                let iter = FieldIter::from_start(fr.destructured_field_ref());
+                let iter =
+                    FieldIter::from_start(fr.destructured_field_ref(), true);
                 unsafe {
                     FieldData::copy_data(iter, &mut |f| f(tgt));
                 }
@@ -547,7 +551,7 @@ impl FieldManager {
             }
             FieldDataSource::RecordBufferFullCow(rb) => {
                 let fd = unsafe { &mut *(*rb).get() };
-                let mut iter = fd.iter();
+                let mut iter = fd.iter(true);
                 FieldData::copy(&mut iter, &mut |f| f(tgt));
             }
             FieldDataSource::RecordBufferDataCow(data_ref) => {
@@ -561,7 +565,7 @@ impl FieldManager {
                 );
                 unsafe {
                     let fd = &mut *(*data_ref).get();
-                    FieldData::copy_data(fd.iter(), &mut |f| f(tgt));
+                    FieldData::copy_data(fd.iter(true), &mut |f| f(tgt));
                 }
             }
         }

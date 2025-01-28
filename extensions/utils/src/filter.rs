@@ -10,13 +10,9 @@ use typeline_core::{
         transform::{Transform, TransformState},
     },
     record_data::{
-        action_buffer::ActorId,
-        field_action::FieldActionKind,
+        action_buffer::ActorId, field_action::FieldActionKind,
         field_value_ref::FieldValueSlice,
-        iter::{
-            field_iterator::FieldIterOpts,
-            field_value_slice_iter::FieldValueRangeIter,
-        },
+        iter::field_value_slice_iter::FieldValueRangeIter,
         iter_hall::FieldIterId,
     },
 };
@@ -94,13 +90,8 @@ impl Transform<'_> for TfFilter {
             // PERF: we could optimize this but in the interest of supporting
             // by using next_n_fields_with_fmt but we would have to
             // implement that for AutoDerefIter
-            let range = iter
-                .typed_range_fwd(
-                    &jd.match_set_mgr,
-                    bs_rem,
-                    FieldIterOpts::default(),
-                )
-                .unwrap();
+            let range =
+                iter.typed_range_fwd(&jd.match_set_mgr, bs_rem).unwrap();
             let count = range.base.field_count;
             match range.base.data {
                 FieldValueSlice::Null(_) | FieldValueSlice::Undefined(_) => {

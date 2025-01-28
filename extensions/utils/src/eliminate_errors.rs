@@ -12,8 +12,7 @@ use typeline_core::{
     },
     record_data::{
         action_buffer::ActorId, field_action::FieldActionKind,
-        field_data::FieldValueRepr, iter::field_iterator::FieldIterOpts,
-        iter_hall::FieldIterId,
+        field_data::FieldValueRepr, iter_hall::FieldIterId,
     },
 };
 
@@ -86,13 +85,8 @@ impl Transform<'_> for TfEliminateErrors {
             // PERF: we could optimize this but in the interest of supporting
             // by using next_n_fields_with_fmt but we would have to
             // implement that for AutoDerefIter
-            let range = iter
-                .typed_range_fwd(
-                    &jd.match_set_mgr,
-                    bs_rem,
-                    FieldIterOpts::default(),
-                )
-                .unwrap();
+            let range =
+                iter.typed_range_fwd(&jd.match_set_mgr, bs_rem).unwrap();
             let count = range.base.field_count;
             if range.base.data.repr() == FieldValueRepr::Error {
                 ab.push_action(FieldActionKind::Drop, field_pos, count);

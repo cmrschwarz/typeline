@@ -64,6 +64,7 @@ impl GeneratorSequence for TfPipelinePaster {
             FieldIter::from_field_location(
                 &*self.data,
                 self.iter_state.as_field_location(),
+                true,
             )
         };
         inserter.extend_from_iter(&mut iter, count, true, true);

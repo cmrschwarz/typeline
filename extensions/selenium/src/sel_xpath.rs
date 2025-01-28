@@ -27,7 +27,6 @@ use typeline_core::{
         field_value::FieldReference,
         field_value_ref::FieldValueSlice,
         iter::{
-            field_iterator::FieldIterOpts,
             field_value_slice_iter::FieldValueRangeIter,
             iter_adapters::UnfoldIterRunLength,
         },
@@ -189,11 +188,9 @@ impl<'a> Transform<'a> for TfSelXpath<'a> {
         let mut bs_rem = bs;
         let field_pos_start = input_iter.get_next_field_pos();
         let mut field_pos = field_pos_start;
-        while let Some(range) = input_iter.typed_range_fwd(
-            &jd.match_set_mgr,
-            bs_rem,
-            FieldIterOpts::default(),
-        ) {
+        while let Some(range) =
+            input_iter.typed_range_fwd(&jd.match_set_mgr, bs_rem)
+        {
             bs_rem -= range.base.field_count;
             match range.base.data {
                 FieldValueSlice::Custom(data) => {

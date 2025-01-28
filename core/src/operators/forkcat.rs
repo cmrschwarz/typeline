@@ -33,7 +33,7 @@ use crate::{
         },
         iter::{
             field_iter::FieldIter,
-            field_iterator::{FieldIterOpts, FieldIterator},
+            field_iterator::{FieldIterRangeOptions, FieldIterator},
         },
         iter_hall::{FieldIterId, IterKind},
         match_set::MatchSetId,
@@ -595,8 +595,8 @@ fn visit_subchains(
             let inserter = &mut cont_field_inserters[mapping_idx];
 
             let mut range_rem = fields_to_consume;
-            while let Some(range) =
-                iter.typed_range_fwd(range_rem, FieldIterOpts::default())
+            while let Some(range) = iter
+                .typed_range_fwd(range_rem, FieldIterRangeOptions::default())
             {
                 range_rem -= range.field_count;
                 inserter.extend_from_valid_range_re_ref(

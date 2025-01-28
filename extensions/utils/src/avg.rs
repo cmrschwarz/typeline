@@ -19,7 +19,6 @@ use typeline_core::{
         field_value_ref::{FieldValueBlock, FieldValueSlice},
         group_track::GroupTrackIterRef,
         iter::{
-            field_iterator::FieldIterOpts,
             field_value_slice_iter::FieldValueRangeIter,
             ref_iter::RefAwareFieldValueRangeIter,
         },
@@ -173,7 +172,6 @@ impl TfAvg {
             let Some(range) = bud.iter.typed_range_fwd(
                 bud.match_set_mgr,
                 group_iter.group_len_rem().min(batch_size_rem),
-                FieldIterOpts::default(),
             ) else {
                 break;
             };
