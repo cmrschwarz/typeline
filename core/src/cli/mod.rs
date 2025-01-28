@@ -1001,7 +1001,9 @@ pub fn parse_dashed_arg(
             ));
         }
         let arg_start = i;
-        let mut key = argv;
+        let key;
+
+        let mut double_dash = false;
 
         let mut argval = Argument {
             value: FieldValue::Null,
@@ -1012,14 +1014,17 @@ pub fn parse_dashed_arg(
         if argv[i] == b'-' {
             if let Some(colon_idx) = argv[i + 1..].find_char(':') {
                 let colon_idx = i + 1 + colon_idx;
-                key = &argv[..colon_idx];
+                key = &argv[i..colon_idx];
                 argval = parse_single_arg_value(
                     &argv[colon_idx + 1..],
                     span,
                     source_scope,
                 );
-                i = argv.len();
-            };
+            } else {
+                key = &argv[i..];
+            }
+            double_dash = true;
+            i = argv.len();
         } else {
             key = &argv[i..=i];
             i += 1;
@@ -1041,12 +1046,14 @@ pub fn parse_dashed_arg(
         }
         let Ok(key) = key.to_str() else {
             return Err(CliArgumentError::new(
-                "double dash argument must be valid utf-8",
+                "dashed argument must be valid utf-8",
                 span.subslice_offsets(arg_start, arg_start + key.len()),
             ));
         };
-        argval.span = span
-            .subslice_offsets(arg_start - usize::from(starts_with_dash), i);
+        argval.span = span.subslice_offsets(
+            arg_start - usize::from(starts_with_dash && !double_dash),
+            i,
+        );
         let key = format!("-{key}");
         let value = FieldValue::Argument(Box::new(argval));
         if let Some(_prev) = target.insert(key.to_string(), value) {
