@@ -534,10 +534,10 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         kinds: [FieldValueRepr; N],
         opts: FieldIterScanOptions,
     ) -> usize {
-        // HACK // SAFETY
         // TODO: this currently does **not** respect data_ring_wrap
         // which might lead to invalid memory if somebody decides to
         // create slices from this
+        debug_assert!(opts.allow_data_ring_wrap());
         if n == 0
             || self.prev_field() == 0
             || (self.header_fmt.deleted() && opts.stop_on_dead())
@@ -555,7 +555,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
         {
             self.header_rl_offset -= stride_rem as RunLength;
             self.field_pos -= stride_rem;
-            return stride_rem;
+            return n;
         }
         let wrap_idx = if opts.allow_header_ring_wrap() {
             usize::MAX
