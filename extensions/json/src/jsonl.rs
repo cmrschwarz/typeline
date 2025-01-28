@@ -53,14 +53,20 @@ use typeline_core::{
     },
 };
 
+#[derive(Default)]
+pub struct JsonlOptions {
+    pub use_null: bool,
+    pub objectify: bool,
+    pub disable_colum_opt: bool,
+}
+
 pub struct OpJsonl {
     var_names: Vec<StringStoreEntry>,
     accessed_fields: Vec<bool>,
     input: ReadableTarget,
     first_line: Option<FieldValue>,
     reader: Mutex<Option<AnyBufReader>>,
-    use_null: bool,
-    objectify: bool,
+    opts: JsonlOptions,
 }
 
 pub enum Input {
@@ -166,7 +172,7 @@ impl Operator for OpJsonl {
             .input
             .create_buf_reader()
             .and_then(|mut r| {
-                if self.objectify {
+                if self.opts.objectify {
                     Ok((r, None))
                 } else {
                     let first_row = gather_field_names_from_first(
@@ -234,7 +240,8 @@ impl Operator for OpJsonl {
         for output in base.outputs_start.range_to(base.outputs_end) {
             let read = ld.op_outputs_data.get_slot(VarLivenessSlotKind::Reads)
                 [output.into_usize()];
-            self.accessed_fields.push(read);
+            self.accessed_fields
+                .push(read || self.opts.disable_colum_opt);
         }
         // TODO: attempt to set dyn access to false
     }
@@ -309,7 +316,7 @@ impl Operator for OpJsonl {
                     ),
                 ),
             first_line_processed: false,
-            zst_to_push: if self.use_null {
+            zst_to_push: if self.opts.use_null {
                 FieldValueRepr::Null
             } else {
                 FieldValueRepr::Undefined
@@ -450,7 +457,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                         self.op.first_line.as_ref()
                     },
                     zst_to_push: self.zst_to_push,
-                    objectify: self.op.objectify,
+                    objectify: self.op.opts.objectify,
                 },
                 &mut status,
             )
@@ -1041,8 +1048,7 @@ fn read_in_lines<'a>(
 
 pub fn create_op_jsonl(
     input: ReadableTarget,
-    use_null: bool,
-    objectify: bool,
+    opts: JsonlOptions,
 ) -> Box<dyn Operator> {
     Box::new(OpJsonl {
         input,
@@ -1050,21 +1056,15 @@ pub fn create_op_jsonl(
         var_names: Vec::new(),
         first_line: None,
         reader: Mutex::new(None),
-        use_null,
-        objectify,
+        opts,
     })
 }
 
 pub fn create_op_jsonl_from_file(
     input_file: impl Into<PathBuf>,
-    use_null: bool,
-    objectify: bool,
+    opts: JsonlOptions,
 ) -> Box<dyn Operator> {
-    create_op_jsonl(
-        ReadableTarget::File(input_file.into()),
-        use_null,
-        objectify,
-    )
+    create_op_jsonl(ReadableTarget::File(input_file.into()), opts)
 }
 
 pub fn parse_op_jsonl(
@@ -1075,23 +1075,34 @@ pub fn parse_op_jsonl(
     if args.len() != 1 {
         return Err(expr.error_require_exact_positional_count(1).into());
     }
-    let mut use_null = false;
-    let mut objectify = false;
+    let mut opts = JsonlOptions::default();
     // TODO: this is getting annoying, and error prone.
     // Add proper, generalized cli parsing code ala CLAP
     if let Some(flags) = flags {
-        if flags.get("-n").is_some() {
-            use_null = true;
-        }
-    }
-    if let Some(flags) = flags {
-        if flags.get("-o").is_some() {
-            objectify = true;
+        for (k, v) in flags {
+            let FieldValue::Argument(arg) = v else {
+                unreachable!()
+            };
+            match &**k {
+                "-n" => {
+                    opts.use_null = true;
+                }
+                "-o" => {
+                    opts.objectify = true;
+                }
+                "--disable-column-opt" => {
+                    opts.disable_colum_opt = true;
+                }
+                _ => {
+                    return Err(expr
+                        .error_flag_unsupported(k, arg.span)
+                        .into());
+                }
+            }
         }
     }
     Ok(Some(create_op_jsonl_from_file(
         args[0].try_into_text(expr.op_name, sess)?.to_string(),
-        use_null,
-        objectify,
+        opts,
     )))
 }

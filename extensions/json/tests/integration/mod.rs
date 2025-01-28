@@ -13,7 +13,10 @@ use typeline_core::{
     typeline_error::TypelineError,
     utils::test_utils::SliceReader,
 };
-use typeline_ext_json::{jsonl::create_op_jsonl, JsonExtension};
+use typeline_ext_json::{
+    jsonl::{create_op_jsonl, JsonlOptions},
+    JsonExtension,
+};
 use typeline_ext_utils::{head::create_op_head, sum::create_op_sum};
 
 pub static JSON_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
@@ -29,7 +32,10 @@ fn first_column_becomes_output() -> Result<(), TypelineError> {
         "\"a\"\n\"b\"\n42\n".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target(), false, false))
+        .add_op(create_op_jsonl(
+            target.create_target(),
+            JsonlOptions::default(),
+        ))
         .run_collect_stringified()?;
     assert_eq!(res, ["a", "b", "42"]);
     Ok(())
@@ -41,7 +47,10 @@ fn jsonl_with_object() -> Result<(), TypelineError> {
         "{\"a\": 42, \"b\": 12}".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target(), false, false))
+        .add_op(create_op_jsonl(
+            target.create_target(),
+            JsonlOptions::default(),
+        ))
         .add_op(create_op_format("{b}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["12"]);
@@ -55,7 +64,10 @@ fn unobserved_error_in_object() -> Result<(), TypelineError> {
         "{\"a\": 42, \"b\": 2}\n{\"a\": 7, \"b\": \"}".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target(), false, false))
+        .add_op(create_op_jsonl(
+            target.create_target(),
+            JsonlOptions::default(),
+        ))
         .add_op(create_op_format("{a}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["42", "7"]);
@@ -68,7 +80,10 @@ fn error_in_object() -> Result<(), TypelineError> {
         "{\"a\": 42, \"b\": 2}\n{\"a\": 7, \"b\": \"}".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_jsonl(target.create_target(), false, false))
+        .add_op(create_op_jsonl(
+            target.create_target(),
+            JsonlOptions::default(),
+        ))
         .add_op(create_op_format("{b:??}").unwrap())
         .run_collect_stringified()?;
     // TODO: improve message
@@ -94,7 +109,10 @@ fn multibatch(
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
         .set_batch_size(batch_size)
         .unwrap()
-        .add_op(create_op_jsonl(target.create_target(), false, false))
+        .add_op(create_op_jsonl(
+            target.create_target(),
+            JsonlOptions::default(),
+        ))
         .add_op(create_op_sum())
         .run_collect_as::<i64>()?;
     assert_eq!(res, [(count * (count - 1) / 2) as i64]);
@@ -114,7 +132,10 @@ fn head() -> Result<(), TypelineError> {
     let res = ContextBuilder::with_exts(JSON_EXTENSION_REGISTRY.clone())
         .set_batch_size(3)
         .unwrap()
-        .add_op(create_op_jsonl(target.create_target(), false, false))
+        .add_op(create_op_jsonl(
+            target.create_target(),
+            JsonlOptions::default(),
+        ))
         .add_op(create_op_head(5))
         .run_collect_stringified()?;
     assert_eq!(res, ["0", "1", "2", "3", "4"]);
