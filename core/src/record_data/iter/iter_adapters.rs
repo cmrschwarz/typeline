@@ -124,22 +124,22 @@ where
             .min(self.iter.field_run_length_bwd() as usize)
             as RunLength
     }
-    fn next_header(&mut self) -> RunLength {
+    fn next_header(&mut self, skip_deleted: bool) -> RunLength {
         let range = self.range_fwd();
         let rl_rem = self.iter.field_run_length_fwd() as usize;
         if range < rl_rem {
             self.iter.next_n_fields(range, true) as RunLength
         } else {
-            self.iter.next_header()
+            self.iter.next_header(skip_deleted)
         }
     }
-    fn prev_header(&mut self) -> RunLength {
+    fn prev_header(&mut self, skip_deleted: bool) -> RunLength {
         let range = self.range_fwd();
         let rl_rem = self.iter.field_run_length_bwd() as usize;
         if range < rl_rem {
             self.iter.prev_n_fields(range, true) as RunLength
         } else {
-            self.iter.prev_header()
+            self.iter.prev_header(skip_deleted)
         }
     }
     fn next_field(&mut self) -> RunLength {

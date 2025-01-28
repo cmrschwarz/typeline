@@ -970,14 +970,17 @@ impl FieldActionApplicator {
     }
     pub fn run(
         &mut self,
-        actions: impl Iterator<Item = FieldAction>,
+        actions: impl IntoIterator<Item = FieldAction>,
         headers: &mut VecDeque<FieldValueHeader>,
         field_count: &mut usize,
         iterators: &mut [&mut IterState],
     ) -> isize {
         iterators.sort_unstable();
-        let field_count_delta =
-            self.generate_commands_from_actions(actions, headers, iterators);
+        let field_count_delta = self.generate_commands_from_actions(
+            actions.into_iter(),
+            headers,
+            iterators,
+        );
         debug_assert!(*field_count as isize + field_count_delta >= 0);
         *field_count = (*field_count as isize + field_count_delta) as usize;
         self.execute_commands(headers);
@@ -1036,7 +1039,7 @@ mod test {
             .map(IterState::from_raw_with_dummy_kind)
             .collect::<Vec<_>>();
         faa.run(
-            actions.into_iter(),
+            actions,
             &mut headers,
             &mut field_count,
             &mut iter_state_refs,
@@ -1052,7 +1055,7 @@ mod test {
         input: impl IntoIterator<Item = (FieldValue, RunLength)>,
         // useful to represent different values sharing the same header
         header_rle: bool,
-        actions: impl IntoIterator<IntoIter = impl Iterator<Item = FieldAction>>,
+        actions: impl IntoIterator<Item = FieldAction>,
         // for the output we only test whether the received values are correct
         // so no header rle there
         output: impl IntoIterator<Item = (FieldValue, RunLength)>,
@@ -1078,7 +1081,7 @@ mod test {
             .collect::<Vec<_>>();
 
         let fc_delta = faa.run(
-            actions.into_iter(),
+            actions,
             &mut fd.headers,
             &mut fd.field_count,
             &mut iter_state_refs,

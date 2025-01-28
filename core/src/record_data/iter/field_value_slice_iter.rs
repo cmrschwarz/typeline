@@ -425,7 +425,9 @@ impl<'a> InlineBytesIter<'a> {
                 break;
             }
             if !h.same_value_as_previous() {
-                unsafe { self.advance_value(prev_size) };
+                unsafe {
+                    self.advance_value(h.fmt.leading_padding() + prev_size)
+                };
                 if !h.shared_value() {
                     unsafe {
                         self.advance_value(
@@ -439,7 +441,7 @@ impl<'a> InlineBytesIter<'a> {
         self.header_rl_rem = h.run_length;
         unsafe {
             if !h.same_value_as_previous() {
-                self.advance_value(prev_size);
+                self.advance_value(prev_size + h.fmt.leading_padding());
             }
             if self.header.add(1) == self.header_end {
                 self.header_rl_rem -= self.last_oversize;

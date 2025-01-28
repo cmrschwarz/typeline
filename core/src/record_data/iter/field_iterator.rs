@@ -90,8 +90,8 @@ pub trait FieldIterator: Sized + Clone {
                 .get_next_field_header_data_start(),
         }
     }
-    fn next_header(&mut self) -> RunLength;
-    fn prev_header(&mut self) -> RunLength;
+    fn next_header(&mut self, skip_deleted: bool) -> RunLength;
+    fn prev_header(&mut self, skip_deleted: bool) -> RunLength;
     fn next_field(&mut self) -> RunLength;
     fn prev_field(&mut self) -> RunLength;
     fn next_n_fields_with_fmt<const N: usize>(

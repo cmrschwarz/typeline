@@ -315,15 +315,16 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
     fn field_run_length_bwd(&self) -> RunLength {
         self.header_rl_offset
     }
-    fn next_header(&mut self) -> RunLength {
-        let stride = self.header_rl_total - self.header_rl_offset;
+    fn next_header(&mut self, skip_deleted: bool) -> RunLength {
+        let mut stride = self.header_rl_total - self.header_rl_offset;
         if stride == 0 {
             return 0;
         }
         self.header_rl_offset = 0;
-        if !self.header_fmt.deleted() {
-            self.field_pos += stride as usize;
+        if self.header_fmt.deleted() {
+            stride = 0;
         }
+        self.field_pos += stride as usize;
         let headers = self.fdr.headers();
         let mut prev_header_size = headers[self.header_idx].data_size();
         loop {
@@ -339,7 +340,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             if !h.same_value_as_previous() {
                 self.data += prev_header_size;
             }
-            if h.deleted() {
+            if h.deleted() && skip_deleted {
                 prev_header_size = h.total_size();
                 continue;
             }
@@ -350,7 +351,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             return stride;
         }
     }
-    fn prev_header(&mut self) -> RunLength {
+    fn prev_header(&mut self, skip_deleted: bool) -> RunLength {
         let mut data_offset = self.header_fmt.leading_padding();
         let mut i = self.header_idx;
         let mut same_as_prev = self.header_fmt.same_value_as_previous();
@@ -364,7 +365,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             if !same_as_prev {
                 data_offset += h.data_size();
             }
-            if h.deleted() {
+            if h.deleted() && skip_deleted {
                 if i == 0 {
                     return 0;
                 }
@@ -379,7 +380,10 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             self.header_fmt = h.fmt;
             self.header_rl_total = h.run_length;
             self.header_rl_offset = self.header_rl_total - 1;
-            self.field_pos -= stride as usize;
+
+            if !h.deleted() {
+                self.field_pos -= stride as usize;
+            }
             return stride;
         }
     }
@@ -389,7 +393,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             self.field_pos += 1;
             return 1;
         }
-        self.next_header()
+        self.next_header(true)
     }
     fn prev_field(&mut self) -> RunLength {
         if self.header_rl_offset > 0 {
@@ -397,7 +401,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             self.field_pos -= 1;
             return 1;
         }
-        self.prev_header()
+        self.prev_header(true)
     }
     fn next_n_fields_with_fmt<const N: usize>(
         &mut self,
@@ -478,12 +482,12 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
                     && !opts.allow_different_kind_if_dead()
                     && kinds.contains(&h.repr) == opts.invert_kinds_check();
                 if done {
-                    stride_rem -= self.next_header() as usize;
+                    stride_rem -= self.next_header(false) as usize;
                     return n - stride_rem;
                 }
             }
 
-            stride_rem -= self.next_header() as usize;
+            stride_rem -= self.next_header(false) as usize;
             curr_header_rem = self.header_rl_total as usize;
             data_pos = self.data;
             if data_pos >= data_wrap_pos {
@@ -544,12 +548,12 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
                     && !opts.allow_different_kind_if_dead()
                     && kinds.contains(&h.repr) == opts.invert_kinds_check();
                 if done {
-                    stride_rem -= self.prev_header() as usize;
+                    stride_rem -= self.prev_header(false) as usize;
                     return n - stride_rem;
                 }
             }
 
-            stride_rem -= self.prev_header() as usize;
+            stride_rem -= self.prev_header(false) as usize;
             if !self.is_prev_valid()
                 || (self.header_fmt.deleted() && opts.stop_on_dead())
                 || (kinds.contains(&self.header_fmt.repr)
@@ -574,7 +578,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             let run_len = if self.header_fmt.shared_value() {
                 let rl = self.field_run_length_fwd();
                 if rl as usize <= limit {
-                    self.next_header();
+                    self.next_header(true);
                     rl
                 } else {
                     self.header_rl_offset += limit as RunLength;
@@ -597,7 +601,7 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             let run_len = if self.header_fmt.shared_value() {
                 let rl = self.field_run_length_bwd() + 1;
                 if rl as usize <= limit {
-                    self.prev_header();
+                    self.prev_header(true);
                     rl
                 } else {
                     self.header_rl_offset -= limit as RunLength - 1;
@@ -630,23 +634,15 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
             [fmt.repr],
             opts.with_invert_kinds_check(false)
                 .with_allow_header_ring_wrap(false)
-                .with_allow_data_ring_wrap(false),
+                .with_allow_data_ring_wrap(false)
+                .with_allow_different_kind_if_dead(false),
         );
-        let mut data_end = self.get_prev_field_data_end();
+        let data_end = self.get_prev_field_data_end();
         let mut oversize_end = 0;
         let mut header_end = self.header_idx;
-        if self.is_next_valid() {
-            if self.field_run_length_bwd() != 0 {
-                header_end += 1;
-                oversize_end = self.header_rl_total - self.header_rl_offset;
-            } else {
-                while header_end > 0
-                    && self.fdr.headers()[header_end - 1].deleted()
-                {
-                    header_end -= 1;
-                    data_end -= self.fdr.headers()[header_end].data_size();
-                }
-            }
+        if self.field_run_length_bwd() != 0 {
+            header_end += 1;
+            oversize_end = self.header_rl_total - self.header_rl_offset;
         }
         let range = TypedRange::new(
             &self.fdr,
@@ -703,5 +699,37 @@ impl<R: FieldDataRef> FieldIterator for FieldIter<R> {
 
     fn into_base_iter(self) -> FieldIter<R> {
         self
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::record_data::{
+        field_action::{FieldAction, FieldActionKind},
+        field_action_applicator::FieldActionApplicator,
+        field_data::FieldData,
+        iter::field_iterator::{FieldIterOpts, FieldIterator},
+        push_interface::PushInterface,
+    };
+
+    #[test]
+    fn range_forward_over_dead() {
+        let mut fd = FieldData::default();
+        fd.push_string("foo".to_owned(), 1, true, false);
+        fd.push_string("bar".to_owned(), 1, true, false);
+        fd.push_inline_str("baz", 1, true, false);
+        fd.push_inline_str("quux", 1, true, false);
+        fd.push_string("durp".to_owned(), 1, true, false);
+
+        let mut faa = FieldActionApplicator::default();
+        faa.run(
+            [FieldAction::new(FieldActionKind::Drop, 1, 3)],
+            &mut fd.headers,
+            &mut fd.field_count,
+            &mut [],
+        );
+        let mut iter = fd.iter();
+        let range = iter.typed_range_fwd(5, FieldIterOpts::default()).unwrap();
+        assert_eq!(range.field_count, 1);
     }
 }
