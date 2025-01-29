@@ -12,7 +12,7 @@ use crate::record_data::field_data::FixedSizeFieldValueType;
 use std::fmt::Debug;
 
 use super::{
-    calc_until_error, calc_until_error_lhs_immediate_baseline,
+    calc_until_error_baseline, calc_until_error_lhs_immediate_baseline,
     calc_until_error_rhs_immediate_baseline, BinaryOp,
     ErrorToOperatorApplicationError,
 };
@@ -262,8 +262,7 @@ pub fn calc_until_error_avx2_rhs_immediate<'a, Error>(
     }
 }
 
-pub fn mm256d_to_bool_array(vec: __m256d) -> [bool; AVX2_I64_ELEM_COUNT] {
-    let mask = unsafe { _mm256_movemask_pd(vec) } as u32;
+pub fn mask_to_bool_array(mask: u32) -> [bool; AVX2_I64_ELEM_COUNT] {
     [
         (mask & 0x0000_00FF) != 0,
         (mask & 0x0000_FF00) != 0,
@@ -272,18 +271,7 @@ pub fn mm256d_to_bool_array(vec: __m256d) -> [bool; AVX2_I64_ELEM_COUNT] {
     ]
 }
 
-pub fn mm256i_to_bool_array(vec: __m256i) -> [bool; AVX2_I64_ELEM_COUNT] {
-    let mask = unsafe { _mm256_movemask_epi8(vec) } as u32;
-    [
-        (mask & 0x0000_00FF) != 0,
-        (mask & 0x0000_FF00) != 0,
-        (mask & 0x00FF_0000) != 0,
-        (mask & 0xFF00_0000) != 0,
-    ]
-}
-
-pub fn mm256i_to_bool_array_neg(vec: __m256i) -> [bool; AVX2_I64_ELEM_COUNT] {
-    let mask = unsafe { _mm256_movemask_epi8(vec) } as u32;
+pub fn mask_to_bool_array_neg(mask: u32) -> [bool; AVX2_I64_ELEM_COUNT] {
     #[allow(clippy::verbose_bit_mask)]
     [
         (mask & 0x0000_00FF) == 0,
@@ -291,6 +279,18 @@ pub fn mm256i_to_bool_array_neg(vec: __m256i) -> [bool; AVX2_I64_ELEM_COUNT] {
         (mask & 0x00FF_0000) == 0,
         (mask & 0xFF00_0000) == 0,
     ]
+}
+
+pub fn mm256d_to_bool_array(vec: __m256d) -> [bool; AVX2_I64_ELEM_COUNT] {
+    mask_to_bool_array(unsafe { _mm256_movemask_pd(vec) } as u32)
+}
+
+pub fn mm256i_to_bool_array(vec: __m256i) -> [bool; AVX2_I64_ELEM_COUNT] {
+    mask_to_bool_array(unsafe { _mm256_movemask_epi8(vec) } as u32)
+}
+
+pub fn mm256i_to_bool_array_neg(vec: __m256i) -> [bool; AVX2_I64_ELEM_COUNT] {
+    mask_to_bool_array_neg(unsafe { _mm256_movemask_epi8(vec) } as u32)
 }
 
 pub fn calc_cmp_avx2(
@@ -565,7 +565,7 @@ unsafe impl<OP: BinaryOpAvx2Aware> BinaryOp for BinaryOpAvx2Adapter<OP> {
         {
             OP::calc_until_error_avx2(lhs, rhs, res)
         } else {
-            calc_until_error(lhs, rhs, res, OP::try_calc_single)
+            calc_until_error_baseline(lhs, rhs, res, OP::try_calc_single)
         }
     }
 
@@ -608,7 +608,7 @@ unsafe impl<OP: BinaryOpAvx2Aware> BinaryOp for BinaryOpAvx2Adapter<OP> {
     }
 }
 
-pub trait BinaryOpCmpI64Avx2Aware {
+pub trait BinaryOpCmpI64I64Avx2Aware {
     fn cmp_single(lhs: &i64, rhs: &i64) -> bool;
     fn cmp_avx2(lhs: __m256i, rhs: __m256i) -> [bool; AVX2_I64_ELEM_COUNT];
 }
@@ -616,9 +616,11 @@ pub trait BinaryOpCmpI64Avx2Aware {
 pub type BinaryOpCmpI64Avx2Adapter<OP> =
     BinaryOpAvx2Adapter<BinaryOpCmpI64Avx2AdapterInternal<OP>>;
 
-pub struct BinaryOpCmpI64Avx2AdapterInternal<OP: BinaryOpCmpI64Avx2Aware>(OP);
+pub struct BinaryOpCmpI64Avx2AdapterInternal<OP: BinaryOpCmpI64I64Avx2Aware>(
+    OP,
+);
 
-unsafe impl<Op: BinaryOpCmpI64Avx2Aware> BinaryOpAvx2Aware
+unsafe impl<Op: BinaryOpCmpI64I64Avx2Aware> BinaryOpAvx2Aware
     for BinaryOpCmpI64Avx2AdapterInternal<Op>
 {
     type Lhs = i64;
@@ -673,16 +675,18 @@ unsafe impl<Op: BinaryOpCmpI64Avx2Aware> BinaryOpAvx2Aware
     }
 }
 
-pub trait BinaryOpCmpF64Avx2Aware {
+pub trait BinaryOpCmpF64F64Avx2Aware {
     fn cmp_single(lhs: &f64, rhs: &f64) -> bool;
     fn cmp_avx2(lhs: __m256d, rhs: __m256d) -> [bool; AVX2_I64_ELEM_COUNT];
 }
 pub type BinaryOpCmpF64Avx2Adapter<OP> =
     BinaryOpAvx2Adapter<BinaryOpCmpF64Avx2AdapterInternal<OP>>;
 
-pub struct BinaryOpCmpF64Avx2AdapterInternal<OP: BinaryOpCmpF64Avx2Aware>(OP);
+pub struct BinaryOpCmpF64Avx2AdapterInternal<OP: BinaryOpCmpF64F64Avx2Aware>(
+    OP,
+);
 
-unsafe impl<Op: BinaryOpCmpF64Avx2Aware> BinaryOpAvx2Aware
+unsafe impl<Op: BinaryOpCmpF64F64Avx2Aware> BinaryOpAvx2Aware
     for BinaryOpCmpF64Avx2AdapterInternal<Op>
 {
     type Lhs = f64;

@@ -110,7 +110,7 @@ selenium = ["dep:typeline_ext_selenium"]
 all_exts = ["utils", "http", "python", "sqlite", "csv", "json", "selenium"]
 
 full = ["all_exts", "repl", "debug_log"]
-default = ["repl", "utils", "csv"]
+default = ["repl", "utils", "csv", "json", "http", "debug_log"]
 
 slow_tests = ["typeline_ext_utils?/slow_tests"]
 bench = []

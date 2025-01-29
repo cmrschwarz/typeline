@@ -30,7 +30,10 @@ use super::{
             BinaryOpDivF64F64, BinaryOpDivF64I64, BinaryOpDivI64BigInt,
             BinaryOpDivI64F64, BinaryOpDivI64I64,
         },
-        eq::{BasicBinaryOpEq, BinaryOpEqF64F64, BinaryOpEqI64I64},
+        eq::{
+            BasicBinaryOpEq, BinaryOpEqF64F64, BinaryOpEqF64I64,
+            BinaryOpEqI64F64, BinaryOpEqI64I64,
+        },
         ge::{BasicBinaryOpGe, BinaryOpGeF64F64, BinaryOpGeI64I64},
         gt::{BasicBinaryOpGt, BinaryOpGtF64F64, BinaryOpGtI64I64},
         le::{BasicBinaryOpLe, BinaryOpLeF64F64, BinaryOpLeI64I64},
@@ -716,7 +719,7 @@ fn execute_binary_op_int_float(
 ) {
     match op_kind {
         BinaryOpKind::Equals => {
-            execute_binary_op_infallable::<BasicBinaryOpEq<i64, f64>>(
+            execute_binary_op_infallable::<BinaryOpEqI64F64>(
                 lhs_block, rhs_range, rhs_data, inserter,
             )
         }
@@ -808,7 +811,7 @@ fn execute_binary_op_float_int(
 ) {
     match op_kind {
         BinaryOpKind::Equals => {
-            execute_binary_op_infallable::<BasicBinaryOpEq<f64, i64>>(
+            execute_binary_op_infallable::<BinaryOpEqF64I64>(
                 lhs_block, rhs_range, rhs_data, inserter,
             )
         }

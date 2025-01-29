@@ -39,7 +39,7 @@ impl ErrorToOperatorApplicationError for Infallible {
     }
 }
 
-fn calc_until_error<'a, Lhs, Rhs, Output, Error>(
+pub(super) fn calc_until_error_baseline<'a, Lhs, Rhs, Output, Error>(
     lhs: &[Lhs],
     rhs: &[Rhs],
     res: &'a mut [MaybeUninit<Output>],
@@ -113,7 +113,7 @@ pub unsafe trait BinaryOp {
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        calc_until_error(lhs, rhs, res, Self::try_calc_single)
+        calc_until_error_baseline(lhs, rhs, res, Self::try_calc_single)
     }
 
     fn calc_until_error_lhs_immediate<'a>(
@@ -140,6 +140,48 @@ pub unsafe trait BinaryOp {
             res,
             Self::try_calc_single,
         )
+    }
+}
+
+pub struct BinaryOpCommutationWrapper<Op: BinaryOp> {
+    _op: std::marker::PhantomData<Op>,
+}
+
+unsafe impl<Op: BinaryOp> BinaryOp for BinaryOpCommutationWrapper<Op> {
+    type Lhs = Op::Rhs;
+    type Rhs = Op::Lhs;
+    type Output = Op::Output;
+    type Error = Op::Error;
+
+    fn try_calc_single(
+        lhs: &Self::Lhs,
+        rhs: &Self::Rhs,
+    ) -> Result<Self::Output, Self::Error> {
+        Op::try_calc_single(rhs, lhs)
+    }
+
+    fn calc_until_error<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        Op::calc_until_error(rhs, lhs, res)
+    }
+
+    fn calc_until_error_lhs_immediate<'a>(
+        lhs: &Self::Lhs,
+        rhs: &[Self::Rhs],
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        Op::calc_until_error_rhs_immediate(rhs, lhs, res)
+    }
+
+    fn calc_until_error_rhs_immediate<'a>(
+        lhs: &[Self::Lhs],
+        rhs: &Self::Rhs,
+        res: &'a mut [MaybeUninit<Self::Output>],
+    ) -> (usize, Option<Self::Error>) {
+        Op::calc_until_error_lhs_immediate(rhs, lhs, res)
     }
 }
 

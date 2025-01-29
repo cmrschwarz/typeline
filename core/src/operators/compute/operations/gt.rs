@@ -9,8 +9,8 @@ use crate::record_data::field_data::FixedSizeFieldValueType;
 use super::{
     avx2::{
         mm256d_to_bool_array, mm256i_to_bool_array, BinaryOpCmpF64Avx2Adapter,
-        BinaryOpCmpF64Avx2Aware, BinaryOpCmpI64Avx2Adapter,
-        BinaryOpCmpI64Avx2Aware,
+        BinaryOpCmpF64F64Avx2Aware, BinaryOpCmpI64Avx2Adapter,
+        BinaryOpCmpI64I64Avx2Aware,
     },
     BinaryOp,
 };
@@ -18,7 +18,7 @@ use num_order::NumOrd;
 
 pub type BinaryOpGtI64I64 = BinaryOpCmpI64Avx2Adapter<BinaryOpGtI64I64Avx2>;
 pub struct BinaryOpGtI64I64Avx2;
-impl BinaryOpCmpI64Avx2Aware for BinaryOpGtI64I64Avx2 {
+impl BinaryOpCmpI64I64Avx2Aware for BinaryOpGtI64I64Avx2 {
     fn cmp_single(lhs: &i64, rhs: &i64) -> bool {
         lhs > rhs
     }
@@ -33,7 +33,7 @@ impl BinaryOpCmpI64Avx2Aware for BinaryOpGtI64I64Avx2 {
 
 pub type BinaryOpGtF64F64 = BinaryOpCmpF64Avx2Adapter<BinaryOpGtF64F64Avx2>;
 pub struct BinaryOpGtF64F64Avx2;
-impl BinaryOpCmpF64Avx2Aware for BinaryOpGtF64F64Avx2 {
+impl BinaryOpCmpF64F64Avx2Aware for BinaryOpGtF64F64Avx2 {
     fn cmp_single(lhs: &f64, rhs: &f64) -> bool {
         lhs > rhs
     }

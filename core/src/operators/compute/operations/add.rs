@@ -8,7 +8,7 @@ use super::{
         calc_until_error_avx2_rhs_immediate, BinaryOpAvx2Adapter,
         BinaryOpAvx2Aware,
     },
-    BinaryOp, ErrorToOperatorApplicationError,
+    BinaryOp, BinaryOpCommutationWrapper, ErrorToOperatorApplicationError,
 };
 use std::{
     arch::x86_64::{
@@ -133,20 +133,8 @@ unsafe impl BinaryOp for BinaryOpAddI64BigInt {
     }
 }
 
-pub struct BinaryOpAddBigIntI64;
-unsafe impl BinaryOp for BinaryOpAddBigIntI64 {
-    type Lhs = BigInt;
-    type Rhs = i64;
-    type Output = BigInt;
-    type Error = Infallible;
-
-    fn try_calc_single(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-    ) -> Result<Self::Output, Self::Error> {
-        Ok(lhs + rhs)
-    }
-}
+pub type BinaryOpAddBigIntI64 =
+    BinaryOpCommutationWrapper<BinaryOpAddI64BigInt>;
 
 pub struct BinaryOpAddF64F64;
 unsafe impl BinaryOp for BinaryOpAddF64F64 {
@@ -179,18 +167,4 @@ unsafe impl BinaryOp for BinaryOpAddI64F64 {
     }
 }
 
-pub struct BinaryOpAddF64I64;
-unsafe impl BinaryOp for BinaryOpAddF64I64 {
-    type Lhs = f64;
-    type Rhs = i64;
-    type Output = f64;
-    type Error = Infallible;
-
-    fn try_calc_single(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-    ) -> Result<Self::Output, Self::Error> {
-        #[allow(clippy::cast_precision_loss)]
-        Ok(*lhs + (*rhs as f64))
-    }
-}
+pub type BinaryOpAddF64I64 = BinaryOpCommutationWrapper<BinaryOpAddI64F64>;
