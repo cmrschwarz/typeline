@@ -4,8 +4,10 @@ use std::{
         _mm256_castps256_ps128, _mm256_castsi256_ps, _mm256_cmp_pd,
         _mm256_cmpeq_epi64, _mm256_cvtepi32_pd, _mm256_extractf128_ps,
         _mm256_loadu_pd, _mm256_loadu_si256, _mm256_movemask_epi8,
-        _mm256_mul_pd, _mm256_or_pd, _mm256_set1_pd, _mm256_sub_pd,
-        _mm_castps_si128, _mm_shuffle_ps, _CMP_EQ_OQ, _CMP_NEQ_OQ,
+        _mm256_mul_pd, _mm256_or_pd, _mm256_round_pd, _mm256_set1_pd,
+        _mm256_sub_pd, _mm_and_si128, _mm_castps_si128, _mm_set1_epi32,
+        _mm_shuffle_ps, _mm_srli_epi32, _CMP_EQ_OQ, _CMP_NEQ_OQ,
+        _MM_FROUND_NO_EXC, _MM_FROUND_TO_ZERO,
     },
     convert::Infallible,
     marker::PhantomData,
@@ -170,6 +172,8 @@ fn cmp_eq_i64_f64_avx2(
     let mut i = 0;
 
     unsafe {
+        let ints_sign_mask = _mm_set1_epi32(0x7FFF_FFFF);
+        let ints_sign_bit_shift = _mm256_set1_pd(f64::from(0x8000_0000u32)); // 2^31
         let ints_hi_shift = _mm256_set1_pd(4_294_967_296.0); // 2^32
         while i + AVX2_I64_ELEM_COUNT <= len_min {
             let ints_v = _mm256_loadu_si256(ints_p.add(i).cast());
@@ -179,12 +183,23 @@ fn cmp_eq_i64_f64_avx2(
             let ints_12 = _mm256_castps256_ps128(ints_ps);
             let ints_34 = _mm256_extractf128_ps::<1>(ints_ps);
 
-            let ints_lo_ps =
-                _mm_shuffle_ps(ints_12, ints_34, SHUF_EXTRACT_LOW);
+            let ints_lo = _mm_castps_si128(_mm_shuffle_ps(
+                ints_12,
+                ints_34,
+                SHUF_EXTRACT_LOW,
+            ));
+            let ints_lo_no_sign = _mm_and_si128(ints_lo, ints_sign_mask);
+            let ints_lo_bit32 = _mm_srli_epi32::<31>(ints_lo);
 
             let ints_hi_ps = _mm_shuffle_ps(ints_12, ints_34, SHUF_EXTRACT_HI);
+            let ints_lo_f64_no_sign = _mm256_cvtepi32_pd(ints_lo_no_sign);
+            let ints_lo_f64_bit_32 = _mm256_mul_pd(
+                _mm256_cvtepi32_pd(ints_lo_bit32),
+                ints_sign_bit_shift,
+            );
+            let ints_lo_f64 =
+                _mm256_add_pd(ints_lo_f64_no_sign, ints_lo_f64_bit_32);
 
-            let ints_lo_f64 = _mm256_cvtepi32_pd(_mm_castps_si128(ints_lo_ps));
             let ints_hi_f64 = _mm256_cvtepi32_pd(_mm_castps_si128(ints_hi_ps));
 
             let ints_f64 = _mm256_add_pd(
@@ -193,8 +208,19 @@ fn cmp_eq_i64_f64_avx2(
             );
 
             let floats_inf_or_nan = _mm256_sub_pd(floats_v, floats_v);
+            // let floats_not_int = _mm256_cmp_pd(
+            //    floats_v,
+            //    _mm256_round_pd::<{ _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC
+            // }>(        floats_v,
+            //    ),
+            //    _CMP_NEQ_OQ,
+            //);
             let not_eq_raw = _mm256_cmp_pd(floats_v, ints_f64, _CMP_NEQ_OQ);
             let not_eq = _mm256_or_pd(floats_inf_or_nan, not_eq_raw);
+            // let not_eq = _mm256_or_pd(
+            //    _mm256_or_pd(floats_inf_or_nan, not_eq_raw),
+            //    floats_not_int,
+            //);
 
             let mask =
                 _mm256_movemask_epi8(_mm256_castpd_si256(not_eq)) as u32;
@@ -224,6 +250,7 @@ mod test {
         unsafe { &*(std::ptr::from_ref(s) as *const [T]) }
     }
 
+    #[track_caller]
     fn check_eq_i64_f64(ints: &[i64], floats: &[f64], expected: &[bool]) {
         let mut res = vec![MaybeUninit::uninit(); ints.len()];
         cmp_eq_i64_f64_avx2(ints, floats, &mut res);
@@ -244,5 +271,33 @@ mod test {
         let ints = [0, 0, x, x];
         let floats = [0., 1., xf, xf + 1.0];
         check_eq_i64_f64(&ints, &floats, &[true, false, true, false]);
+    }
+
+    #[test]
+    fn test_cmp_eq_i64_f64_avx2_nan() {
+        let ints = [1, 2, 3, 4];
+        let floats = [1.0, f64::NAN, 3.0, f64::NAN];
+        check_eq_i64_f64(&ints, &floats, &[true, false, true, false]);
+    }
+
+    #[test]
+    fn test_cmp_eq_i64_f64_avx2_infinity() {
+        let ints = [1, 2, 3, 4];
+        let floats = [1.0, f64::INFINITY, 3.0, f64::NEG_INFINITY];
+        check_eq_i64_f64(&ints, &floats, &[true, false, true, false]);
+    }
+
+    #[test]
+    fn test_cmp_eq_i64_f64_avx2_negative() {
+        let ints = [-1, -2, -3, -4];
+        let floats = [-1.0, -2.0, -3.0, -4.0];
+        check_eq_i64_f64(&ints, &floats, &[true; 4]);
+    }
+
+    #[test]
+    fn test_cmp_eq_i64_f64_avx2_mixed() {
+        let ints = [0, i64::MAX, i64::MIN, 42];
+        let floats = [0.00001, i64::MAX as f64, i64::MIN as f64, 42.5];
+        check_eq_i64_f64(&ints, &floats, &[false; 4]);
     }
 }
