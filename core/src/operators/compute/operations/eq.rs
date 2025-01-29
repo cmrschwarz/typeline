@@ -1,13 +1,18 @@
 use std::{
     arch::x86_64::{
-        __m256d, __m256i, _mm256_add_pd, _mm256_castpd_si256,
-        _mm256_castps256_ps128, _mm256_castsi256_ps, _mm256_cmp_pd,
-        _mm256_cmpeq_epi64, _mm256_cvtepi32_pd, _mm256_extractf128_ps,
-        _mm256_loadu_pd, _mm256_loadu_si256, _mm256_movemask_epi8,
-        _mm256_mul_pd, _mm256_or_pd, _mm256_round_pd, _mm256_set1_pd,
-        _mm256_sub_pd, _mm_and_si128, _mm_castps_si128, _mm_set1_epi32,
-        _mm_shuffle_ps, _mm_srli_epi32, _CMP_EQ_OQ, _CMP_NEQ_OQ,
-        _MM_FROUND_NO_EXC, _MM_FROUND_TO_ZERO,
+        __m256d, __m256i, _mm256_add_epi64, _mm256_add_pd, _mm256_and_pd,
+        _mm256_and_si256, _mm256_andnot_pd, _mm256_andnot_si256,
+        _mm256_blendv_epi8, _mm256_castpd_si256, _mm256_castps256_ps128,
+        _mm256_castsi256_pd, _mm256_castsi256_ps, _mm256_cmp_pd,
+        _mm256_cmpeq_epi64, _mm256_cmpgt_epi64, _mm256_cvtepi32_pd,
+        _mm256_extractf128_ps, _mm256_loadu_pd, _mm256_loadu_si256,
+        _mm256_max_epi32, _mm256_movemask_epi8, _mm256_mul_pd, _mm256_or_pd,
+        _mm256_or_si256, _mm256_round_pd, _mm256_set1_epi64x, _mm256_set1_pd,
+        _mm256_slli_epi64, _mm256_sllv_epi64, _mm256_srli_epi64,
+        _mm256_srlv_epi64, _mm256_sub_epi64, _mm256_sub_pd, _mm256_xor_si256,
+        _mm_and_si128, _mm_castps_si128, _mm_set1_epi32, _mm_shuffle_ps,
+        _mm_srli_epi32, _CMP_EQ_OQ, _CMP_NEQ_OQ, _MM_FROUND_FLOOR,
+        _MM_FROUND_NO_EXC,
     },
     convert::Infallible,
     marker::PhantomData,
@@ -22,8 +27,8 @@ use crate::{
 use super::{
     avx2::{
         calc_cmp_avx2_rhs_immediate, calc_cmp_f64_avx2_lhs_immediate,
-        mm256d_to_bool_array, mm256i_to_bool_array, BinaryOpAvx2Adapter,
-        BinaryOpAvx2Aware, BinaryOpCmpF64Avx2Adapter,
+        mask_to_bool_array, mm256d_to_bool_array, mm256i_to_bool_array,
+        BinaryOpAvx2Adapter, BinaryOpAvx2Aware, BinaryOpCmpF64Avx2Adapter,
         BinaryOpCmpF64F64Avx2Aware, BinaryOpCmpI64Avx2Adapter,
         BinaryOpCmpI64I64Avx2Aware, AVX2_I64_ELEM_COUNT,
     },
@@ -154,7 +159,7 @@ unsafe impl<
     }
 }
 
-fn cmp_eq_i64_f64_avx2(
+fn cmp_eq_i64_f64_avx2_v1(
     ints: &[i64],
     floats: &[f64],
     res: &mut [MaybeUninit<bool>],
@@ -208,19 +213,8 @@ fn cmp_eq_i64_f64_avx2(
             );
 
             let floats_inf_or_nan = _mm256_sub_pd(floats_v, floats_v);
-            // let floats_not_int = _mm256_cmp_pd(
-            //    floats_v,
-            //    _mm256_round_pd::<{ _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC
-            // }>(        floats_v,
-            //    ),
-            //    _CMP_NEQ_OQ,
-            //);
             let not_eq_raw = _mm256_cmp_pd(floats_v, ints_f64, _CMP_NEQ_OQ);
             let not_eq = _mm256_or_pd(floats_inf_or_nan, not_eq_raw);
-            // let not_eq = _mm256_or_pd(
-            //    _mm256_or_pd(floats_inf_or_nan, not_eq_raw),
-            //    floats_not_int,
-            //);
 
             let mask =
                 _mm256_movemask_epi8(_mm256_castpd_si256(not_eq)) as u32;
@@ -237,6 +231,183 @@ fn cmp_eq_i64_f64_avx2(
         }
     }
     (i, None)
+}
+
+fn cmp_eq_i64_f64_avx2(
+    ints: &[i64],
+    floats: &[f64],
+    res: &mut [MaybeUninit<bool>],
+) -> (usize, Option<Infallible>) {
+    let len_min = ints.len().min(floats.len()).min(res.len());
+    let ints_p = ints.as_ptr();
+    let floats_p = floats.as_ptr();
+    let res_p = res.as_mut_ptr();
+
+    let mut i = 0;
+
+    unsafe {
+        // Constants
+        let kneg1 = _mm256_set1_epi64x(-1);
+        let k0 = _mm256_set1_epi64x(0);
+        let k1 = _mm256_set1_epi64x(1);
+        let k51 = _mm256_set1_epi64x(51);
+        let mask_7ff = _mm256_set1_epi64x(0x7FF);
+        let mask_3ff = _mm256_set1_epi64x(0x3FF);
+        let mask_52bits = _mm256_set1_epi64x((1 << 52) - 1);
+        let i64_max = _mm256_set1_epi64x(i64::MAX);
+
+        while i + AVX2_I64_ELEM_COUNT <= len_min {
+            let ints_v = _mm256_loadu_si256(ints_p.add(i).cast());
+            let floats_v = _mm256_loadu_pd(floats_p.add(i));
+
+            // Bitcast to integer registers
+            let vi = _mm256_castpd_si256(floats_v);
+
+            // Extract exponents (bits 52-62)
+            let biased_exp =
+                _mm256_and_si256(_mm256_srli_epi64(vi, 52), mask_7ff);
+            let exp = _mm256_sub_epi64(biased_exp, mask_3ff);
+
+            // Check if exponent < 63
+            let exp_63 = _mm256_set1_epi64x(63);
+            let in_range = _mm256_cmpgt_epi64(exp_63, exp);
+
+            // Calculate shift amounts
+            let shift_mnt = _mm256_max_epi32(_mm256_sub_epi64(k51, exp), k0);
+            let shift_int = _mm256_max_epi32(_mm256_sub_epi64(exp, k51), k0);
+
+            // Extract mantissa and add implicit bit
+            let mantissa = _mm256_and_si256(vi, mask_52bits);
+            let implicit_bit =
+                _mm256_or_si256(mantissa, _mm256_slli_epi64(k1, 52));
+            let int52 = _mm256_srlv_epi64(
+                implicit_bit,
+                _mm256_add_epi64(shift_mnt, k1),
+            );
+
+            // Shift to create integer part
+            let shifted = _mm256_sllv_epi64(int52, shift_int);
+
+            // Restore lost bit (conditional shift)
+            let shift_restore = _mm256_sub_epi64(shift_int, k1);
+            let restore_mask =
+                _mm256_cmpgt_epi64(shift_restore, _mm256_set1_epi64x(-1));
+            let restore_bits = _mm256_and_si256(
+                _mm256_sllv_epi64(
+                    _mm256_and_si256(mantissa, k1),
+                    shift_restore,
+                ),
+                restore_mask,
+            );
+            let restored = _mm256_or_si256(shifted, restore_bits);
+
+            // Handle saturation limits
+            let sign_mask =
+                _mm256_andnot_si256(_mm256_cmpgt_epi64(vi, kneg1), kneg1); // Broadcast sign bit
+            let limit = _mm256_sub_epi64(i64_max, sign_mask);
+
+            // Select between converted value and limit
+            let magnitude = _mm256_blendv_epi8(limit, restored, in_range);
+
+            // Apply two's complement for negative values
+            let flipped = _mm256_xor_si256(magnitude, sign_mask);
+            let floats_conv = _mm256_sub_epi64(flipped, sign_mask);
+
+            let eq_raw = _mm256_cmpeq_epi64(floats_conv, ints_v);
+
+            let floats_inf_or_nan = _mm256_sub_pd(floats_v, floats_v);
+            let floats_eq_float_trunc = _mm256_cmp_pd(
+                floats_v,
+                _mm256_round_pd(
+                    floats_v,
+                    _MM_FROUND_FLOOR | _MM_FROUND_NO_EXC,
+                ),
+                _CMP_EQ_OQ,
+            );
+
+            let eq = _mm256_and_pd(
+                _mm256_andnot_pd(
+                    floats_inf_or_nan,
+                    _mm256_castsi256_pd(eq_raw),
+                ),
+                floats_eq_float_trunc,
+            );
+
+            let mask = _mm256_movemask_epi8(_mm256_castpd_si256(eq)) as u32;
+
+            *res_p.add(i).cast::<[bool; AVX2_I64_ELEM_COUNT]>() =
+                mask_to_bool_array(mask);
+
+            i += 4;
+        }
+
+        while i < len_min {
+            res[i] = MaybeUninit::new(ints[i].num_eq(&floats[i]));
+            i += 1;
+        }
+    }
+    (i, None)
+}
+
+pub unsafe fn i64_from_f64(v: __m256d) -> __m256i {
+    unsafe {
+        // Constants
+        let kneg1 = _mm256_set1_epi64x(-1);
+        let k0 = _mm256_set1_epi64x(0);
+        let k1 = _mm256_set1_epi64x(1);
+        let k51 = _mm256_set1_epi64x(51);
+        let mask_7ff = _mm256_set1_epi64x(0x7FF);
+        let mask_3ff = _mm256_set1_epi64x(0x3FF);
+        let mask_52bits = _mm256_set1_epi64x((1 << 52) - 1);
+        let i64_max = _mm256_set1_epi64x(i64::MAX);
+
+        // Bitcast to integer registers
+        let vi = _mm256_castpd_si256(v);
+
+        // Extract exponents (bits 52-62)
+        let biased_exp = _mm256_and_si256(_mm256_srli_epi64(vi, 52), mask_7ff);
+        let exp = _mm256_sub_epi64(biased_exp, mask_3ff);
+
+        // Check if exponent < 63
+        let exp_63 = _mm256_set1_epi64x(63);
+        let in_range = _mm256_cmpgt_epi64(exp_63, exp);
+
+        // Calculate shift amounts
+        let shift_mnt = _mm256_max_epi32(_mm256_sub_epi64(k51, exp), k0);
+        let shift_int = _mm256_max_epi32(_mm256_sub_epi64(exp, k51), k0);
+
+        // Extract mantissa and add implicit bit
+        let mantissa = _mm256_and_si256(vi, mask_52bits);
+        let implicit_bit =
+            _mm256_or_si256(mantissa, _mm256_slli_epi64(k1, 52));
+        let int52 =
+            _mm256_srlv_epi64(implicit_bit, _mm256_add_epi64(shift_mnt, k1));
+
+        // Shift to create integer part
+        let shifted = _mm256_sllv_epi64(int52, shift_int);
+
+        // Restore lost bit (conditional shift)
+        let shift_restore = _mm256_sub_epi64(shift_int, k1);
+        let restore_mask =
+            _mm256_cmpgt_epi64(shift_restore, _mm256_set1_epi64x(-1));
+        let restore_bits = _mm256_and_si256(
+            _mm256_sllv_epi64(_mm256_and_si256(mantissa, k1), shift_restore),
+            restore_mask,
+        );
+        let restored = _mm256_or_si256(shifted, restore_bits);
+
+        // Handle saturation limits
+        let sign_mask =
+            _mm256_andnot_si256(_mm256_cmpgt_epi64(vi, kneg1), kneg1); // Broadcast sign bit
+        let limit = _mm256_sub_epi64(i64_max, sign_mask);
+
+        // Select between converted value and limit
+        let magnitude = _mm256_blendv_epi8(limit, restored, in_range);
+
+        // Apply two's complement for negative values
+        let flipped = _mm256_xor_si256(magnitude, sign_mask);
+        _mm256_sub_epi64(flipped, sign_mask)
+    }
 }
 
 #[cfg(test)]
@@ -270,7 +441,7 @@ mod test {
         let xf = x as f64;
         let ints = [0, 0, x, x];
         let floats = [0., 1., xf, xf + 1.0];
-        check_eq_i64_f64(&ints, &floats, &[true, false, true, false]);
+        check_eq_i64_f64(&ints, &floats, &[true, false, true, true]);
     }
 
     #[test]
@@ -296,8 +467,9 @@ mod test {
 
     #[test]
     fn test_cmp_eq_i64_f64_avx2_mixed() {
-        let ints = [0, i64::MAX, i64::MIN, 42];
         let floats = [0.00001, i64::MAX as f64, i64::MIN as f64, 42.5];
+        let ints = [0, i64::MAX, i64::MIN, 42];
+
         check_eq_i64_f64(&ints, &floats, &[false; 4]);
     }
 }
