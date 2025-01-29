@@ -1,5 +1,5 @@
 use std::arch::x86_64::{
-    __m256d, __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_andnot_si256,
+    __m256d, __m256i, _mm256_and_si256, _mm256_andnot_si256,
     _mm256_blendv_epi8, _mm256_castpd_si256, _mm256_cmpeq_epi64,
     _mm256_cmpgt_epi64, _mm256_max_epi32, _mm256_or_si256, _mm256_set1_epi64x,
     _mm256_set1_pd, _mm256_slli_epi64, _mm256_sllv_epi64, _mm256_srli_epi64,
@@ -15,9 +15,9 @@ pub unsafe fn f64_to_i64(v: __m256d) -> (__m256i, __m256i) {
         let c_zero = _mm256_set1_epi64x(0);
         let c_one = _mm256_set1_epi64x(1);
         let c_51 = _mm256_set1_epi64x(51);
-        let c_63 = _mm256_set1_epi64x(63);
+        let c_62 = _mm256_set1_epi64x(62);
         let c_7ff = _mm256_set1_epi64x(0x7FF);
-        let c_3ff = _mm256_set1_epi64x(0x3FF);
+        let c_1024 = _mm256_set1_epi64x(1024);
         let c_mantissa_one_bit = _mm256_slli_epi64(c_one, 52);
         let c_52bit_mask = _mm256_sub_epi64(c_mantissa_one_bit, c_one);
         let c_i64_max = _mm256_set1_epi64x(i64::MAX);
@@ -30,10 +30,10 @@ pub unsafe fn f64_to_i64(v: __m256d) -> (__m256i, __m256i) {
 
         // Extract exponents (bits 52-62), subtract 0x3ff bias
         let biased_exp = _mm256_and_si256(_mm256_srli_epi64(vi, 52), c_7ff);
-        let exp = _mm256_sub_epi64(biased_exp, c_3ff);
+        let exp = _mm256_sub_epi64(biased_exp, c_1024);
 
-        // Check if exponent < 63
-        let in_range = _mm256_cmpgt_epi64(c_63, exp);
+        // Check if exponent < c_62
+        let in_range = _mm256_cmpgt_epi64(c_62, exp);
 
         // Calculate shift amounts
         let shift_pos_raw = _mm256_sub_epi64(exp, c_51);
@@ -44,19 +44,11 @@ pub unsafe fn f64_to_i64(v: __m256d) -> (__m256i, __m256i) {
         // Extract mantissa and add implicit one bit
         let mantissa_raw = _mm256_and_si256(vi, c_52bit_mask);
         let mantissa = _mm256_or_si256(mantissa_raw, c_mantissa_one_bit);
-        let int52 =
-            _mm256_srlv_epi64(mantissa, _mm256_add_epi64(shift_neg, c_one));
 
-        // Shift to create integer part
-        let shifted = _mm256_sllv_epi64(int52, shift_pos);
-
-        // Restore lost bit (conditional shift)
-        let shift_restore = _mm256_sub_epi64(shift_pos, c_one);
-        let restore_bits = _mm256_sllv_epi64(
-            _mm256_and_si256(mantissa_raw, c_one),
-            shift_restore,
+        let mantissa_shifted = _mm256_srlv_epi64(
+            _mm256_sllv_epi64(mantissa, shift_pos),
+            shift_neg,
         );
-        let restored = _mm256_or_si256(shifted, restore_bits);
 
         // Broadcast sign bit
         let sign_mask = _mm256_andnot_si256(
@@ -64,15 +56,18 @@ pub unsafe fn f64_to_i64(v: __m256d) -> (__m256i, __m256i) {
             c_minus_one,
         );
 
-        // get the 64 bit integer limit based on the sign
+        // get the 64 bit integer limit flipped based on the sign
         // example in 8 bit: 0x7F - 0xFF = 0x10; 0x7F - 0 = 0x7F
-        let limit = _mm256_sub_epi64(c_i64_max, sign_mask);
+        // the two's complement below will revert the sign
+        let limit_flipped = _mm256_sub_epi64(c_i64_max, sign_mask);
 
-        // Select between converted value and limit
-        let magnitude = _mm256_blendv_epi8(limit, restored, in_range);
+        // Select between (unsigned) converted value and the flipped limit
+        let magnitude =
+            _mm256_blendv_epi8(limit_flipped, mantissa_shifted, in_range);
 
         // Apply two's complement for negative values
         let flipped = _mm256_xor_si256(magnitude, sign_mask);
+        let converted = _mm256_sub_epi64(flipped, sign_mask);
 
         // special case: -2**63 is not an overflow despite having an exp of 63
         let is_neg_2_pow63 = _mm256_cmpeq_epi64(
@@ -80,18 +75,17 @@ pub unsafe fn f64_to_i64(v: __m256d) -> (__m256i, __m256i) {
             _mm256_castpd_si256(v),
         );
 
-        (
-            _mm256_sub_epi64(flipped, sign_mask),
-            _mm256_xor_si256(
-                _mm256_or_si256(is_neg_2_pow63, in_range),
-                c_minus_one,
-            ),
-        )
+        let overflow = _mm256_xor_si256(
+            _mm256_or_si256(is_neg_2_pow63, in_range),
+            c_minus_one,
+        );
+
+        (converted, overflow)
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use std::arch::x86_64::_mm256_setr_pd;
 
     use super::*;
@@ -189,6 +183,69 @@ mod tests {
             [f64::NAN, -0.0, f64::EPSILON, -f64::EPSILON],
             [i64::MAX, 0, 0, 0],
             [true, false, false, false],
+        );
+    }
+
+    #[test]
+    fn test_mantissa_bounds() {
+        // Test values around 2^51 to 2^53
+        let p51 = 2.0f64.powi(51);
+        let p52 = 2.0f64.powi(52);
+
+        test_f64_to_i64(
+            [p51, p51 + 1.0, p52, p52 + 1.0],
+            [p51 as i64, (p51 + 1.0) as i64, p52 as i64, p52 as i64 + 1],
+            [false, false, false, false],
+        );
+    }
+
+    #[test]
+    fn test_mantissa_bounds_1() {
+        let p51 = 2.0f64.powi(51);
+        let p53 = 2.0f64.powi(53);
+
+        test_f64_to_i64(
+            [p53, p53 + 1.0, -p51, -(p51 + 1.0)],
+            [
+                p53 as i64,
+                p53 as i64, // this overflows the 52 bit mantissa
+                -(p51 as i64),
+                -((p51 + 1.0) as i64),
+            ],
+            [false, false, false, false],
+        );
+    }
+
+    #[test]
+    fn test_mantissa_bounds_2() {
+        let p52 = 2.0f64.powi(52);
+
+        test_f64_to_i64(
+            [p52 - 1.0, p52 - 0.5, p52 + 0.5, p52 + 2.0],
+            [
+                (p52 - 1.0) as i64,
+                (p52 - 0.5) as i64,
+                p52 as i64,
+                p52 as i64 + 2,
+            ],
+            [false, false, false, false],
+        );
+    }
+
+    #[test]
+    fn test_negative_mantissa_bounds() {
+        let p52 = 2.0f64.powi(52);
+        let p53 = 2.0f64.powi(53);
+
+        test_f64_to_i64(
+            [-p52, -(p52 + 1.0), -p53, -(p53 + 1.0)],
+            [
+                -(p52 as i64),
+                -(p52 as i64 + 1),
+                -(p53 as i64),
+                -(p53 as i64), // overflows
+            ],
+            [false, false, false, false],
         );
     }
 }
