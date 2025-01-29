@@ -1,6 +1,7 @@
 pub mod add;
 pub mod avx2;
 pub mod bitwise_not;
+pub mod cast;
 pub mod div;
 pub mod eq;
 pub mod ge;
