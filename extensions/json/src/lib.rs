@@ -7,6 +7,7 @@ use typeline_core::{
     typeline_error::TypelineError,
 };
 
+pub mod json_visitor;
 pub mod jsonl;
 
 #[derive(Default)]
