@@ -10,7 +10,7 @@ use crate::{
     chain::{ChainId, SubchainIndex},
     cli::{
         call_expr::{Argument, CallExpr, Span},
-        parse_operator_data,
+        parse_operator_data, CliArgumentError,
     },
     context::SessionData,
     index_newtype,
@@ -28,6 +28,7 @@ use crate::{
         field_action::FieldActionKind,
         field_data::{FieldData, FieldValueRepr},
         field_data_ref::DestructuredFieldDataRef,
+        field_value::FieldValue,
         group_track::{
             GroupTrack, GroupTrackId, GroupTrackIterMut, GroupTrackIterRef,
         },
@@ -82,6 +83,11 @@ index_newtype! {
     pub struct ContinuationVarIdx(u32);
 }
 
+#[derive(Default)]
+pub struct ForkcatOpts {
+    pub copy: bool,
+}
+
 pub struct OpForkCat {
     pub subchains: Vec<Vec<(Box<dyn Operator>, Span)>>,
 
@@ -94,6 +100,9 @@ pub struct OpForkCat {
 
     // var names accessed by continuation
     continuation_vars: IndexVec<ContinuationVarIdx, Var>,
+
+    #[allow(unused)] // TODO
+    opts: ForkcatOpts,
 }
 
 pub struct SubchainEntry {
@@ -1221,6 +1230,7 @@ impl<'a> Transform<'a> for TfForkCatSubchainTrailer<'a> {
 
 pub fn create_op_forkcat_with_spans(
     mut subchains: Vec<Vec<(Box<dyn Operator>, Span)>>,
+    opts: ForkcatOpts,
 ) -> Box<dyn Operator> {
     for sc in &mut subchains {
         if sc.is_empty() {
@@ -1234,6 +1244,7 @@ pub fn create_op_forkcat_with_spans(
         direct_offset_in_chain: OffsetInChain::MAX_VALUE,
         input_mappings: HashMap::default(),
         continuation_vars: IndexVec::new(),
+        opts,
     })
 }
 
@@ -1241,6 +1252,7 @@ pub fn create_op_forkcat(
     subchains: impl IntoIterator<
         Item = impl IntoIterator<Item = Box<dyn Operator>>,
     >,
+    opts: ForkcatOpts,
 ) -> Box<dyn Operator> {
     let subchains = subchains
         .into_iter()
@@ -1250,7 +1262,7 @@ pub fn create_op_forkcat(
                 .collect::<Vec<_>>()
         })
         .collect();
-    create_op_forkcat_with_spans(subchains)
+    create_op_forkcat_with_spans(subchains, opts)
 }
 
 pub fn parse_op_forkcat(
@@ -1259,6 +1271,24 @@ pub fn parse_op_forkcat(
 ) -> Result<Box<dyn Operator>, TypelineError> {
     let mut subchains = Vec::new();
     let mut curr_subchain = Vec::new();
+    let mut copy = false;
+    let expr = CallExpr::from_argument(&arg)?;
+    if let (Some(flags), _) = expr.split_flags_arg(false) {
+        for (k, v) in flags {
+            let FieldValue::Argument(v) = v else {
+                unreachable!()
+            };
+            if k == "-c" || k == "--copy" {
+                copy = true;
+                continue;
+            }
+            return Err(CliArgumentError::new_s(
+                format!("forkcat has no option `{}`", k),
+                v.span,
+            )
+            .into());
+        }
+    }
     for arg in std::mem::take(arg.expect_arg_array_mut()?.0)
         .into_iter()
         .skip(1)
@@ -1274,5 +1304,8 @@ pub fn parse_op_forkcat(
         curr_subchain.push((parse_operator_data(sess, arg)?, span));
     }
     subchains.push(curr_subchain);
-    Ok(create_op_forkcat_with_spans(subchains))
+    Ok(create_op_forkcat_with_spans(
+        subchains,
+        ForkcatOpts { copy },
+    ))
 }
