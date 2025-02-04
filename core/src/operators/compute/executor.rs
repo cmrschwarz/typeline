@@ -37,7 +37,7 @@ use crate::{
         },
         iter_hall::{IterHall, IterStateRaw},
         match_set::MatchSetManager,
-        object::{Object, ObjectKeysInternedBuilder},
+        object::{Object, ObjectKeysInternedBuilder, ObjectKeysStoredBuilder},
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
@@ -84,7 +84,8 @@ pub struct Executor<'a, 'b> {
     pub executor_iters_temp:
         &'a mut TempVec<ExecutorInputIter<'static, 'static>>,
     pub array_builder: &'a mut ArrayBuilder,
-    pub object_interned_builder: &'a mut ObjectKeysInternedBuilder,
+    pub object_keys_interned_builder: &'a mut ObjectKeysInternedBuilder,
+    pub object_keys_stored_builder: &'a mut ObjectKeysStoredBuilder,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -870,7 +871,7 @@ impl<'a, 'b> Executor<'a, 'b> {
 
         let input_iters = &mut *self.executor_iters_temp.borrow_container();
 
-        debug_assert!(self.object_interned_builder.is_empty());
+        debug_assert!(self.object_keys_interned_builder.is_empty());
 
         for (k, v) in mappings {
             let mut iter = get_executor_input_iter(
@@ -884,7 +885,7 @@ impl<'a, 'b> Executor<'a, 'b> {
                 count,
             );
             let (v, rl, _) = iter.next_field(self.msm, count).unwrap();
-            self.object_interned_builder.push_entry(
+            self.object_keys_interned_builder.push_entry(
                 *k,
                 v.to_field_value(),
                 rl as usize,
@@ -893,25 +894,118 @@ impl<'a, 'b> Executor<'a, 'b> {
         }
         let mut rl_rem = count;
         loop {
-            let len = self.object_interned_builder.available_len();
-            self.object_interned_builder.consume_len(len);
+            let len = self.object_keys_interned_builder.available_len();
+            self.object_keys_interned_builder.consume_len(len);
             rl_rem -= len;
             let obj = if rl_rem == 0 {
-                self.object_interned_builder.take()
+                self.object_keys_interned_builder.take()
             } else {
-                self.object_interned_builder.build()
+                self.object_keys_interned_builder.build()
             };
             inserter.push_object(obj, len, true, false);
             if rl_rem == 0 {
                 break;
             }
             while let Some(idx) =
-                self.object_interned_builder.get_drained_idx()
+                self.object_keys_interned_builder.get_drained_idx()
             {
                 let (v, rl, _) =
                     input_iters[idx].next_field(self.msm, len).unwrap();
-                self.object_interned_builder
+                self.object_keys_interned_builder
                     .replenish_drained_value(v.to_field_value(), rl as usize);
+            }
+        }
+    }
+
+    fn execute_object_keys_stored(
+        &mut self,
+        mappings: &[(ValueAccess, ValueAccess)],
+        target: TargetRef,
+        field_pos: usize,
+        count: usize,
+    ) {
+        debug_assert!(count > 0);
+        let output_tmp_id = match target {
+            TargetRef::TempField(id) => Some(id),
+            TargetRef::Output => None,
+            TargetRef::Discard => return,
+        };
+
+        let mut inserter = get_inserter(
+            self.output,
+            self.temp_fields,
+            output_tmp_id,
+            field_pos,
+        );
+
+        let input_iters = &mut *self.executor_iters_temp.borrow_container();
+
+        debug_assert!(self.object_keys_stored_builder.is_empty());
+
+        for (k, v) in mappings {
+            let mut key_iter = get_executor_input_iter(
+                k,
+                self.temp_fields,
+                self.extern_vars,
+                self.extern_fields,
+                self.extern_field_iters,
+                self.extern_field_temp_iters,
+                field_pos,
+                count,
+            );
+            let mut value_iter = get_executor_input_iter(
+                v,
+                self.temp_fields,
+                self.extern_vars,
+                self.extern_fields,
+                self.extern_field_iters,
+                self.extern_field_temp_iters,
+                field_pos,
+                count,
+            );
+            let (k, k_rl, _) = key_iter.next_field(self.msm, count).unwrap();
+            let (v, v_rl, _) = value_iter.next_field(self.msm, count).unwrap();
+            self.object_keys_stored_builder.push_entry(
+                // TODO: fixme
+                k.text_or_bytes().unwrap().to_str_lossy().to_string(),
+                v.to_field_value(),
+                k_rl as usize,
+                v_rl as usize,
+            );
+            input_iters.push(key_iter);
+            input_iters.push(value_iter);
+        }
+        let mut rl_rem = count;
+        loop {
+            let len = self.object_keys_stored_builder.available_len();
+            self.object_keys_stored_builder.consume_len(len);
+            rl_rem -= len;
+            let obj = if rl_rem == 0 {
+                self.object_keys_stored_builder.take()
+            } else {
+                self.object_keys_stored_builder.build()
+            };
+            inserter.push_object(obj, len, true, false);
+            if rl_rem == 0 {
+                break;
+            }
+            while let Some(idx) =
+                self.object_keys_stored_builder.get_drained_idx()
+            {
+                let (x, rl, _) =
+                    input_iters[idx].next_field(self.msm, len).unwrap();
+                if idx % 2 == 0 {
+                    self.object_keys_stored_builder.replenish_drained_key(
+                        // TODO: fixme
+                        x.text_or_bytes().unwrap().to_str_lossy().to_string(),
+                        rl as usize,
+                    );
+                } else {
+                    self.object_keys_stored_builder.replenish_drained_value(
+                        x.to_field_value(),
+                        rl as usize,
+                    );
+                }
             }
         }
     }
@@ -1019,10 +1113,10 @@ impl<'a, 'b> Executor<'a, 'b> {
                     .execute_object_keys_interned(
                         mappings, *target, field_pos, count,
                     ),
-                Instruction::ObjectKeysStored {
-                    mappings: _,
-                    target: _,
-                } => todo!(),
+                Instruction::ObjectKeysStored { mappings, target } => self
+                    .execute_object_keys_stored(
+                        mappings, *target, field_pos, count,
+                    ),
                 Instruction::Array {
                     elements: elems,
                     target,

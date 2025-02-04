@@ -29,7 +29,7 @@ use crate::{
         field_value::FieldValue,
         iter::{field_iter::FieldIter, ref_iter::AutoDerefIter},
         iter_hall::{IterKind, IterStateRaw},
-        object::ObjectKeysInternedBuilder,
+        object::{ObjectKeysInternedBuilder, ObjectKeysStoredBuilder},
         scope_manager::{Atom, ScopeValue},
         stream_value::StreamValueUpdate,
     },
@@ -125,7 +125,8 @@ pub struct TfCompute<'a> {
     >,
     executor_iters_temp: TempVec<ExecutorInputIter<'static, 'static>>,
     array_builder: ArrayBuilder,
-    object_interned_builder: ObjectKeysInternedBuilder,
+    object_keys_interned_builder: ObjectKeysInternedBuilder,
+    object_keys_stored_builder: ObjectKeysStoredBuilder,
 }
 
 pub fn build_op_compute(
@@ -345,7 +346,8 @@ impl Operator for OpCompute {
             extern_fields: unbound_fields,
             executor_iters_temp: TempVec::default(),
             array_builder: ArrayBuilder::default(),
-            object_interned_builder: ObjectKeysInternedBuilder::default(),
+            object_keys_interned_builder: ObjectKeysInternedBuilder::default(),
+            object_keys_stored_builder: ObjectKeysStoredBuilder::default(),
         };
         TransformInstatiation::Single(Box::new(tf))
     }
@@ -403,7 +405,10 @@ impl<'a> Transform<'a> for TfCompute<'a> {
                 extern_field_temp_iters: &mut extern_field_temp_iters,
                 executor_iters_temp: &mut self.executor_iters_temp,
                 array_builder: &mut self.array_builder,
-                object_interned_builder: &mut self.object_interned_builder,
+                object_keys_interned_builder: &mut self
+                    .object_keys_interned_builder,
+                object_keys_stored_builder: &mut self
+                    .object_keys_stored_builder,
             };
             exec.run(
                 InstructionId::ZERO..compilation.instructions.next_idx(),
