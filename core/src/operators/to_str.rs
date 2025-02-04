@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bstr::ByteSlice;
+use metamatch::metamatch;
 
 use crate::{
     cli::{call_expr::CallExpr, CliArgumentError},
@@ -25,6 +26,7 @@ use crate::{
             self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER_BYTES,
         },
         indexing_type::IndexingType,
+        int_string_conversions::{f64_to_str, i64_to_str},
         retain_vec_range,
     },
 };
@@ -230,9 +232,10 @@ impl Transform<'_> for TfToStr {
             AutoDerefIter::new(&jd.field_mgr, tf.input_field, base_iter);
 
         while let Some(range) = iter.next_range(&jd.match_set_mgr) {
-            match range.base.data {
+            metamatch!(match range.base.data {
                 FieldValueSlice::Error(errs) => {
                     if self.convert_errors {
+                        todo!()
                     } else {
                         for (v, rl) in RefAwareFieldValueRangeIter::from_range(
                             &range, errs,
@@ -241,8 +244,19 @@ impl Transform<'_> for TfToStr {
                         }
                     }
                 }
+                #[expand((REPR, CONV_FN) in [
+                    (Int, &i64_to_str(false, *v)),
+                    (Float, &f64_to_str(*v))
+                ])]
+                FieldValueSlice::REPR(vals) => {
+                    for (v, rl) in
+                        RefAwareFieldValueRangeIter::from_range(&range, vals)
+                    {
+                        ofd.push_inline_str(CONV_FN, rl as usize, true, true);
+                    }
+                }
                 _ => todo!(),
-            }
+            })
         }
         let iter_base = iter.into_base_iter();
         let consumed_fields = iter_base.get_next_field_pos() - starting_pos;
