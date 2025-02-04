@@ -6,7 +6,7 @@ use typeline::{
         compute::create_op_to_int,
         file_reader::create_op_file_reader_custom,
         foreach::create_op_foreach,
-        forkcat::create_op_forkcat,
+        forkcat::{create_op_forkcat, ForkcatOpts},
         format::create_op_format,
         regex::{
             create_op_regex, create_op_regex_lines, create_op_regex_with_opts,
@@ -258,7 +258,10 @@ fn aoc2023_day1_part1_large() -> Result<(), TypelineError> {
                         ..Default::default()
                     },
                 )?,
-                create_op_forkcat([[create_op_head(1)], [create_op_tail(1)]]),
+                create_op_forkcat(
+                    [[create_op_head(1)], [create_op_tail(1)]],
+                    ForkcatOpts::default(),
+                ),
                 create_op_join(None, None, false),
                 create_op_to_int(),
             ]),

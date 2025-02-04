@@ -1,6 +1,7 @@
 use rstest::rstest;
 use typeline::{
-    operators::nop_copy::create_op_nop_copy, utils::maybe_text::MaybeText,
+    operators::{forkcat::ForkcatOpts, nop_copy::create_op_nop_copy},
+    utils::maybe_text::MaybeText,
 };
 use typeline_core::{
     operators::{
@@ -23,7 +24,7 @@ use typeline_ext_utils::{
 #[test]
 fn empty_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
-        .add_op(create_op_forkcat([[]]))
+        .add_op(create_op_forkcat([[]], ForkcatOpts::default()))
         .add_op(create_op_format("{:??}")?)
         .run_collect_stringified()?;
     assert_eq!(res, ["undefined"]);
@@ -34,7 +35,7 @@ fn empty_forkcat() -> Result<(), TypelineError> {
 fn nop_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat([[]]))
+        .add_op(create_op_forkcat([[]], ForkcatOpts::default()))
         .run_collect_stringified()?;
     assert_eq!(res, ["foo"]);
     Ok(())
@@ -43,10 +44,10 @@ fn nop_forkcat() -> Result<(), TypelineError> {
 #[test]
 fn basic_forkcat() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
-        .add_op(create_op_forkcat([
-            [create_op_str("foo")],
-            [create_op_str("bar")],
-        ]))
+        .add_op(create_op_forkcat(
+            [[create_op_str("foo")], [create_op_str("bar")]],
+            ForkcatOpts::default(),
+        ))
         .run_collect_stringified()?;
     assert_eq!(res, ["foo", "bar"]);
     Ok(())
@@ -58,10 +59,10 @@ fn forkcat_with_input() -> Result<(), TypelineError> {
     let ss2 = StringSinkHandle::default();
     ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat([
-            [create_op_string_sink(&ss1)],
-            [create_op_string_sink(&ss2)],
-        ]))
+        .add_op(create_op_forkcat(
+            [[create_op_string_sink(&ss1)], [create_op_string_sink(&ss2)]],
+            ForkcatOpts::default(),
+        ))
         .add_op(create_op_nop())
         .run()?;
     assert_eq!(ss1.get_data().unwrap().as_slice(), ["foo"]);
@@ -73,7 +74,10 @@ fn forkcat_with_input() -> Result<(), TypelineError> {
 fn forkcat_dup() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]]))
+        .add_op(create_op_forkcat(
+            [[create_op_nop()], [create_op_nop()]],
+            ForkcatOpts::default(),
+        ))
         .run_collect_stringified()?;
     assert_eq!(res, ["foo", "foo"]);
     Ok(())
@@ -83,11 +87,14 @@ fn forkcat_dup() -> Result<(), TypelineError> {
 fn forkcat_sandwiched_write() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat([
-            [create_op_nop()],
-            [create_op_format("{}{}").unwrap()],
-            [create_op_nop()],
-        ]))
+        .add_op(create_op_forkcat(
+            [
+                [create_op_nop()],
+                [create_op_format("{}{}").unwrap()],
+                [create_op_nop()],
+            ],
+            ForkcatOpts::default(),
+        ))
         .run_collect_stringified()?;
     assert_eq!(res, ["foo", "foofoo", "foo"]);
     Ok(())
@@ -97,10 +104,10 @@ fn forkcat_sandwiched_write() -> Result<(), TypelineError> {
 fn forkcat_double_field_refs() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat([
-            [create_op_nop_copy()],
-            [create_op_nop_copy()],
-        ]))
+        .add_op(create_op_forkcat(
+            [[create_op_nop_copy()], [create_op_nop_copy()]],
+            ForkcatOpts::default(),
+        ))
         .add_op(create_op_nop_copy())
         .run_collect_stringified()?;
     assert_eq!(res, ["foo", "foo"]);
@@ -111,7 +118,10 @@ fn forkcat_double_field_refs() -> Result<(), TypelineError> {
 fn forkcat_into_join() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_str("foo"))
-        .add_op(create_op_forkcat([[create_op_nop()], [create_op_nop()]]))
+        .add_op(create_op_forkcat(
+            [[create_op_nop()], [create_op_nop()]],
+            ForkcatOpts::default(),
+        ))
         .add_op(create_op_join(
             Some(MaybeText::from_bytes(b",")),
             None,
@@ -126,19 +136,22 @@ fn forkcat_into_join() -> Result<(), TypelineError> {
 fn forkcat_build_sql_insert() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_ops([
-            create_op_forkcat([
-                vec![create_op_str("INSERT INTO T VALUES ")],
-                vec![
-                    create_op_seq(0, 5, 1).unwrap(),
-                    create_op_format("({})").unwrap(),
-                    create_op_join(
-                        Some(MaybeText::from_bytes(b", ")),
-                        None,
-                        false,
-                    ),
+            create_op_forkcat(
+                [
+                    vec![create_op_str("INSERT INTO T VALUES ")],
+                    vec![
+                        create_op_seq(0, 5, 1).unwrap(),
+                        create_op_format("({})").unwrap(),
+                        create_op_join(
+                            Some(MaybeText::from_bytes(b", ")),
+                            None,
+                            false,
+                        ),
+                    ],
+                    vec![create_op_str(";")],
                 ],
-                vec![create_op_str(";")],
-            ]),
+                ForkcatOpts::default(),
+            ),
             create_op_join(None, None, false),
         ])
         .run_collect_stringified()?;
@@ -150,10 +163,10 @@ fn forkcat_build_sql_insert() -> Result<(), TypelineError> {
 fn forkcat_input_equals_named_var() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op_with_key("a", create_op_str("a"))
-        .add_op(create_op_forkcat([
-            [create_op_format("{a}").unwrap()],
-            [create_op_nop()],
-        ]))
+        .add_op(create_op_forkcat(
+            [[create_op_format("{a}").unwrap()], [create_op_nop()]],
+            ForkcatOpts::default(),
+        ))
         .run_collect_stringified()?;
     assert_eq!(res, ["a", "a"]);
     Ok(())
@@ -163,10 +176,10 @@ fn forkcat_input_equals_named_var() -> Result<(), TypelineError> {
 fn forkcat_surviving_vars() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op_with_key("lbl", create_op_seq(0, 2, 1).unwrap())
-        .add_op(create_op_forkcat([
-            [create_op_str("a")],
-            [create_op_str("b")],
-        ]))
+        .add_op(create_op_forkcat(
+            [[create_op_str("a")], [create_op_str("b")]],
+            ForkcatOpts::default(),
+        ))
         // despite the fork, we should preserve non string access semanticss
         .add_op(create_op_format("{lbl:?}: {}").unwrap())
         .run_collect_stringified()?;
@@ -178,10 +191,10 @@ fn forkcat_surviving_vars() -> Result<(), TypelineError> {
 fn forkcat_with_drop_in_sc() -> Result<(), TypelineError> {
     let res = ContextBuilder::without_exts()
         .add_op(create_op_seqn(1, 3, 1).unwrap())
-        .add_op(create_op_forkcat([
-            [create_op_regex("2").unwrap()],
-            [create_op_nop()],
-        ]))
+        .add_op(create_op_forkcat(
+            [[create_op_regex("2").unwrap()], [create_op_nop()]],
+            ForkcatOpts::default(),
+        ))
         .add_op(create_op_join(None, None, false))
         .run_collect_stringified()?;
     assert_eq!(res, ["2123"]);
@@ -194,10 +207,10 @@ fn forkcat_with_batches() -> Result<(), TypelineError> {
         .set_batch_size(3)
         .unwrap()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
-        .add_op(create_op_forkcat([
-            [create_op_regex("[24]").unwrap()],
-            [create_op_dup(0)],
-        ]))
+        .add_op(create_op_forkcat(
+            [[create_op_regex("[24]").unwrap()], [create_op_dup(0)]],
+            ForkcatOpts::default(),
+        ))
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "4"]);
     Ok(())
@@ -215,10 +228,10 @@ fn forkcat_with_batches_into_join(
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)?
         .add_op(create_op_seqn(1, 5, 1)?)
-        .add_op(create_op_forkcat([
-            [create_op_regex("[24]")?],
-            [create_op_nop()],
-        ]))
+        .add_op(create_op_forkcat(
+            [[create_op_regex("[24]")?], [create_op_nop()]],
+            ForkcatOpts::default(),
+        ))
         .add_op(create_op_join(None, None, false))
         .run_collect_stringified()?;
     assert_eq!(res, ["2412345"]);
@@ -238,7 +251,10 @@ fn forkcat_on_unapplied_commands(
         .unwrap()
         .add_op(create_op_seqn(1, 5, 1).unwrap())
         .add_op(create_op_regex("[24]").unwrap())
-        .add_op(create_op_forkcat([[create_op_nop()], [create_op_dup(0)]]))
+        .add_op(create_op_forkcat(
+            [[create_op_nop()], [create_op_dup(0)]],
+            ForkcatOpts::default(),
+        ))
         .add_op(create_op_join(None, None, false))
         .run_collect_stringified()?;
     assert_eq!(res, ["24"]);
