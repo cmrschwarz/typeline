@@ -333,6 +333,8 @@ mxbzgzg5three
 #[case(1024)]
 #[case(3)]
 fn aoc2023_day1_part1(#[case] batch_size: usize) -> Result<(), TypelineError> {
+    use typeline_core::operators::forkcat::ForkcatOpts;
+
     let res = ContextBuilder::without_exts()
         .set_batch_size(batch_size)?
         .add_ops([
@@ -349,7 +351,10 @@ fn aoc2023_day1_part1(#[case] batch_size: usize) -> Result<(), TypelineError> {
                         ..Default::default()
                     },
                 )?,
-                create_op_forkcat([[create_op_head(1)], [create_op_tail(1)]]),
+                create_op_forkcat(
+                    [[create_op_head(1)], [create_op_tail(1)]],
+                    ForkcatOpts::default(),
+                ),
                 create_op_join(None, None, false),
                 create_op_to_int(),
             ]),

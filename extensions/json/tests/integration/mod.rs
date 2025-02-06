@@ -87,7 +87,7 @@ fn error_in_object() -> Result<(), TypelineError> {
         .add_op(create_op_format("{b:??}").unwrap())
         .run_collect_stringified()?;
     // TODO: improve message
-    assert_eq!(res, ["2", "(error)\"<custom readable>:1 EOF while parsing at line 1 column 15\\n\\n\\t, \\\"b\\\": \\\"}\\n\\t........^\\n\""]);
+    assert_eq!(res, ["2", "(error)\"<custom readable>:1 EOF while parsing a string at line 1 column 16\""]);
     Ok(())
 }
 
