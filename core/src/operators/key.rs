@@ -190,9 +190,6 @@ impl Operator for OpKey {
                     input_field,
                     output,
                 );
-            ld.op_outputs[output.primary_output]
-                .field_references
-                .push(input_field);
         } else {
             output.flags.input_accessed = false;
             output.call_effect = OperatorCallEffect::NoCall;
