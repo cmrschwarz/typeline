@@ -416,7 +416,7 @@ impl<'a> Transform<'a> for TfCompute<'a> {
                 batch_size,
             );
 
-            for ef in &mut self.extern_fields {
+            for ef in self.extern_fields.iter_mut().rev() {
                 let mut iter = None;
                 for slot in &mut *ef.iter_slots {
                     if let &mut Some(idx) = slot {
