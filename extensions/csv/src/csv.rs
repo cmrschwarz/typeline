@@ -11,9 +11,11 @@ use typeline_core::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
     context::SessionData,
+    index_newtype,
     job::{Job, JobData},
     liveness_analysis::{
         BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
+        VarLivenessSlotKind,
     },
     operators::{
         errors::{OperatorApplicationError, OperatorSetupError},
@@ -37,6 +39,8 @@ use typeline_core::{
     typeline_error::TypelineError,
     utils::{
         counting_writer::RememberLastCharacterWriter,
+        index_slice::IndexSlice,
+        index_vec::IndexVec,
         indexing_type::IndexingType,
         int_string_conversions::usize_to_str,
         stable_vec::StableVec,
@@ -50,13 +54,23 @@ use typeline_core::{
 // TODO: proper dynamic field management
 const INITIAL_OUTPUT_COUNT: usize = 6;
 
+index_newtype! {
+    struct CsvColumnIdx(u32);
+}
+
+#[derive(Default)]
+pub struct CsvOpts {
+    pub disable_colum_opt: bool,
+    pub disable_quotes: bool,
+    pub has_header: bool,
+}
+
 pub struct OpCsv {
-    header: bool,
-    disable_quotes: bool,
-    var_names: Vec<StringStoreEntry>,
-    unused_fields: Vec<bool>,
+    var_names: IndexVec<CsvColumnIdx, StringStoreEntry>,
+    accessed_fields: IndexVec<CsvColumnIdx, bool>,
     input: ReadableTarget,
     reader: Mutex<Option<AnyBufReader>>,
+    opts: CsvOpts,
 }
 
 pub enum Input {
@@ -73,8 +87,11 @@ struct PendingField {
 pub struct TfCsv<'a> {
     op: &'a OpCsv,
     input: Input,
-    output_fields: Vec<FieldId>,
-    inserters: Vec<VaryingTypeInserter<RefMut<'static, FieldData>>>,
+    output_fields: IndexVec<CsvColumnIdx, FieldId>,
+    inserters: IndexVec<
+        CsvColumnIdx,
+        VaryingTypeInserter<RefMut<'static, FieldData>>,
+    >,
     additional_fields: StableVec<PendingField>,
     lines_produced: usize,
     actor_id: ActorId,
@@ -83,12 +100,12 @@ pub struct TfCsv<'a> {
 
 struct ReadStatus {
     lines_produced: usize,
-    col_idx: usize,
+    col_idx: CsvColumnIdx,
     done: bool,
 }
 
 struct CsvReadOptions<'a> {
-    unused_fields: &'a [bool],
+    accessed_fields: &'a IndexSlice<CsvColumnIdx, bool>,
     disable_quotes: bool,
     prefix_nulls: usize,
     lines_max: usize,
@@ -169,7 +186,7 @@ fn parse_unquoted(
 fn process_header(
     ss: &mut StringStore,
     reader: &'_ mut impl BufRead,
-    var_names: &mut Vec<StringStoreEntry>,
+    var_names: &mut IndexVec<CsvColumnIdx, StringStoreEntry>,
 ) -> Result<(), std::io::Error> {
     loop {
         let chunk = reader.fill_buf()?;
@@ -249,7 +266,7 @@ impl Operator for OpCsv {
         span: Span,
     ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
-        if self.header {
+        if self.opts.has_header {
             let reader = self
                 .input
                 .create_buf_reader()
@@ -310,10 +327,21 @@ impl Operator for OpCsv {
 
     fn on_liveness_computed(
         &mut self,
-        _sess: &mut SessionData,
-        _ld: &LivenessData,
-        _op_id: OperatorId,
+        sess: &mut SessionData,
+        ld: &LivenessData,
+        op_id: OperatorId,
     ) {
+        let base = &sess.operator_bases[op_id];
+        debug_assert_eq!(
+            (base.outputs_end - base.outputs_start).into_usize(),
+            self.var_names.len()
+        );
+        for output in base.outputs_start.range_to(base.outputs_end) {
+            let read = ld.op_outputs_data.get_slot(VarLivenessSlotKind::Reads)
+                [output.into_usize()];
+            self.accessed_fields
+                .push(read || self.opts.disable_colum_opt);
+        }
     }
 
     fn build_transforms<'a>(
@@ -339,7 +367,7 @@ impl Operator for OpCsv {
             Input::NotStarted
         };
 
-        let mut output_fields = vec![];
+        let mut output_fields = IndexVec::new();
         for &name in &self.var_names {
             let field_id = job.job_data.field_mgr.add_field(
                 &job.job_data.match_set_mgr,
@@ -355,7 +383,7 @@ impl Operator for OpCsv {
             );
         }
 
-        tf_state.output_field = output_fields[0];
+        tf_state.output_field = output_fields[CsvColumnIdx::ZERO];
 
         TransformInstatiation::Single(Box::new(TfCsv {
             op: self,
@@ -380,7 +408,10 @@ impl Operator for OpCsv {
 }
 
 fn distribute_errors(
-    inserters: &mut [VaryingTypeInserter<RefMut<'_, FieldData>>],
+    inserters: &mut IndexSlice<
+        CsvColumnIdx,
+        VaryingTypeInserter<RefMut<'_, FieldData>>,
+    >,
     operator_application_error: OperatorApplicationError,
 ) {
     for i in inserters {
@@ -395,7 +426,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
         _tf_state: &TransformState,
         fields: &mut Vec<FieldId>,
     ) {
-        fields.extend_from_slice(&self.output_fields);
+        fields.extend_from_slice(self.output_fields.as_vec().as_slice());
     }
 
     fn update(&mut self, jd: &mut JobData, tf_id: TransformId) {
@@ -465,7 +496,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                         unreachable!()
                     };
                     reader = file;
-                    header_processed = !self.op.header;
+                    header_processed = !self.op.opts.has_header;
                 }
             },
             Input::Running(buf_reader) => {
@@ -484,7 +515,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
 
         let mut status = ReadStatus {
             lines_produced: 0,
-            col_idx: 0,
+            col_idx: CsvColumnIdx::ZERO,
             done: false,
         };
 
@@ -503,8 +534,8 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                     &mut inserters,
                     &additional_fields,
                     CsvReadOptions {
-                        unused_fields: &self.op.unused_fields,
-                        disable_quotes: self.op.disable_quotes,
+                        accessed_fields: &self.op.accessed_fields,
+                        disable_quotes: self.op.opts.disable_quotes,
                         prefix_nulls: iter.field_pos(),
                         lines_max: target_batch_size,
                     },
@@ -515,9 +546,9 @@ impl<'a> Transform<'a> for TfCsv<'a> {
 
         match res {
             Ok(()) => {
-                if status.col_idx != 0 {
+                if status.col_idx != CsvColumnIdx::ZERO {
                     debug_assert!(status.done);
-                    for i in status.col_idx..inserters.len() {
+                    for i in status.col_idx.range_to(inserters.next_idx()) {
                         inserters[i].push_null(1, true);
                     }
                     status.lines_produced += 1;
@@ -558,8 +589,9 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                     ),
                     op_id,
                 );
-                for (idx, ins) in inserters.iter_mut().enumerate() {
-                    let count = if status.col_idx == 0 || status.col_idx < idx
+                for (idx, ins) in inserters.iter_enumerated_mut() {
+                    let count = if status.col_idx == CsvColumnIdx::ZERO
+                        || status.col_idx < idx
                     {
                         1
                     } else {
@@ -598,7 +630,10 @@ impl<'a> Transform<'a> for TfCsv<'a> {
 
 fn read_in_lines<'a>(
     reader: &mut impl BufRead,
-    inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
+    inserters: &mut IndexVec<
+        CsvColumnIdx,
+        VaryingTypeInserter<RefMut<'a, FieldData>>,
+    >,
     additional_fields: &'a StableVec<PendingField>,
     opts: CsvReadOptions,
     status: &mut ReadStatus,
@@ -631,7 +666,7 @@ fn read_in_lines<'a>(
                         i.push_null(1, true);
                     }
                 }
-                status.col_idx = 0;
+                status.col_idx = CsvColumnIdx::ZERO;
                 status.lines_produced += 1;
                 if status.lines_produced == opts.lines_max {
                     reader.consume(offset);
@@ -700,7 +735,7 @@ fn read_in_lines<'a>(
                 let val = &buffer[offset..val_end];
                 offset = cell_end + 1;
 
-                if status.col_idx >= inserters.len() {
+                if status.col_idx >= inserters.next_idx() {
                     add_inserter(
                         additional_fields,
                         inserters,
@@ -709,7 +744,7 @@ fn read_in_lines<'a>(
                     );
                 }
                 let inserter = &mut inserters[status.col_idx];
-                if opts.unused_fields.get(status.col_idx) == Some(&true) {
+                if opts.accessed_fields.get(status.col_idx) == Some(&false) {
                     inserter.push_undefined(1, true);
                 } else if let Ok(v) = lexical_core::parse::<i64>(val) {
                     inserter.push_int(v, 1, true, false);
@@ -719,7 +754,7 @@ fn read_in_lines<'a>(
                     inserter.push_bytes(val, 1, true, false);
                 }
 
-                status.col_idx += 1;
+                status.col_idx += CsvColumnIdx::one();
                 post_element = true;
 
                 if newline {
@@ -739,7 +774,7 @@ fn read_in_lines<'a>(
                 reader,
                 &mut newline,
             )?;
-            status.col_idx += 1;
+            status.col_idx += CsvColumnIdx::one();
             if eof {
                 status.done = true;
                 return Ok(());
@@ -753,7 +788,10 @@ fn read_in_lines<'a>(
 #[cold]
 fn add_inserter<'a>(
     additional_fields: &'a StableVec<PendingField>,
-    inserters: &mut Vec<VaryingTypeInserter<RefMut<'a, FieldData>>>,
+    inserters: &mut IndexVec<
+        CsvColumnIdx,
+        VaryingTypeInserter<RefMut<'a, FieldData>>,
+    >,
     status: &ReadStatus,
     prefix_nulls: usize,
 ) {
@@ -820,29 +858,22 @@ fn insert_unquoted_from_stream<R: BufRead>(
 
 pub fn create_op_csv(
     input: ReadableTarget,
-    header: bool,
-    disable_quotes: bool,
+    opts: CsvOpts,
 ) -> Box<dyn Operator> {
     Box::new(OpCsv {
         input,
-        header,
-        unused_fields: Vec::new(),
-        var_names: Vec::new(),
-        disable_quotes,
+        accessed_fields: IndexVec::new(),
+        var_names: IndexVec::new(),
         reader: Mutex::new(None),
+        opts,
     })
 }
 
 pub fn create_op_csv_from_file(
     input_file: impl Into<PathBuf>,
-    header: bool,
-    disable_quotes: bool,
+    opts: CsvOpts,
 ) -> Box<dyn Operator> {
-    create_op_csv(
-        ReadableTarget::File(input_file.into()),
-        header,
-        disable_quotes,
-    )
+    create_op_csv(ReadableTarget::File(input_file.into()), opts)
 }
 
 pub fn parse_op_csv(
@@ -853,21 +884,22 @@ pub fn parse_op_csv(
     if args.len() != 1 {
         return Err(expr.error_require_exact_positional_count(1).into());
     }
-    let mut header = false;
-    let mut disable_quotes = false;
+    let mut opts = CsvOpts::default();
     // TODO: this is non exhaustive.
     // add proper, generalized cli parsing code ala CLAP
     if let Some(flags) = flags {
         if flags.get("-h").is_some() {
-            header = true;
+            opts.has_header = true;
         }
         if flags.get("-r").is_some() {
-            disable_quotes = true;
+            opts.disable_quotes = true;
+        }
+        if flags.get("--disable-column-opt").is_some() {
+            opts.disable_colum_opt = true;
         }
     }
     Ok(Some(create_op_csv_from_file(
         args[0].try_into_text(expr.op_name, sess)?.to_string(),
-        header,
-        disable_quotes,
+        opts,
     )))
 }

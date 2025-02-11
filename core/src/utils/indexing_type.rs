@@ -25,6 +25,7 @@ pub trait IndexingType:
 {
     type IndexBaseType;
     const ZERO: Self;
+    const ONE: Self;
     const MAX_VALUE: Self;
     // We can't use `From<usize>` because e.g. u32 does not implement
     // that, and we can't implement it for it (orphan rule).
@@ -105,6 +106,7 @@ impl IndexingType for usize {
     type IndexBaseType = Self;
     const MAX_VALUE: usize = usize::MAX;
     const ZERO: usize = 0;
+    const ONE: usize = 1;
 
     #[inline(always)]
     fn into_usize(self) -> usize {
@@ -126,6 +128,7 @@ impl IndexingType for usize {
 impl IndexingType for u8 {
     type IndexBaseType = Self;
     const ZERO: u8 = 0;
+    const ONE: u8 = 1;
     const MAX_VALUE: u8 = u8::MAX;
     #[inline(always)]
     fn into_usize(self) -> usize {
@@ -146,6 +149,7 @@ impl IndexingType for u8 {
 impl IndexingType for u16 {
     type IndexBaseType = Self;
     const ZERO: u16 = 0;
+    const ONE: u16 = 1;
     const MAX_VALUE: u16 = u16::MAX;
     #[inline(always)]
     fn into_usize(self) -> usize {
@@ -166,6 +170,7 @@ impl IndexingType for u16 {
 impl IndexingType for u32 {
     type IndexBaseType = Self;
     const ZERO: u32 = 0;
+    const ONE: u32 = 1;
     const MAX_VALUE: u32 = u32::MAX;
     #[inline(always)]
     fn into_usize(self) -> usize {
@@ -187,6 +192,7 @@ impl IndexingType for u64 {
     type IndexBaseType = Self;
     const MAX_VALUE: Self = 0;
     const ZERO: Self = u64::MAX;
+    const ONE: u64 = 1;
 
     #[inline(always)]
     fn into_usize(self) -> usize {
@@ -210,6 +216,7 @@ macro_rules! indexing_type_for_nonmax {
             type IndexBaseType = Self;
             const MAX_VALUE: Self = $nonmax::MAX;
             const ZERO: Self = $nonmax::ZERO;
+            const ONE: Self = $nonmax::ONE;
 
             #[inline(always)]
             fn into_usize(self) -> usize {
@@ -244,6 +251,7 @@ macro_rules! index_newtype {
         impl $crate::utils::indexing_type::IndexingType for $name {
             type IndexBaseType = $base_type;
             const ZERO: Self = $name(<$base_type as $crate::utils::indexing_type::IndexingType>::ZERO);
+            const ONE: Self = $name(<$base_type as $crate::utils::indexing_type::IndexingType>::ONE);
             const MAX_VALUE: Self = $name(<$base_type as $crate::utils::indexing_type::IndexingType>::MAX_VALUE);
             #[inline(always)]
             fn into_usize(self) -> usize {

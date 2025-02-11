@@ -18,7 +18,10 @@ use typeline_core::{
     typeline_error::TypelineError,
     utils::test_utils::SliceReader,
 };
-use typeline_ext_csv::{csv::create_op_csv, CsvExtension};
+use typeline_ext_csv::{
+    csv::{create_op_csv, CsvOpts},
+    CsvExtension,
+};
 use typeline_ext_utils::{
     eliminate_errors::create_op_eliminate_errors, filter::create_op_filter,
     head::create_op_head, max::create_op_max, sum::create_op_sum,
@@ -37,7 +40,7 @@ fn first_column_becomes_output() -> Result<(), TypelineError> {
         "a,b,c\n1,2\r\nx,y,z,w".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false, false))
+        .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
         .run_collect_stringified()?;
     assert_eq!(res, ["a", "1", "x"]);
     Ok(())
@@ -49,7 +52,7 @@ fn end_correctly_truncates_first_column() -> Result<(), TypelineError> {
         "a,b,c\nb\nxyz".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false, false))
+        .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
         .run_collect_stringified()?;
     assert_eq!(res, ["a", "b", "xyz"]);
     Ok(())
@@ -61,7 +64,7 @@ fn access_second_field() -> Result<(), TypelineError> {
         "a,b,c\r\nb\nx,y,".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false, false))
+        .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
         .add_op(create_op_format("{_1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["\"b\"", "null", "\"y\""]);
@@ -74,7 +77,7 @@ fn last_row_filled_up_with_nulls() -> Result<(), TypelineError> {
         "1,\r\na,b\nx".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false, false))
+        .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
         .add_op(create_op_format("{_1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["\"\"", "\"b\"", "null"]);
@@ -87,7 +90,7 @@ fn csv_parses_integers() -> Result<(), TypelineError> {
         "1,2,3\r\na,b,c\nx".as_bytes(),
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), false, false))
+        .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
         .add_op(create_op_format("{_1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "\"b\"", "null"]);
@@ -112,7 +115,7 @@ fn multibatch(
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .set_batch_size(batch_size)
         .unwrap()
-        .add_op(create_op_csv(target.create_target(), false, false))
+        .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
         .add_op(create_op_sum())
         .run_collect_as::<i64>()?;
     assert_eq!(res, [(count * (count - 1) / 2) as i64]);
@@ -132,7 +135,7 @@ fn head() -> Result<(), TypelineError> {
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .set_batch_size(3)
         .unwrap()
-        .add_op(create_op_csv(target.create_target(), false, false))
+        .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
         .add_op(create_op_head(5))
         .run_collect_stringified()?;
     assert_eq!(res, ["0", "1", "2", "3", "4"]);
@@ -176,7 +179,13 @@ fn imdb_director_count(
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .set_batch_size(batch_size)
         .unwrap()
-        .add_op(create_op_csv(target.create_target(), true, false))
+        .add_op(create_op_csv(
+            target.create_target(),
+            CsvOpts {
+                has_header: true,
+                ..Default::default()
+            },
+        ))
         .add_op(create_op_select("primaryProfession"))
         .add_op(create_op_foreach([
             create_op_regex_with_opts(
@@ -196,12 +205,20 @@ fn imdb_director_count(
 }
 
 #[test]
-fn imdb_oldest_actor() -> Result<(), TypelineError> {
+fn imdb_oldest_actor_compute_empty_batch() -> Result<(), TypelineError> {
     let target =
         MutexedReadableTargetOwner::new(Cursor::new(IMDB_CSV_EXAMPLE));
 
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), true, true))
+        .set_batch_size(17)?
+        .add_op(create_op_csv(
+            target.create_target(),
+            CsvOpts {
+                has_header: true,
+                ..Default::default()
+            },
+        ))
+        .add_op(create_op_head(16))
         .add_op_with_key("age", create_op_compute("deathYear-birthYear")?)
         .add_op(create_op_eliminate_errors())
         .add_op(create_op_compute("age<200")?)
@@ -220,7 +237,13 @@ fn header_names_become_column_names() -> Result<(), TypelineError> {
     let target = MutexedReadableTargetOwner::new(Cursor::new(INPUT));
 
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
-        .add_op(create_op_csv(target.create_target(), true, false))
+        .add_op(create_op_csv(
+            target.create_target(),
+            CsvOpts {
+                has_header: true,
+                ..Default::default()
+            },
+        ))
         .add_op(create_op_format("{a}{b}{c}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["foobarbaz", "123"]);
