@@ -44,11 +44,16 @@ impl<FD: DerefMut<Target = FieldData>> VaryingTypeInserter<FD> {
             data_ptr_end: std::ptr::null_mut(),
             max: usize::MAX, // ZST
             fmt: FieldValueFormat {
-                repr: FieldValueRepr::Null,
+                repr: FieldValueRepr::Undefined,
                 flags: field_value_flags::DEFAULT,
                 size: 0,
             },
         }
+    }
+    pub fn drop_reservation(&mut self) {
+        self.max = 0;
+        // use non zst to avoid zst without max==usize situation
+        self.fmt.repr = FieldValueRepr::TextInline;
     }
     pub fn with_reservation(
         fd: FD,
@@ -336,7 +341,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         run_length: usize,
     ) -> BytesInsertionStream {
         self.commit();
-        self.max = 0;
+        self.drop_reservation();
         self.fd.bytes_insertion_stream(run_length)
     }
 
@@ -345,7 +350,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         run_length: usize,
     ) -> TextInsertionStream {
         self.commit();
-        self.max = 0;
+        self.drop_reservation();
         self.fd.text_insertion_stream(run_length)
     }
     fn maybe_text_insertion_stream(
@@ -353,7 +358,7 @@ unsafe impl<FD: DerefMut<Target = FieldData>> PushInterface
         run_length: usize,
     ) -> MaybeTextInsertionStream {
         self.commit();
-        self.max = 0;
+        self.drop_reservation();
         self.fd.maybe_text_insertion_stream(run_length)
     }
 }
