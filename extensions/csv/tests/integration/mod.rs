@@ -97,6 +97,25 @@ fn csv_parses_integers() -> Result<(), TypelineError> {
     Ok(())
 }
 
+#[test]
+fn use_tsv_separator() -> Result<(), TypelineError> {
+    let target = MutexedReadableTargetOwner::new(SliceReader::new(
+        "1\t2\t3\r\na\tb\tc\nx".as_bytes(),
+    ));
+    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+        .add_op(create_op_csv(
+            target.create_target(),
+            CsvOpts {
+                separation_character: b'\t',
+                ..Default::default()
+            },
+        ))
+        .add_op(create_op_format("{_1:?}").unwrap())
+        .run_collect_stringified()?;
+    assert_eq!(res, ["2", "\"b\"", "null"]);
+    Ok(())
+}
+
 #[rstest]
 #[case(5, 3)]
 #[case(1024, 4096)]

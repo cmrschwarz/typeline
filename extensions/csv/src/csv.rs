@@ -9,7 +9,10 @@ use std::{
 use memchr::memchr2;
 use typeline_core::{
     chain::ChainId,
-    cli::call_expr::{CallExpr, Span},
+    cli::{
+        call_expr::{CallExpr, Span},
+        CliArgumentError,
+    },
     context::SessionData,
     index_newtype,
     job::{Job, JobData},
@@ -31,6 +34,7 @@ use typeline_core::{
         action_buffer::{ActorId, ActorRef},
         field::FieldId,
         field_data::FieldData,
+        field_value::FieldValue,
         group_track::GroupTrackIterRef,
         iter_hall::IterKind,
         push_interface::PushInterface,
@@ -58,11 +62,22 @@ index_newtype! {
     struct CsvColumnIdx(u32);
 }
 
-#[derive(Default)]
 pub struct CsvOpts {
     pub disable_colum_opt: bool,
     pub disable_quotes: bool,
     pub has_header: bool,
+    pub separation_character: u8,
+}
+
+impl Default for CsvOpts {
+    fn default() -> Self {
+        Self {
+            disable_colum_opt: false,
+            disable_quotes: false,
+            has_header: false,
+            separation_character: b',',
+        }
+    }
 }
 
 pub struct OpCsv {
@@ -118,12 +133,14 @@ enum CsvTerminal {
 }
 
 fn parse_quoted(
+    separation_character: u8,
     reader: &'_ mut impl BufRead,
     out: &mut Vec<u8>,
 ) -> Result<CsvTerminal, std::io::Error> {
     reader.consume(1);
     loop {
-        let read = read_until_3(reader, out, b',', b'\"', b'\n')?;
+        let read =
+            read_until_3(reader, out, separation_character, b'\"', b'\n')?;
         if read == 0 {
             // TODO: add strict mode?
             return Ok(CsvTerminal::Eof);
@@ -155,17 +172,18 @@ fn parse_quoted(
             }
             return Ok(CsvTerminal::Newline);
         }
-        debug_assert_eq!(out[out.len() - 1], b',');
+        debug_assert_eq!(out[out.len() - 1], separation_character);
         out.truncate(len - 1);
         return Ok(CsvTerminal::Comma);
     }
 }
 
 fn parse_unquoted(
+    separation_character: u8,
     reader: &'_ mut impl BufRead,
     out: &mut Vec<u8>,
 ) -> Result<CsvTerminal, std::io::Error> {
-    let read = read_until_2(reader, out, b',', b'\n')?;
+    let read = read_until_2(reader, out, separation_character, b'\n')?;
     if read == 0 {
         return Ok(CsvTerminal::Eof);
     }
@@ -178,12 +196,13 @@ fn parse_unquoted(
         }
         return Ok(CsvTerminal::Newline);
     }
-    debug_assert_eq!(out[len - 1], b',');
+    debug_assert_eq!(out[len - 1], separation_character);
     out.truncate(len - 1);
     Ok(CsvTerminal::Comma)
 }
 
 fn process_header(
+    separation_character: u8,
     ss: &mut StringStore,
     reader: &'_ mut impl BufRead,
     var_names: &mut IndexVec<CsvColumnIdx, StringStoreEntry>,
@@ -195,9 +214,9 @@ fn process_header(
         }
         let mut header_name = Vec::new();
         let terminal = if chunk[0] == b'"' {
-            parse_quoted(reader, &mut header_name)?
+            parse_quoted(separation_character, reader, &mut header_name)?
         } else {
-            parse_unquoted(reader, &mut header_name)?
+            parse_unquoted(separation_character, reader, &mut header_name)?
         };
         let name = String::from_utf8(header_name).map_err(|e| {
             std::io::Error::new(
@@ -272,6 +291,7 @@ impl Operator for OpCsv {
                 .create_buf_reader()
                 .and_then(|mut r| {
                     process_header(
+                        self.opts.separation_character,
                         &mut sess.string_store,
                         &mut r.aquire(),
                         &mut self.var_names,
@@ -702,6 +722,7 @@ fn read_in_lines<'a>(
                     let done =
                         if let Some(ins) = inserters.get_mut(status.col_idx) {
                             insert_unquoted_from_stream(
+                                opts.csv_opts.separation_character,
                                 ins,
                                 Some(b'\r'),
                                 None,
@@ -709,7 +730,12 @@ fn read_in_lines<'a>(
                                 &mut newline,
                             )?
                         } else {
-                            skip_unneeded_unquoted(reader, true, &mut newline)?
+                            skip_unneeded_unquoted(
+                                opts.csv_opts.separation_character,
+                                reader,
+                                true,
+                                &mut newline,
+                            )?
                         };
                     if done {
                         status.done = true;
@@ -750,8 +776,11 @@ fn read_in_lines<'a>(
                         .copied()
                         .unwrap_or(!opts.csv_opts.has_header);
 
-                let Some(end_index) = memchr2(b',', b'\n', &buffer[offset..])
-                else {
+                let Some(end_index) = memchr2(
+                    opts.csv_opts.separation_character,
+                    b'\n',
+                    &buffer[offset..],
+                ) else {
                     break;
                 };
                 let cell_end = offset + end_index;
@@ -795,6 +824,7 @@ fn read_in_lines<'a>(
             }
             let eof = if accessed {
                 insert_unquoted_from_stream(
+                    opts.csv_opts.separation_character,
                     &mut inserters[status.col_idx],
                     None,
                     Some(offset),
@@ -803,7 +833,12 @@ fn read_in_lines<'a>(
                 )?
             } else {
                 reader.consume(offset);
-                skip_unneeded_unquoted(reader, present, &mut newline)?
+                skip_unneeded_unquoted(
+                    opts.csv_opts.separation_character,
+                    reader,
+                    present,
+                    &mut newline,
+                )?
             };
             status.col_idx += CsvColumnIdx::one();
             if eof {
@@ -838,13 +873,14 @@ fn add_inserter<'a>(
 }
 
 fn skip_unneeded_unquoted<R: BufRead>(
+    separation_character: u8,
     reader: &mut R,
     stop_on_comma: bool,
     newline: &mut bool,
 ) -> Result<bool, std::io::Error> {
     let mut last = RememberLastCharacterWriter::default();
     let count = if stop_on_comma {
-        read_until_2(reader, &mut last, b',', b'\n')?
+        read_until_2(reader, &mut last, separation_character, b'\n')?
     } else {
         read_until(reader, &mut last, b'\n')?
     };
@@ -852,7 +888,7 @@ fn skip_unneeded_unquoted<R: BufRead>(
         return Ok(true);
     };
     let nl = last == b'\n';
-    let comma = last == b',';
+    let comma = last == separation_character;
     *newline = nl;
 
     Ok(count == 0 || !(nl && comma))
@@ -860,6 +896,7 @@ fn skip_unneeded_unquoted<R: BufRead>(
 
 #[cold]
 fn insert_unquoted_from_stream<R: BufRead>(
+    separation_character: u8,
     inserter: &mut VaryingTypeInserter<RefMut<FieldData>>,
     prefix_byte: Option<u8>,
     tail_of_reader: Option<usize>,
@@ -876,7 +913,7 @@ fn insert_unquoted_from_stream<R: BufRead>(
         let len = buf.len();
         reader.consume(len);
     }
-    if read_until_2(reader, &mut stream, b',', b'\n')? == 0 {
+    if read_until_2(reader, &mut stream, separation_character, b'\n')? == 0 {
         return Ok(true);
     }
     let buf = stream.get_inserted_data();
@@ -886,7 +923,7 @@ fn insert_unquoted_from_stream<R: BufRead>(
     *newline = last == b'\n';
     if *newline && l > 1 && buf[l - 2] == b'\r' {
         l -= 2;
-    } else if *newline || last == b',' {
+    } else if *newline || last == separation_character {
         l -= 1;
     } else {
         eof = true;
@@ -948,6 +985,25 @@ pub fn parse_op_csv(
         }
         if flags.get("--disable-column-opt").is_some() {
             opts.disable_colum_opt = true;
+        }
+        if let Some(v) = flags.get("-s") {
+            let mut ok = false;
+            let FieldValue::Argument(arg) = v else {
+                unreachable!()
+            };
+            if let Some(v) = arg.value.text_or_bytes() {
+                if v.len() == 1 && v[0].is_ascii() {
+                    opts.separation_character = v[0];
+                    ok = true;
+                }
+            }
+            if !ok {
+                return Err(CliArgumentError::new(
+                    "-s argument must be an ascii character",
+                    arg.span,
+                )
+                .into());
+            }
         }
     }
     Ok(Some(create_op_csv_from_file(
