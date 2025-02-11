@@ -3,7 +3,7 @@ use std::{
     ops::Range,
 };
 
-use memchr::{memchr2, memchr3};
+use memchr::{memchr, memchr2, memchr3};
 
 #[derive(Clone)]
 pub struct SliceReader<'a> {
@@ -132,6 +132,14 @@ pub fn read_until_match(
             return Ok(read);
         }
     }
+}
+
+pub fn read_until(
+    reader: &mut (impl BufRead + ?Sized),
+    writer: &mut (impl Write + ?Sized),
+    delim_1: u8,
+) -> std::io::Result<usize> {
+    read_until_match(reader, writer, |haystack| memchr(delim_1, haystack))
 }
 
 pub fn read_until_2(

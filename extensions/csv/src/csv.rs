@@ -46,7 +46,7 @@ use typeline_core::{
         stable_vec::StableVec,
         string_store::{StringStore, StringStoreEntry},
         temp_vec::TransmutableContainer,
-        test_utils::{read_until_2, read_until_3},
+        test_utils::{read_until, read_until_2, read_until_3},
     },
 };
 
@@ -106,7 +106,7 @@ struct ReadStatus {
 
 struct CsvReadOptions<'a> {
     accessed_fields: &'a IndexSlice<CsvColumnIdx, bool>,
-    disable_quotes: bool,
+    csv_opts: &'a CsvOpts,
     prefix_nulls: usize,
     lines_max: usize,
 }
@@ -535,7 +535,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                     &additional_fields,
                     CsvReadOptions {
                         accessed_fields: &self.op.accessed_fields,
-                        disable_quotes: self.op.opts.disable_quotes,
+                        csv_opts: &self.op.opts,
                         prefix_nulls: iter.field_pos(),
                         lines_max: target_batch_size,
                     },
@@ -548,7 +548,11 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             Ok(()) => {
                 if status.col_idx != CsvColumnIdx::ZERO {
                     debug_assert!(status.done);
-                    for i in status.col_idx.range_to(inserters.next_idx()) {
+                    for i in status
+                        .col_idx
+                        .min(inserters.next_idx())
+                        .range_to(inserters.next_idx())
+                    {
                         inserters[i].push_null(1, true);
                     }
                     status.lines_produced += 1;
@@ -652,7 +656,9 @@ fn read_in_lines<'a>(
         'newline: loop {
             if newline {
                 newline = false;
-                let remaining_inserters = &mut inserters[status.col_idx..];
+                let len = inserters.next_idx();
+                let remaining_inserters =
+                    &mut inserters[status.col_idx.min(len)..];
                 if post_element {
                     for i in remaining_inserters {
                         i.push_null(1, true);
@@ -693,13 +699,19 @@ fn read_in_lines<'a>(
                 c = buffer[offset];
                 if c != b'\n' {
                     reader.consume(offset);
-                    if insert_unquoted_from_stream(
-                        &mut inserters[status.col_idx],
-                        Some(b'\r'),
-                        None,
-                        reader,
-                        &mut newline,
-                    )? {
+                    let done =
+                        if let Some(ins) = inserters.get_mut(status.col_idx) {
+                            insert_unquoted_from_stream(
+                                ins,
+                                Some(b'\r'),
+                                None,
+                                reader,
+                                &mut newline,
+                            )?
+                        } else {
+                            skip_unneeded_unquoted(reader, true, &mut newline)?
+                        };
+                    if done {
                         status.done = true;
                         return Ok(());
                     }
@@ -711,12 +723,32 @@ fn read_in_lines<'a>(
                 newline = true;
                 continue;
             }
-
+            let mut present;
+            let mut accessed;
             loop {
-                if !opts.disable_quotes && c == b'"' {
+                if !opts.csv_opts.disable_quotes && c == b'"' {
                     // todo: parse quoted text
                     unimplemented!();
                 }
+
+                present = status.col_idx < inserters.next_idx();
+
+                if !present && !opts.csv_opts.has_header {
+                    add_inserter(
+                        additional_fields,
+                        inserters,
+                        status,
+                        opts.prefix_nulls,
+                    );
+                    present = true;
+                }
+
+                accessed = present
+                    && opts
+                        .accessed_fields
+                        .get(status.col_idx)
+                        .copied()
+                        .unwrap_or(!opts.csv_opts.has_header);
 
                 let Some(end_index) = memchr2(b',', b'\n', &buffer[offset..])
                 else {
@@ -735,23 +767,17 @@ fn read_in_lines<'a>(
                 let val = &buffer[offset..val_end];
                 offset = cell_end + 1;
 
-                if status.col_idx >= inserters.next_idx() {
-                    add_inserter(
-                        additional_fields,
-                        inserters,
-                        status,
-                        opts.prefix_nulls,
-                    );
-                }
-                let inserter = &mut inserters[status.col_idx];
-                if opts.accessed_fields.get(status.col_idx) == Some(&false) {
-                    inserter.push_undefined(1, true);
-                } else if let Ok(v) = lexical_core::parse::<i64>(val) {
-                    inserter.push_int(v, 1, true, false);
-                } else if let Ok(v) = std::str::from_utf8(val) {
-                    inserter.push_str(v, 1, true, false);
-                } else {
-                    inserter.push_bytes(val, 1, true, false);
+                if present {
+                    let inserter = &mut inserters[status.col_idx];
+                    if !accessed {
+                        inserter.push_undefined(1, true);
+                    } else if let Ok(v) = lexical_core::parse::<i64>(val) {
+                        inserter.push_int(v, 1, true, false);
+                    } else if let Ok(v) = std::str::from_utf8(val) {
+                        inserter.push_str(v, 1, true, false);
+                    } else {
+                        inserter.push_bytes(val, 1, true, false);
+                    }
                 }
 
                 status.col_idx += CsvColumnIdx::one();
@@ -767,13 +793,18 @@ fn read_in_lines<'a>(
                 }
                 c = buffer[offset];
             }
-            let eof = insert_unquoted_from_stream(
-                &mut inserters[status.col_idx],
-                None,
-                Some(offset),
-                reader,
-                &mut newline,
-            )?;
+            let eof = if accessed {
+                insert_unquoted_from_stream(
+                    &mut inserters[status.col_idx],
+                    None,
+                    Some(offset),
+                    reader,
+                    &mut newline,
+                )?
+            } else {
+                reader.consume(offset);
+                skip_unneeded_unquoted(reader, present, &mut newline)?
+            };
             status.col_idx += CsvColumnIdx::one();
             if eof {
                 status.done = true;
@@ -804,6 +835,27 @@ fn add_inserter<'a>(
     ));
     inserters[status.col_idx]
         .push_null(prefix_nulls + status.lines_produced, false);
+}
+
+fn skip_unneeded_unquoted<R: BufRead>(
+    reader: &mut R,
+    stop_on_comma: bool,
+    newline: &mut bool,
+) -> Result<bool, std::io::Error> {
+    let mut last = RememberLastCharacterWriter::default();
+    let count = if stop_on_comma {
+        read_until_2(reader, &mut last, b',', b'\n')?
+    } else {
+        read_until(reader, &mut last, b'\n')?
+    };
+    let Some(last) = last.0 else {
+        return Ok(true);
+    };
+    let nl = last == b'\n';
+    let comma = last == b',';
+    *newline = nl;
+
+    Ok(count == 0 || !(nl && comma))
 }
 
 #[cold]
