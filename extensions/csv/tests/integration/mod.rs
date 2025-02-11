@@ -7,6 +7,7 @@ use std::{
 use typeline_core::{
     extension::{Extension, ExtensionRegistry},
     operators::{
+        compute::create_op_compute,
         foreach::create_op_foreach,
         format::create_op_format,
         regex::{create_op_regex, create_op_regex_with_opts, RegexOptions},
@@ -18,7 +19,10 @@ use typeline_core::{
     utils::test_utils::SliceReader,
 };
 use typeline_ext_csv::{csv::create_op_csv, CsvExtension};
-use typeline_ext_utils::{head::create_op_head, sum::create_op_sum};
+use typeline_ext_utils::{
+    eliminate_errors::create_op_eliminate_errors, filter::create_op_filter,
+    head::create_op_head, max::create_op_max, sum::create_op_sum,
+};
 
 pub static CSV_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
     LazyLock::new(|| {
@@ -188,6 +192,25 @@ fn imdb_director_count(
         .add_op(create_op_count())
         .run_collect_as::<i64>()?;
     assert_eq!(res, [7]);
+    Ok(())
+}
+
+#[test]
+fn imdb_oldest_actor() -> Result<(), TypelineError> {
+    let target =
+        MutexedReadableTargetOwner::new(Cursor::new(IMDB_CSV_EXAMPLE));
+
+    let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
+        .add_op(create_op_csv(target.create_target(), true, true))
+        .add_op_with_key("age", create_op_compute("deathYear-birthYear")?)
+        .add_op(create_op_eliminate_errors())
+        .add_op(create_op_compute("age<200")?)
+        .add_op(create_op_filter())
+        .add_op(create_op_select("age"))
+        .add_op(create_op_max())
+        .add_op(create_op_format("{primaryName}: {age}")?)
+        .run_collect_stringified()?;
+    assert_eq!(res, ["Olivia de Havilland: 104"]);
     Ok(())
 }
 
