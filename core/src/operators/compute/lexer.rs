@@ -353,6 +353,7 @@ impl<'a> ComputeExprLexer<'a> {
                 }
             }
         }
+
         if !is_string_start {
             is_string_start = c == '"' || c == '\'';
         }
@@ -426,6 +427,26 @@ impl<'a> ComputeExprLexer<'a> {
                 b"undefined" => TokenKind::Literal(FieldValue::Undefined),
                 _ => TokenKind::Identifier(ident.to_str().unwrap()),
             };
+            return Ok(Some(ComputeExprToken { span, kind }));
+        }
+
+        if c == '@' {
+            // TODO: implement braces
+            let mut ident_end = c_end;
+            for (_, end, c) in self.input[c_end..].char_indices() {
+                if !is_xid_continue(c) {
+                    break;
+                }
+                ident_end = c_end + end;
+            }
+
+            self.col +=
+                (ident_end - self.offset).try_into().unwrap_or(u16::MAX);
+            self.offset = ident_end;
+            span.end_col = self.col;
+
+            let ident = &self.input[c_begin + 1..ident_end];
+            let kind = TokenKind::Identifier(ident.to_str().unwrap());
             return Ok(Some(ComputeExprToken { span, kind }));
         }
 

@@ -308,7 +308,7 @@ impl Operator for OpCsv {
         } else {
             for i in 0..INITIAL_OUTPUT_COUNT {
                 let var_name =
-                    sess.string_store.intern_cloned(&format!("_{i}"));
+                    sess.string_store.intern_cloned(&format!("{i}"));
                 self.var_names.push(var_name);
             }
         }

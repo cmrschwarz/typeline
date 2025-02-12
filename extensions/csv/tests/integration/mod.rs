@@ -65,7 +65,7 @@ fn access_second_field() -> Result<(), TypelineError> {
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
-        .add_op(create_op_format("{_1:?}").unwrap())
+        .add_op(create_op_format("{1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["\"b\"", "null", "\"y\""]);
     Ok(())
@@ -78,7 +78,7 @@ fn last_row_filled_up_with_nulls() -> Result<(), TypelineError> {
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
-        .add_op(create_op_format("{_1:?}").unwrap())
+        .add_op(create_op_format("{1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["\"\"", "\"b\"", "null"]);
     Ok(())
@@ -91,7 +91,7 @@ fn csv_parses_integers() -> Result<(), TypelineError> {
     ));
     let res = ContextBuilder::with_exts(CSV_EXTENSION_REGISTRY.clone())
         .add_op(create_op_csv(target.create_target(), CsvOpts::default()))
-        .add_op(create_op_format("{_1:?}").unwrap())
+        .add_op(create_op_format("{1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "\"b\"", "null"]);
     Ok(())
@@ -110,7 +110,7 @@ fn use_tsv_separator() -> Result<(), TypelineError> {
                 ..Default::default()
             },
         ))
-        .add_op(create_op_format("{_1:?}").unwrap())
+        .add_op(create_op_format("{1:?}").unwrap())
         .run_collect_stringified()?;
     assert_eq!(res, ["2", "\"b\"", "null"]);
     Ok(())
