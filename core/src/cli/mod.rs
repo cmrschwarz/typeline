@@ -1003,8 +1003,6 @@ pub fn parse_dashed_arg(
         let arg_start = i;
         let key;
 
-        let mut double_dash = false;
-
         let mut argval = Argument {
             value: FieldValue::Null,
             span,
@@ -1012,6 +1010,8 @@ pub fn parse_dashed_arg(
             meta_info: None,
         };
         if argv[i] == b'-' {
+            // we intentionally leave out the first dash here to keep parity
+            // with the single dash version
             if let Some(colon_idx) = argv[i + 1..].find_char(':') {
                 let colon_idx = i + 1 + colon_idx;
                 key = &argv[i..colon_idx];
@@ -1023,7 +1023,6 @@ pub fn parse_dashed_arg(
             } else {
                 key = &argv[i..];
             }
-            double_dash = true;
             i = argv.len();
         } else {
             key = &argv[i..=i];
@@ -1050,10 +1049,8 @@ pub fn parse_dashed_arg(
                 span.subslice_offsets(arg_start, arg_start + key.len()),
             ));
         };
-        argval.span = span.subslice_offsets(
-            arg_start - usize::from(starts_with_dash && !double_dash),
-            i,
-        );
+        argval.span = span
+            .subslice_offsets(arg_start - usize::from(starts_with_dash), i);
         let key = format!("-{key}");
         let value = FieldValue::Argument(Box::new(argval));
         if let Some(_prev) = target.insert(key.to_string(), value) {
@@ -1507,6 +1504,96 @@ mod test {
                 "object contains key twice: 'foo'".into(),
                 Span::from_single_arg_with_offset(4, 0, 3)
             ))
+        );
+    }
+
+    #[test]
+    fn test_long_flag_with_value() {
+        let src = ["seq", "--foo:bar"];
+        let res = parse_call_expr(
+            &mut cli_args_into_arguments_iter(
+                src.into_iter().map(str::as_bytes),
+            ),
+            DEFAULT_SCOPE_ID,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            res.arg,
+            Argument {
+                value: FieldValue::Array(Array::Argument(vec![
+                    Argument {
+                        value: FieldValue::Text("seq".to_string()),
+                        span: Span::from_single_arg(0, 3),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        meta_info: None
+                    },
+                    Argument {
+                        value: FieldValue::Object(Box::new(
+                            Object::KeysStored(indexmap! {
+                                "--foo".to_owned() => FieldValue::Argument(Box::new(Argument {
+                                    value: FieldValue::Text("bar".to_owned()),
+                                    span: Span::from_single_arg_with_offset(1, 0, 9),
+                                    source_scope: DEFAULT_SCOPE_ID,
+                                    meta_info: None,
+                                }))
+                            })
+                        )),
+                        span: Span::FlagsObject,
+                        source_scope: DEFAULT_SCOPE_ID,
+                        meta_info: None
+                    }
+                ])),
+                span: Span::from_cli_arg(0, 2, 0, 9),
+                source_scope: DEFAULT_SCOPE_ID,
+                meta_info: Some(MetaInfo::EndKind(CallExprEndKind::Inline))
+            }
+        );
+    }
+
+    #[test]
+    fn test_short_with_value() {
+        let src = ["seq", "-s:42"];
+        let res = parse_call_expr(
+            &mut cli_args_into_arguments_iter(
+                src.into_iter().map(str::as_bytes),
+            ),
+            DEFAULT_SCOPE_ID,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(
+            res.arg,
+            Argument {
+                value: FieldValue::Array(Array::Argument(vec![
+                    Argument {
+                        value: FieldValue::Text("seq".to_string()),
+                        span: Span::from_single_arg(0, 3),
+                        source_scope: DEFAULT_SCOPE_ID,
+                        meta_info: None
+                    },
+                    Argument {
+                        value: FieldValue::Object(Box::new(
+                            Object::KeysStored(indexmap! {
+                                "-s".to_owned() => FieldValue::Argument(Box::new(Argument {
+                                    value: FieldValue::Int(42),
+                                    span: Span::from_single_arg_with_offset(1, 0, 5),
+                                    source_scope: DEFAULT_SCOPE_ID,
+                                    meta_info: None,
+                                }))
+                            })
+                        )),
+                        span: Span::FlagsObject,
+                        source_scope: DEFAULT_SCOPE_ID,
+                        meta_info: None
+                    }
+                ])),
+                span: Span::from_cli_arg(0, 2, 0, 5),
+                source_scope: DEFAULT_SCOPE_ID,
+                meta_info: Some(MetaInfo::EndKind(CallExprEndKind::Inline))
+            }
         );
     }
 
