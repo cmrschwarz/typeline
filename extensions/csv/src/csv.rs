@@ -774,7 +774,7 @@ fn read_in_lines<'a>(
                         .accessed_fields
                         .get(status.col_idx)
                         .copied()
-                        .unwrap_or(!opts.csv_opts.has_header);
+                        .unwrap_or(true);
 
                 let Some(end_index) = memchr2(
                     opts.csv_opts.separation_character,
@@ -807,9 +807,9 @@ fn read_in_lines<'a>(
                     } else {
                         inserter.push_bytes(val, 1, true, false);
                     }
+                    status.col_idx += CsvColumnIdx::one();
                 }
 
-                status.col_idx += CsvColumnIdx::one();
                 post_element = true;
 
                 if newline {
@@ -822,25 +822,26 @@ fn read_in_lines<'a>(
                 }
                 c = buffer[offset];
             }
-            let eof = if accessed {
-                insert_unquoted_from_stream(
+            let eof;
+            if accessed {
+                eof = insert_unquoted_from_stream(
                     opts.csv_opts.separation_character,
                     &mut inserters[status.col_idx],
                     None,
                     Some(offset),
                     reader,
                     &mut newline,
-                )?
+                )?;
+                status.col_idx += CsvColumnIdx::one();
             } else {
                 reader.consume(offset);
-                skip_unneeded_unquoted(
+                eof = skip_unneeded_unquoted(
                     opts.csv_opts.separation_character,
                     reader,
                     present,
                     &mut newline,
-                )?
+                )?;
             };
-            status.col_idx += CsvColumnIdx::one();
             if eof {
                 status.done = true;
                 return Ok(());
@@ -891,7 +892,7 @@ fn skip_unneeded_unquoted<R: BufRead>(
     let comma = last == separation_character;
     *newline = nl;
 
-    Ok(count == 0 || !(nl && comma))
+    Ok(count == 0 || !(nl || comma))
 }
 
 #[cold]
