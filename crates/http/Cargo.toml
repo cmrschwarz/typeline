@@ -16,7 +16,7 @@ test = false
 doctest = false
 
 [dependencies]
-typeline_core = { version = "0.1", path="../../core" }
+typeline_core = { version = "0.1", path="../core" }
 
 rustls = { version = "0.23.17", features = ["logging", "ring"] }
 rustls-pemfile = "2.2.0"

@@ -1,13 +1,15 @@
 [workspace]
+resolver = "2"
+
 members = [
-    "core",
-    "extensions/sqlite",
-    "extensions/http",
-    "extensions/utils",
-    "extensions/python",
-    "extensions/csv",
-    "extensions/json",
-    "extensions/selenium",
+    "crates/core",
+    "crates/sqlite",
+    "crates/http",
+    "crates/utils",
+    "crates/python",
+    "crates/csv",
+    "crates/json",
+    "crates/selenium",
 ]
 
 package.version = "0.1.0"
@@ -19,67 +21,6 @@ package.rust-version = "1.80"
 package.categories = ["command-line-utilities", "text-processing"]
 package.keywords = ["tl", "pipeline", "shell", "stream"]
 
-[package]
-name = "typeline"
-description = "Efficient, Type-Safe Pipeline Processor"
-
-version.workspace = true
-license.workspace = true
-authors.workspace = true
-repository.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-categories.workspace = true
-keywords.workspace = true
-
-
-autobenches = false
-
-[lib]
-name = "typeline"
-# tests are all in typeline_core, no need to bloat the output of `cargo test --all`
-test = false
-doctest = false
-path = "src/lib.rs" # the default, workaround https://github.com/webern/cargo-readme/issues/32
-
-[[bin]]
-name = "tl"
-test = false
-path = "src/main.rs" # the default, workaround https://github.com/webern/cargo-readme/issues/32
-
-[[test]]
-name = "bench_test"
-path = "benches/bench_test.rs"
-
-
-[[bench]]
-name = "bench"
-path = "benches/bench.rs"
-harness = false
-
-[dev-dependencies]
-rstest = "0.24.0"
-regex = "1.11"
-typeline_ext_utils = { path = "./extensions/utils" }
-# TODO: remove once we have proper fraction parsing
-typeline_ext_python = { path = "./extensions/python" }
-criterion = "0.5.1"
-criterion-macro = "0.4.0"
-paste = "1.0.15"
-macro_rules_attribute = "0.2.0"
-inventory = "0.3.17"
-
-[dependencies]
-ref-cast = "1.0.23"
-
-typeline_core = { version = "0.1.0", path= "./core", default-features = false }
-typeline_ext_sqlite = { version = "0.1.0", path = "./extensions/sqlite", optional = true }
-typeline_ext_python = { version = "0.1.0", path = "./extensions/python", optional = true }
-typeline_ext_http = { version = "0.1.0", path = "./extensions/http", optional = true }
-typeline_ext_utils = { version = "0.1.0", path = "./extensions/utils", optional = true }
-typeline_ext_csv = { version = "0.1.0", path = "./extensions/csv", optional = true }
-typeline_ext_json = { path = "./extensions/json", optional = true }
-typeline_ext_selenium = { version = "0.1.0", path = "./extensions/selenium", optional = true }
 
 [profile.dev]
 panic = "unwind"
@@ -95,6 +36,60 @@ strip = "symbols"
 inherits = "release"
 strip = "none"
 debug = true
+
+[package]
+name = "typeline"
+description = "Efficient, Type-Safe Pipeline Processor"
+
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+categories.workspace = true
+keywords.workspace = true
+autobenches = false
+
+
+[lib]
+name = "typeline"
+# tests are all in typeline_core, no need to bloat the output of `cargo test --all`
+test = false
+doctest = false
+path = "src/lib.rs" # the default, workaround https://github.com/webern/cargo-readme/issues/32
+
+[[bin]]
+name = "tl"
+test = false
+path = "src/main.rs" # the default, workaround https://github.com/webern/cargo-readme/issues/32
+
+
+[dependencies]
+ref-cast = "1.0.23"
+
+typeline_core = { version = "0.1.0", path= "./crates/core", default-features = false }
+typeline_ext_sqlite = { version = "0.1.0", path = "./crates/sqlite", optional = true }
+typeline_ext_python = { version = "0.1.0", path = "./crates/python", optional = true }
+typeline_ext_http = { version = "0.1.0", path = "./crates/http", optional = true }
+typeline_ext_utils = { version = "0.1.0", path = "./crates/utils", optional = true }
+typeline_ext_csv = { version = "0.1.0", path = "./crates/csv", optional = true }
+typeline_ext_json = { path = "./crates/json", optional = true }
+typeline_ext_selenium = { version = "0.1.0", path = "./crates/selenium", optional = true }
+
+
+[dev-dependencies]
+rstest = "0.24.0"
+regex = "1.11"
+typeline_ext_utils = { path = "./crates/utils" }
+# TODO: remove once we have proper fraction parsing
+typeline_ext_python = { path = "./crates/python" }
+criterion = "0.5.1"
+criterion-macro = "0.4.0"
+paste = "1.0.15"
+macro_rules_attribute = "0.2.0"
+inventory = "0.3.17"
+
 
 [features]
 repl = ["typeline_core/repl"]
@@ -115,7 +110,6 @@ default = ["repl", "utils", "csv", "json", "http", "debug_log"]
 slow_tests = ["typeline_ext_utils?/slow_tests"]
 bench = []
 
-
 [package.metadata.deb]
 features = ["full"]
 license-file = ["LICENSE", "4"]
@@ -123,3 +117,13 @@ extended-description = "High performance pipeline processor."
 section = "utility"
 priority = "optional"
 assets = [["target/release/tl", "usr/bin/", "755"]]
+
+[[test]]
+name = "bench_test"
+path = "benches/bench_test.rs"
+
+
+[[bench]]
+name = "bench"
+path = "benches/bench.rs"
+harness = false

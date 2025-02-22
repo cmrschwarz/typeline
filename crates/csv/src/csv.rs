@@ -116,6 +116,7 @@ pub struct TfCsv<'a> {
 struct ReadStatus {
     lines_produced: usize,
     col_idx: CsvColumnIdx,
+    line_started: bool,
     done: bool,
 }
 
@@ -537,6 +538,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             lines_produced: 0,
             col_idx: CsvColumnIdx::ZERO,
             done: false,
+            line_started: false,
         };
 
         let res = {
@@ -566,7 +568,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
 
         match res {
             Ok(()) => {
-                if status.col_idx != CsvColumnIdx::ZERO {
+                if status.line_started {
                     debug_assert!(status.done);
                     for i in status
                         .col_idx
@@ -576,6 +578,8 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                         inserters[i].push_null(1, true);
                     }
                     status.lines_produced += 1;
+                } else {
+                    debug_assert!(status.col_idx == CsvColumnIdx::ZERO);
                 }
 
                 if status.lines_produced == 0 {
@@ -670,6 +674,7 @@ fn read_in_lines<'a>(
         buffer = reader.fill_buf()?;
         if buffer.is_empty() {
             status.done = true;
+            status.line_started = status.col_idx != CsvColumnIdx::ZERO;
             return Ok(());
         }
         offset = 0;
@@ -843,6 +848,7 @@ fn read_in_lines<'a>(
                 )?;
             };
             if eof {
+                status.line_started = true;
                 status.done = true;
                 return Ok(());
             }

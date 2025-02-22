@@ -6,6 +6,8 @@
 /.cargo
 /rust-toolchain.toml
 
+/.mypy_cache
+
 # selenium drivers for testing
 /chromedriver*
 /geckodriver*

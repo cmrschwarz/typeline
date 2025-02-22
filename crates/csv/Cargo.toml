@@ -1,5 +1,5 @@
 [package]
-name = "typeline_ext_python"
+name = "typeline_ext_csv"
 version.workspace = true
 license.workspace = true
 authors.workspace = true
@@ -8,18 +8,18 @@ edition.workspace = true
 rust-version.workspace = true
 categories.workspace = true
 keywords.workspace = true
-description = "python integration for typeline"
+description = "csv parsing and serialization for typeline"
 
 [lib]
-name = "typeline_ext_python"
+name = "typeline_ext_csv"
 test = false
 doctest = false
 
 [dependencies]
-typeline_core = { version = "0.1", path = "../../core" }
+typeline_core = { version = "0.1", path = "../core" }
 
-pyo3 = { version = "0.23.1", features = ["num-bigint"] }
-num = "0.4.3"
+lexical-core = "1.0.2"
+memchr = "2.7.4"
 
 [dev-dependencies]
 typeline_ext_utils = { version = "0.1", path = "../utils" }
