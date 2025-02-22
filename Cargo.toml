@@ -67,7 +67,7 @@ path = "src/main.rs" # the default, workaround https://github.com/webern/cargo-r
 
 [dependencies]
 ref-cast = "1.0.23"
-
+indexland = { path="./crates/indexland" }
 typeline_core = { version = "0.1.0", path= "./crates/core", default-features = false }
 typeline_ext_sqlite = { version = "0.1.0", path = "./crates/sqlite", optional = true }
 typeline_ext_python = { version = "0.1.0", path = "./crates/python", optional = true }

@@ -438,12 +438,12 @@ impl<'a, I: IndexingType, T> Iterator for UniverseEnumeratedIterMut<'a, I, T> {
     }
 }
 
-pub struct CountedUniverse<I, T> {
+pub struct CountedStableUniverse<I, T> {
     universe: StableUniverse<I, T>,
     occupied_entries: usize,
 }
 
-impl<I: IndexingType, T: Clone> Clone for CountedUniverse<I, T> {
+impl<I: IndexingType, T: Clone> Clone for CountedStableUniverse<I, T> {
     fn clone(&self) -> Self {
         Self {
             universe: self.universe.clone(),
@@ -452,7 +452,7 @@ impl<I: IndexingType, T: Clone> Clone for CountedUniverse<I, T> {
     }
 }
 
-impl<I: IndexingType, T> CountedUniverse<I, T> {
+impl<I: IndexingType, T> CountedStableUniverse<I, T> {
     pub const fn new() -> Self {
         Self {
             universe: StableUniverse::new(),
@@ -529,14 +529,14 @@ impl<I: IndexingType, T> CountedUniverse<I, T> {
 }
 
 // autoderiving this currently fails on stable
-impl<I: IndexingType, T> Default for CountedUniverse<I, T> {
+impl<I: IndexingType, T> Default for CountedStableUniverse<I, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 // separate impl since only available if T: Default
-impl<I: IndexingType, T: Default> CountedUniverse<I, T> {
+impl<I: IndexingType, T: Default> CountedStableUniverse<I, T> {
     pub fn claim(&mut self) -> I {
         self.claim_with(Default::default)
     }
@@ -545,7 +545,7 @@ impl<I: IndexingType, T: Default> CountedUniverse<I, T> {
     }
 }
 
-impl<I: IndexingType, T> Index<I> for CountedUniverse<I, T> {
+impl<I: IndexingType, T> Index<I> for CountedStableUniverse<I, T> {
     type Output = T;
     #[inline]
     fn index(&self, index: I) -> &Self::Output {
@@ -553,14 +553,14 @@ impl<I: IndexingType, T> Index<I> for CountedUniverse<I, T> {
     }
 }
 
-impl<I: IndexingType, T> IndexMut<I> for CountedUniverse<I, T> {
+impl<I: IndexingType, T> IndexMut<I> for CountedStableUniverse<I, T> {
     #[inline]
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         self.universe.index_mut(index)
     }
 }
 
-impl<'a, I: IndexingType, T> IntoIterator for &'a CountedUniverse<I, T> {
+impl<'a, I: IndexingType, T> IntoIterator for &'a CountedStableUniverse<I, T> {
     type Item = &'a T;
     type IntoIter = StableUniverseIter<'a, I, T>;
 
@@ -569,7 +569,9 @@ impl<'a, I: IndexingType, T> IntoIterator for &'a CountedUniverse<I, T> {
     }
 }
 
-impl<'a, I: IndexingType, T> IntoIterator for &'a mut CountedUniverse<I, T> {
+impl<'a, I: IndexingType, T> IntoIterator
+    for &'a mut CountedStableUniverse<I, T>
+{
     type Item = &'a mut T;
     type IntoIter = UniverseIterMut<'a, I, T>;
 

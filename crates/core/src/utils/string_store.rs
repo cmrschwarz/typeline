@@ -1,8 +1,8 @@
 use std::{alloc::Layout, borrow::Cow, collections::HashMap, hash::Hash};
 
-use crate::index_newtype;
+use indexland::index_newtype;
 
-use super::{
+use indexland::{
     debuggable_nonmax::DebuggableNonMaxU32, index_vec::IndexVec,
     indexing_type::IndexingType,
 };

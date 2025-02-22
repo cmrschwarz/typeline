@@ -24,11 +24,12 @@ use crate::{
         match_set::MatchSetId,
     },
     typeline_error::TypelineError,
-    utils::{
-        index_vec::IndexVec,
-        indexing_type::{IndexingType, IndexingTypeRange},
-        string_store::StringStoreEntry,
-    },
+    utils::string_store::StringStoreEntry,
+};
+
+use indexland::{
+    index_vec::IndexVec,
+    indexing_type::{IndexingType, IndexingTypeRange},
 };
 
 use super::{

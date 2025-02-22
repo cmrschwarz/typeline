@@ -8,8 +8,10 @@ use crate::{
         field_value::{FieldValue, FieldValueKind, FieldValueUnboxed},
         field_value_ref::FieldValueRefMut,
     },
-    utils::{force_cast, temp_vec::convert_vec_cleared},
+    utils::force_cast,
 };
+
+use indexland::temp_vec::convert_vec_cleared;
 
 use super::{
     custom_data::CustomDataBox,

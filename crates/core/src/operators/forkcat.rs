@@ -13,7 +13,6 @@ use crate::{
         parse_operator_data, CliArgumentError,
     },
     context::SessionData,
-    index_newtype,
     job::{add_transform_to_job, Job, JobData},
     liveness_analysis::{
         LivenessData, OperatorCallEffect, Var, VarId, VarLivenessSlotGroup,
@@ -42,14 +41,16 @@ use crate::{
         varying_type_inserter::VaryingTypeInserter,
     },
     typeline_error::TypelineError,
-    utils::{
-        index_slice::IndexSlice,
-        index_vec::IndexVec,
-        indexing_type::{IndexingType, IndexingTypeRange},
-        phantom_slot::PhantomSlot,
-        stable_vec::StableVec,
-        temp_vec::TransmutableContainer,
-    },
+};
+
+use indexland::{
+    index_newtype,
+    index_slice::IndexSlice,
+    index_vec::IndexVec,
+    indexing_type::{IndexingType, IndexingTypeRange},
+    phantom_slot::PhantomSlot,
+    stable_vec::StableVec,
+    temp_vec::TransmutableContainer,
 };
 
 use super::{

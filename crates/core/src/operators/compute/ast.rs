@@ -1,9 +1,10 @@
 use std::fmt::Display;
 
+use indexland::{index_newtype, indexing_type::IndexingType};
+
 use crate::{
-    index_newtype,
     record_data::field_value::{FieldValue, FieldValueKind},
-    utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
+    utils::string_store::StringStoreEntry,
 };
 
 use super::parser::Precedence;

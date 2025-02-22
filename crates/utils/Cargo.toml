@@ -19,6 +19,7 @@ doctest = false
 
 [dependencies]
 typeline_core = { version = "0.1", path = "../core" }
+indexland = { path = "../indexland" }
 
 arrayvec = "0.7.6"
 regex = "1.11.1"

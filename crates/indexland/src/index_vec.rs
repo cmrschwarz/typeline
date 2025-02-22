@@ -259,14 +259,14 @@ macro_rules! slice_index_impl {
             type Output = IndexSlice<I, T>;
             #[inline]
             fn index(&self, rb: $range_type<I>) -> &Self::Output {
-                IndexSlice::ref_cast(&self.data[$crate::utils::range_bounds_to_range_usize(rb, self.len())])
+                IndexSlice::ref_cast(&self.data[$crate::range_bounds_to_range_usize(rb, self.len())])
             }
         }
 
         impl<I: IndexingType, T> IndexMut<$range_type<I>> for IndexVec<I, T> {
             #[inline]
             fn index_mut(&mut self, rb: $range_type<I>) -> &mut Self::Output {
-                let range = $crate::utils::range_bounds_to_range_usize(rb, self.len());
+                let range = $crate::range_bounds_to_range_usize(rb, self.len());
                 IndexSlice::ref_cast_mut(&mut self.data[range])
             }
         }

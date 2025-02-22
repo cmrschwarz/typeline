@@ -5,27 +5,26 @@ use std::{
 
 use num::Integer;
 
-use crate::{
+use indexland::{
+    debuggable_nonmax::DebuggableNonMaxU32,
     index_newtype,
-    record_data::{
-        action_buffer::eprint_action_list,
-        field_action::FieldActionKind,
-        field_data::{
-            field_value_flags::{self, LEADING_PADDING_BIT_COUNT},
-            FieldValueFormat, FieldValueRepr,
-        },
-        field_value_ref::drop_field_value_slice,
-        iter_hall::CowVariant,
+    index_slice::IndexSlice,
+    index_vec::IndexVec,
+    indexing_type::IndexingType,
+    random_access_container::RandomAccessContainer,
+    temp_vec::{TempIndexVec, TempVec, TransmutableContainer},
+    universe::Universe,
+};
+
+use crate::record_data::{
+    action_buffer::eprint_action_list,
+    field_action::FieldActionKind,
+    field_data::{
+        field_value_flags::{self, LEADING_PADDING_BIT_COUNT},
+        FieldValueFormat, FieldValueRepr,
     },
-    utils::{
-        debuggable_nonmax::DebuggableNonMaxU32,
-        index_slice::IndexSlice,
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
-        random_access_container::RandomAccessContainer,
-        temp_vec::{TempIndexVec, TempVec, TransmutableContainer},
-        universe::Universe,
-    },
+    field_value_ref::drop_field_value_slice,
+    iter_hall::CowVariant,
 };
 
 use super::{
@@ -1320,26 +1319,24 @@ fn append_data_cow_headers(
 mod test_dead_data_drop {
     use std::collections::VecDeque;
 
-    use crate::{
-        record_data::{
-            action_buffer::{ActorId, ActorRef},
-            field::{FieldManager, FIELD_REF_LOOKUP_ITER_ID},
-            field_action::FieldActionKind,
-            field_data::{
-                field_value_flags, FieldValueFormat, FieldValueHeader,
-                FieldValueRepr,
-            },
-            field_value::FieldValue,
-            iter_hall::{IterState, IterStateRaw},
-            iter_hall_action_applicator::{
-                DeadDataReport, IterHallActionApplicator,
-            },
-            match_set::MatchSetManager,
-            push_interface::PushInterface,
-            scope_manager::ScopeManager,
+    use crate::record_data::{
+        action_buffer::{ActorId, ActorRef},
+        field::{FieldManager, FIELD_REF_LOOKUP_ITER_ID},
+        field_action::FieldActionKind,
+        field_data::{
+            field_value_flags, FieldValueFormat, FieldValueHeader,
+            FieldValueRepr,
         },
-        utils::indexing_type::IndexingType,
+        field_value::FieldValue,
+        iter_hall::{IterState, IterStateRaw},
+        iter_hall_action_applicator::{
+            DeadDataReport, IterHallActionApplicator,
+        },
+        match_set::MatchSetManager,
+        push_interface::PushInterface,
+        scope_manager::ScopeManager,
     };
+    use indexland::indexing_type::IndexingType;
 
     const LEAN_LEFT: ActorId = ActorId::MAX_VALUE;
     const LEAN_RIGHT: ActorId = ActorId::ZERO;

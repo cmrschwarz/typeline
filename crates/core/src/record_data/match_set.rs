@@ -1,7 +1,6 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use crate::{
-    index_newtype,
     operators::transform::TransformId,
     record_data::{
         action_buffer::{ActionGroupId, SnapshotRef},
@@ -9,10 +8,12 @@ use crate::{
         iter_hall::FieldDataSource,
     },
     utils::{
-        debuggable_nonmax::DebuggableNonMaxUsize,
-        identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
-        string_store::StringStoreEntry, universe::Universe,
+        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
     },
+};
+use indexland::{
+    debuggable_nonmax::DebuggableNonMaxUsize, index_newtype,
+    universe::Universe, IndexingType,
 };
 
 use super::{
@@ -24,7 +25,6 @@ use super::{
 
 index_newtype! {
     pub struct MatchSetId(DebuggableNonMaxUsize);
-
 }
 
 pub struct MatchSet {

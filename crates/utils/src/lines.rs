@@ -1,7 +1,7 @@
 use typeline_core::{
+    self,
     cli::call_expr::CallExpr,
     context::SessionData,
-    index_newtype,
     job::{Job, JobData},
     operators::{
         errors::OperatorApplicationError,
@@ -30,10 +30,11 @@ use typeline_core::{
         stream_value::{StreamValue, StreamValueDataOffset, StreamValueId},
     },
     typeline_error::TypelineError,
-    utils::{
-        debuggable_nonmax::DebuggableNonMaxUsize, indexing_type::IndexingType,
-        universe::Universe,
-    },
+};
+
+use indexland::{
+    debuggable_nonmax::DebuggableNonMaxUsize, index_newtype,
+    indexing_type::IndexingType, universe::Universe,
 };
 
 use bstr::ByteSlice;

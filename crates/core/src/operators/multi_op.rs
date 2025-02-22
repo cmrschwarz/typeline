@@ -1,3 +1,11 @@
+use super::{
+    operator::{
+        OffsetInAggregation, OffsetInChain, Operator, OperatorDataId,
+        OperatorId, OperatorName, OperatorOffsetInChain, OutputFieldKind,
+        PreboundOutputsMap, TransformInstatiation,
+    },
+    transform::TransformState,
+};
 use crate::{
     chain::ChainId,
     cli::call_expr::Span,
@@ -9,17 +17,8 @@ use crate::{
     },
     options::session_setup::SessionSetupData,
     typeline_error::TypelineError,
-    utils::{index_vec::IndexVec, indexing_type::IndexingType},
 };
-
-use super::{
-    operator::{
-        OffsetInAggregation, OffsetInChain, Operator, OperatorDataId,
-        OperatorId, OperatorName, OperatorOffsetInChain, OutputFieldKind,
-        PreboundOutputsMap, TransformInstatiation,
-    },
-    transform::TransformState,
-};
+use indexland::{index_vec::IndexVec, indexing_type::IndexingType};
 
 #[derive(Default)]
 pub struct OpMultiOp {

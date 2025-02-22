@@ -14,7 +14,6 @@ use typeline_core::{
         CliArgumentError,
     },
     context::SessionData,
-    index_newtype,
     job::{Job, JobData},
     liveness_analysis::{
         BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
@@ -43,15 +42,16 @@ use typeline_core::{
     typeline_error::TypelineError,
     utils::{
         counting_writer::RememberLastCharacterWriter,
-        index_slice::IndexSlice,
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
         int_string_conversions::usize_to_str,
-        stable_vec::StableVec,
         string_store::{StringStore, StringStoreEntry},
-        temp_vec::TransmutableContainer,
         test_utils::{read_until, read_until_2, read_until_3},
     },
+};
+
+use indexland::{
+    index_newtype, index_slice::IndexSlice, index_vec::IndexVec,
+    indexing_type::IndexingType, stable_vec::StableVec,
+    temp_vec::TransmutableContainer,
 };
 
 // HACK

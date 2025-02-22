@@ -12,8 +12,9 @@ use crate::{
         iter_hall::IterKind,
     },
     typeline_error::TypelineError,
-    utils::indexing_type::IndexingType,
 };
+
+use indexland::indexing_type::IndexingType;
 
 use super::{
     foreach_unique::parse_op_foreach_unique,

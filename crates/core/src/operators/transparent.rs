@@ -1,3 +1,5 @@
+use indexland::IndexingType;
+
 use crate::{
     chain::ChainId,
     cli::{
@@ -8,7 +10,6 @@ use crate::{
     operators::operator::TransformInstatiation,
     options::session_setup::SessionSetupData,
     typeline_error::TypelineError,
-    utils::indexing_type::IndexingType,
 };
 
 use super::{

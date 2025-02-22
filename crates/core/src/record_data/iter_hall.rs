@@ -7,10 +7,8 @@ use std::{
 
 use thin_vec::ThinVec;
 
-use crate::{
-    operators::transform::TransformId,
-    utils::{debuggable_nonmax::DebuggableNonMaxU32, universe::Universe},
-};
+use crate::operators::transform::TransformId;
+use indexland::{debuggable_nonmax::DebuggableNonMaxU32, universe::Universe};
 
 use super::{
     action_buffer::ActorId,

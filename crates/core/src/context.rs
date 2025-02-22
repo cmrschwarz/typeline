@@ -41,11 +41,14 @@ use crate::{
     typeline_error::ContextualizedTypelineError,
     utils::{
         identity_hasher::BuildIdentityHasher,
-        index_vec::IndexVec,
-        indexing_type::{IndexingType, IndexingTypeRange},
         maybe_boxed::MaybeBoxed,
         string_store::{StringStore, StringStoreEntry},
     },
+};
+
+use indexland::{
+    index_vec::IndexVec,
+    indexing_type::{IndexingType, IndexingTypeRange},
 };
 
 pub struct JobDescription {

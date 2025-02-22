@@ -13,11 +13,20 @@ use std::{
     sync::Arc,
 };
 
+use indexland::{
+    index_newtype,
+    index_slice::IndexSlice,
+    index_vec::IndexVec,
+    indexing_type::IndexingType,
+    phantom_slot::PhantomSlot,
+    stable_universe::StableUniverse,
+    temp_vec::{TempVec, TransmutableContainer},
+};
+
 use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
     context::SessionData,
-    index_newtype,
     job::JobData,
     liveness_analysis::{LivenessData, OperatorLivenessOutput},
     options::session_setup::SessionSetupData,
@@ -34,14 +43,6 @@ use crate::{
         stream_value::StreamValueUpdate,
     },
     typeline_error::TypelineError,
-    utils::{
-        index_slice::IndexSlice,
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
-        phantom_slot::PhantomSlot,
-        stable_universe::StableUniverse,
-        temp_vec::{TempVec, TransmutableContainer},
-    },
 };
 use ast::{
     AccessIdx, Expr, ExternIdentId, LetBindingData, LetBindingId,

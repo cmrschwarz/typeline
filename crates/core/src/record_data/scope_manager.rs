@@ -3,17 +3,19 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use indexland::{
+    debuggable_nonmax::DebuggableNonMaxU32, index_newtype,
+    indexing_type::IndexingType, universe::Universe,
+};
+
 use crate::{
     cli::call_expr::Argument,
-    index_newtype,
     operators::operator::Operator,
     options::session_setup::SessionSetupData,
     typeline_error::TypelineError,
     utils::{
-        debuggable_nonmax::DebuggableNonMaxU32,
-        identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
-        string_store::StringStoreEntry, text_write::MaybeTextWrite,
-        universe::Universe,
+        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
+        text_write::MaybeTextWrite,
     },
 };
 

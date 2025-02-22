@@ -1,4 +1,5 @@
 use arrayvec::ArrayString;
+use indexland::IndexingType;
 use metamatch::metamatch;
 use regex::bytes;
 use smallvec::SmallVec;
@@ -39,7 +40,6 @@ use crate::{
     typeline_error::TypelineError,
     utils::{
         escaped_writer::{EscapedFmtWriter, ESCAPE_DOUBLE_QUOTES},
-        indexing_type::IndexingType,
         int_string_conversions::{
             bool_to_str, f64_to_str, i64_to_str, usize_to_str,
             USIZE_MAX_DECIMAL_DIGITS,

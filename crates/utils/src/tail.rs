@@ -18,11 +18,12 @@ use typeline_core::{
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
     typeline_error::TypelineError,
     utils::{
-        indexing_type::IndexingType,
         int_string_conversions::parse_int_with_units,
         string_store::StringStoreEntry,
     },
 };
+
+use indexland::indexing_type::IndexingType;
 
 #[derive(Default)]
 pub struct OpTail {

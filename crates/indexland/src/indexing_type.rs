@@ -248,24 +248,24 @@ macro_rules! index_newtype {
         #[repr(transparent)]
         $type_vis struct $name ($base_vis $base_type);
 
-        impl $crate::utils::indexing_type::IndexingType for $name {
+        impl $crate::indexing_type::IndexingType for $name {
             type IndexBaseType = $base_type;
-            const ZERO: Self = $name(<$base_type as $crate::utils::indexing_type::IndexingType>::ZERO);
-            const ONE: Self = $name(<$base_type as $crate::utils::indexing_type::IndexingType>::ONE);
-            const MAX_VALUE: Self = $name(<$base_type as $crate::utils::indexing_type::IndexingType>::MAX_VALUE);
+            const ZERO: Self = $name(<$base_type as $crate::indexing_type::IndexingType>::ZERO);
+            const ONE: Self = $name(<$base_type as $crate::indexing_type::IndexingType>::ONE);
+            const MAX_VALUE: Self = $name(<$base_type as $crate::indexing_type::IndexingType>::MAX_VALUE);
             #[inline(always)]
             fn into_usize(self) -> usize {
-                <$base_type as $crate::utils::indexing_type::IndexingType>::into_usize(self.0)
+                <$base_type as $crate::indexing_type::IndexingType>::into_usize(self.0)
             }
             #[inline(always)]
             fn from_usize(v: usize) -> Self {
-                $name(<$base_type as $crate::utils::indexing_type::IndexingType>::from_usize(v))
+                $name(<$base_type as $crate::indexing_type::IndexingType>::from_usize(v))
             }
             fn wrapping_add(self, other: Self) -> Self {
-               $name(<$base_type as  $crate::utils::indexing_type::IndexingType>::wrapping_add(self.0, other.0))
+               $name(<$base_type as  $crate::indexing_type::IndexingType>::wrapping_add(self.0, other.0))
             }
             fn wrapping_sub(self, other: Self) -> Self {
-                $name(<$base_type as $crate::utils::indexing_type::IndexingType>::wrapping_sub(self.0, other.0))
+                $name(<$base_type as $crate::indexing_type::IndexingType>::wrapping_sub(self.0, other.0))
             }
         }
 
@@ -282,13 +282,13 @@ macro_rules! index_newtype {
         impl From<usize> for $name {
             #[inline(always)]
             fn from(v: usize) -> $name {
-                $name(<$base_type as $crate::utils::indexing_type::IndexingType>::from_usize(v))
+                $name(<$base_type as $crate::indexing_type::IndexingType>::from_usize(v))
             }
         }
         impl From<$name> for usize {
             #[inline(always)]
             fn from(v: $name) -> usize {
-                <$base_type as $crate::utils::indexing_type::IndexingType>::into_usize(v.0)
+                <$base_type as $crate::indexing_type::IndexingType>::into_usize(v.0)
             }
         }
 

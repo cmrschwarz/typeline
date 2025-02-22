@@ -15,7 +15,6 @@ use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
     context::SessionData,
-    index_newtype,
     job::JobData,
     liveness_analysis::{AccessFlags, LivenessData, OperatorLivenessOutput},
     options::{
@@ -59,20 +58,21 @@ use crate::{
     },
     typeline_error::TypelineError,
     utils::{
-        debuggable_nonmax::DebuggableNonMaxUsize,
         divide_by_char_len,
         escaped_writer::{escape_to_text_write, ESCAPE_DOUBLE_QUOTES},
-        index_slice::IndexSlice,
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
         int_string_conversions::{usize_to_str, USIZE_MAX_DECIMAL_DIGITS},
         io::PointerWriter,
         lazy_lock_guard::LazyRwLockGuard,
         string_store::{StringStore, StringStoreEntry},
         text_write::{TextWrite, TextWriteFormatAdapter, TextWriteIoAdapter},
-        universe::CountedUniverse,
         MAX_UTF8_CHAR_LEN,
     },
+};
+
+use indexland::{
+    debuggable_nonmax::DebuggableNonMaxUsize, index_newtype,
+    index_slice::IndexSlice, index_vec::IndexVec, indexing_type::IndexingType,
+    universe::CountedUniverse,
 };
 use metamatch::metamatch;
 use smallstr::SmallString;
@@ -2335,12 +2335,11 @@ impl<'a> Transform<'a> for TfFormat<'a> {
 mod test {
     use std::borrow::Cow;
 
-    use crate::{
-        operators::format::{
-            FormatFillAlignment, FormatFillSpec, FormatKey, FormatKeyRefData,
-            FormatKeyRefId, FormatKeyRefType, FormatOptions, FormatWidthSpec,
-        },
-        utils::{index_vec::IndexVec, indexing_type::IndexingType},
+    use indexland::{index_vec::IndexVec, indexing_type::IndexingType};
+
+    use crate::operators::format::{
+        FormatFillAlignment, FormatFillSpec, FormatKey, FormatKeyRefData,
+        FormatKeyRefId, FormatKeyRefType, FormatOptions, FormatWidthSpec,
     };
 
     use super::{parse_format_string, FormatPart};

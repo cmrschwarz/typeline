@@ -17,6 +17,7 @@ doctest = false
 
 [dependencies]
 typeline_core = { version = "0.1", path = "../core", features = ["serde"] }
+indexland = { path = "../indexland" }
 serde = "1.0.217"
 serde_json = "1.0.135"
 sonic-rs = "0.3.17"

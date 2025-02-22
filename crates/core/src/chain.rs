@@ -1,8 +1,9 @@
+use indexland::{index_newtype, index_vec::IndexVec};
+
 use crate::{
-    index_newtype,
     operators::operator::{OffsetInChain, OperatorId},
     record_data::scope_manager::ScopeId,
-    utils::{index_vec::IndexVec, string_store::StringStoreEntry},
+    utils::string_store::StringStoreEntry,
 };
 
 index_newtype! {

@@ -1,5 +1,6 @@
 #![cfg(not(miri))] // miri does not support FFI, which we need for pyo3
 
+use indexland::indexing_type::IndexingType;
 use num::BigRational;
 use typeline_core::{
     cli::call_expr::Span,
@@ -11,7 +12,6 @@ use typeline_core::{
     options::context_builder::ContextBuilder,
     record_data::{array::Array, field_value::FieldValue, object::Object},
     typeline_error::TypelineError,
-    utils::indexing_type::IndexingType,
 };
 use typeline_ext_python::py::create_op_py;
 use typeline_ext_utils::sequence::create_op_seqn;
@@ -73,7 +73,7 @@ fn python_undefined_var() -> Result<(), TypelineError> {
         res,
         [OperatorApplicationError::new(
             "Python: NameError: name 'foo' is not defined",
-            OperatorId::zero()
+            OperatorId::ZERO
         )]
     );
     Ok(())

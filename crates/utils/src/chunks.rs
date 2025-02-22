@@ -21,8 +21,9 @@ use typeline_core::{
         iter_hall::IterKind,
     },
     typeline_error::TypelineError,
-    utils::indexing_type::IndexingType,
 };
+
+use indexland::indexing_type::IndexingType;
 
 use typeline_core::operators::{
     errors::OperatorCreationError,

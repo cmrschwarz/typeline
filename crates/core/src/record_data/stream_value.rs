@@ -10,15 +10,15 @@ use std::{
 
 use smallvec::SmallVec;
 
+use indexland::{index_newtype, universe::Universe};
+
 use crate::{
-    index_newtype,
     operators::{errors::OperatorApplicationError, transform::TransformId},
     utils::{
         escaped_writer::EscapedWriter,
         maybe_text::{MaybeText, MaybeTextCow, MaybeTextRef},
         retain_string_range, retain_vec_range, subrange,
         text_write::{TextWrite, TextWriteFormatAdapter, TextWriteIoAdapter},
-        universe::Universe,
     },
 };
 
@@ -1700,7 +1700,7 @@ impl<'a> StreamValueManager<'a> {
 
         #[cfg(feature = "debug_logging_streams")]
         {
-            use crate::utils::indexing_type::IndexingType;
+            use indexland::indexing_type::IndexingType;
             eprintln!(
                 ":: tf {:02} dropping stream value subscription to sv {sv_id:02} (subs: {:?}) [{}done, rc {}, {:?}]",
                 tf_id_to_remove.map(|v|v.into_usize() as i64).unwrap_or(-1),

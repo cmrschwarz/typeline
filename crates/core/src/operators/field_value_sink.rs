@@ -16,8 +16,8 @@ use crate::{
         iter_hall::FieldIterId,
         push_interface::PushInterface,
     },
-    utils::universe::CountedUniverse,
 };
+use indexland::universe::CountedUniverse;
 use metamatch::metamatch;
 use std::sync::{Arc, Mutex, MutexGuard};
 

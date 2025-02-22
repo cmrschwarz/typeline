@@ -26,13 +26,12 @@ use typeline_core::{
     record_data::{
         field::Field, variable_sized_type_inserter::VariableSizeTypeInserter,
     },
-    utils::{
-        indexing_type::IndexingType,
-        int_string_conversions::{
-            i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
-        },
+    utils::int_string_conversions::{
+        i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
     },
 };
+
+use indexland::indexing_type::IndexingType;
 
 const FAST_SEQ_MAX_STEP: i64 = 200;
 

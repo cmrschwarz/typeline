@@ -4,7 +4,6 @@ use indexmap::IndexMap;
 use num::{BigInt, FromPrimitive};
 use serde::{de::Visitor, Deserializer};
 use typeline_core::{
-    index_newtype,
     record_data::{
         field_data::{FieldData, FieldValueRepr},
         field_value::FieldValue,
@@ -13,13 +12,14 @@ use typeline_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     utils::{
-        debuggable_nonmax::DebuggableNonMaxUsize,
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
         int_string_conversions::usize_to_str,
-        stable_vec::StableVec,
         string_store::{StringStore, StringStoreEntry},
     },
+};
+
+use indexland::{
+    debuggable_nonmax::DebuggableNonMaxUsize, index_newtype,
+    index_vec::IndexVec, indexing_type::IndexingType, stable_vec::StableVec,
 };
 
 index_newtype! {

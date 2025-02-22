@@ -5,10 +5,9 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::utils::{
-    debuggable_nonmax::DebuggableNonMaxU32, string_store::StringStoreEntry,
-    universe::Universe,
-};
+use indexland::{debuggable_nonmax::DebuggableNonMaxU32, universe::Universe};
+
+use crate::utils::string_store::StringStoreEntry;
 
 use super::field_data::FieldData;
 

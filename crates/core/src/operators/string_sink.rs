@@ -5,6 +5,7 @@ use std::{
 };
 
 use bstr::ByteSlice;
+use indexland::universe::CountedUniverse;
 use metamatch::metamatch;
 
 use crate::{
@@ -41,7 +42,6 @@ use crate::{
             MaybeTextWriteFlaggedAdapter, MaybeTextWritePanicAdapter,
             TextWriteIoAdapter,
         },
-        universe::CountedUniverse,
     },
     NULL_STR, UNDEFINED_STR,
 };

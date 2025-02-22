@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bstr::ByteSlice;
+use indexland::IndexingType;
 use metamatch::metamatch;
 
 use crate::{
@@ -25,7 +26,6 @@ use crate::{
         encoding::{
             self, utf8_surrocate_escape, UTF8_REPLACEMENT_CHARACTER_BYTES,
         },
-        indexing_type::IndexingType,
         int_string_conversions::{f64_to_str, i64_to_str},
         retain_vec_range,
     },

@@ -2,11 +2,12 @@ use std::{any::Any, collections::HashMap};
 
 use smallstr::SmallString;
 
+use indexland::{index_newtype, IndexingType};
+
 use crate::{
     chain::{Chain, ChainId},
     cli::call_expr::Span,
     context::SessionData,
-    index_newtype,
     job::{add_transform_to_job, Job},
     liveness_analysis::{
         BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
@@ -16,9 +17,7 @@ use crate::{
         field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
     },
     typeline_error::TypelineError,
-    utils::{
-        identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
-    },
+    utils::identity_hasher::BuildIdentityHasher,
 };
 
 use super::transform::{TransformData, TransformId, TransformState};

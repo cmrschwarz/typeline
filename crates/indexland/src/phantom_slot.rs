@@ -5,7 +5,7 @@ use std::{
 
 /// An alias type for `T` that
 /// - cannot be constructed (safely)
-/// - has the same size, align and niches as T
+/// - has the same size, align, **and niches** as T
 /// - has no Drop impl
 /// - implementis `Send`, `Sync`, `Unpin`, 'Clone', `UnwindSafe` and
 ///   `RefUnwindSafe` regardless of `T`

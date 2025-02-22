@@ -1,6 +1,6 @@
 use std::iter::Peekable;
 
-use crate::utils::random_access_container::RandomAccessContainer;
+use indexland::random_access_container::RandomAccessContainer;
 
 use super::{
     action_buffer::ActorId,
@@ -601,12 +601,11 @@ pub fn merge_action_lists<'a>(
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        record_data::{action_buffer::ActorId, field_data::FieldValueRepr},
-        utils::indexing_type::IndexingType,
-    };
-
     use super::FieldActionKind;
+    use crate::record_data::{
+        action_buffer::ActorId, field_data::FieldValueRepr,
+    };
+    use indexland::indexing_type::IndexingType;
 
     use super::FieldAction;
     use rstest::rstest;

@@ -19,7 +19,6 @@ use typeline_core::{
         CliArgumentError,
     },
     context::SessionData,
-    index_newtype,
     job::{Job, JobData},
     liveness_analysis::{
         BasicBlockId, LivenessData, OpOutputIdx, OperatorLivenessOutput,
@@ -75,13 +74,17 @@ use typeline_core::{
     },
     typeline_error::TypelineError,
     utils::{
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
         int_string_conversions::{bool_to_str, f64_to_str, i64_to_str},
         maybe_text::MaybeText,
         string_store::{StringStoreEntry, INVALID_STRING_STORE_ENTRY},
-        universe::{CountedUniverse, Universe},
     },
+};
+
+use indexland::{
+    index_newtype,
+    index_vec::IndexVec,
+    indexing_type::IndexingType,
+    universe::{CountedUniverse, Universe},
 };
 
 index_newtype! {

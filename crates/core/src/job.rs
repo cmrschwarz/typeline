@@ -37,10 +37,11 @@ use crate::{
         scope_manager::{ScopeId, ScopeManager},
         stream_value::{StreamValueManager, StreamValueUpdate},
     },
-    utils::{
-        index_slice::IndexSlice, index_vec::IndexVec,
-        indexing_type::IndexingType, universe::Universe,
-    },
+};
+
+use indexland::{
+    index_slice::IndexSlice, index_vec::IndexVec, indexing_type::IndexingType,
+    universe::Universe,
 };
 
 // a helper type so we can pass a transform handler typed

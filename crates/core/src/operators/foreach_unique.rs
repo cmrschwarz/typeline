@@ -13,8 +13,9 @@ use crate::{
         iter_hall::{FieldIterId, IterKind},
     },
     typeline_error::TypelineError,
-    utils::indexing_type::IndexingType,
 };
+
+use indexland::indexing_type::IndexingType;
 
 use super::{
     nop::create_op_nop,

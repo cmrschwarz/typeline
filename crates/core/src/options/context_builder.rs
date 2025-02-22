@@ -21,8 +21,9 @@ use crate::{
     typeline_error::{
         CollectTypeMissmatch, ContextualizedTypelineError, TypelineError,
     },
-    utils::index_vec::IndexVec,
 };
+
+use indexland::index_vec::IndexVec;
 
 use super::{
     chain_settings::{

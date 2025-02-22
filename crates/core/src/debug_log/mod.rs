@@ -34,11 +34,12 @@ use crate::{
         },
     },
     utils::{
-        index_slice::IndexSlice, indexing_type::IndexingType,
         lazy_lock_guard::LazyRwLockGuard, maybe_text::MaybeText,
         string_store::StringStore,
     },
 };
+
+use indexland::{index_slice::IndexSlice, indexing_type::IndexingType};
 
 struct MatchChain {
     ms_id: MatchSetId,

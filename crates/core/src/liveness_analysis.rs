@@ -12,16 +12,18 @@ use ref_cast::RefCast;
 use smallvec::SmallVec;
 use subenum::subenum;
 
+use indexland::{
+    get_two_distinct_mut, index_newtype,
+    index_vec::IndexVec,
+    indexing_type::{IndexingType, IndexingTypeRange},
+};
+
 use crate::{
     chain::{Chain, ChainId},
     context::SessionData,
-    index_newtype,
     operators::operator::{OffsetInChain, OperatorId, OutputFieldKind},
     utils::{
-        get_two_distinct_mut,
         identity_hasher::BuildIdentityHasher,
-        index_vec::IndexVec,
-        indexing_type::{IndexingType, IndexingTypeRange},
         string_store::{StringStore, StringStoreEntry},
     },
 };

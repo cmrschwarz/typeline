@@ -41,9 +41,10 @@ use typeline_core::{
         },
         varying_type_inserter::VaryingTypeInserter,
     },
-    utils::universe::CountedUniverse,
 };
 use url::{ParseError, Url};
+
+use indexland::universe::CountedUniverse;
 
 use crate::tls_client::{make_config, TlsSettings};
 

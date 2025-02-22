@@ -30,12 +30,13 @@ use crate::{
     },
     utils::{
         identity_hasher::BuildIdentityHasher,
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
         maybe_text::MaybeTextRef,
         string_store::{StringStore, StringStoreEntry},
     },
 };
+
+use indexland::{index_vec, index_vec::IndexVec, indexing_type::IndexingType};
+
 use std::{
     borrow::Cow,
     collections::HashMap,

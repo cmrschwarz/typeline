@@ -35,8 +35,9 @@ use typeline_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     tyson::parse_tyson,
-    utils::indexing_type::IndexingType,
 };
+
+use indexland::indexing_type::IndexingType;
 
 #[derive(Clone, Default)]
 pub struct OpFromTyson {}

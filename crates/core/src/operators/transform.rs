@@ -1,10 +1,13 @@
 use std::{any::Any, fmt::Write, sync::Arc};
 
+use indexland::{
+    debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
+    index_newtype,
+};
 use smallstr::SmallString;
 
 use crate::{
     context::{ContextData, VentureDescription},
-    index_newtype,
     job::{Job, JobData},
     record_data::{
         field::FieldId,
@@ -12,7 +15,6 @@ use crate::{
         match_set::MatchSetId,
         stream_value::StreamValueUpdate,
     },
-    utils::debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
 };
 
 use super::operator::{OperatorId, OutputFieldKind};

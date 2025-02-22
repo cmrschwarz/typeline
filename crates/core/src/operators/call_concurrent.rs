@@ -31,10 +31,11 @@ use crate::{
     },
     typeline_error::TypelineError,
     utils::{
-        identity_hasher::BuildIdentityHasher, indexing_type::IndexingType,
-        string_store::StringStoreEntry,
+        identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
     },
 };
+
+use indexland::indexing_type::IndexingType;
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},

@@ -33,14 +33,13 @@ use typeline_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     typeline_error::TypelineError,
-    utils::{
-        debuggable_nonmax::DebuggableNonMaxUsize,
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
-        stable_vec::StableVec,
-        string_store::{StringStore, StringStoreEntry},
-        temp_vec::TransmutableContainer,
-    },
+    utils::string_store::{StringStore, StringStoreEntry},
+};
+
+use indexland::{
+    debuggable_nonmax::DebuggableNonMaxUsize, index_vec::IndexVec,
+    indexing_type::IndexingType, stable_vec::StableVec,
+    temp_vec::TransmutableContainer,
 };
 
 use crate::json_visitor::{

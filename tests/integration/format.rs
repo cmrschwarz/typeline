@@ -1,10 +1,8 @@
+use indexland::indexing_type::IndexingType;
 use rstest::rstest;
-use typeline::{
-    operators::{
-        operator::OperatorId,
-        string_sink::{create_op_string_sink, StringSinkHandle},
-    },
-    utils::indexing_type::IndexingType,
+use typeline::operators::{
+    operator::OperatorId,
+    string_sink::{create_op_string_sink, StringSinkHandle},
 };
 use typeline_core::{
     operators::{

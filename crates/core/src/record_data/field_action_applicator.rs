@@ -994,22 +994,21 @@ impl FieldActionApplicator {
 mod test {
     use std::collections::VecDeque;
 
-    use crate::{
-        record_data::{
-            action_buffer::ActorId,
-            field_action::{FieldAction, FieldActionKind},
-            field_action_applicator::FieldActionApplicator,
-            field_data::{
-                field_value_flags, FieldData, FieldValueFormat,
-                FieldValueHeader, FieldValueRepr, RunLength,
-            },
-            field_value::FieldValue,
-            iter::field_iterator::FieldIterator,
-            iter_hall::{IterState, IterStateRaw},
-            push_interface::PushInterface,
+    use crate::record_data::{
+        action_buffer::ActorId,
+        field_action::{FieldAction, FieldActionKind},
+        field_action_applicator::FieldActionApplicator,
+        field_data::{
+            field_value_flags, FieldData, FieldValueFormat, FieldValueHeader,
+            FieldValueRepr, RunLength,
         },
-        utils::indexing_type::IndexingType,
+        field_value::FieldValue,
+        iter::field_iterator::FieldIterator,
+        iter_hall::{IterState, IterStateRaw},
+        push_interface::PushInterface,
     };
+
+    use indexland::indexing_type::IndexingType;
 
     const LEAN_LEFT: ActorId = ActorId::MAX_VALUE;
     const LEAN_RIGHT: ActorId = ActorId::ZERO;

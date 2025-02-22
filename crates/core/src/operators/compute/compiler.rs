@@ -1,15 +1,14 @@
+use indexland::{
+    index_newtype, index_slice::IndexSlice, index_vec::IndexVec,
+    indexing_type::IndexingType,
+};
+
 use crate::{
-    index_newtype,
     record_data::{
         field_value::FieldValue,
         object::{Object, ObjectKeysInterned},
     },
-    utils::{
-        index_slice::IndexSlice,
-        index_vec::IndexVec,
-        indexing_type::IndexingType,
-        string_store::{StringStore, StringStoreEntry},
-    },
+    utils::string_store::{StringStore, StringStoreEntry},
 };
 
 use super::ast::{

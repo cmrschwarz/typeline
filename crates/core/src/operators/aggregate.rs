@@ -12,8 +12,9 @@ use crate::{
         iter::field_iterator::FieldIterator, iter_hall::FieldIterId,
     },
     typeline_error::TypelineError,
-    utils::{index_vec::IndexVec, indexing_type::IndexingType},
 };
+
+use indexland::{index_vec::IndexVec, indexing_type::IndexingType};
 
 use super::{
     nop_copy::create_op_nop_copy,

@@ -15,8 +15,10 @@ use typeline_core::{
     },
     record_data::{action_buffer::ActorId, group_track::GroupTrackIterRef},
     typeline_error::TypelineError,
-    utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
+    utils::string_store::StringStoreEntry,
 };
+
+use indexland::indexing_type::IndexingType;
 
 #[derive(Default)]
 pub struct OpHead {

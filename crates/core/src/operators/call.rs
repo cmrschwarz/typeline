@@ -11,8 +11,9 @@ use crate::{
         field::FieldId, group_track::GroupTrackId, match_set::MatchSetId,
     },
     typeline_error::TypelineError,
-    utils::indexing_type::IndexingType,
 };
+
+use indexland::IndexingType;
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},

@@ -5,13 +5,12 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use crate::{
-    index_newtype,
-    utils::{
-        debuggable_nonmax::DebuggableNonMaxU32, indexing_type::IndexingType,
-        size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
-    },
+use indexland::{
+    debuggable_nonmax::DebuggableNonMaxU32, index_newtype,
+    indexing_type::IndexingType, universe::Universe,
 };
+
+use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
 
 use super::{
     action_buffer::{
@@ -2043,11 +2042,10 @@ mod test_action_lists_through_iter {
             match_set::MatchSetManager,
             scope_manager::{ScopeId, ScopeManager},
         },
-        utils::{
-            indexing_type::IndexingType,
-            size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
-        },
+        utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
+
+    use indexland::{indexing_type::IndexingType, universe::Universe};
 
     use super::{
         testing_helpers::GroupTrackIterStateRaw, GroupTrackIterId,
@@ -2181,11 +2179,11 @@ mod test_action_lists {
             field_action::{FieldAction, FieldActionKind},
             group_track::{GroupTrack, GroupTrackIterSortedIndex},
         },
-        utils::{
-            indexing_type::IndexingType,
-            size_classed_vec_deque::SizeClassedVecDeque, universe::Universe,
-        },
+        utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
+
+    use indexland::{indexing_type::IndexingType, universe::Universe};
+
     use std::cell::Cell;
 
     use super::testing_helpers::GroupTrackIterStateRaw;

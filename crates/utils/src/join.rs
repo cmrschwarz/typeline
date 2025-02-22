@@ -53,15 +53,18 @@ use typeline_core::{
     },
     typeline_error::TypelineError,
     utils::{
-        debuggable_nonmax::DebuggableNonMaxUsize,
         int_string_conversions::{
             bool_to_str, f64_to_str, i64_to_str, usize_to_str,
         },
         lazy_lock_guard::LazyRwLockGuard,
         maybe_text::{MaybeText, MaybeTextBoxed, MaybeTextCow, MaybeTextRef},
         text_write::MaybeTextWritePanicAdapter,
-        universe::{RefHandoutStack, Universe},
     },
+};
+
+use indexland::{
+    debuggable_nonmax::DebuggableNonMaxUsize,
+    universe::{RefHandoutStack, Universe},
 };
 
 #[derive(Clone)]

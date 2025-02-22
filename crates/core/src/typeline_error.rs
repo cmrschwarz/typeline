@@ -25,8 +25,9 @@ use crate::{
         session_setup::{SessionSetupData, SessionSetupOptions},
     },
     record_data::{field_data::FieldValueRepr, field_value::FieldValue},
-    utils::{index_slice::IndexSlice, indexing_type::IndexingType},
 };
+
+use indexland::{index_slice::IndexSlice, indexing_type::IndexingType};
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 #[error("in chain {chain_id}: {message}")]

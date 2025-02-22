@@ -42,10 +42,13 @@ use typeline_core::{
     typeline_error::TypelineError,
     utils::{
         lazy_lock_guard::LazyRwLockGuard,
-        phantom_slot::PhantomSlot,
         string_store::{StringStore, StringStoreEntry},
-        temp_vec::{transmute_vec, TransmutableContainer},
     },
+};
+
+use indexland::{
+    phantom_slot::PhantomSlot,
+    temp_vec::{transmute_vec, TransmutableContainer},
 };
 
 struct PyTypes {

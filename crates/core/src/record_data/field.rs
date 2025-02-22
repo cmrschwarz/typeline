@@ -6,9 +6,8 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::{
-    index_newtype,
-    utils::{indexing_type::IndexingType, universe::Universe},
+use indexland::{
+    index_newtype, indexing_type::IndexingType, universe::Universe,
 };
 
 use super::{

@@ -1,14 +1,14 @@
 use std::collections::{hash_map::Entry, HashMap};
 
+use indexland::{
+    index_newtype, index_vec::IndexVec, indexing_type::IndexingType,
+};
+
 use crate::{
-    index_newtype,
     operators::compute::ast::BinaryOpKind,
     record_data::field_value::{FieldValue, FieldValueKind},
     tyson::TysonParseErrorKind,
-    utils::{
-        index_vec::IndexVec, indexing_type::IndexingType,
-        string_store::INVALID_STRING_STORE_ENTRY, MAX_UTF8_CHAR_LEN,
-    },
+    utils::{string_store::INVALID_STRING_STORE_ENTRY, MAX_UTF8_CHAR_LEN},
 };
 use arrayvec::ArrayVec;
 
@@ -788,8 +788,9 @@ mod test {
             lexer::ComputeExprLexer,
         },
         record_data::field_value::FieldValue,
-        utils::{index_vec::IndexVec, indexing_type::IndexingType},
     };
+
+    use indexland::{index_vec::IndexVec, indexing_type::IndexingType};
 
     use super::ComputeExprParser;
 

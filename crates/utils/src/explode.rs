@@ -30,11 +30,10 @@ use typeline_core::{
         varying_type_inserter::VaryingTypeInserter,
     },
     typeline_error::TypelineError,
-    utils::{
-        stable_vec::StableVec, string_store::StringStoreEntry,
-        temp_vec::BorrowedContainer,
-    },
+    utils::string_store::StringStoreEntry,
 };
+
+use indexland::{stable_vec::StableVec, temp_vec::BorrowedContainer};
 
 #[derive(Default)]
 pub struct OpExplode {

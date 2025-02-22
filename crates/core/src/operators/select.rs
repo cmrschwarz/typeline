@@ -1,10 +1,12 @@
+use indexland::IndexingType;
+
 use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
     liveness_analysis::{OperatorCallEffect, VarId},
     options::session_setup::SessionSetupData,
     typeline_error::TypelineError,
-    utils::{indexing_type::IndexingType, string_store::StringStoreEntry},
+    utils::string_store::StringStoreEntry,
 };
 
 use super::{

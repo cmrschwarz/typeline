@@ -18,9 +18,11 @@ use typeline::{
         record_set::RecordSet,
     },
     typeline_error::TypelineError,
-    utils::{index_slice::IndexSlice, text_write::TextWriteIoAdapter},
+    utils::text_write::TextWriteIoAdapter,
     DEFAULT_EXTENSION_REGISTRY,
 };
+
+use indexland::index_slice::IndexSlice;
 
 fn run() -> Result<bool, String> {
     let repl = cfg!(feature = "repl");

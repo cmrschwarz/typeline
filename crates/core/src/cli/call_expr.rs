@@ -1,6 +1,7 @@
 use std::{borrow::Cow, fmt::Debug};
 
 use bstr::ByteSlice;
+use indexland::{debuggable_nonmax::DebuggableNonMaxU32, IndexingType};
 use num::PrimInt;
 
 use crate::{
@@ -16,8 +17,6 @@ use crate::{
         scope_manager::ScopeId,
     },
     utils::{
-        debuggable_nonmax::DebuggableNonMaxU32,
-        indexing_type::IndexingType,
         lazy_lock_guard::{LazyRwLockGuard, LazyRwLockWriteGuard},
         maybe_text::{MaybeText, MaybeTextCow},
         string_store::StringStore,
