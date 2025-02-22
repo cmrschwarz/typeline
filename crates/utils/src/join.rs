@@ -64,7 +64,7 @@ use typeline_core::{
 
 use indexland::{
     debuggable_nonmax::DebuggableNonMaxUsize,
-    universe::{RefHandoutStack, Universe},
+    universe::{Universe, UniverseRefHandoutStack},
 };
 
 #[derive(Clone)]

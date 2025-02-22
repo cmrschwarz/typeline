@@ -59,5 +59,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       # cannot use stable cargo readme as they don't support workspace based configuration yet
       - run: cargo install --git=https://github.com/yassun7010/cargo-readme --branch=support_cargo_toml cargo-readme --rev=66e0176290ebc32bc110a020de627e98d6b190cc
-      - run: cargo readme > README.md
+
+      - name: cargo readme (typeline)
+        run: cargo readme > README.md
+
+      - name: cargo readme (indexland)
+        working-directory: ./crates/indexland
+        run: cargo readme > README.md
+
       - run: git diff --exit-code
