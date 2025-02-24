@@ -18,7 +18,7 @@ use typeline_core::{
     utils::string_store::StringStoreEntry,
 };
 
-use indexland::indexing_type::IndexingType;
+use indexland::idx::Idx;
 
 #[derive(Default)]
 pub struct OpHead {

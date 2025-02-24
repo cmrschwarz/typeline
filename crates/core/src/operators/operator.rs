@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use smallstr::SmallString;
 
-use indexland::{index_newtype, IndexingType};
+use indexland::{index_newtype, Idx};
 
 use crate::{
     chain::{Chain, ChainId},
@@ -95,9 +95,9 @@ impl OperatorBase {
             offset_in_chain,
             desired_batch_size,
             span,
-            op_data_id: OperatorDataId::MAX_VALUE,
-            outputs_start: OpOutputIdx::MAX_VALUE,
-            outputs_end: OpOutputIdx::MAX_VALUE,
+            op_data_id: OperatorDataId::MAX,
+            outputs_start: OpOutputIdx::MAX,
+            outputs_end: OpOutputIdx::MAX,
         }
     }
 }

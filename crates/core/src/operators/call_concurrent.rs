@@ -35,7 +35,7 @@ use crate::{
     },
 };
 
-use indexland::indexing_type::IndexingType;
+use indexland::idx::Idx;
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
@@ -454,10 +454,7 @@ impl<'a> Transform<'a> for TfCallConcurrent {
             .operators[OffsetInChain::ZERO];
         let mut venture_desc = VentureDescription {
             participans_needed: 2,
-            starting_points: smallvec::smallvec![
-                OperatorId::MAX_VALUE,
-                starting_op
-            ],
+            starting_points: smallvec::smallvec![OperatorId::MAX, starting_op],
             buffer: call.buffer.clone(),
         };
 

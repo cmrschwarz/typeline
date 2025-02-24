@@ -14,7 +14,7 @@ use crate::{
     typeline_error::TypelineError,
 };
 
-use indexland::{index_vec::IndexVec, indexing_type::IndexingType};
+use indexland::{idx::Idx, index_vec::IndexVec};
 
 use super::{
     nop_copy::create_op_nop_copy,
@@ -298,7 +298,7 @@ impl Operator for OpAggregate {
                 last_elem_multiplied: false,
                 actor_id,
                 iter_id,
-                trailer_tf_id: TransformId::MAX_VALUE,
+                trailer_tf_id: TransformId::MAX,
             }),
         );
         let mut sub_tfs = Vec::with_capacity(op_count);

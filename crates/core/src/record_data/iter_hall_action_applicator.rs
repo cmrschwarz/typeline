@@ -6,11 +6,11 @@ use std::{
 use num::Integer;
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxU32,
+    nonmax::NonMaxU32,
     index_newtype,
     index_slice::IndexSlice,
     index_vec::IndexVec,
-    indexing_type::IndexingType,
+    idx::Idx,
     random_access_container::RandomAccessContainer,
     temp_vec::{TempIndexVec, TempVec, TransmutableContainer},
     universe::Universe,
@@ -60,8 +60,8 @@ struct HeaderDropInstructions {
 }
 
 index_newtype! {
-    struct DataCowIndex(DebuggableNonMaxU32);
-    struct FullCowIndex(DebuggableNonMaxU32);
+    struct DataCowIndex(NonMaxU32);
+    struct FullCowIndex(NonMaxU32);
 }
 
 enum CowFieldIndex {
@@ -1336,9 +1336,9 @@ mod test_dead_data_drop {
         push_interface::PushInterface,
         scope_manager::ScopeManager,
     };
-    use indexland::indexing_type::IndexingType;
+    use indexland::idx::Idx;
 
-    const LEAN_LEFT: ActorId = ActorId::MAX_VALUE;
+    const LEAN_LEFT: ActorId = ActorId::MAX;
     const LEAN_RIGHT: ActorId = ActorId::ZERO;
 
     #[track_caller]

@@ -23,7 +23,7 @@ use typeline_core::{
     },
 };
 
-use indexland::indexing_type::IndexingType;
+use indexland::idx::Idx;
 
 #[derive(Default)]
 pub struct OpTail {

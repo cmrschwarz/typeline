@@ -1,6 +1,6 @@
 #![cfg(not(miri))] // miri does not support FFI, which we need for pyo3
 
-use indexland::indexing_type::IndexingType;
+use indexland::idx::Idx;
 use num::BigRational;
 use typeline_core::{
     cli::call_expr::Span,

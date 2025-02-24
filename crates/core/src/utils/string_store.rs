@@ -3,15 +3,15 @@ use std::{alloc::Layout, borrow::Cow, collections::HashMap, hash::Hash};
 use indexland::index_newtype;
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxU32, index_vec::IndexVec,
-    indexing_type::IndexingType,
+    nonmax::NonMaxU32, index_vec::IndexVec,
+    idx::Idx,
 };
 
 index_newtype! {
-    pub struct StringStoreEntry(DebuggableNonMaxU32);
+    pub struct StringStoreEntry(NonMaxU32);
 }
 pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry =
-    StringStoreEntry::MAX_VALUE;
+    StringStoreEntry::MAX;
 
 const MIN_BUCKET_CAP: usize = 64;
 

@@ -8,7 +8,7 @@ use std::{
 use thin_vec::ThinVec;
 
 use crate::operators::transform::TransformId;
-use indexland::{debuggable_nonmax::DebuggableNonMaxU32, universe::Universe};
+use indexland::{nonmax::NonMaxU32, universe::Universe};
 
 use super::{
     action_buffer::ActorId,
@@ -35,7 +35,7 @@ use super::{
     varying_type_inserter::VaryingTypeInserter,
 };
 
-pub type FieldIterId = DebuggableNonMaxU32;
+pub type FieldIterId = NonMaxU32;
 
 /// A COW Field reflects the state of another field **at a certain point
 /// in time**. This means that when source or target change, the other side

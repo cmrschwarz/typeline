@@ -12,8 +12,8 @@ use crate::{
     },
 };
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxUsize, index_newtype,
-    universe::Universe, IndexingType,
+    nonmax::NonMaxUsize, index_newtype,
+    universe::Universe, Idx,
 };
 
 use super::{
@@ -24,7 +24,7 @@ use super::{
 };
 
 index_newtype! {
-    pub struct MatchSetId(DebuggableNonMaxUsize);
+    pub struct MatchSetId(NonMaxUsize);
 }
 
 pub struct MatchSet {
@@ -72,7 +72,7 @@ impl MatchSetManager {
         let alias_id = fm.add_field_raw(
             ms_id,
             first_actor,
-            SnapshotRef(ActionGroupId::MAX_VALUE),
+            SnapshotRef(ActionGroupId::MAX),
             FieldData::default(),
         );
         sm.insert_field_name(scope_id, name, alias_id);
@@ -97,7 +97,7 @@ impl MatchSetManager {
     ) -> MatchSetId {
         let ms_id = self.match_sets.peek_claim_id();
         let ms = MatchSet {
-            dummy_field: FieldId::MAX_VALUE,
+            dummy_field: FieldId::MAX,
             active_scope: scope,
             stream_participants: Vec::new(),
             action_buffer: RefCell::new(ActionBuffer::new(ms_id)),

@@ -37,8 +37,8 @@ use typeline_core::{
 };
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxUsize, index_vec::IndexVec,
-    indexing_type::IndexingType, stable_vec::StableVec,
+    nonmax::NonMaxUsize, index_vec::IndexVec,
+    idx::Idx, stable_vec::StableVec,
     temp_vec::TransmutableContainer,
 };
 
@@ -76,7 +76,7 @@ pub struct TfJsonl<'a> {
         InserterIndex,
         VaryingTypeInserter<RefMut<'static, FieldData>>,
     >,
-    last_field_access: IndexVec<InserterIndex, Option<DebuggableNonMaxUsize>>,
+    last_field_access: IndexVec<InserterIndex, Option<NonMaxUsize>>,
     dyn_access: bool,
     inserter_map: IndexMap<StringStoreEntry, InserterIndex>,
     additional_fields: StableVec<PendingField>,
@@ -238,7 +238,7 @@ impl Operator for OpJsonl {
         let mut output_fields = IndexMap::new();
         let mut inserter_map = IndexMap::new();
         output_fields
-            .insert(StringStoreEntry::MAX_VALUE, tf_state.output_field);
+            .insert(StringStoreEntry::MAX, tf_state.output_field);
         for &name in &self.var_names {
             let field_id = job.job_data.field_mgr.add_field(
                 &job.job_data.match_set_mgr,
@@ -269,7 +269,7 @@ impl Operator for OpJsonl {
             last_field_access: self
                 .accessed_fields
                 .iter()
-                .map(|v| v.then_some(DebuggableNonMaxUsize::ZERO))
+                .map(|v| v.then_some(NonMaxUsize::ZERO))
                 .collect(),
             output_fields,
             inserter_map,
@@ -453,7 +453,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                     inserters[idx].push_zst(self.zst_to_push, gap, true);
                     if line_idx.is_some() {
                         *line_idx = Some(
-                            DebuggableNonMaxUsize::new(line_count).unwrap(),
+                            NonMaxUsize::new(line_count).unwrap(),
                         )
                     }
                 }
@@ -519,7 +519,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                                 true,
                             );
                         }
-                        *line_idx = DebuggableNonMaxUsize::new(
+                        *line_idx = NonMaxUsize::new(
                             line_count + usize::from(status.incomplete_line),
                         )
                         .unwrap();
@@ -578,7 +578,7 @@ fn read_in_lines<'a>(
     additional_fields: &'a StableVec<PendingField>,
     last_field_access: &mut IndexVec<
         InserterIndex,
-        Option<DebuggableNonMaxUsize>,
+        Option<NonMaxUsize>,
     >,
     opts: JsonlReadOptions,
     status: &mut ReadStatus,

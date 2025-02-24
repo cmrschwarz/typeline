@@ -1,6 +1,6 @@
 use std::ops::{Index, IndexMut};
 
-use indexland::indexing_type::IndexingType;
+use indexland::idx::Idx;
 
 #[derive(Clone, Default)]
 pub struct DynamicArrayFreelist<I, T> {
@@ -9,7 +9,7 @@ pub struct DynamicArrayFreelist<I, T> {
     free_slots: Vec<I>,
 }
 
-impl<I: IndexingType, T: Default + Clone> DynamicArrayFreelist<I, T> {
+impl<I: Idx, T: Default + Clone> DynamicArrayFreelist<I, T> {
     pub fn new(array_length: usize) -> Self {
         Self {
             data: Vec::with_capacity(array_length * 4),
@@ -44,7 +44,7 @@ impl<I: IndexingType, T: Default + Clone> DynamicArrayFreelist<I, T> {
     }
 }
 
-impl<I: IndexingType, T: Default + Clone> Index<I>
+impl<I: Idx, T: Default + Clone> Index<I>
     for DynamicArrayFreelist<I, T>
 {
     type Output = [T];
@@ -54,7 +54,7 @@ impl<I: IndexingType, T: Default + Clone> Index<I>
     }
 }
 
-impl<I: IndexingType, T: Default + Clone> IndexMut<I>
+impl<I: Idx, T: Default + Clone> IndexMut<I>
     for DynamicArrayFreelist<I, T>
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {

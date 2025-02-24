@@ -39,7 +39,7 @@ use crate::{
     },
 };
 
-use indexland::{index_slice::IndexSlice, indexing_type::IndexingType};
+use indexland::{index_slice::IndexSlice, idx::Idx};
 
 struct MatchChain {
     ms_id: MatchSetId,
@@ -477,7 +477,7 @@ fn match_chain_to_json(
             )));
 
         envs.push(json!({
-            "transform_id": tf_env.tf_id.map(IndexingType::into_usize),
+            "transform_id": tf_env.tf_id.map(Idx::into_usize),
             "transform_id_unique": unique_id,
             "transform_display_name": tf_env.tf_id.map(|id|tf_data[id].display_name(jd, id).to_string()),
             "subchains": subchains,
@@ -752,14 +752,14 @@ pub fn field_data_to_json(
         };
         json!({
             "variant": variant,
-            "source": info.source.map(IndexingType::into_usize),
+            "source": info.source.map(Idx::into_usize),
         })
     } else {
         Value::Null
     };
 
     let mut res = json!({
-        "id": field_info.id.map(IndexingType::into_usize),
+        "id": field_info.id.map(Idx::into_usize),
         "name": field_info.name,
         "producing_arg": field_info.producing_arg,
         "cow": cow,
@@ -1041,9 +1041,9 @@ fn group_track_to_json(
         "rows": rows,
         "iters": group_track_iters_to_json(&gt.iter_states),
         "iters_before_start": group_track_iters_to_json(&gt.iter_states[..iters_before_start]),
-        "parent": gt.parent_group_track_id().map(IndexingType::into_usize),
-        "alias_source": gt.alias_source.map(IndexingType::into_usize),
-        "corresponding_header": gt.corresponding_header.map(IndexingType::into_usize),
+        "parent": gt.parent_group_track_id().map(Idx::into_usize),
+        "alias_source": gt.alias_source.map(Idx::into_usize),
+        "corresponding_header": gt.corresponding_header.map(Idx::into_usize),
     });
 
     if jd.session_data.settings.debug_log_no_apply {

@@ -1,6 +1,6 @@
 use indexland::{
     index_newtype, index_slice::IndexSlice, index_vec::IndexVec,
-    indexing_type::IndexingType,
+    idx::Idx,
 };
 
 use crate::{

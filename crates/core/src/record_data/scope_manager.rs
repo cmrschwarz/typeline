@@ -4,8 +4,8 @@ use std::{
 };
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxU32, index_newtype,
-    indexing_type::IndexingType, universe::Universe,
+    nonmax::NonMaxU32, index_newtype,
+    idx::Idx, universe::Universe,
 };
 
 use crate::{
@@ -26,7 +26,7 @@ use super::{
 };
 
 index_newtype! {
-    pub struct ScopeId(DebuggableNonMaxU32);
+    pub struct ScopeId(NonMaxU32);
 }
 
 pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;

@@ -1,6 +1,6 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
-use indexland::IndexingType;
+use indexland::Idx;
 
 use crate::{
     chain::ChainId,

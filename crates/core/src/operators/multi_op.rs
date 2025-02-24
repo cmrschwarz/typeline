@@ -18,7 +18,7 @@ use crate::{
     options::session_setup::SessionSetupData,
     typeline_error::TypelineError,
 };
-use indexland::{index_vec::IndexVec, indexing_type::IndexingType};
+use indexland::{index_vec::IndexVec, idx::Idx};
 
 #[derive(Default)]
 pub struct OpMultiOp {

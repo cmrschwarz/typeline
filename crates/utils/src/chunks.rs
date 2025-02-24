@@ -23,7 +23,7 @@ use typeline_core::{
     typeline_error::TypelineError,
 };
 
-use indexland::indexing_type::IndexingType;
+use indexland::idx::Idx;
 
 use typeline_core::operators::{
     errors::OperatorCreationError,
@@ -66,7 +66,7 @@ pub fn create_op_chunks_with_spans(
     }
     Ok(Box::new(OpChunks {
         subchain,
-        subchain_idx: SubchainIndex::MAX_VALUE,
+        subchain_idx: SubchainIndex::MAX,
         stride,
     }))
 }

@@ -1,4 +1,4 @@
-use indexland::IndexingType;
+use indexland::Idx;
 
 use crate::{
     chain::ChainId,

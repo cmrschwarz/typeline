@@ -33,8 +33,8 @@ use typeline_core::{
 };
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxUsize, index_newtype,
-    indexing_type::IndexingType, universe::Universe,
+    nonmax::NonMaxUsize, index_newtype,
+    idx::Idx, universe::Universe,
 };
 
 use bstr::ByteSlice;
@@ -45,7 +45,7 @@ use metamatch::metamatch;
 pub struct OpLines {}
 
 index_newtype! {
-    struct LineStreamIdx(DebuggableNonMaxUsize);
+    struct LineStreamIdx(NonMaxUsize);
 }
 
 struct LineStream {

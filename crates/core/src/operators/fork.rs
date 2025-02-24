@@ -29,7 +29,7 @@ use crate::{
 
 use indexland::{
     index_vec::IndexVec,
-    indexing_type::{IndexingType, IndexingTypeRange},
+    idx::{Idx, IdxRange},
 };
 
 use super::{
@@ -70,8 +70,8 @@ pub fn create_op_fork_with_spans(
     subchains: Vec<Vec<(Box<dyn Operator>, Span)>>,
 ) -> Result<Box<dyn Operator>, OperatorCreationError> {
     Ok(Box::new(OpFork {
-        subchains_start: SubchainIndex::MAX_VALUE,
-        subchains_end: SubchainIndex::MAX_VALUE,
+        subchains_start: SubchainIndex::MAX,
+        subchains_end: SubchainIndex::MAX,
         accessed_fields_per_subchain: IndexVec::new(),
         prebound_ops: subchains,
         arguments: Vec::new(),
@@ -111,8 +111,8 @@ pub fn parse_op_fork(
 
     subchains.push(curr_subchain);
     Ok(Box::new(OpFork {
-        subchains_start: SubchainIndex::MAX_VALUE,
-        subchains_end: SubchainIndex::MAX_VALUE,
+        subchains_start: SubchainIndex::MAX,
+        subchains_end: SubchainIndex::MAX,
         accessed_fields_per_subchain: IndexVec::new(),
         prebound_ops: Vec::new(),
         arguments: subchains,
@@ -382,7 +382,7 @@ impl<'a> Transform<'a> for TfFork {
         let fork_chain_id =
             job.job_data.session_data.operator_bases[fork_op_id].chain_id;
 
-        for i in IndexingTypeRange::new(
+        for i in IdxRange::new(
             SubchainIndex::ZERO
                 ..job.job_data.session_data.chains[fork_chain_id]
                     .subchains

@@ -14,7 +14,7 @@ use super::{
 use indexland::index_newtype;
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, indexing_type::IndexingType,
+    index_slice::IndexSlice, index_vec::IndexVec, idx::Idx,
     offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
 };
 
@@ -178,7 +178,7 @@ pub fn eprint_action_list(actions: impl Iterator<Item = FieldAction>) {
 }
 
 impl ActionBuffer {
-    pub const MAX_ACTOR_ID: ActorId = ActorId::MAX_VALUE;
+    pub const MAX_ACTOR_ID: ActorId = ActorId::MAX;
 
     pub fn new(
         #[cfg_attr(not(feature = "debug_state"), allow(unused))]
@@ -789,7 +789,7 @@ mod test {
         field_data::RunLength,
         match_set::MatchSetId,
     };
-    use indexland::indexing_type::IndexingType;
+    use indexland::idx::Idx;
 
     use super::ActionBuffer;
 

@@ -1008,9 +1008,9 @@ mod test {
         push_interface::PushInterface,
     };
 
-    use indexland::indexing_type::IndexingType;
+    use indexland::idx::Idx;
 
-    const LEAN_LEFT: ActorId = ActorId::MAX_VALUE;
+    const LEAN_LEFT: ActorId = ActorId::MAX;
     const LEAN_RIGHT: ActorId = ActorId::ZERO;
 
     #[track_caller]

@@ -6,8 +6,8 @@ use std::{
 };
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxU32, index_newtype,
-    indexing_type::IndexingType, universe::Universe,
+    nonmax::NonMaxU32, index_newtype,
+    idx::Idx, universe::Universe,
 };
 
 use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
@@ -31,7 +31,7 @@ index_newtype! {
 
 pub type GroupTrackIterId = u32;
 type GroupTrackIterSortedIndex = u32;
-pub type GroupTrackId = DebuggableNonMaxU32;
+pub type GroupTrackId = NonMaxU32;
 pub const VOID_GROUP_TRACK_ID: GroupTrackId = GroupTrackId::MAX;
 
 #[derive(Clone, Copy)]
@@ -2045,7 +2045,7 @@ mod test_action_lists_through_iter {
         utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
 
-    use indexland::{indexing_type::IndexingType, universe::Universe};
+    use indexland::{idx::Idx, universe::Universe};
 
     use super::{
         testing_helpers::GroupTrackIterStateRaw, GroupTrackIterId,
@@ -2182,7 +2182,7 @@ mod test_action_lists {
         utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
 
-    use indexland::{indexing_type::IndexingType, universe::Universe};
+    use indexland::{idx::Idx, universe::Universe};
 
     use std::cell::Cell;
 
@@ -2393,7 +2393,7 @@ mod test_action_lists {
                 group_idx: 1,
                 group_offset: 0,
                 iter_id: 0,
-                first_right_leaning_actor_id: ActorId::MAX_VALUE,
+                first_right_leaning_actor_id: ActorId::MAX,
             }],
             [
                 FieldAction::new(FieldActionKind::Drop, 1, 1),
@@ -2407,7 +2407,7 @@ mod test_action_lists {
                 group_idx: 1,
                 group_offset: 0,
                 iter_id: 0,
-                first_right_leaning_actor_id: ActorId::MAX_VALUE,
+                first_right_leaning_actor_id: ActorId::MAX,
             }],
         );
     }
@@ -2421,7 +2421,7 @@ mod test_action_lists {
                 group_idx: 0,
                 group_offset: 0,
                 iter_id: 0,
-                first_right_leaning_actor_id: ActorId::MAX_VALUE,
+                first_right_leaning_actor_id: ActorId::MAX,
             }],
             [
                 FieldAction::new(FieldActionKind::Drop, 1, 6),
@@ -2434,7 +2434,7 @@ mod test_action_lists {
                 group_idx: 0,
                 group_offset: 0,
                 iter_id: 0,
-                first_right_leaning_actor_id: ActorId::MAX_VALUE,
+                first_right_leaning_actor_id: ActorId::MAX,
             }],
         );
     }

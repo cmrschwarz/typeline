@@ -7,7 +7,7 @@ use std::{
 use smallvec::SmallVec;
 
 use indexland::{
-    index_newtype, indexing_type::IndexingType, universe::Universe,
+    index_newtype, idx::Idx, universe::Universe,
 };
 
 use super::{
@@ -358,7 +358,7 @@ impl FieldManager {
         };
         field.iter_hall.reserve_iter_id(
             FIELD_REF_LOOKUP_ITER_ID,
-            ActorId::MAX_VALUE,
+            ActorId::MAX,
             IterKind::RefLookup,
         );
         self.fields.claim_with_value(RefCell::new(field))
@@ -448,7 +448,7 @@ impl FieldManager {
         let src_field_ms = src_field.match_set;
         let header_iter = src_field
             .iter_hall
-            .claim_iter(ActorId::MAX_VALUE, IterKind::CowField(tgt_field_id));
+            .claim_iter(ActorId::MAX, IterKind::CowField(tgt_field_id));
         let mut tgt_field = self.fields[tgt_field_id].borrow_mut();
         debug_assert!(matches!(
             tgt_field.iter_hall.data_source,

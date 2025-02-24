@@ -40,7 +40,7 @@ use crate::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, indexing_type::IndexingType,
+    index_slice::IndexSlice, index_vec::IndexVec, idx::Idx,
     universe::Universe,
 };
 

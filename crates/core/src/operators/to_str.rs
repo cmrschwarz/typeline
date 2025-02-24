@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bstr::ByteSlice;
-use indexland::IndexingType;
+use indexland::Idx;
 use metamatch::metamatch;
 
 use crate::{

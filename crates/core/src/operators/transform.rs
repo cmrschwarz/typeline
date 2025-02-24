@@ -1,8 +1,8 @@
 use std::{any::Any, fmt::Write, sync::Arc};
 
 use indexland::{
-    debuggable_nonmax::{DebuggableNonMaxU32, DebuggableNonMaxUsize},
     index_newtype,
+    nonmax::{NonMaxU32, NonMaxUsize},
 };
 use smallstr::SmallString;
 
@@ -22,8 +22,8 @@ use super::operator::{OperatorId, OutputFieldKind};
 pub type DefaultTransformName = SmallString<[u8; 32]>;
 
 index_newtype! {
-    pub struct TransformId(DebuggableNonMaxU32);
-    pub struct StreamProducerIndex(DebuggableNonMaxUsize);
+    pub struct TransformId(NonMaxU32);
+    pub struct StreamProducerIndex(NonMaxUsize);
 }
 
 pub type TransformData<'a> = Box<dyn Transform<'a> + 'a>;

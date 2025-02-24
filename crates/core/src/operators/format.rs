@@ -70,9 +70,8 @@ use crate::{
 };
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxUsize, index_newtype,
-    index_slice::IndexSlice, index_vec::IndexVec, indexing_type::IndexingType,
-    universe::CountedUniverse,
+    idx::Idx, index_newtype, index_slice::IndexSlice, index_vec::IndexVec,
+    nonmax::NonMaxUsize, universe::CountedUniverse,
 };
 use metamatch::metamatch;
 use smallstr::SmallString;
@@ -146,7 +145,7 @@ struct TfFormatStreamValueHandle {
     target_sv_id: StreamValueId,
     buffering_needed: bool,
 }
-type TfFormatStreamValueHandleId = DebuggableNonMaxUsize;
+type TfFormatStreamValueHandleId = NonMaxUsize;
 
 const FINAL_OUTPUT_INDEX_NEXT_VAL: usize = usize::MAX;
 
@@ -2335,7 +2334,7 @@ impl<'a> Transform<'a> for TfFormat<'a> {
 mod test {
     use std::borrow::Cow;
 
-    use indexland::{index_vec::IndexVec, indexing_type::IndexingType};
+    use indexland::{idx::Idx, index_vec::IndexVec};
 
     use crate::operators::format::{
         FormatFillAlignment, FormatFillSpec, FormatKey, FormatKeyRefData,

@@ -1,4 +1,4 @@
-use indexland::IndexingType;
+use indexland::Idx;
 use rstest::rstest;
 use typeline::operators::{
     operator::OperatorId,

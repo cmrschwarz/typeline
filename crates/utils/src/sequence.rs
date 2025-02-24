@@ -31,7 +31,7 @@ use typeline_core::{
     },
 };
 
-use indexland::indexing_type::IndexingType;
+use indexland::idx::Idx;
 
 const FAST_SEQ_MAX_STEP: i64 = 200;
 

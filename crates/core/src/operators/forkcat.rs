@@ -47,7 +47,7 @@ use indexland::{
     index_newtype,
     index_slice::IndexSlice,
     index_vec::IndexVec,
-    indexing_type::{IndexingType, IndexingTypeRange},
+    idx::{Idx, IdxRange},
     phantom_slot::PhantomSlot,
     stable_vec::StableVec,
     temp_vec::TransmutableContainer,
@@ -912,7 +912,7 @@ impl Operator for OpForkCat {
         let mut subchains = IndexVec::new();
 
         for (fc_sc_idx, sc_idx) in
-            IndexingTypeRange::new(self.subchains_start..self.subchains_end)
+            IdxRange::new(self.subchains_start..self.subchains_end)
                 .enumerate()
         {
             let sc_entry = setup_subchain(
@@ -1240,9 +1240,9 @@ pub fn create_op_forkcat_with_spans(
     }
     Box::new(OpForkCat {
         subchains,
-        subchains_start: SubchainIndex::MAX_VALUE,
-        subchains_end: SubchainIndex::MAX_VALUE,
-        direct_offset_in_chain: OffsetInChain::MAX_VALUE,
+        subchains_start: SubchainIndex::MAX,
+        subchains_end: SubchainIndex::MAX,
+        direct_offset_in_chain: OffsetInChain::MAX,
         input_mappings: HashMap::default(),
         continuation_vars: IndexVec::new(),
         opts,

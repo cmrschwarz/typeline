@@ -1,5 +1,5 @@
 use arrayvec::ArrayString;
-use indexland::IndexingType;
+use indexland::Idx;
 use metamatch::metamatch;
 use regex::bytes;
 use smallvec::SmallVec;

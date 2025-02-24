@@ -15,7 +15,7 @@ use crate::{
     typeline_error::TypelineError,
 };
 
-use indexland::indexing_type::IndexingType;
+use indexland::idx::Idx;
 
 use super::{
     nop::create_op_nop,
@@ -350,7 +350,7 @@ pub fn create_op_foreach_unique_with_spans(
     }
     Box::new(OpForeachUnique {
         subchain,
-        subchain_idx: SubchainIndex::MAX_VALUE,
+        subchain_idx: SubchainIndex::MAX,
     })
 }
 

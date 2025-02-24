@@ -35,7 +35,7 @@ use crate::{
     },
 };
 
-use indexland::{index_vec, index_vec::IndexVec, indexing_type::IndexingType};
+use indexland::{index_vec, index_vec::IndexVec, idx::Idx};
 
 use std::{
     borrow::Cow,
@@ -181,7 +181,7 @@ impl SessionSetupData {
             string_store: StringStore::default(),
             cli_args: None,
             extensions: opts.extensions,
-            chain_setting_names: [StringStoreEntry::MAX_VALUE;
+            chain_setting_names: [StringStoreEntry::MAX;
                 chain_settings_list::COUNT],
         };
 
@@ -520,8 +520,8 @@ impl SessionSetupData {
             offset_in_chain,
             desired_batch_size: batch_size,
             span,
-            outputs_start: OpOutputIdx::MAX_VALUE,
-            outputs_end: OpOutputIdx::MAX_VALUE,
+            outputs_start: OpOutputIdx::MAX,
+            outputs_end: OpOutputIdx::MAX,
         });
         match offset_in_chain {
             OperatorOffsetInChain::Direct(offset) => {

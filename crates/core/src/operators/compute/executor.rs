@@ -53,8 +53,8 @@ use crate::{
 };
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxUsize,
     index_slice::IndexSlice,
+    nonmax::NonMaxUsize,
     stable_universe::StableUniverse,
     temp_vec::{TempVec, TransmutableContainer},
 };
@@ -67,7 +67,7 @@ use std::{
 
 index_newtype! {
     pub struct ExternFieldTempIterId(u32);
-    pub struct NextLowestArrayLink(DebuggableNonMaxUsize);
+    pub struct NextLowestArrayLink(NonMaxUsize);
 }
 
 pub struct Executor<'a, 'b> {

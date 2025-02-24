@@ -17,7 +17,7 @@ use indexland::{
     index_newtype,
     index_slice::IndexSlice,
     index_vec::IndexVec,
-    indexing_type::IndexingType,
+    idx::Idx,
     phantom_slot::PhantomSlot,
     stable_universe::StableUniverse,
     temp_vec::{TempVec, TransmutableContainer},

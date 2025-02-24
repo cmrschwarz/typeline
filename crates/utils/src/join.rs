@@ -63,7 +63,7 @@ use typeline_core::{
 };
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxUsize,
+    nonmax::NonMaxUsize,
     universe::{Universe, UniverseRefHandoutStack},
 };
 
@@ -95,7 +95,7 @@ struct GroupBatch<'a> {
     is_producer: bool,
 }
 
-type GroupBatchId = DebuggableNonMaxUsize;
+type GroupBatchId = NonMaxUsize;
 
 pub struct TfJoin<'a> {
     separator: Option<MaybeTextRef<'a>>,

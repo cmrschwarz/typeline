@@ -18,8 +18,8 @@ use typeline_core::{
 };
 
 use indexland::{
-    debuggable_nonmax::DebuggableNonMaxUsize, index_newtype,
-    index_vec::IndexVec, indexing_type::IndexingType, stable_vec::StableVec,
+    nonmax::NonMaxUsize, index_newtype,
+    index_vec::IndexVec, idx::Idx, stable_vec::StableVec,
 };
 
 index_newtype! {
@@ -51,7 +51,7 @@ pub(super) struct JsonlVisitor<'a, 'b> {
     >,
     pub additional_fields: &'b StableVec<PendingField>,
     pub field_element_count:
-        &'a mut IndexVec<InserterIndex, Option<DebuggableNonMaxUsize>>,
+        &'a mut IndexVec<InserterIndex, Option<NonMaxUsize>>,
     pub opts: JsonlReadOptions<'a>,
     pub total_lines_produced: usize,
 }
@@ -63,7 +63,7 @@ impl JsonlVisitor<'_, '_> {
             return false;
         };
         *lfa =
-            DebuggableNonMaxUsize::new(self.total_lines_produced + 1).unwrap();
+            NonMaxUsize::new(self.total_lines_produced + 1).unwrap();
         true
     }
 }
@@ -356,7 +356,7 @@ impl<'de> Visitor<'de> for &mut JsonlVisitor<'_, '_> {
                             gap,
                             true,
                         );
-                        *elem_count = DebuggableNonMaxUsize::new(
+                        *elem_count = NonMaxUsize::new(
                             self.total_lines_produced + 1,
                         )
                         .unwrap();
@@ -384,7 +384,7 @@ impl<'de> Visitor<'de> for &mut JsonlVisitor<'_, '_> {
                     if self.opts.dyn_access {
                         let value = map.next_value()?;
                         *self.field_element_count.last_mut().unwrap() = Some(
-                            DebuggableNonMaxUsize::new(
+                            NonMaxUsize::new(
                                 self.total_lines_produced + 1,
                             )
                             .unwrap(),
