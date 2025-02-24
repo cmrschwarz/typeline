@@ -1008,7 +1008,7 @@ mod test {
         push_interface::PushInterface,
     };
 
-    use indexland::idx::Idx;
+    use indexland::Idx;
 
     const LEAN_LEFT: ActorId = ActorId::MAX;
     const LEAN_RIGHT: ActorId = ActorId::ZERO;

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use indexland::{index_newtype, idx::Idx};
+use indexland::{index_newtype, Idx};
 
 use crate::{
     record_data::field_value::{FieldValue, FieldValueKind},

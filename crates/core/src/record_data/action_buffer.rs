@@ -14,7 +14,7 @@ use super::{
 use indexland::index_newtype;
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, idx::Idx,
+    Idx, index_slice::IndexSlice, index_vec::IndexVec,
     offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
 };
 
@@ -789,7 +789,7 @@ mod test {
         field_data::RunLength,
         match_set::MatchSetId,
     };
-    use indexland::idx::Idx;
+    use indexland::Idx;
 
     use super::ActionBuffer;
 

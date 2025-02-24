@@ -19,7 +19,7 @@ use typeline_core::{
 
 use indexland::{
     nonmax::NonMaxUsize, index_newtype,
-    index_vec::IndexVec, idx::Idx, stable_vec::StableVec,
+    index_vec::IndexVec, Idx, stable_vec::StableVec,
 };
 
 index_newtype! {

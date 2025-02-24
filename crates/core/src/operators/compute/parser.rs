@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 
 use indexland::{
-    index_newtype, index_vec::IndexVec, idx::Idx,
+    index_newtype, index_vec::IndexVec, Idx,
 };
 
 use crate::{
@@ -790,7 +790,7 @@ mod test {
         record_data::field_value::FieldValue,
     };
 
-    use indexland::{index_vec::IndexVec, idx::Idx};
+    use indexland::{index_vec::IndexVec, Idx};
 
     use super::ComputeExprParser;
 

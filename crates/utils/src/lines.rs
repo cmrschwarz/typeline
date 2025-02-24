@@ -34,7 +34,7 @@ use typeline_core::{
 
 use indexland::{
     nonmax::NonMaxUsize, index_newtype,
-    idx::Idx, universe::Universe,
+    Idx, universe::Universe,
 };
 
 use bstr::ByteSlice;

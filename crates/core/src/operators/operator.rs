@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use smallstr::SmallString;
 
-use indexland::{index_newtype, Idx};
+use indexland::{Idx, index_newtype};
 
 use crate::{
     chain::{Chain, ChainId},

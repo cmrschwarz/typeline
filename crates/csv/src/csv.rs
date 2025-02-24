@@ -50,7 +50,7 @@ use typeline_core::{
 
 use indexland::{
     index_newtype, index_slice::IndexSlice, index_vec::IndexVec,
-    idx::Idx, stable_vec::StableVec,
+    Idx, stable_vec::StableVec,
     temp_vec::TransmutableContainer,
 };
 

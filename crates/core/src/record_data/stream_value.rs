@@ -1700,7 +1700,7 @@ impl<'a> StreamValueManager<'a> {
 
         #[cfg(feature = "debug_logging_streams")]
         {
-            use indexland::idx::Idx;
+            use indexland::Idx;
             eprintln!(
                 ":: tf {:02} dropping stream value subscription to sv {sv_id:02} (subs: {:?}) [{}done, rc {}, {:?}]",
                 tf_id_to_remove.map(|v|v.into_usize() as i64).unwrap_or(-1),

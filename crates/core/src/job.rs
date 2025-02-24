@@ -40,8 +40,7 @@ use crate::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, idx::Idx,
-    universe::Universe,
+    index_slice::IndexSlice, index_vec::IndexVec, universe::Universe, Idx,
 };
 
 // a helper type so we can pass a transform handler typed

@@ -35,7 +35,7 @@ use crate::{
     },
 };
 
-use indexland::idx::Idx;
+use indexland::Idx;
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},

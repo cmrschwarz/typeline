@@ -605,7 +605,7 @@ mod test {
     use crate::record_data::{
         action_buffer::ActorId, field_data::FieldValueRepr,
     };
-    use indexland::idx::Idx;
+    use indexland::Idx;
 
     use super::FieldAction;
     use rstest::rstest;

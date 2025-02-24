@@ -10,7 +10,7 @@ use indexland::{
     index_newtype,
     index_slice::IndexSlice,
     index_vec::IndexVec,
-    idx::Idx,
+    Idx,
     random_access_container::RandomAccessContainer,
     temp_vec::{TempIndexVec, TempVec, TransmutableContainer},
     universe::Universe,
@@ -1336,7 +1336,7 @@ mod test_dead_data_drop {
         push_interface::PushInterface,
         scope_manager::ScopeManager,
     };
-    use indexland::idx::Idx;
+    use indexland::Idx;
 
     const LEAN_LEFT: ActorId = ActorId::MAX;
     const LEAN_RIGHT: ActorId = ActorId::ZERO;

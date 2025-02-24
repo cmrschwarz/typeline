@@ -35,7 +35,7 @@ use crate::{
     },
 };
 
-use indexland::{index_vec, index_vec::IndexVec, idx::Idx};
+use indexland::{index_vec, index_vec::IndexVec, Idx};
 
 use std::{
     borrow::Cow,

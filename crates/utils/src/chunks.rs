@@ -23,7 +23,7 @@ use typeline_core::{
     typeline_error::TypelineError,
 };
 
-use indexland::idx::Idx;
+use indexland::Idx;
 
 use typeline_core::operators::{
     errors::OperatorCreationError,

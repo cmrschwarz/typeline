@@ -23,7 +23,7 @@ use typeline_core::{
     },
 };
 
-use indexland::idx::Idx;
+use indexland::Idx;
 
 #[derive(Default)]
 pub struct OpTail {

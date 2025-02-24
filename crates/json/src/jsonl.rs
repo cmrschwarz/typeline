@@ -38,7 +38,7 @@ use typeline_core::{
 
 use indexland::{
     nonmax::NonMaxUsize, index_vec::IndexVec,
-    idx::Idx, stable_vec::StableVec,
+    Idx, stable_vec::StableVec,
     temp_vec::TransmutableContainer,
 };
 

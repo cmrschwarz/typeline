@@ -15,7 +15,7 @@ use crate::{
     typeline_error::TypelineError,
 };
 
-use indexland::idx::Idx;
+use indexland::Idx;
 
 use super::{
     nop::create_op_nop,

@@ -7,7 +7,7 @@ use std::{
 use smallvec::SmallVec;
 
 use indexland::{
-    index_newtype, idx::Idx, universe::Universe,
+    index_newtype, Idx, universe::Universe,
 };
 
 use super::{

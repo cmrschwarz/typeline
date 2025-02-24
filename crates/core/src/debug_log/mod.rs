@@ -39,7 +39,7 @@ use crate::{
     },
 };
 
-use indexland::{index_slice::IndexSlice, idx::Idx};
+use indexland::{index_slice::IndexSlice, Idx};
 
 struct MatchChain {
     ms_id: MatchSetId,

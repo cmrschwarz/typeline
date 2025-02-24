@@ -4,7 +4,7 @@ use indexland::index_newtype;
 
 use indexland::{
     nonmax::NonMaxU32, index_vec::IndexVec,
-    idx::Idx,
+    Idx,
 };
 
 index_newtype! {

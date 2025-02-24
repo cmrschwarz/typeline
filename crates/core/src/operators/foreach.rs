@@ -14,7 +14,7 @@ use crate::{
     typeline_error::TypelineError,
 };
 
-use indexland::idx::Idx;
+use indexland::Idx;
 
 use super::{
     foreach_unique::parse_op_foreach_unique,

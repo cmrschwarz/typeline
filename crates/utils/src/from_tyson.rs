@@ -37,7 +37,7 @@ use typeline_core::{
     tyson::parse_tyson,
 };
 
-use indexland::idx::Idx;
+use indexland::Idx;
 
 #[derive(Clone, Default)]
 pub struct OpFromTyson {}

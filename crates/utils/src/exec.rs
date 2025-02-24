@@ -81,7 +81,7 @@ use typeline_core::{
 };
 
 use indexland::{
-    counted_universe::CountedUniverse, idx::Idx, index_newtype,
+    counted_universe::CountedUniverse, Idx, index_newtype,
     index_vec::IndexVec, universe::Universe,
 };
 

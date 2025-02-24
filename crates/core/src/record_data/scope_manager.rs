@@ -5,7 +5,7 @@ use std::{
 
 use indexland::{
     nonmax::NonMaxU32, index_newtype,
-    idx::Idx, universe::Universe,
+    Idx, universe::Universe,
 };
 
 use crate::{

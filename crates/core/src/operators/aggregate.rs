@@ -14,7 +14,7 @@ use crate::{
     typeline_error::TypelineError,
 };
 
-use indexland::{idx::Idx, index_vec::IndexVec};
+use indexland::{index_vec::IndexVec, Idx};
 
 use super::{
     nop_copy::create_op_nop_copy,

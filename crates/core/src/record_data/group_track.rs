@@ -7,7 +7,7 @@ use std::{
 
 use indexland::{
     nonmax::NonMaxU32, index_newtype,
-    idx::Idx, universe::Universe,
+    Idx, universe::Universe,
 };
 
 use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
@@ -2045,7 +2045,7 @@ mod test_action_lists_through_iter {
         utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
 
-    use indexland::{idx::Idx, universe::Universe};
+    use indexland::{Idx, universe::Universe};
 
     use super::{
         testing_helpers::GroupTrackIterStateRaw, GroupTrackIterId,
@@ -2182,7 +2182,7 @@ mod test_action_lists {
         utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
 
-    use indexland::{idx::Idx, universe::Universe};
+    use indexland::{Idx, universe::Universe};
 
     use std::cell::Cell;
 

@@ -1,6 +1,6 @@
 use std::ops::{Index, IndexMut};
 
-use indexland::idx::Idx;
+use indexland::Idx;
 
 #[derive(Clone, Default)]
 pub struct DynamicArrayFreelist<I, T> {
