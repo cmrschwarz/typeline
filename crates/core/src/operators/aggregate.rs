@@ -204,7 +204,7 @@ impl Operator for OpAggregate {
         let outputs_before = *output_count;
         // for the aggregation column
         ld.append_op_outputs(1, op_id);
-        *output_count += OpOutputIdx::one();
+        *output_count += OpOutputIdx::ONE;
         for &op_id in &self.sub_ops {
             sess.with_mut_op_data(op_id, |sess, op| {
                 op.assign_op_outputs(sess, ld, op_id, output_count)

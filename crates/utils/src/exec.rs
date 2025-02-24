@@ -1087,7 +1087,7 @@ impl<'a> Transform<'a> for TfExec<'a> {
             );
         }
 
-        let mut part_idx = FormatPartIndex::zero();
+        let mut part_idx = FormatPartIndex::ZERO;
 
         for (arg_idx, &part_end) in
             self.op.fmt_arg_part_ends.iter().enumerate()

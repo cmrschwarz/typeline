@@ -1,4 +1,4 @@
-use indexland::indexing_type::IndexingType;
+use indexland::IndexingType;
 use rstest::rstest;
 use typeline::operators::{
     operator::OperatorId,
@@ -344,7 +344,7 @@ fn null_format_error() -> Result<(), TypelineError> {
         TypelineError::OperationApplicationError(
             OperatorApplicationError::new(
                 "unexpected type `null` in format key #1",
-                OperatorId::one(),
+                OperatorId::ONE,
             )
         )
     );

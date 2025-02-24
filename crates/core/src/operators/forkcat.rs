@@ -471,8 +471,8 @@ fn visit_subchains(
 ) -> ScVisitResult {
     let mut cont_field_inserters =
         cont_state.cont_field_inserters.take_transmute();
-    for cvm in &cont_state.subchains[FcSubchainIdx::zero()]
-        .continuation_field_mappings
+    for cvm in
+        &cont_state.subchains[FcSubchainIdx::ZERO].continuation_field_mappings
     {
         let field = jd.field_mgr.fields[cvm.cont_field_id].borrow_mut();
         let inserter = VaryingTypeInserter::new(RefMut::map(field, |f| {
@@ -492,7 +492,7 @@ fn visit_subchains(
 
     let mut scs_in_flight = 0;
 
-    let mut sc_round_robin_index = FcSubchainRoundRobinIdx::zero();
+    let mut sc_round_robin_index = FcSubchainRoundRobinIdx::ZERO;
 
     let mut batch_size_rem = batch_size;
 
@@ -584,7 +584,7 @@ fn visit_subchains(
         if group_track_iter.group_idx_stable()
             == cont_group_track_next_group_id
         {
-            assert_eq!(curr_sc, FcSubchainIdx::zero());
+            assert_eq!(curr_sc, FcSubchainIdx::ZERO);
             cont_group_track.push_group(
                 fields_to_consume,
                 group_track_iter.parent_group_advancement(),
@@ -885,7 +885,7 @@ impl Operator for OpForkCat {
             continuation_tf_id: None, // filled in by the header transform
             continuation_input_group_track: cont_group_track,
             continuation_ms_id: cont_ms_id,
-            current_sc: FcSubchainIdx::zero(),
+            current_sc: FcSubchainIdx::ZERO,
             subchains: IndexVec::default(),
             advance_to_next: false,
             continuation_dummy_iter,

@@ -451,7 +451,7 @@ impl<'a> Transform<'a> for TfCallConcurrent {
         call.expanded = true;
         setup_target_field_mappings(&mut job.job_data, tf_id, call);
         let starting_op = job.job_data.session_data.chains[call.target_chain]
-            .operators[OffsetInChain::zero()];
+            .operators[OffsetInChain::ZERO];
         let mut venture_desc = VentureDescription {
             participans_needed: 2,
             starting_points: smallvec::smallvec![

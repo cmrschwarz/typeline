@@ -744,7 +744,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                     }
                 };
                 let access_index = *access_count;
-                *access_count += AccessIdx::one();
+                *access_count += AccessIdx::ONE;
                 Expr::Reference {
                     ident_id,
                     access_idx: access_index,
@@ -754,7 +754,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                 let id = self.unbound_idents.push_get_id(UnboundIdentData {
                     name: ident.to_owned(),
                     name_interned: INVALID_STRING_STORE_ENTRY,
-                    access_count: AccessIdx::one(),
+                    access_count: AccessIdx::ONE,
                 });
                 let cref = IdentId::Unbound(id);
                 e.insert(cref);

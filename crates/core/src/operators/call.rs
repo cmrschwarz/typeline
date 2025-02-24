@@ -1,5 +1,7 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
+use indexland::IndexingType;
+
 use crate::{
     chain::ChainId,
     cli::call_expr::{CallExpr, Span},
@@ -12,8 +14,6 @@ use crate::{
     },
     typeline_error::TypelineError,
 };
-
-use indexland::IndexingType;
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
@@ -147,7 +147,7 @@ pub(crate) fn handle_eager_call_expansion(
         &sess.job_data.session_data.chains[op.target_resolved.unwrap()];
     sess.setup_transforms_from_op(
         ms_id,
-        chain.operators[OffsetInChain::zero()],
+        chain.operators[OffsetInChain::ZERO],
         input_field,
         group_track,
         predecessor_tf,
@@ -179,7 +179,7 @@ impl<'a> Transform<'a> for TfCall {
         let instantiation = job.setup_transforms_from_op(
             ms_id,
             job.job_data.session_data.chains[call.target].operators
-                [OffsetInChain::zero()],
+                [OffsetInChain::ZERO],
             input_field,
             input_group_track,
             Some(tf_id),

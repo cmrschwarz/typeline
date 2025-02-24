@@ -158,14 +158,14 @@ impl SsaValue {
             SsaValue::Unbound(ub_id) => {
                 let ubd = &mut unbound_idents[*ub_id];
                 let access_idx = ubd.access_count;
-                ubd.access_count += AccessIdx::one();
+                ubd.access_count += AccessIdx::ONE;
                 ValueAccess::Extern(ExternIdentAccess {
                     index: *ub_id,
                     access_idx,
                 })
             }
             SsaValue::Temporary(ssa_tid) => {
-                ssa_map[*ssa_tid].access_count += AccessIdx::one();
+                ssa_map[*ssa_tid].access_count += AccessIdx::ONE;
                 ValueAccess::TempField(ssa_map[*ssa_tid].value)
             }
             SsaValue::Literal(v) => ValueAccess::Literal(std::mem::take(v)),
@@ -196,7 +196,7 @@ impl Compiler<'_> {
         }
 
         let idx_raw = self.temporary_count;
-        self.temporary_count += TempFieldIdRaw::one();
+        self.temporary_count += TempFieldIdRaw::ONE;
         TempFieldId {
             index: idx_raw,
             generation: 0,
@@ -280,7 +280,7 @@ impl Compiler<'_> {
     ) -> IntermediateValue {
         match ident_id {
             IdentId::LetBinding(lb_id) => {
-                let last_access_through_let = access_idx + AccessIdx::one()
+                let last_access_through_let = access_idx + AccessIdx::ONE
                     == self.let_bindings[lb_id].access_count;
 
                 let value = self.let_value_mappings[lb_id].clone();

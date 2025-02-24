@@ -1550,7 +1550,7 @@ mod test {
         let right = &[FieldAction {
             kind: FieldActionKind::InsertZst {
                 repr: FieldValueRepr::Undefined,
-                actor_id: ActorId::one(),
+                actor_id: ActorId::ONE,
             },
             field_idx: 1,
             run_len: 4,
@@ -1564,7 +1564,7 @@ mod test {
             FieldAction {
                 kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Undefined,
-                    actor_id: ActorId::one(),
+                    actor_id: ActorId::ONE,
                 },
                 field_idx: 1,
                 run_len: 4,
@@ -1730,7 +1730,7 @@ mod test {
             FieldAction {
                 kind: FieldActionKind::InsertZst {
                     repr: FieldValueRepr::Undefined,
-                    actor_id: ActorId::one(),
+                    actor_id: ActorId::ONE,
                 },
                 field_idx: 1,
                 run_len: 4,

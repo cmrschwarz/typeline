@@ -657,7 +657,7 @@ pub fn parse_format_key(
             name,
             name_interned: None,
         });
-        key.ref_idx = refs.next_idx() - FormatKeyRefId::one();
+        key.ref_idx = refs.next_idx() - FormatKeyRefId::ONE;
         i = end + 1;
         if c0 == ':' {
             i = parse_format_flags(fmt, i, &mut key, refs)?;
@@ -2299,7 +2299,7 @@ impl<'a> Transform<'a> for TfFormat<'a> {
             return;
         }
 
-        let mut i = handle.part_idx + FormatPartIndex::one();
+        let mut i = handle.part_idx + FormatPartIndex::ONE;
         while i < self.op.parts.next_idx() {
             match &self.op.parts[i] {
                 FormatPart::ByteLiteral(l) => {
@@ -2312,7 +2312,7 @@ impl<'a> Transform<'a> for TfFormat<'a> {
                     todo!();
                 }
             }
-            i += FormatPartIndex::one();
+            i += FormatPartIndex::ONE;
         }
         drop(inserter);
 
@@ -2381,7 +2381,7 @@ mod test {
             ..Default::default()
         };
         let b = FormatKey {
-            ref_idx: FormatKeyRefId::one(),
+            ref_idx: FormatKeyRefId::ONE,
             ..Default::default()
         };
         let mut parts = IndexVec::new();
@@ -2421,7 +2421,7 @@ mod test {
     fn fill_char() {
         let mut idents = IndexVec::new();
         let a = FormatKey {
-            min_char_count: Some(FormatWidthSpec::Ref(FormatKeyRefId::one())),
+            min_char_count: Some(FormatWidthSpec::Ref(FormatKeyRefId::ONE)),
             opts: FormatOptions {
                 fill: Some(FormatFillSpec::new(
                     Some('~'),
@@ -2474,9 +2474,9 @@ mod test {
     fn float_precision() {
         let mut idents = IndexVec::new();
         let a = FormatKey {
-            ref_idx: FormatKeyRefId::zero(),
+            ref_idx: FormatKeyRefId::ZERO,
             min_char_count: Some(FormatWidthSpec::Value(3)),
-            float_precision: Some(FormatWidthSpec::Ref(FormatKeyRefId::one())),
+            float_precision: Some(FormatWidthSpec::Ref(FormatKeyRefId::ONE)),
             ..Default::default()
         };
         let mut parts = IndexVec::new();

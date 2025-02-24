@@ -543,7 +543,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
         drop(inserters);
 
         if !additional_fields.is_empty() {
-            let actor = ActorRef::Unconfirmed(self.actor_id + ActorId::one());
+            let actor = ActorRef::Unconfirmed(self.actor_id + ActorId::ONE);
 
             let mut ssm = jd.session_data.string_store.write().unwrap();
             for ins in additional_fields.iter_mut() {

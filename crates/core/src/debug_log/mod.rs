@@ -399,7 +399,7 @@ fn setup_forkcat_match_chain(
     }
     if let Some(trailer) = fc_cont
         .subchains
-        .get(FcSubchainIdx::zero())
+        .get(FcSubchainIdx::ZERO)
         .map(|sc| &tf_data[sc.trailer_tf_id])
         .and_then(|tf| tf.downcast_ref::<TfForkCatSubchainTrailer>())
     {

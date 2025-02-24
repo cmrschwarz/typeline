@@ -343,7 +343,7 @@ fn setup_fork_subchain(
     }
     let input_field = chain_input_field.unwrap_or(sc_dummy_field);
     let start_op_id = job.job_data.session_data.chains[subchain_id].operators
-        [OffsetInChain::zero()];
+        [OffsetInChain::ZERO];
     let instantiation = job.setup_transforms_from_op(
         target_ms_id,
         start_op_id,
@@ -383,7 +383,7 @@ impl<'a> Transform<'a> for TfFork {
             job.job_data.session_data.operator_bases[fork_op_id].chain_id;
 
         for i in IndexingTypeRange::new(
-            SubchainIndex::zero()
+            SubchainIndex::ZERO
                 ..job.job_data.session_data.chains[fork_chain_id]
                     .subchains
                     .next_idx(),

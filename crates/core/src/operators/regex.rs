@@ -915,7 +915,7 @@ impl Operator for OpRegex {
         let ms = &jd.match_set_mgr.match_sets[tf_state.match_set_id];
         let active_scope = ms.active_scope;
         let actor_id = jd.add_actor_for_tf_state(tf_state);
-        let next_actor_id = actor_id + ActorId::one();
+        let next_actor_id = actor_id + ActorId::ONE;
         let mut input_field_ref_offset = FieldRefOffset::MAX;
         let mut capture_group_fields = Vec::new();
         for (i, name) in self.capture_group_names.iter().enumerate() {

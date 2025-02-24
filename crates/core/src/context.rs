@@ -157,7 +157,7 @@ impl SessionData {
     }
 
     pub fn has_no_command(&self) -> bool {
-        let op_count = self.chains[ChainId::zero()].operators.len();
+        let op_count = self.chains[ChainId::ZERO].operators.len();
         // HACK this sucks. we should probably add some bool like
         // `has_arguments` or some other mechanism that is less hacky
         // instead
@@ -171,7 +171,7 @@ impl SessionData {
         input_data: RecordSet,
     ) -> JobDescription {
         let operator =
-            self.chains[ChainId::zero()].operators[OffsetInChain::zero()];
+            self.chains[ChainId::ZERO].operators[OffsetInChain::ZERO];
         JobDescription {
             operator,
             data: input_data,

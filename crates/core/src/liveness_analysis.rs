@@ -552,12 +552,12 @@ impl LivenessData {
         let bb = &mut self.basic_blocks[bb_id];
         let chain_id = bb.chain_id;
         let end = sess.chains[chain_id].operators.next_idx();
-        bb.operators_end = op_n + OffsetInChain::one();
-        if op_n + OffsetInChain::one() != end {
+        bb.operators_end = op_n + OffsetInChain::ONE;
+        if op_n + OffsetInChain::ONE != end {
             bb.successors.push(BasicBlockId::from(curr_bb_count));
             let bb_new = self.basic_blocks.push_get_id(BasicBlock {
                 chain_id,
-                operators_start: op_n + OffsetInChain::one(),
+                operators_start: op_n + OffsetInChain::ONE,
                 operators_end: end,
                 calls: SmallVec::new(),
                 successors: SmallVec::new(),
@@ -589,7 +589,7 @@ impl LivenessData {
         for (chain_id, c) in sess.chains.iter_enumerated() {
             self.basic_blocks.push(BasicBlock {
                 chain_id,
-                operators_start: OffsetInChain::zero(),
+                operators_start: OffsetInChain::ZERO,
                 operators_end: c.operators.next_idx(),
                 calls: SmallVec::new(),
                 successors: SmallVec::new(),
@@ -601,7 +601,7 @@ impl LivenessData {
             });
         }
         self.updates_stack.extend(IndexingTypeRange::new(
-            BasicBlockId::zero()..sess.chains.next_idx().into_bb_id(),
+            BasicBlockId::ZERO..sess.chains.next_idx().into_bb_id(),
         ));
         while let Some(bb_id) = self.updates_stack.pop() {
             let bb = &mut self.basic_blocks[bb_id];
@@ -636,7 +636,7 @@ impl LivenessData {
     }
     fn setup_bb_linkage_data(&mut self, sess: &SessionData) {
         for bb_id in IndexingTypeRange::new(
-            BasicBlockId::zero()..self.basic_blocks.next_idx(),
+            BasicBlockId::ZERO..self.basic_blocks.next_idx(),
         ) {
             for succ_n in 0..self.basic_blocks[bb_id].successors.len() {
                 let succ_id = self.basic_blocks[bb_id].successors[succ_n];
@@ -720,7 +720,7 @@ impl LivenessData {
                 + OffsetInChain::from_usize(1)
                 < op_offset_after_last_write
         } else {
-            op_offset_after_last_write != OffsetInChain::zero()
+            op_offset_after_last_write != OffsetInChain::ZERO
         };
 
         match ld.accessed_outputs.entry(op_output_idx) {
@@ -826,7 +826,7 @@ impl LivenessData {
         let mut bb = &mut self.basic_blocks[bb_id];
         let cn = &sess.chains[bb.chain_id];
         let mut input_field = BB_INPUT_VAR_OUTPUT_IDX;
-        let mut op_offset_after_last_write = OffsetInChain::zero();
+        let mut op_offset_after_last_write = OffsetInChain::ZERO;
         for op_n in
             IndexingTypeRange::new(bb.operators_start..bb.operators_end)
         {
@@ -881,7 +881,7 @@ impl LivenessData {
         let vc = self.vars.len();
         let ooc = self.op_outputs.len();
         let var_data_start = bb_id.into_usize() * SLOTS_PER_BASIC_BLOCK * vc;
-        if op_offset_after_last_write != OffsetInChain::zero() {
+        if op_offset_after_last_write != OffsetInChain::ZERO {
             // TODO: maybe do something more sophisticated than this
             // for now we just assume that any op_output that is bound
             // after the bb might be accessed by someone and therefore needs
@@ -893,7 +893,7 @@ impl LivenessData {
                     let producing_op_offset =
                         sess.operator_bases[producing_op].offset_in_chain;
                     if producing_op_offset.base_chain_offset(sess)
-                        >= op_offset_after_last_write - OffsetInChain::one()
+                        >= op_offset_after_last_write - OffsetInChain::ONE
                     {
                         continue;
                     }
@@ -976,7 +976,7 @@ impl LivenessData {
     }
     fn compute_local_liveness(&mut self, sess: &SessionData) {
         for i in IndexingTypeRange::new(
-            BasicBlockId::zero()..self.basic_blocks.next_idx(),
+            BasicBlockId::ZERO..self.basic_blocks.next_idx(),
         ) {
             self.compute_local_liveness_for_bb(sess, i);
         }
@@ -1156,7 +1156,7 @@ impl LivenessData {
         let mut global = VarLivenessOwned::new(var_count);
 
         self.updates_stack.extend(IndexingTypeRange::new(
-            BasicBlockId::zero()..self.basic_blocks.next_idx(),
+            BasicBlockId::ZERO..self.basic_blocks.next_idx(),
         ));
         while let Some(bb_id) = self.updates_stack.pop() {
             self.basic_blocks[bb_id].updates_required = false;
@@ -1231,7 +1231,7 @@ impl LivenessData {
         let var_count = self.vars.len();
         let op_output_count = self.op_outputs.len();
         for bb_id in IndexingTypeRange::new(
-            BasicBlockId::zero()..self.basic_blocks.next_idx(),
+            BasicBlockId::ZERO..self.basic_blocks.next_idx(),
         ) {
             // can't use `get_var_liveness` due to brrwck
             let succ_var_data = &self.var_data[self.get_var_liveness_bounds(

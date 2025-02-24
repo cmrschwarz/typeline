@@ -634,7 +634,7 @@ impl<'a> Transform<'a> for TfCsv<'a> {
         drop(inserters);
 
         if !additional_fields.is_empty() {
-            let actor = ActorRef::Unconfirmed(self.actor_id + ActorId::one());
+            let actor = ActorRef::Unconfirmed(self.actor_id + ActorId::ONE);
 
             let mut ssm = jd.session_data.string_store.write().unwrap();
             for ins in additional_fields.iter_mut() {
@@ -812,7 +812,7 @@ fn read_in_lines<'a>(
                     } else {
                         inserter.push_bytes(val, 1, true, false);
                     }
-                    status.col_idx += CsvColumnIdx::one();
+                    status.col_idx += CsvColumnIdx::ONE;
                 }
 
                 post_element = true;
@@ -837,7 +837,7 @@ fn read_in_lines<'a>(
                     reader,
                     &mut newline,
                 )?;
-                status.col_idx += CsvColumnIdx::one();
+                status.col_idx += CsvColumnIdx::ONE;
             } else {
                 reader.consume(offset);
                 eof = skip_unneeded_unquoted(
