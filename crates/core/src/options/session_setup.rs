@@ -527,7 +527,7 @@ impl SessionSetupData {
             OperatorOffsetInChain::Direct(offset) => {
                 debug_assert_eq!(
                     offset,
-                    self.chains[chain_id].operators.next_idx()
+                    self.chains[chain_id].operators.len_idx()
                 );
                 self.chains[chain_id].operators.push(op_id);
             }
@@ -543,7 +543,7 @@ impl SessionSetupData {
         span: Span,
     ) -> OperatorId {
         let offset_in_chain = OperatorOffsetInChain::Direct(
-            self.chains[chain_id].operators.next_idx(),
+            self.chains[chain_id].operators.len_idx(),
         );
         self.add_op(op_data_id, chain_id, offset_in_chain, span)
     }
@@ -596,7 +596,7 @@ impl SessionSetupData {
         chain_id: ChainId,
     ) -> OperatorOffsetInChain {
         OperatorOffsetInChain::Direct(
-            self.chains[chain_id].operators.next_idx(),
+            self.chains[chain_id].operators.len_idx(),
         )
     }
 
@@ -633,7 +633,7 @@ impl SessionSetupData {
         parent_id: ChainId,
         label: Option<String>,
     ) -> ChainId {
-        let subchain_idx = self.chains[parent_id].subchains.next_idx();
+        let subchain_idx = self.chains[parent_id].subchains.len_idx();
         let chain_name = label.map(|v| self.string_store.intern_moved(v));
 
         let subchain_chain_id = self.chains.push_get_id(Chain {
@@ -666,7 +666,7 @@ impl SessionSetupData {
                 op,
                 subchain_id,
                 OperatorOffsetInChain::Direct(
-                    self.chains[subchain_id].operators.next_idx(),
+                    self.chains[subchain_id].operators.len_idx(),
                 ),
                 span,
             )?;

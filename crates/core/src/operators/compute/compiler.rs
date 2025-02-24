@@ -429,7 +429,7 @@ impl Compiler<'_> {
                 self.compile_block(if_expr.then_block, target);
 
                 let else_start = if let Some(else_block) = if_expr.else_block {
-                    let start = self.instructions.next_idx();
+                    let start = self.instructions.len_idx();
                     self.compile_block(else_block, target);
                     Some(start)
                 } else {
@@ -441,7 +441,7 @@ impl Compiler<'_> {
                         self.unbound_idents,
                     ),
                     else_start,
-                    continuation: self.instructions.next_idx(),
+                    continuation: self.instructions.len_idx(),
                 });
                 self.release_intermediate(cond_v);
                 result
@@ -541,7 +541,7 @@ impl Compiler<'_> {
             }
             Expr::LetExpression(binding_id, expr) => {
                 debug_assert_eq!(
-                    self.let_value_mappings.next_idx(),
+                    self.let_value_mappings.len_idx(),
                     binding_id
                 );
                 if self.let_bindings[binding_id].access_count
@@ -755,7 +755,7 @@ impl Compiler<'_> {
                     );
                 }
                 let else_start = if let Some(else_block) = if_expr.else_block {
-                    let start = self.instructions.next_idx();
+                    let start = self.instructions.len_idx();
                     self.compile_block(else_block, target);
                     Some(start)
                 } else {
@@ -767,7 +767,7 @@ impl Compiler<'_> {
                         self.unbound_idents,
                     ),
                     else_start,
-                    continuation: self.instructions.next_idx(),
+                    continuation: self.instructions.len_idx(),
                 });
                 self.release_intermediate(cond_v);
             }

@@ -245,7 +245,7 @@ impl Operator for OpAggregate {
                 chain_id,
                 OperatorOffsetInChain::AggregationMember(
                     op_id,
-                    self.sub_ops.next_idx(),
+                    self.sub_ops.len_idx(),
                 ),
                 span,
             )?;

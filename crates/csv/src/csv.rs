@@ -572,8 +572,8 @@ impl<'a> Transform<'a> for TfCsv<'a> {
                     debug_assert!(status.done);
                     for i in status
                         .col_idx
-                        .min(inserters.next_idx())
-                        .range_to(inserters.next_idx())
+                        .min(inserters.len_idx())
+                        .range_to(inserters.len_idx())
                     {
                         inserters[i].push_null(1, true);
                     }
@@ -681,7 +681,7 @@ fn read_in_lines<'a>(
         'newline: loop {
             if newline {
                 newline = false;
-                let len = inserters.next_idx();
+                let len = inserters.len_idx();
                 let remaining_inserters =
                     &mut inserters[status.col_idx.min(len)..];
                 if post_element {
@@ -762,7 +762,7 @@ fn read_in_lines<'a>(
                     unimplemented!();
                 }
 
-                present = status.col_idx < inserters.next_idx();
+                present = status.col_idx < inserters.len_idx();
 
                 if !present && !opts.csv_opts.has_header {
                     add_inserter(

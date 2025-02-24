@@ -412,7 +412,7 @@ impl<'a> Transform<'a> for TfCompute<'a> {
                     .object_keys_stored_builder,
             };
             exec.run(
-                InstructionId::ZERO..compilation.instructions.next_idx(),
+                InstructionId::ZERO..compilation.instructions.len_idx(),
                 field_pos,
                 batch_size,
             );

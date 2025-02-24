@@ -132,7 +132,7 @@ impl IterHallActionApplicator {
         data_cow_idx: Option<DataCowIndex>,
         starting_field_full_cow_list_head: &mut Option<FullCowIndex>,
     ) -> CowFieldIndex {
-        let full_cow_idx = full_cow_field_refs.next_idx();
+        let full_cow_idx = full_cow_field_refs.len_idx();
         let mut next = None;
         if let Some(dci) = data_cow_idx {
             let dc = &mut data_cow_field_refs[dci];
@@ -158,7 +158,7 @@ impl IterHallActionApplicator {
         field_headers: &VecDeque<FieldValueHeader>,
         tgt_cow_end: IterState,
     ) -> CowFieldIndex {
-        let idx = data_cow_field_refs.next_idx();
+        let idx = data_cow_field_refs.len_idx();
         data_cow_field_refs.push(DataCowFieldRef {
             #[cfg(feature = "debug_state")]
             field_id: tgt_field_id,

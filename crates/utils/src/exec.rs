@@ -1510,7 +1510,7 @@ fn append_exec_arg(
             )
         },
     )?;
-    fmt_arg_part_ends.push(parts.next_idx());
+    fmt_arg_part_ends.push(parts.len_idx());
     Ok(())
 }
 

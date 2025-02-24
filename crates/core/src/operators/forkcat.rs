@@ -1044,13 +1044,13 @@ impl Operator for OpForkCat {
         };
         self.direct_offset_in_chain = direct_offset_in_chain;
 
-        self.subchains_start = sess.chains[chain_id].subchains.next_idx();
+        self.subchains_start = sess.chains[chain_id].subchains.len_idx();
 
         for sc in std::mem::take(&mut self.subchains) {
             sess.setup_subchain(chain_id, sc)?;
         }
 
-        self.subchains_end = sess.chains[chain_id].subchains.next_idx();
+        self.subchains_end = sess.chains[chain_id].subchains.len_idx();
 
         Ok(op_id)
     }

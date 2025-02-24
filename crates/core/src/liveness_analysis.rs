@@ -483,7 +483,7 @@ impl LivenessData {
         );
 
         for bb_id in
-            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.next_idx())
+            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.len_idx())
         {
             let bb = &self.basic_blocks[bb_id];
             let chain_id = bb.chain_id;
@@ -553,7 +553,7 @@ impl LivenessData {
         let curr_bb_count = self.basic_blocks.len();
         let bb = &mut self.basic_blocks[bb_id];
         let chain_id = bb.chain_id;
-        let end = sess.chains[chain_id].operators.next_idx();
+        let end = sess.chains[chain_id].operators.len_idx();
         bb.operators_end = op_n + OffsetInChain::ONE;
         if op_n + OffsetInChain::ONE != end {
             bb.successors.push(BasicBlockId::from(curr_bb_count));
@@ -592,7 +592,7 @@ impl LivenessData {
             self.basic_blocks.push(BasicBlock {
                 chain_id,
                 operators_start: OffsetInChain::ZERO,
-                operators_end: c.operators.next_idx(),
+                operators_end: c.operators.len_idx(),
                 calls: SmallVec::new(),
                 successors: SmallVec::new(),
                 caller_successors: HashSet::default(),
@@ -603,7 +603,7 @@ impl LivenessData {
             });
         }
         self.updates_stack.extend(IdxRange::new(
-            BasicBlockId::ZERO..sess.chains.next_idx().into_bb_id(),
+            BasicBlockId::ZERO..sess.chains.len_idx().into_bb_id(),
         ));
         while let Some(bb_id) = self.updates_stack.pop() {
             let bb = &mut self.basic_blocks[bb_id];
@@ -638,7 +638,7 @@ impl LivenessData {
     }
     fn setup_bb_linkage_data(&mut self, sess: &SessionData) {
         for bb_id in
-            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.next_idx())
+            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.len_idx())
         {
             for succ_n in 0..self.basic_blocks[bb_id].successors.len() {
                 let succ_id = self.basic_blocks[bb_id].successors[succ_n];
@@ -656,7 +656,7 @@ impl LivenessData {
             }
         }
         self.updates_stack.extend(IdxRange::new(
-            BasicBlockId::ZERO..self.basic_blocks.next_idx(),
+            BasicBlockId::ZERO..self.basic_blocks.len_idx(),
         ));
         while let Some(bb_id) = self.updates_stack.pop() {
             for callee_n in 0..self.basic_blocks[bb_id].calls.len() {
@@ -975,8 +975,7 @@ impl LivenessData {
         }
     }
     fn compute_local_liveness(&mut self, sess: &SessionData) {
-        for i in
-            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.next_idx())
+        for i in IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.len_idx())
         {
             self.compute_local_liveness_for_bb(sess, i);
         }
@@ -1156,7 +1155,7 @@ impl LivenessData {
         let mut global = VarLivenessOwned::new(var_count);
 
         self.updates_stack.extend(IdxRange::new(
-            BasicBlockId::ZERO..self.basic_blocks.next_idx(),
+            BasicBlockId::ZERO..self.basic_blocks.len_idx(),
         ));
         while let Some(bb_id) = self.updates_stack.pop() {
             self.basic_blocks[bb_id].updates_required = false;
@@ -1231,7 +1230,7 @@ impl LivenessData {
         let var_count = self.vars.len();
         let op_output_count = self.op_outputs.len();
         for bb_id in
-            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.next_idx())
+            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.len_idx())
         {
             // can't use `get_var_liveness` due to brrwck
             let succ_var_data = &self.var_data[self.get_var_liveness_bounds(

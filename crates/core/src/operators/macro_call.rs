@@ -251,7 +251,7 @@ impl Operator for OpMacroCall {
                 chain_id,
                 OperatorOffsetInChain::AggregationMember(
                     op_id,
-                    self.multi_op.sub_op_ids.next_idx(),
+                    self.multi_op.sub_op_ids.len_idx(),
                 ),
                 span,
             )?);

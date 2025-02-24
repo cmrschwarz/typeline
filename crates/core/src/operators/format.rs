@@ -656,7 +656,7 @@ pub fn parse_format_key(
             name,
             name_interned: None,
         });
-        key.ref_idx = refs.next_idx() - FormatKeyRefId::ONE;
+        key.ref_idx = refs.len_idx() - FormatKeyRefId::ONE;
         i = end + 1;
         if c0 == ':' {
             i = parse_format_flags(fmt, i, &mut key, refs)?;
@@ -2299,7 +2299,7 @@ impl<'a> Transform<'a> for TfFormat<'a> {
         }
 
         let mut i = handle.part_idx + FormatPartIndex::ONE;
-        while i < self.op.parts.next_idx() {
+        while i < self.op.parts.len_idx() {
             match &self.op.parts[i] {
                 FormatPart::ByteLiteral(l) => {
                     inserter.append(StreamValueData::StaticBytes(l));

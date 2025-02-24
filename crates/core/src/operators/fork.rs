@@ -158,7 +158,7 @@ impl Operator for OpFork {
             .into());
         };
 
-        self.subchains_start = sess.chains[chain_id].subchains.next_idx();
+        self.subchains_start = sess.chains[chain_id].subchains.len_idx();
 
         debug_assert!(
             self.prebound_ops.is_empty() || self.arguments.is_empty()
@@ -172,7 +172,7 @@ impl Operator for OpFork {
             sess.setup_subchain_from_args(chain_id, args)?;
         }
 
-        self.subchains_end = sess.chains[chain_id].subchains.next_idx();
+        self.subchains_end = sess.chains[chain_id].subchains.len_idx();
 
         Ok(op_id)
     }
@@ -386,7 +386,7 @@ impl<'a> Transform<'a> for TfFork {
             SubchainIndex::ZERO
                 ..job.job_data.session_data.chains[fork_chain_id]
                     .subchains
-                    .next_idx(),
+                    .len_idx(),
         ) {
             let target = setup_fork_subchain(
                 job,

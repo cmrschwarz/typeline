@@ -97,7 +97,7 @@ impl Operator for OpChunks {
         span: Span,
     ) -> Result<OperatorId, TypelineError> {
         let op_id = sess.add_op(op_data_id, chain_id, offset_in_chain, span);
-        self.subchain_idx = sess.chains[chain_id].subchains.next_idx();
+        self.subchain_idx = sess.chains[chain_id].subchains.len_idx();
         sess.setup_subchain(chain_id, std::mem::take(&mut self.subchain))?;
         Ok(op_id)
     }

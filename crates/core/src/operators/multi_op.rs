@@ -167,7 +167,7 @@ impl Operator for OpMultiOp {
                 chain_id,
                 OperatorOffsetInChain::AggregationMember(
                     op_id,
-                    self.sub_op_ids.next_idx(),
+                    self.sub_op_ids.len_idx(),
                 ),
                 span,
             )?);
