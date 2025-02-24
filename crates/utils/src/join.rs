@@ -63,8 +63,8 @@ use typeline_core::{
 };
 
 use indexland::{
-    nonmax::NonMaxUsize,
-    universe::{Universe, UniverseRefHandoutStack},
+    nonmax::NonMaxUsize, universe::Universe,
+    universe_multi_ref_mut_handout::UniverseRefHandoutStack,
 };
 
 #[derive(Clone)]

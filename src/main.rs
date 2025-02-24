@@ -1,4 +1,3 @@
-use ref_cast::RefCast;
 use std::{
     fs::File,
     io::{Read, Write},
@@ -52,7 +51,7 @@ fn run() -> Result<bool, String> {
         parse_cli_args_from_vec(&args, setup_opts.skip_first_cli_arg)
             .map_err(|e| {
                 e.contextualize_message(
-                    Some(IndexSlice::ref_cast(&*args)),
+                    Some(IndexSlice::from_slice(&args)),
                     Some(&setup_opts),
                     None,
                     None,
