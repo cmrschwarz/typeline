@@ -5,7 +5,7 @@ use std::{
 };
 
 use bstr::ByteSlice;
-use indexland::universe::CountedUniverse;
+use indexland::counted_universe::CountedUniverse;
 use metamatch::metamatch;
 
 use crate::{

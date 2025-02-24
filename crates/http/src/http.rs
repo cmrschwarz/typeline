@@ -44,7 +44,7 @@ use typeline_core::{
 };
 use url::{ParseError, Url};
 
-use indexland::universe::CountedUniverse;
+use indexland::counted_universe::CountedUniverse;
 
 use crate::tls_client::{make_config, TlsSettings};
 
