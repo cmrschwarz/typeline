@@ -70,8 +70,8 @@ use crate::{
 };
 
 use indexland::{
-    counted_universe::CountedUniverse, Idx, index_newtype,
-    index_slice::IndexSlice, index_vec::IndexVec, nonmax::NonMaxUsize,
+    counted_universe::CountedUniverse, index_newtype, index_slice::IndexSlice,
+    index_vec::IndexVec, nonmax::NonMaxUsize, Idx,
 };
 use metamatch::metamatch;
 use smallstr::SmallString;
@@ -2334,7 +2334,7 @@ impl<'a> Transform<'a> for TfFormat<'a> {
 mod test {
     use std::borrow::Cow;
 
-    use indexland::{Idx, index_vec::IndexVec};
+    use indexland::{index_vec::IndexVec, Idx};
 
     use crate::operators::format::{
         FormatFillAlignment, FormatFillSpec, FormatKey, FormatKeyRefData,
