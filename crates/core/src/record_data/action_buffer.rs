@@ -11,11 +11,11 @@ use super::{
     match_set::{MatchSetId, MatchSetManager},
 };
 
-use indexland::idx_newtype;
+use indexland::{idx_newtype, IdxNewtype};
 
 use indexland::{
-    Idx, index_slice::IndexSlice, index_vec::IndexVec,
-    offset_vec_deque::OffsetVecDeque, subslice_slice_pair,
+    index_slice::IndexSlice, index_vec::IndexVec,
+    offset_vec_deque::OffsetVecDeque, subslice_slice_pair, Idx,
 };
 
 use crate::utils::launder_slice;

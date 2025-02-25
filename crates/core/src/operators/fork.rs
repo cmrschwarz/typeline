@@ -28,8 +28,9 @@ use crate::{
 };
 
 use indexland::{
-    index_vec::IndexVec,
     idx::{Idx, IdxRange},
+    index_vec::IndexVec,
+    IdxNewtype,
 };
 
 use super::{
