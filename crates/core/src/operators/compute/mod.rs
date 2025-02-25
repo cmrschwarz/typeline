@@ -14,7 +14,7 @@ use std::{
 };
 
 use indexland::{
-    index_newtype,
+    idx_newtype,
     index_slice::IndexSlice,
     index_vec::IndexVec,
     Idx,
@@ -76,7 +76,7 @@ pub struct OpCompute {
     let_bindings: IndexVec<LetBindingId, LetBindingData>,
 }
 
-index_newtype! {
+idx_newtype! {
     pub struct ExternFieldIdx(u32);
 }
 

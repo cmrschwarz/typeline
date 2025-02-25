@@ -33,7 +33,7 @@ use typeline_core::{
 };
 
 use indexland::{
-    nonmax::NonMaxUsize, index_newtype,
+    nonmax::NonMaxUsize, idx_newtype,
     Idx, universe::Universe,
 };
 
@@ -44,7 +44,7 @@ use metamatch::metamatch;
 #[derive(Default)]
 pub struct OpLines {}
 
-index_newtype! {
+idx_newtype! {
     struct LineStreamIdx(NonMaxUsize);
 }
 

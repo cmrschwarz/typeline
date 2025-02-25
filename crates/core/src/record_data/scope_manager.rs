@@ -4,7 +4,7 @@ use std::{
 };
 
 use indexland::{
-    nonmax::NonMaxU32, index_newtype,
+    nonmax::NonMaxU32, idx_newtype,
     Idx, universe::Universe,
 };
 
@@ -25,7 +25,7 @@ use super::{
     formattable::{Formattable, FormattingContext},
 };
 
-index_newtype! {
+idx_newtype! {
     pub struct ScopeId(NonMaxU32);
 }
 

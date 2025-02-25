@@ -1,13 +1,13 @@
 use std::{alloc::Layout, borrow::Cow, collections::HashMap, hash::Hash};
 
-use indexland::index_newtype;
+use indexland::idx_newtype;
 
 use indexland::{
     nonmax::NonMaxU32, index_vec::IndexVec,
     Idx,
 };
 
-index_newtype! {
+idx_newtype! {
     pub struct StringStoreEntry(NonMaxU32);
 }
 pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry =

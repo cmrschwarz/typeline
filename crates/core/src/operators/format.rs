@@ -70,7 +70,7 @@ use crate::{
 };
 
 use indexland::{
-    counted_universe::CountedUniverse, index_newtype, index_slice::IndexSlice,
+    counted_universe::CountedUniverse, idx_newtype, index_slice::IndexSlice,
     index_vec::IndexVec, nonmax::NonMaxUsize, Idx,
 };
 use metamatch::metamatch;
@@ -119,7 +119,7 @@ pub enum FormatPart {
     Key(FormatKey),
 }
 
-index_newtype! {
+idx_newtype! {
     pub struct FormatKeyRefId(u32);
     pub struct FormatPartIndex(u32);
 }

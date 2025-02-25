@@ -15,7 +15,7 @@ use super::{
     ExternField, ExternFieldIdx, ExternVarData, TempField,
 };
 
-use indexland::index_newtype;
+use indexland::idx_newtype;
 
 use crate::{
     operators::{errors::OperatorApplicationError, operator::OperatorId},
@@ -65,7 +65,7 @@ use std::{
     ops::Range,
 };
 
-index_newtype! {
+idx_newtype! {
     pub struct ExternFieldTempIterId(u32);
     pub struct NextLowestArrayLink(NonMaxUsize);
 }

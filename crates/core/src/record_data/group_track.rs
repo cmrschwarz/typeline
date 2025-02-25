@@ -6,7 +6,7 @@ use std::{
 };
 
 use indexland::{
-    nonmax::NonMaxU32, index_newtype,
+    nonmax::NonMaxU32, idx_newtype,
     Idx, universe::Universe,
 };
 
@@ -25,7 +25,7 @@ use super::{
 pub type GroupIdx = usize;
 pub type GroupLen = usize;
 
-index_newtype! {
+idx_newtype! {
     pub struct GroupIdxStable(usize);
 }
 

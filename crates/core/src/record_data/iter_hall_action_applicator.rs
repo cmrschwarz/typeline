@@ -7,7 +7,7 @@ use num::Integer;
 
 use indexland::{
     nonmax::NonMaxU32,
-    index_newtype,
+    idx_newtype,
     index_slice::IndexSlice,
     index_vec::IndexVec,
     Idx,
@@ -59,7 +59,7 @@ struct HeaderDropInstructions {
     trailing_drop: usize,
 }
 
-index_newtype! {
+idx_newtype! {
     struct DataCowIndex(NonMaxU32);
     struct FullCowIndex(NonMaxU32);
 }

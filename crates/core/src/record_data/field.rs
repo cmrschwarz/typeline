@@ -6,9 +6,7 @@ use std::{
 
 use smallvec::SmallVec;
 
-use indexland::{
-    index_newtype, Idx, universe::Universe,
-};
+use indexland::{idx_newtype, universe::Universe, Idx};
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
@@ -60,7 +58,7 @@ pub struct Field {
     pub producing_transform_arg: String,
 }
 
-index_newtype! {
+idx_newtype! {
     pub struct FieldId(u32);
 }
 

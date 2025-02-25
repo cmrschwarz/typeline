@@ -15,7 +15,7 @@ use subenum::subenum;
 use indexland::{
     get_two_distinct_mut,
     idx::{Idx, IdxRange},
-    index_newtype,
+    idx_newtype,
     index_vec::IndexVec,
 };
 
@@ -31,7 +31,7 @@ use crate::{
 
 use derive_more::{Deref, DerefMut};
 
-index_newtype! {
+idx_newtype! {
     pub struct BasicBlockId(usize);
     pub struct VarId(u32);
     pub struct OpOutputIdx(u32);

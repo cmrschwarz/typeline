@@ -81,11 +81,11 @@ use typeline_core::{
 };
 
 use indexland::{
-    counted_universe::CountedUniverse, Idx, index_newtype,
+    counted_universe::CountedUniverse, Idx, idx_newtype,
     index_vec::IndexVec, universe::Universe,
 };
 
-index_newtype! {
+idx_newtype! {
     pub struct ExecArgIdx(u32);
 }
 
@@ -135,7 +135,7 @@ struct RunningCommand {
     exit_code_sv_id: StreamValueId,
     poll_requested: bool,
 }
-index_newtype! {
+idx_newtype! {
     struct RunningCommandIdx(u32);
 }
 type CommandOutputTokenId = usize;

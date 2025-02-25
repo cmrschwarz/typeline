@@ -18,11 +18,11 @@ use typeline_core::{
 };
 
 use indexland::{
-    nonmax::NonMaxUsize, index_newtype,
+    nonmax::NonMaxUsize, idx_newtype,
     index_vec::IndexVec, Idx, stable_vec::StableVec,
 };
 
-index_newtype! {
+idx_newtype! {
     pub(super) struct InserterIndex(pub usize);
 }
 

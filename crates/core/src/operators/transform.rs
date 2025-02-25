@@ -1,7 +1,7 @@
 use std::{any::Any, fmt::Write, sync::Arc};
 
 use indexland::{
-    index_newtype,
+    idx_newtype,
     nonmax::{NonMaxU32, NonMaxUsize},
 };
 use smallstr::SmallString;
@@ -21,7 +21,7 @@ use super::operator::{OperatorId, OutputFieldKind};
 
 pub type DefaultTransformName = SmallString<[u8; 32]>;
 
-index_newtype! {
+idx_newtype! {
     pub struct TransformId(NonMaxU32);
     pub struct StreamProducerIndex(NonMaxUsize);
 }

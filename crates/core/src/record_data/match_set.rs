@@ -12,7 +12,7 @@ use crate::{
     },
 };
 use indexland::{
-    nonmax::NonMaxUsize, index_newtype,
+    nonmax::NonMaxUsize, idx_newtype,
     universe::Universe, Idx,
 };
 
@@ -23,7 +23,7 @@ use super::{
     scope_manager::{ScopeId, ScopeManager},
 };
 
-index_newtype! {
+idx_newtype! {
     pub struct MatchSetId(NonMaxUsize);
 }
 

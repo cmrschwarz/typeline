@@ -1,5 +1,5 @@
 use indexland::{
-    index_newtype, index_slice::IndexSlice, index_vec::IndexVec,
+    idx_newtype, index_slice::IndexSlice, index_vec::IndexVec,
     Idx,
 };
 
@@ -16,7 +16,7 @@ use super::ast::{
     IdentId, LetBindingData, LetBindingId, UnaryOpKind, UnboundIdentData,
 };
 
-index_newtype! {
+idx_newtype! {
     pub struct InstructionId(u32);
     pub struct TempFieldIdRaw(u32);
     pub struct SsaTemporaryId(u32);
