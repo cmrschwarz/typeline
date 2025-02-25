@@ -10,6 +10,8 @@ members = [
     "crates/csv",
     "crates/json",
     "crates/selenium",
+    "crates/indexland",
+    "crates/indexland/derive"
 ]
 
 package.version = "0.1.0"
