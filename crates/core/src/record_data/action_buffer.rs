@@ -11,7 +11,7 @@ use super::{
     match_set::{MatchSetId, MatchSetManager},
 };
 
-use indexland::{idx_newtype, IdxNewtype};
+use indexland::{idx_newtype, NewtypeIdx};
 
 use indexland::{
     index_slice::IndexSlice, index_vec::IndexVec,

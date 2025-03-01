@@ -30,7 +30,7 @@ use crate::{
 use indexland::{
     idx::{Idx, IdxRange},
     index_vec::IndexVec,
-    IdxNewtype,
+    NewtypeIdx,
 };
 
 use super::{
