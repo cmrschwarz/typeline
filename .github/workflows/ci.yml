@@ -67,4 +67,8 @@ jobs:
         working-directory: ./crates/indexland
         run: cargo readme > README.md
 
+      - name: cargo readme (indexland_derive)
+        working-directory: ./crates/indexland/derive
+        run: cargo readme > README.md
+
       - run: git diff --exit-code
