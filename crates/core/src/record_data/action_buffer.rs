@@ -11,7 +11,7 @@ use super::{
     match_set::{MatchSetId, MatchSetManager},
 };
 
-use indexland::{idx_newtype, NewtypeIdx};
+use indexland::{newtype_idx, NewtypeIdx};
 
 use indexland::{
     index_slice::IndexSlice, index_vec::IndexVec,
@@ -20,14 +20,11 @@ use indexland::{
 
 use crate::utils::launder_slice;
 
-idx_newtype! {
+newtype_idx! {
     pub struct ActorId(u16);
     pub struct SnapshotRef(pub(crate) ActionGroupId);
-
     pub struct ActionGroupId(u32);
-
     pub struct ActionGroupDataOffset(u32);
-
     struct TempBufferIndex(u32);
 }
 

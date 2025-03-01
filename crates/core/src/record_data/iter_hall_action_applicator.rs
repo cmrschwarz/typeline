@@ -6,14 +6,13 @@ use std::{
 use num::Integer;
 
 use indexland::{
-    nonmax::NonMaxU32,
-    idx_newtype,
     index_slice::IndexSlice,
     index_vec::IndexVec,
-    Idx,
+    nonmax::NonMaxU32,
     random_access_container::RandomAccessContainer,
     temp_vec::{TempIndexVec, TempVec, TransmutableContainer},
     universe::Universe,
+    Idx, NewtypeIdx,
 };
 
 use crate::record_data::{
@@ -59,10 +58,11 @@ struct HeaderDropInstructions {
     trailing_drop: usize,
 }
 
-idx_newtype! {
-    struct DataCowIndex(NonMaxU32);
-    struct FullCowIndex(NonMaxU32);
-}
+#[derive(NewtypeIdx)]
+struct DataCowIndex(NonMaxU32);
+
+#[derive(NewtypeIdx)]
+struct FullCowIndex(NonMaxU32);
 
 enum CowFieldIndex {
     Full(FullCowIndex),

@@ -1,4 +1,4 @@
-use indexland::{idx_newtype, index_vec::IndexVec};
+use indexland::{index_vec::IndexVec, NewtypeIdx};
 
 use crate::{
     operators::operator::{OffsetInChain, OperatorId},
@@ -6,10 +6,11 @@ use crate::{
     utils::string_store::StringStoreEntry,
 };
 
-idx_newtype! {
-    pub struct ChainId (pub(crate) u32);
-    pub struct SubchainIndex(pub(crate) u32);
-}
+#[derive(NewtypeIdx)]
+pub struct ChainId(pub(crate) u32);
+
+#[derive(NewtypeIdx)]
+pub struct SubchainIndex(pub(crate) u32);
 
 #[derive(Clone)]
 pub struct Chain {

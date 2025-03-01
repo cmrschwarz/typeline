@@ -44,13 +44,13 @@ use crate::{
 };
 
 use indexland::{
-    idx_newtype,
+    idx::{Idx, IdxRange},
     index_slice::IndexSlice,
     index_vec::IndexVec,
-    idx::{Idx, IdxRange},
     phantom_slot::PhantomSlot,
     stable_vec::StableVec,
     temp_vec::TransmutableContainer,
+    NewtypeIdx,
 };
 
 use super::{
@@ -78,11 +78,14 @@ use super::{
 //              - create / append group length
 //              - append to pseudo data column, inform comsumers
 
-idx_newtype! {
-    pub struct FcSubchainIdx(u32);
-    pub struct FcSubchainRoundRobinIdx(u32);
-    pub struct ContinuationVarIdx(u32);
-}
+#[derive(NewtypeIdx)]
+pub struct FcSubchainIdx(u32);
+
+#[derive(NewtypeIdx)]
+pub struct FcSubchainRoundRobinIdx(u32);
+
+#[derive(NewtypeIdx)]
+pub struct ContinuationVarIdx(u32);
 
 #[derive(Default)]
 pub struct ForkcatOpts {
@@ -912,8 +915,7 @@ impl Operator for OpForkCat {
         let mut subchains = IndexVec::new();
 
         for (fc_sc_idx, sc_idx) in
-            IdxRange::new(self.subchains_start..self.subchains_end)
-                .enumerate()
+            IdxRange::new(self.subchains_start..self.subchains_end).enumerate()
         {
             let sc_entry = setup_subchain(
                 self,

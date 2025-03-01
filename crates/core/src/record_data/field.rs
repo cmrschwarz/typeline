@@ -6,7 +6,7 @@ use std::{
 
 use smallvec::SmallVec;
 
-use indexland::{idx_newtype, universe::Universe, Idx};
+use indexland::{universe::Universe, Idx, NewtypeIdx};
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},
@@ -58,9 +58,8 @@ pub struct Field {
     pub producing_transform_arg: String,
 }
 
-idx_newtype! {
-    pub struct FieldId(u32);
-}
+#[derive(NewtypeIdx)]
+pub struct FieldId(u32);
 
 // Field references don't contain the `FieldId` of their target field directly,
 // but an index into the `field_references` Vec of the Field they reside in.

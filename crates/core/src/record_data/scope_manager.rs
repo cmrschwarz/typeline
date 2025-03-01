@@ -3,10 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use indexland::{
-    nonmax::NonMaxU32, idx_newtype,
-    Idx, universe::Universe,
-};
+use indexland::{nonmax::NonMaxU32, universe::Universe, Idx, NewtypeIdx};
 
 use crate::{
     cli::call_expr::Argument,
@@ -25,9 +22,8 @@ use super::{
     formattable::{Formattable, FormattingContext},
 };
 
-idx_newtype! {
-    pub struct ScopeId(NonMaxU32);
-}
+#[derive(NewtypeIdx)]
+pub struct ScopeId(NonMaxU32);
 
 pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;
 

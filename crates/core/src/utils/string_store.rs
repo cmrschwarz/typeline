@@ -1,17 +1,13 @@
 use std::{alloc::Layout, borrow::Cow, collections::HashMap, hash::Hash};
 
-use indexland::idx_newtype;
+use indexland::NewtypeIdx;
 
-use indexland::{
-    nonmax::NonMaxU32, index_vec::IndexVec,
-    Idx,
-};
+use indexland::{index_vec::IndexVec, nonmax::NonMaxU32, Idx};
 
-idx_newtype! {
-    pub struct StringStoreEntry(NonMaxU32);
-}
-pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry =
-    StringStoreEntry::MAX;
+#[derive(NewtypeIdx)]
+pub struct StringStoreEntry(NonMaxU32);
+
+pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry = StringStoreEntry::MAX;
 
 const MIN_BUCKET_CAP: usize = 64;
 

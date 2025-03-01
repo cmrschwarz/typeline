@@ -18,13 +18,12 @@ use typeline_core::{
 };
 
 use indexland::{
-    nonmax::NonMaxUsize, idx_newtype,
-    index_vec::IndexVec, Idx, stable_vec::StableVec,
+    index_vec::IndexVec, nonmax::NonMaxUsize, stable_vec::StableVec, Idx,
+    NewtypeIdx,
 };
 
-idx_newtype! {
-    pub(super) struct InserterIndex(pub usize);
-}
+#[derive(NewtypeIdx)]
+pub(super) struct InserterIndex(pub usize);
 
 pub(super) struct PendingField {
     pub name: String,
@@ -62,8 +61,7 @@ impl JsonlVisitor<'_, '_> {
         else {
             return false;
         };
-        *lfa =
-            NonMaxUsize::new(self.total_lines_produced + 1).unwrap();
+        *lfa = NonMaxUsize::new(self.total_lines_produced + 1).unwrap();
         true
     }
 }
@@ -356,10 +354,9 @@ impl<'de> Visitor<'de> for &mut JsonlVisitor<'_, '_> {
                             gap,
                             true,
                         );
-                        *elem_count = NonMaxUsize::new(
-                            self.total_lines_produced + 1,
-                        )
-                        .unwrap();
+                        *elem_count =
+                            NonMaxUsize::new(self.total_lines_produced + 1)
+                                .unwrap();
                         self.inserters[inserter_idx]
                             .push_field_value_unpacked(value, 1, true, false);
                     } else {
@@ -384,10 +381,8 @@ impl<'de> Visitor<'de> for &mut JsonlVisitor<'_, '_> {
                     if self.opts.dyn_access {
                         let value = map.next_value()?;
                         *self.field_element_count.last_mut().unwrap() = Some(
-                            NonMaxUsize::new(
-                                self.total_lines_produced + 1,
-                            )
-                            .unwrap(),
+                            NonMaxUsize::new(self.total_lines_produced + 1)
+                                .unwrap(),
                         );
                         self.inserters[ii].push_zst(
                             self.opts.zst_to_push,

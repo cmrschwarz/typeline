@@ -1,8 +1,8 @@
 use std::{any::Any, fmt::Write, sync::Arc};
 
 use indexland::{
-    idx_newtype,
     nonmax::{NonMaxU32, NonMaxUsize},
+    NewtypeIdx,
 };
 use smallstr::SmallString;
 
@@ -21,10 +21,11 @@ use super::operator::{OperatorId, OutputFieldKind};
 
 pub type DefaultTransformName = SmallString<[u8; 32]>;
 
-idx_newtype! {
-    pub struct TransformId(NonMaxU32);
-    pub struct StreamProducerIndex(NonMaxUsize);
-}
+#[derive(NewtypeIdx)]
+pub struct TransformId(NonMaxU32);
+
+#[derive(NewtypeIdx)]
+pub struct StreamProducerIndex(NonMaxUsize);
 
 pub type TransformData<'a> = Box<dyn Transform<'a> + 'a>;
 

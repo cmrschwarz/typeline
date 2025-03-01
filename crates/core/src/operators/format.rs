@@ -70,8 +70,8 @@ use crate::{
 };
 
 use indexland::{
-    counted_universe::CountedUniverse, idx_newtype, index_slice::IndexSlice,
-    index_vec::IndexVec, nonmax::NonMaxUsize, Idx,
+    counted_universe::CountedUniverse, index_slice::IndexSlice,
+    index_vec::IndexVec, nonmax::NonMaxUsize, Idx, NewtypeIdx,
 };
 use metamatch::metamatch;
 use smallstr::SmallString;
@@ -119,10 +119,11 @@ pub enum FormatPart {
     Key(FormatKey),
 }
 
-idx_newtype! {
-    pub struct FormatKeyRefId(u32);
-    pub struct FormatPartIndex(u32);
-}
+#[derive(NewtypeIdx)]
+pub struct FormatKeyRefId(u32);
+
+#[derive(NewtypeIdx)]
+pub struct FormatPartIndex(u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatKeyRefData {

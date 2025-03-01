@@ -1,6 +1,5 @@
 use indexland::{
-    idx_newtype, index_slice::IndexSlice, index_vec::IndexVec,
-    Idx,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, NewtypeIdx,
 };
 
 use crate::{
@@ -16,11 +15,14 @@ use super::ast::{
     IdentId, LetBindingData, LetBindingId, UnaryOpKind, UnboundIdentData,
 };
 
-idx_newtype! {
-    pub struct InstructionId(u32);
-    pub struct TempFieldIdRaw(u32);
-    pub struct SsaTemporaryId(u32);
-}
+#[derive(NewtypeIdx)]
+pub struct InstructionId(u32);
+
+#[derive(NewtypeIdx)]
+pub struct TempFieldIdRaw(u32);
+
+#[derive(NewtypeIdx)]
+pub struct SsaTemporaryId(u32);
 
 #[derive(Clone, Copy)]
 pub struct TempFieldId {

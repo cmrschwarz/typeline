@@ -10,7 +10,7 @@ use std::{
 
 use smallvec::SmallVec;
 
-use indexland::{idx_newtype, universe::Universe};
+use indexland::{universe::Universe, NewtypeIdx};
 
 use crate::{
     operators::{errors::OperatorApplicationError, transform::TransformId},
@@ -141,9 +141,8 @@ pub struct StreamValueDataInserter<'s, 'd> {
     memory_budget: usize,
 }
 
-idx_newtype! {
-    pub struct StreamValueId(usize);
-}
+#[derive(NewtypeIdx)]
+pub struct StreamValueId(usize);
 
 #[derive(Default)]
 pub struct StreamValueManager<'a> {

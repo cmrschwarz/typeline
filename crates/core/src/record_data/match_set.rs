@@ -11,10 +11,7 @@ use crate::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
     },
 };
-use indexland::{
-    nonmax::NonMaxUsize, idx_newtype,
-    universe::Universe, Idx,
-};
+use indexland::{nonmax::NonMaxUsize, universe::Universe, Idx, NewtypeIdx};
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef},
@@ -23,9 +20,8 @@ use super::{
     scope_manager::{ScopeId, ScopeManager},
 };
 
-idx_newtype! {
-    pub struct MatchSetId(NonMaxUsize);
-}
+#[derive(NewtypeIdx)]
+pub struct MatchSetId(NonMaxUsize);
 
 pub struct MatchSet {
     pub dummy_field: FieldId,

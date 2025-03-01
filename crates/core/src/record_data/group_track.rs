@@ -5,10 +5,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use indexland::{
-    nonmax::NonMaxU32, idx_newtype,
-    Idx, universe::Universe,
-};
+use indexland::{nonmax::NonMaxU32, universe::Universe, Idx, NewtypeIdx};
 
 use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
 
@@ -25,9 +22,8 @@ use super::{
 pub type GroupIdx = usize;
 pub type GroupLen = usize;
 
-idx_newtype! {
-    pub struct GroupIdxStable(usize);
-}
+#[derive(NewtypeIdx)]
+pub struct GroupIdxStable(usize);
 
 pub type GroupTrackIterId = u32;
 type GroupTrackIterSortedIndex = u32;
@@ -2045,7 +2041,7 @@ mod test_action_lists_through_iter {
         utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
 
-    use indexland::{Idx, universe::Universe};
+    use indexland::{universe::Universe, Idx};
 
     use super::{
         testing_helpers::GroupTrackIterStateRaw, GroupTrackIterId,
@@ -2182,7 +2178,7 @@ mod test_action_lists {
         utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
 
-    use indexland::{Idx, universe::Universe};
+    use indexland::{universe::Universe, Idx};
 
     use std::cell::Cell;
 

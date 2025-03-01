@@ -15,8 +15,6 @@ use super::{
     ExternField, ExternFieldIdx, ExternVarData, TempField,
 };
 
-use indexland::idx_newtype;
-
 use crate::{
     operators::{errors::OperatorApplicationError, operator::OperatorId},
     record_data::{
@@ -57,6 +55,7 @@ use indexland::{
     nonmax::NonMaxUsize,
     stable_universe::StableUniverse,
     temp_vec::{TempVec, TransmutableContainer},
+    NewtypeIdx,
 };
 
 use metamatch::metamatch;
@@ -65,10 +64,11 @@ use std::{
     ops::Range,
 };
 
-idx_newtype! {
-    pub struct ExternFieldTempIterId(u32);
-    pub struct NextLowestArrayLink(NonMaxUsize);
-}
+#[derive(NewtypeIdx)]
+pub struct ExternFieldTempIterId(u32);
+
+#[derive(NewtypeIdx)]
+pub struct NextLowestArrayLink(NonMaxUsize);
 
 pub struct Executor<'a, 'b> {
     pub op_id: OperatorId,

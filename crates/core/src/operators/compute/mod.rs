@@ -14,13 +14,12 @@ use std::{
 };
 
 use indexland::{
-    idx_newtype,
     index_slice::IndexSlice,
     index_vec::IndexVec,
-    Idx,
     phantom_slot::PhantomSlot,
     stable_universe::StableUniverse,
     temp_vec::{TempVec, TransmutableContainer},
+    Idx, NewtypeIdx,
 };
 
 use crate::{
@@ -76,9 +75,8 @@ pub struct OpCompute {
     let_bindings: IndexVec<LetBindingId, LetBindingData>,
 }
 
-idx_newtype! {
-    pub struct ExternFieldIdx(u32);
-}
+#[derive(NewtypeIdx)]
+pub struct ExternFieldIdx(u32);
 
 pub struct ExternField {
     iter_ref: FieldIterRef,

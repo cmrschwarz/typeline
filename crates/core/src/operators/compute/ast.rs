@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use indexland::{idx_newtype, Idx};
+use indexland::{newtype_idx, Idx};
 
 use crate::{
     record_data::field_value::{FieldValue, FieldValueKind},
@@ -9,7 +9,7 @@ use crate::{
 
 use super::parser::Precedence;
 
-idx_newtype! {
+newtype_idx! {
     pub struct ExternIdentId(u32);
     pub struct LetBindingId(u32);
     pub struct AccessIdx(u32);

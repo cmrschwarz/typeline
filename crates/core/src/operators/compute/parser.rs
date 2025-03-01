@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap};
 
-use indexland::{idx_newtype, index_vec::IndexVec, Idx};
+use indexland::{index_vec::IndexVec, Idx, NewtypeIdx};
 
 use crate::{
     operators::compute::ast::BinaryOpKind,
@@ -136,9 +136,8 @@ pub struct ComputeExprParser<'a, 't> {
     let_bindings: &'t mut IndexVec<LetBindingId, LetBindingData>,
 }
 
-idx_newtype! {
-    pub struct Precedence(u8);
-}
+#[derive(NewtypeIdx)]
+pub struct Precedence(u8);
 
 impl<'i, 't> ComputeExprParser<'i, 't> {
     pub fn new(

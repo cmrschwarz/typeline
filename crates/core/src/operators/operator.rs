@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap};
 
 use smallstr::SmallString;
 
-use indexland::{Idx, idx_newtype};
+use indexland::{Idx, newtype_idx};
 
 use crate::{
     chain::{Chain, ChainId},
@@ -22,7 +22,7 @@ use crate::{
 
 use super::transform::{TransformData, TransformId, TransformState};
 
-idx_newtype! {
+newtype_idx! {
     pub struct OperatorId(u32);
     pub struct OperatorDataId(u32);
     pub struct OffsetInChain(u32);
