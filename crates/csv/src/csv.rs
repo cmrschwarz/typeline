@@ -49,8 +49,10 @@ use typeline_core::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, stable_vec::StableVec,
-    temp_vec::TransmutableContainer, Idx, NewtypeIdx,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, NewtypeIdx,
+};
+use indexland_utils::{
+    stable_vec::StableVec, temp_vec::TransmutableContainer,
 };
 
 // HACK

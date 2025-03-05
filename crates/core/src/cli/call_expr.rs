@@ -1,7 +1,8 @@
 use std::{borrow::Cow, fmt::Debug};
 
 use bstr::ByteSlice;
-use indexland::{nonmax::NonMaxU32, Idx};
+use indexland::Idx;
+use indexland_utils::nonmax::NonMaxU32;
 use num::PrimInt;
 
 use crate::{
@@ -256,7 +257,7 @@ impl Argument {
     pub fn as_maybe_text(&self, sess: &mut SessionSetupData) -> MaybeTextCow {
         if let Some(MetaInfo::DenormalRepresentation(repr)) = &self.meta_info {
             return MaybeTextCow::TextRef(repr);
-        };
+        }
 
         match &self.value {
             FieldValue::Text(text) => return MaybeTextCow::TextRef(text),
@@ -563,7 +564,7 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
                 keys_stored.insert(string_store.lookup(k).to_string(), v);
             }
             *obj = Box::new(Object::KeysStored(keys_stored));
-        };
+        }
 
         let Object::KeysStored(keys_stored) = &mut **obj else {
             unreachable!()

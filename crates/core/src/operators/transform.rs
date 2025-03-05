@@ -1,9 +1,7 @@
 use std::{any::Any, fmt::Write, sync::Arc};
 
-use indexland::{
-    nonmax::{NonMaxU32, NonMaxUsize},
-    NewtypeIdx,
-};
+use indexland::NewtypeIdx;
+use indexland_utils::nonmax::{NonMaxU32, NonMaxUsize};
 use smallstr::SmallString;
 
 use crate::{

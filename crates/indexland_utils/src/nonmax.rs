@@ -57,6 +57,9 @@ macro_rules! nonmax_impl {
             pub const fn get(self) -> $primitive {
                 self.0
             }
+
+            /// # Safety
+            /// Value must not be MAX
             #[inline]
             pub const unsafe fn new_unchecked(value: $primitive) -> Self {
                 Self(value)

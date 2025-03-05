@@ -382,7 +382,7 @@ pub fn read_until_unescape2<
             )));
         }
         let mut consumed = 0;
-        'handle_escapes: loop {
+        loop {
             if curr_esc_len == 0 {
                 let Some(i) = memchr::memchr3(
                     delim,
@@ -437,7 +437,6 @@ pub fn read_until_unescape2<
                     consumed += n;
                     available = &available[n..];
                     curr_esc_len = 0;
-                    continue 'handle_escapes;
                 }
             }
         }

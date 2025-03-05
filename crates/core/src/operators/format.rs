@@ -70,9 +70,12 @@ use crate::{
 };
 
 use indexland::{
-    counted_universe::CountedUniverse, index_slice::IndexSlice,
-    index_vec::IndexVec, nonmax::NonMaxUsize, Idx, NewtypeIdx,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, NewtypeIdx,
 };
+use indexland_utils::{
+    counted_universe::CountedUniverse, nonmax::NonMaxUsize,
+};
+
 use metamatch::metamatch;
 use smallstr::SmallString;
 
@@ -1177,7 +1180,6 @@ pub fn setup_key_output_state(
                             );
                         },
                     );
-                    continue;
                 }
             }
 

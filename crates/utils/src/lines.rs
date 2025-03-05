@@ -32,7 +32,8 @@ use typeline_core::{
     typeline_error::TypelineError,
 };
 
-use indexland::{nonmax::NonMaxUsize, universe::Universe, Idx, NewtypeIdx};
+use indexland::{Idx, NewtypeIdx};
+use indexland_utils::{nonmax::NonMaxUsize, universe::Universe};
 
 use bstr::ByteSlice;
 

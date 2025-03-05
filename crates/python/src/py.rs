@@ -46,7 +46,7 @@ use typeline_core::{
     },
 };
 
-use indexland::{
+use indexland_utils::{
     phantom_slot::PhantomSlot,
     temp_vec::{transmute_vec, TransmutableContainer},
 };

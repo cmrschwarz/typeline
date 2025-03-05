@@ -80,7 +80,7 @@ fn check(
     let mut current = true;
     while let Some(v) = normal.next() {
         let len = if v & 0x80 != 0 {
-            (i32::from(v & 0x7f)) << 8 | i32::from(normal.next().unwrap())
+            ((i32::from(v & 0x7f)) << 8) | i32::from(normal.next().unwrap())
         } else {
             i32::from(v)
         };

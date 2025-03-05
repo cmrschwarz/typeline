@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, mem::MaybeUninit};
 
-use indexland::range_contains;
+use indexland_utils::range_contains;
 
 use super::{
     field_data::{

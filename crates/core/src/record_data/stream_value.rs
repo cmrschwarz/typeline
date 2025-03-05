@@ -10,7 +10,8 @@ use std::{
 
 use smallvec::SmallVec;
 
-use indexland::{universe::Universe, NewtypeIdx};
+use indexland::NewtypeIdx;
+use indexland_utils::universe::Universe;
 
 use crate::{
     operators::{errors::OperatorApplicationError, transform::TransformId},

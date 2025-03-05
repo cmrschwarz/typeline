@@ -17,7 +17,8 @@ doctest = false
 
 [dependencies]
 typeline_core = { version = "0.1", path = "../core" }
-indexland = { path="../indexland" }
+indexland = { path = "../indexland" }
+indexland_utils = { path = "../indexland_utils" }
 
 lexical-core = "1.0.2"
 memchr = "2.7.4"

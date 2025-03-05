@@ -5,7 +5,6 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-#[cfg(feature = "multi_ref_mut_handout")]
 use crate::universe_multi_ref_mut_handout::{
     UniverseMultiRefMutHandout, UniverseRefHandoutStackBase,
 };
@@ -52,14 +51,12 @@ impl<I: Idx, T> Universe<I, T> {
         }
     }
 
-    #[cfg(feature = "multi_ref_mut_handout")]
     pub fn multi_ref_mut_handout<const CAP: usize>(
         &mut self,
     ) -> UniverseMultiRefMutHandout<I, T, CAP> {
         UniverseMultiRefMutHandout::new(self)
     }
 
-    #[cfg(feature = "multi_ref_mut_handout")]
     pub fn ref_mut_handout_stack(
         &mut self,
     ) -> UniverseRefHandoutStackBase<I, T> {

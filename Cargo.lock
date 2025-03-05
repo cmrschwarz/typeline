@@ -1497,6 +1497,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "indexland_utils"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "derive_more 2.0.1",
+ "indexland",
+ "serde",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2759,9 +2769,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.21"
+version = "0.23.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f287924602bf649d949c63dc8ac8b235fa5387d394020705b80c4eb597ce5b8"
+checksum = "47796c98c480fce5406ef69d1c76378375492c3b0a0de587be0c1d9feb12f395"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -3591,6 +3601,7 @@ dependencies = [
  "criterion",
  "criterion-macro",
  "indexland",
+ "indexland_utils",
  "inventory",
  "macro_rules_attribute",
  "paste",
@@ -3618,6 +3629,7 @@ dependencies = [
  "encoding_rs",
  "handlebars",
  "indexland",
+ "indexland_utils",
  "indexmap",
  "lexical-core",
  "memchr",
@@ -3651,6 +3663,7 @@ name = "typeline_ext_csv"
 version = "0.1.0"
 dependencies = [
  "indexland",
+ "indexland_utils",
  "lexical-core",
  "memchr",
  "rstest",
@@ -3671,6 +3684,7 @@ dependencies = [
  "hyper-tls",
  "hyper-util",
  "indexland",
+ "indexland_utils",
  "memchr",
  "mio",
  "mockito",
@@ -3694,6 +3708,7 @@ name = "typeline_ext_json"
 version = "0.1.0"
 dependencies = [
  "indexland",
+ "indexland_utils",
  "indexmap",
  "lexical-core",
  "memchr",
@@ -3712,6 +3727,7 @@ name = "typeline_ext_python"
 version = "0.1.0"
 dependencies = [
  "indexland",
+ "indexland_utils",
  "num",
  "pyo3",
  "rstest",
@@ -3752,6 +3768,7 @@ dependencies = [
  "arrayvec",
  "bstr",
  "indexland",
+ "indexland_utils",
  "indexmap",
  "metamatch 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "mio",

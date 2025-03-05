@@ -50,12 +50,12 @@ use crate::{
     },
 };
 
-use indexland::{
-    index_slice::IndexSlice,
-    nonmax::NonMaxUsize,
+use indexland::{index_slice::IndexSlice, NewtypeIdx};
+use indexland_utils::nonmax::NonMaxUsize;
+
+use indexland_utils::{
     stable_universe::StableUniverse,
     temp_vec::{TempVec, TransmutableContainer},
-    NewtypeIdx,
 };
 
 use metamatch::metamatch;

@@ -3,7 +3,8 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use indexland::{nonmax::NonMaxU32, universe::Universe, Idx, NewtypeIdx};
+use indexland::{Idx, NewtypeIdx};
+use indexland_utils::{nonmax::NonMaxU32, universe::Universe};
 
 use crate::{
     cli::call_expr::Argument,

@@ -47,10 +47,12 @@ use indexland::{
     idx::{Idx, IdxRange},
     index_slice::IndexSlice,
     index_vec::IndexVec,
-    phantom_slot::PhantomSlot,
-    stable_vec::StableVec,
-    temp_vec::TransmutableContainer,
     NewtypeIdx,
+};
+
+use indexland_utils::{
+    phantom_slot::PhantomSlot, stable_vec::StableVec,
+    temp_vec::TransmutableContainer,
 };
 
 use super::{

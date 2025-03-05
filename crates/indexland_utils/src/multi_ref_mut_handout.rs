@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use arrayvec::ArrayVec;
 
-use super::{Idx, index_slice::IndexSlice};
+use indexland::{index_slice::IndexSlice, Idx};
 
 pub struct MultiRefMutHandout<'a, I, T, const CAP: usize = 2> {
     data: &'a mut IndexSlice<I, T>,
@@ -28,6 +28,9 @@ impl<'a, I: Idx, T, const CAP: usize> MultiRefMutHandout<'a, I, T, CAP> {
     }
 }
 
+/// # Safety
+/// May only claim ids not used by any of it's children
+/// must assert in assert_unused if the idx is in use
 pub unsafe trait RefHandoutStack<I, T> {
     type Child<'b>: RefHandoutStack<I, T>
     where

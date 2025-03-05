@@ -3,9 +3,7 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use super::{
-    index_slice::IndexSlice, index_vec::IndexVec, Idx,
-};
+use indexland::{index_slice::IndexSlice, index_vec::IndexVec, Idx};
 
 /// Very crude generalization over `Vec<T>` and `VecDeque<T>`,
 /// used for cases where algorithms need to work on both, like

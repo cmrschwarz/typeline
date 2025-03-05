@@ -11,7 +11,7 @@ pub fn utf8_surrocate_escape(input: &[u8], out: &mut Vec<u8>) {
     for b in input {
         out.extend_from_slice(&[
             0xED,
-            0xB0 | b >> 6,
+            0xB0 | (b >> 6),
             0x80 | (b >> 4) & 0x3,
             b & 0xF,
         ]);
@@ -43,7 +43,7 @@ pub fn utf8_surrogate_unescape<'a>(
                 invalid_sequence: &input[i..],
             });
         }
-        out.push((input[i + 1] & 0x3) << 6 | (input[i + 2] & 0x3F));
+        out.push(((input[i + 1] & 0x3) << 6) | (input[i + 2] & 0x3F));
         i += 3;
     }
     Ok(())
@@ -96,7 +96,6 @@ pub fn decode_to_utf8<E>(
             },
             DecoderResult::OutputFull => {
                 output.reserve(output.capacity());
-                continue;
             }
             DecoderResult::Malformed(
                 malformed_seq_len,
@@ -158,7 +157,6 @@ pub fn encode_from_utf8<E>(
             },
             EncoderResult::OutputFull => {
                 output.reserve(output.capacity());
-                continue;
             }
             EncoderResult::Unmappable(unmappable_char) => {
                 replacement_fn(unmappable_char, output)

@@ -11,7 +11,8 @@ use crate::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
     },
 };
-use indexland::{nonmax::NonMaxUsize, universe::Universe, Idx, NewtypeIdx};
+use indexland::{Idx, NewtypeIdx};
+use indexland_utils::{nonmax::NonMaxUsize, universe::Universe};
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef},

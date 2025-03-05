@@ -80,10 +80,8 @@ use typeline_core::{
     },
 };
 
-use indexland::{
-    counted_universe::CountedUniverse, index_vec::IndexVec,
-    universe::Universe, Idx, NewtypeIdx,
-};
+use indexland::{index_vec::IndexVec, Idx, NewtypeIdx};
+use indexland_utils::{counted_universe::CountedUniverse, universe::Universe};
 
 #[derive(NewtypeIdx)]
 pub struct ExecArgIdx(u32);

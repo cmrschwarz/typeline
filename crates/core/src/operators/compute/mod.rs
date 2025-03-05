@@ -14,12 +14,13 @@ use std::{
 };
 
 use indexland::{
-    index_slice::IndexSlice,
-    index_vec::IndexVec,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, NewtypeIdx,
+};
+
+use indexland_utils::{
     phantom_slot::PhantomSlot,
     stable_universe::StableUniverse,
     temp_vec::{TempVec, TransmutableContainer},
-    Idx, NewtypeIdx,
 };
 
 use crate::{

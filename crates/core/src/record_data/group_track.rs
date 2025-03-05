@@ -5,7 +5,8 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use indexland::{nonmax::NonMaxU32, universe::Universe, Idx, NewtypeIdx};
+use indexland::{Idx, NewtypeIdx};
+use indexland_utils::{nonmax::NonMaxU32, universe::Universe};
 
 use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
 
@@ -2041,7 +2042,8 @@ mod test_action_lists_through_iter {
         utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
 
-    use indexland::{universe::Universe, Idx};
+    use indexland::Idx;
+    use indexland_utils::universe::Universe;
 
     use super::{
         testing_helpers::GroupTrackIterStateRaw, GroupTrackIterId,
@@ -2178,7 +2180,8 @@ mod test_action_lists {
         utils::size_classed_vec_deque::SizeClassedVecDeque,
     };
 
-    use indexland::{universe::Universe, Idx};
+    use indexland::Idx;
+    use indexland_utils::universe::Universe;
 
     use std::cell::Cell;
 

@@ -4,7 +4,6 @@ use std::{
 };
 
 use bstr::{ByteSlice, ByteVec, Utf8Error};
-use indexland::range_bounds_to_range_usize;
 use smallstr::SmallString;
 
 pub mod aligned_buf;
@@ -155,7 +154,8 @@ pub fn slice_cow<'a>(
     cow: &Cow<'a, [u8]>,
     range: impl RangeBounds<usize>,
 ) -> Cow<'a, [u8]> {
-    let range = range_bounds_to_range_usize(range, cow.len());
+    use indexland::RangeBoundsToRange;
+    let range = range.into_usize_range(cow.len());
     match cow {
         Cow::Borrowed(v) => Cow::Borrowed(&v[range]),
         Cow::Owned(v) => Cow::Owned(v[range].to_vec()),

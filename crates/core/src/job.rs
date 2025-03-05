@@ -39,9 +39,8 @@ use crate::{
     },
 };
 
-use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, universe::Universe, Idx,
-};
+use indexland::{index_slice::IndexSlice, index_vec::IndexVec, Idx};
+use indexland_utils::universe::Universe;
 
 // a helper type so we can pass a transform handler typed
 // TransformData + all the other Data of the WorkerThreadSession

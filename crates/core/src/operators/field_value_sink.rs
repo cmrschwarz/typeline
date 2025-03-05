@@ -17,7 +17,7 @@ use crate::{
         push_interface::PushInterface,
     },
 };
-use indexland::counted_universe::CountedUniverse;
+use indexland_utils::counted_universe::CountedUniverse;
 use metamatch::metamatch;
 use std::sync::{Arc, Mutex, MutexGuard};
 

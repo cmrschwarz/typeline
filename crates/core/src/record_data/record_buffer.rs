@@ -5,7 +5,7 @@ use std::{
 
 use smallvec::SmallVec;
 
-use indexland::{nonmax::NonMaxU32, universe::Universe};
+use indexland_utils::{nonmax::NonMaxU32, universe::Universe};
 
 use crate::utils::string_store::StringStoreEntry;
 

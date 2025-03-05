@@ -575,7 +575,6 @@ impl Context {
                 }
                 Ok(Signal::CtrlC) => {
                     // eprintln!("^C");
-                    continue;
                 }
                 Ok(Signal::CtrlD) => {
                     eprintln!("exit");

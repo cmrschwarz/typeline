@@ -23,8 +23,10 @@ pub fn setup_op_outputs_for_nested_op(
     sess.with_mut_op_data(nested_op_id, |sess, op| {
         op.assign_op_outputs(sess, ld, nested_op_id, output_count)
     });
-    let (op_base, nested_op_base) =
-        sess.operator_bases.two_distinct_mut(op_id, nested_op_id);
+    let [op_base, nested_op_base] = sess
+        .operator_bases
+        .get_many_mut([op_id, nested_op_id])
+        .unwrap();
     op_base.outputs_start = nested_op_base.outputs_start;
     op_base.outputs_end = nested_op_base.outputs_end;
 }

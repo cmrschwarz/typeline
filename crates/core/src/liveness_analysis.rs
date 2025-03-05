@@ -13,7 +13,6 @@ use smallvec::SmallVec;
 use subenum::subenum;
 
 use indexland::{
-    get_two_distinct_mut,
     idx::{Idx, IdxRange},
     index_vec::IndexVec,
     NewtypeIdx,
@@ -630,11 +629,8 @@ impl LivenessData {
         bb_id: BasicBlockId,
         callee_id: BasicBlockId,
     ) -> bool {
-        let (bb, callee) = get_two_distinct_mut(
-            self.basic_blocks.as_slice_mut(),
-            bb_id.into_usize(),
-            callee_id.into_usize(),
-        );
+        let [bb, callee] =
+            self.basic_blocks.get_many_mut([bb_id, callee_id]).unwrap();
         let len_before = callee.caller_successors.len();
         callee.caller_successors.extend(&bb.successors);
         len_before != callee.caller_successors.len()

@@ -36,9 +36,10 @@ use typeline_core::{
     utils::string_store::{StringStore, StringStoreEntry},
 };
 
-use indexland::{
-    nonmax::NonMaxUsize, index_vec::IndexVec,
-    Idx, stable_vec::StableVec,
+use indexland::{index_vec::IndexVec, Idx};
+
+use indexland_utils::{
+    nonmax::NonMaxUsize, stable_vec::StableVec,
     temp_vec::TransmutableContainer,
 };
 
@@ -237,8 +238,7 @@ impl Operator for OpJsonl {
 
         let mut output_fields = IndexMap::new();
         let mut inserter_map = IndexMap::new();
-        output_fields
-            .insert(StringStoreEntry::MAX, tf_state.output_field);
+        output_fields.insert(StringStoreEntry::MAX, tf_state.output_field);
         for &name in &self.var_names {
             let field_id = job.job_data.field_mgr.add_field(
                 &job.job_data.match_set_mgr,
@@ -452,9 +452,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                             .unwrap_or(self.lines_produced);
                     inserters[idx].push_zst(self.zst_to_push, gap, true);
                     if line_idx.is_some() {
-                        *line_idx = Some(
-                            NonMaxUsize::new(line_count).unwrap(),
-                        )
+                        *line_idx = Some(NonMaxUsize::new(line_count).unwrap())
                     }
                 }
                 if status.lines_produced == 0 {
@@ -576,10 +574,7 @@ fn read_in_lines<'a>(
         VaryingTypeInserter<RefMut<'a, FieldData>>,
     >,
     additional_fields: &'a StableVec<PendingField>,
-    last_field_access: &mut IndexVec<
-        InserterIndex,
-        Option<NonMaxUsize>,
-    >,
+    last_field_access: &mut IndexVec<InserterIndex, Option<NonMaxUsize>>,
     opts: JsonlReadOptions,
     status: &mut ReadStatus,
 ) -> Result<(), std::io::Error> {

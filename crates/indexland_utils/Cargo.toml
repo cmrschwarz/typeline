@@ -1,5 +1,5 @@
 [package]
-name = "indexland_derive"
+name = "indexland_utils"
 
 version = "0.1.0"
 license = "MIT"
@@ -15,15 +15,17 @@ keywords = ["index", "collection", "container", "vec", "slice"]
 description = "collections based on newtype indices"
 
 [lib]
-name = "indexland_derive"
-proc-macro = true
+name = "indexland_utils"
 
 [dependencies]
-proc-macro2 = { version = "1.0.93" }
-syn = { version = "2.0.98", features = ["parsing"] }
-quote = "1.0.38"
+indexland = { path = "../indexland", default-features = false }
+arrayvec = { version = "0.7.6", default-features = false }
+
+serde = { version = "1.0.218", optional = true, default-features = false }
+
 
 [dev-dependencies]
-indexland = { path = ".." }
+derive_more = { version = "2.0.1", features = ["full"] }
 
 [features]
+disable_debuggable_nonmax = []

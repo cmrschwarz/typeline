@@ -14,6 +14,9 @@ pub struct UniverseMultiRefMutHandout<'a, I, T, const CAP: usize> {
     pub(crate) handed_out: ArrayVec<I, CAP>,
 }
 
+/// # Safety
+/// May only claim ids not used by any of it's children
+/// must assert in assert_unused if the idx is in use
 pub unsafe trait UniverseRefHandoutStack<I, T> {
     type Child<'b>: UniverseRefHandoutStack<I, T>
     where

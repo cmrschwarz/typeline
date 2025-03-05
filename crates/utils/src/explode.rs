@@ -33,7 +33,7 @@ use typeline_core::{
     utils::string_store::StringStoreEntry,
 };
 
-use indexland::{stable_vec::StableVec, temp_vec::BorrowedContainer};
+use indexland_utils::{stable_vec::StableVec, temp_vec::BorrowedContainer};
 
 #[derive(Default)]
 pub struct OpExplode {

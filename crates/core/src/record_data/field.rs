@@ -6,7 +6,8 @@ use std::{
 
 use smallvec::SmallVec;
 
-use indexland::{universe::Universe, Idx, NewtypeIdx};
+use indexland::{Idx, NewtypeIdx};
+use indexland_utils::universe::Universe;
 
 use super::{
     action_buffer::{ActionBuffer, ActorId, ActorRef, SnapshotRef},

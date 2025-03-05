@@ -62,7 +62,7 @@ use typeline_core::{
     },
 };
 
-use indexland::{
+use indexland_utils::{
     nonmax::NonMaxUsize, universe::Universe,
     universe_multi_ref_mut_handout::UniverseRefHandoutStack,
 };

@@ -18,6 +18,7 @@ doctest = false
 [dependencies]
 typeline_core = { version = "0.1", path = "../core" }
 indexland = { path = "../indexland" }
+indexland_utils = { path = "../indexland_utils" }
 
 pyo3 = { version = "0.23.1", features = ["num-bigint"] }
 num = "0.4.3"

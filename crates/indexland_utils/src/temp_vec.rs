@@ -3,7 +3,8 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use super::{index_vec::IndexVec, phantom_slot::PhantomSlot, Idx};
+use crate::phantom_slot::PhantomSlot;
+use indexland::{index_vec::IndexVec, Idx};
 
 pub struct LayoutCompatible<T, U>(std::marker::PhantomData<(T, U)>);
 impl<T, U> LayoutCompatible<T, U> {

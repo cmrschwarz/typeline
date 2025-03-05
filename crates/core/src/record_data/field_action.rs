@@ -1,6 +1,6 @@
 use std::iter::Peekable;
 
-use indexland::random_access_container::RandomAccessContainer;
+use indexland_utils::random_access_container::RandomAccessContainer;
 
 use super::{
     action_buffer::ActorId,

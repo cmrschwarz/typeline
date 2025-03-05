@@ -47,7 +47,7 @@ use bstr::ByteSlice;
 use call_expr::{Argument, CallExpr, CallExprEndKind, Label, MetaInfo, Span};
 use help::get_help_page;
 use indexmap::IndexMap;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use unicode_ident::{is_xid_continue, is_xid_start};
 
 use std::{borrow::Cow, fmt::Display, iter::Peekable};
@@ -80,13 +80,13 @@ pub enum PrintInfoAndExitError {
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub struct MissingArgumentsError;
 
-static TRUTHY_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
+static TRUTHY_REGEX: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
     regex::bytes::RegexBuilder::new("^true|tru|tr|t|yes|ye|y|1$")
         .case_insensitive(true)
         .build()
         .unwrap()
 });
-static FALSY_REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
+static FALSY_REGEX: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
     regex::bytes::RegexBuilder::new("^false|fal|fa|f|no|n|0$")
         .case_insensitive(true)
         .build()

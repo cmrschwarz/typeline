@@ -6,13 +6,14 @@ use std::{
 use num::Integer;
 
 use indexland::{
-    index_slice::IndexSlice,
-    index_vec::IndexVec,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, NewtypeIdx,
+};
+
+use indexland_utils::{
     nonmax::NonMaxU32,
     random_access_container::RandomAccessContainer,
     temp_vec::{TempIndexVec, TempVec, TransmutableContainer},
     universe::Universe,
-    Idx, NewtypeIdx,
 };
 
 use crate::record_data::{
