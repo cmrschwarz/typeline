@@ -1,11 +1,10 @@
-use std::{io::BufRead, ops::MulAssign};
+use std::{io::BufRead, ops::MulAssign, sync::LazyLock};
 
 use arrayvec::{ArrayString, ArrayVec};
 use bstr::ByteSlice;
 use indexmap::IndexMap;
 use metamatch::metamatch;
 use num::{pow::Pow, BigInt, BigRational, FromPrimitive};
-use once_cell::sync::Lazy;
 use smallstr::SmallString;
 use thiserror::Error;
 
@@ -773,7 +772,7 @@ pub fn parse_tyson_str(
 }
 
 pub fn is_valid_identifier(str: &[u8]) -> bool {
-    static REGEX: Lazy<regex::bytes::Regex> = Lazy::new(|| {
+    static REGEX: LazyLock<regex::bytes::Regex> = LazyLock::new(|| {
         regex::bytes::Regex::new(r"^\p{XID_Start}\p{XID_Continue}*$").unwrap()
     });
     REGEX.is_match(str)

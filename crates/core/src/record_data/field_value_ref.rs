@@ -122,8 +122,8 @@ pub enum FieldValueBlock<'a, T> {
     WithRunLength(&'a T, RunLength),
 }
 
-impl<'a, T> Copy for FieldValueBlock<'a, T> {}
-impl<'a, T> Clone for FieldValueBlock<'a, T> {
+impl<T> Copy for FieldValueBlock<'_, T> {}
+impl<T> Clone for FieldValueBlock<'_, T> {
     fn clone(&self) -> Self {
         *self
     }

@@ -1,9 +1,11 @@
 mod helpers;
 
 use handlebars::{Handlebars, RenderError, RenderErrorReason};
-use once_cell::sync::Lazy;
 use serde_json::{json, Value};
-use std::{cell::Cell, collections::HashSet, fmt::Write, io::BufWriter};
+use std::{
+    cell::Cell, collections::HashSet, fmt::Write, io::BufWriter,
+    sync::LazyLock,
+};
 
 use crate::{
     job::JobData,
@@ -87,7 +89,7 @@ impl MatchChain {
     }
 }
 
-static TEMPLATES: Lazy<Handlebars> = Lazy::new(|| {
+static TEMPLATES: LazyLock<Handlebars> = LazyLock::new(|| {
     let mut hb = Handlebars::new();
     hb.register_template_string("head", include_str!("head.hbs"))
         .unwrap();
@@ -414,7 +416,7 @@ fn setup_forkcat_match_chain(
                 &mut fields,
             );
         }
-    };
+    }
 
     group_tracks.push(fc_cont.continuation_input_group_track);
 

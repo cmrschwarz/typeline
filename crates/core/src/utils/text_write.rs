@@ -74,7 +74,7 @@ pub trait TextWrite {
                 if output.error.is_err() {
                     output.error
                 } else {
-                    Err(std::io::Error::new(ErrorKind::Other, e))
+                    Err(std::io::Error::other(e))
                 }
             }
         }
@@ -200,7 +200,7 @@ impl<W: std::fmt::Write> TextWrite for TextWriteFormatAdapter<W> {
             std::str::from_utf8_unchecked(buf)
         }) {
             Ok(()) => Ok(buf.len()),
-            Err(e) => Err(std::io::Error::new(ErrorKind::Other, e)),
+            Err(e) => Err(std::io::Error::other(e)),
         }
     }
 

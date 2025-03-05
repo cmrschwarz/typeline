@@ -104,7 +104,7 @@ pub enum ExecutorInputIter<'a, 'b> {
     FieldValue(FieldValueIter<'a>),
 }
 
-impl<'a, 'b> ExecutorInputIter<'a, 'b> {
+impl ExecutorInputIter<'_, '_> {
     pub fn typed_range_fwd(
         &mut self,
         msm: &MatchSetManager,
@@ -508,7 +508,7 @@ fn execute_cast_float(
     })
 }
 
-impl<'a, 'b> Executor<'a, 'b> {
+impl Executor<'_, '_> {
     fn execute_unary_op(
         &mut self,
         kind: UnaryOpKind,

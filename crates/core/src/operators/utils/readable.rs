@@ -313,7 +313,7 @@ impl BufRead for AquiredBufReader<'_> {
     }
 }
 
-impl<'a> Read for AquiredCustomReaderBufAdapter<'a> {
+impl Read for AquiredCustomReaderBufAdapter<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         // If we don't have any buffered data and we're doing a massive read
         // (larger than our internal buffer), bypass our internal buffer

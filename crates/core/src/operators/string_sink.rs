@@ -94,14 +94,14 @@ pub struct StringSinkHandle {
 pub struct StringSinkDataGuard<'a> {
     data_guard: MutexGuard<'a, StringSink>,
 }
-impl<'a> Deref for StringSinkDataGuard<'a> {
+impl Deref for StringSinkDataGuard<'_> {
     type Target = Vec<String>;
 
     fn deref(&self) -> &Self::Target {
         &self.data_guard.data
     }
 }
-impl<'a> DerefMut for StringSinkDataGuard<'a> {
+impl DerefMut for StringSinkDataGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data_guard.data
     }

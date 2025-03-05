@@ -36,7 +36,7 @@ pub async fn echo_handler(
         return Ok(response);
     }
     *response.body_mut() =
-        Full::from(path[PREFIX.len()..].as_bytes().to_owned());
+        Full::from(path.as_bytes()[PREFIX.len()..].to_owned());
     Ok(response)
 }
 

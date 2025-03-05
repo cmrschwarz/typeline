@@ -126,7 +126,7 @@ impl FormatFillSpec {
     pub fn distribute_padding(&self, padding: usize) -> (usize, usize) {
         match self.alignment {
             FormatFillAlignment::Left => (padding, 0),
-            FormatFillAlignment::Center => ((padding + 1) / 2, padding / 2),
+            FormatFillAlignment::Center => (padding.div_ceil(2), padding / 2),
             FormatFillAlignment::Right => (0, padding),
         }
     }

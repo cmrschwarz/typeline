@@ -35,7 +35,7 @@ pub struct ComputeExprParseError<'a> {
     pub kind: ParseErrorKind<'a>,
 }
 
-impl<'a> std::fmt::Display for ParseErrorKind<'a> {
+impl std::fmt::Display for ParseErrorKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ParseErrorKind::Empty => {
@@ -609,7 +609,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             self.lexer.drop_token();
             else_block =
                 Some(self.expect_to_parse_block("`{` to start else block")?);
-        };
+        }
 
         Ok(Expr::IfExpr(Box::new(IfExpr {
             cond,

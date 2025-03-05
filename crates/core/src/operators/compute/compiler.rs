@@ -558,7 +558,7 @@ impl Compiler<'_> {
                 } else {
                     let v = self.compile_expr_for_temp_target(*expr);
                     self.let_value_mappings.push(v.value);
-                };
+                }
                 IntermediateValue::undef()
             }
             Expr::Parentheses(expr) => {
@@ -896,7 +896,7 @@ impl Compiler<'_> {
                 } else {
                     let v = self.compile_expr_for_temp_target(*expr);
                     self.let_value_mappings.push(v.value);
-                };
+                }
             }
             Expr::Parentheses(expr) => {
                 self.compile_expr_for_given_target(*expr, target)

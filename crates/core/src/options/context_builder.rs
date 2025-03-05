@@ -1,6 +1,7 @@
-use std::{path::Path, sync::Arc};
-
-use once_cell::sync::Lazy;
+use std::{
+    path::Path,
+    sync::{Arc, LazyLock},
+};
 
 use crate::{
     cli::call_expr::{Argument, Span},
@@ -39,8 +40,8 @@ pub struct ContextBuilder {
     pub input_data: RecordSet,
 }
 
-pub static EMPTY_EXTENSION_REGISTRY: Lazy<Arc<ExtensionRegistry>> =
-    Lazy::new(|| Arc::new(ExtensionRegistry::default()));
+pub static EMPTY_EXTENSION_REGISTRY: LazyLock<Arc<ExtensionRegistry>> =
+    LazyLock::new(|| Arc::new(ExtensionRegistry::default()));
 
 impl ContextBuilder {
     pub fn without_exts() -> Self {

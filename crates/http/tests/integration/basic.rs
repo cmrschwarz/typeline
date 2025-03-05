@@ -18,7 +18,7 @@ pub fn setup_mockito_test_server() -> mockito::ServerGuard {
         .mock("GET", mockito::Matcher::Regex(r"^/echo/.*$".to_string()))
         .with_status(200)
         .with_header("content-type", "text/plain")
-        .with_body_from_request(|req| req.path()[6..].as_bytes().to_owned())
+        .with_body_from_request(|req| req.path().as_bytes()[6..].to_owned())
         .create();
 
     server

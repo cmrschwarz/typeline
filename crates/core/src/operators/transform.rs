@@ -172,7 +172,7 @@ pub trait Transform<'a>: Send + 'a {
     }
 }
 
-impl<'a> dyn Transform<'a> {
+impl dyn Transform<'_> {
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
         self.as_any().and_then(|t| t.downcast_ref::<T>())
     }

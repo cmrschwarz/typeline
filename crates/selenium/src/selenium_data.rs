@@ -113,12 +113,7 @@ fn base64_encode_dir(folder_path: &Path) -> Result<String, std::io::Error> {
             let path = entry.path();
             let name = path
                 .strip_prefix(root_path)
-                .map_err(|_| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "failed to zip directory",
-                    )
-                })?
+                .map_err(|_| std::io::Error::other("failed to zip directory"))?
                 .to_str()
                 .unwrap();
 

@@ -585,7 +585,7 @@ impl<'a> CallExpr<'a, &'a mut [Argument]> {
     }
 }
 
-impl<'a, ARGS: AsRef<[Argument]>> CallExpr<'a, ARGS> {
+impl<ARGS: AsRef<[Argument]>> CallExpr<'_, ARGS> {
     pub fn expect_flag(
         &self,
         key: &str,

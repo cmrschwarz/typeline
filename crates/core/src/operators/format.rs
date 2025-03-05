@@ -266,7 +266,7 @@ impl FormatKey {
 // while OutputTargets Pointer is not thread safe,
 // we make sure that output_states and output_targets is always empty
 // when handle_tf_format exits
-unsafe impl<'a> Send for TfFormat<'a> {}
+unsafe impl Send for TfFormat<'_> {}
 
 pub fn access_format_key_ref(
     sess: &SessionData,

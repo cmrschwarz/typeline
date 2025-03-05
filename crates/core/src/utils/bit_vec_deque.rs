@@ -387,13 +387,13 @@ pub struct Iter<'a> {
     i2: bitvec::slice::Iter<'a, usize, LocalBits>,
 }
 
-impl<'a> ExactSizeIterator for Iter<'a> {
+impl ExactSizeIterator for Iter<'_> {
     fn len(&self) -> usize {
         self.i1.len() + self.i2.len()
     }
 }
 
-impl<'a> DoubleEndedIterator for Iter<'a> {
+impl DoubleEndedIterator for Iter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if let Some(v) = self.i2.next_back() {
             return Some(*v);
@@ -402,7 +402,7 @@ impl<'a> DoubleEndedIterator for Iter<'a> {
     }
 }
 
-impl<'a> Iterator for Iter<'a> {
+impl Iterator for Iter<'_> {
     type Item = bool;
 
     fn next(&mut self) -> Option<Self::Item> {

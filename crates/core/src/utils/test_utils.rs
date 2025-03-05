@@ -77,10 +77,7 @@ impl<R: Read> ErroringStream<R> {
 impl<R: Read> Read for ErroringStream<R> {
     fn read(&mut self, mut buf: &mut [u8]) -> std::io::Result<usize> {
         if self.error_after == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "ErroringStream: Error",
-            ));
+            return Err(std::io::Error::other("ErroringStream: Error"));
         }
         if buf.len() > self.error_after {
             buf = &mut buf[0..self.error_after];

@@ -1503,7 +1503,7 @@ impl<'a> StreamValueData<'a> {
     }
 }
 
-impl<'a, 'b> StreamValueDataRef<'a, 'b> {
+impl StreamValueDataRef<'_, '_> {
     pub fn sliced<
         R: SliceIndex<[u8], Output = [u8]> + SliceIndex<str, Output = str>,
     >(

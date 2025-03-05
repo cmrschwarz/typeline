@@ -753,7 +753,7 @@ impl<'a> Job<'a> {
                         );
                 }
                 InputFieldKind::Unconfigured => (),
-            };
+            }
 
             let tf_state = TransformState::new(
                 input_field,

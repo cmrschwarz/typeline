@@ -230,7 +230,7 @@ impl Operator for OpCompute {
             if ir.name == "_" {
                 output.flags.input_accessed = true;
                 continue;
-            };
+            }
             ld.access_var(
                 sess,
                 op_id,

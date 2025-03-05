@@ -128,7 +128,7 @@ impl<F: std::fmt::Write> TextWrite for EscapedWriterFmtAdapter<F> {
         let buf_str = unsafe { std::str::from_utf8_unchecked(buf) };
         match self.0.write_str(buf_str) {
             Ok(()) => Ok(buf.len()),
-            Err(e) => Err(std::io::Error::new(ErrorKind::Other, e)),
+            Err(e) => Err(std::io::Error::other(e)),
         }
     }
 
@@ -137,16 +137,16 @@ impl<F: std::fmt::Write> TextWrite for EscapedWriterFmtAdapter<F> {
     }
 }
 
-impl<'a, W: std::fmt::Write, const ESCAPE_MAP_LEN: usize> std::fmt::Write
-    for EscapedFmtWriter<'a, W, ESCAPE_MAP_LEN>
+impl<W: std::fmt::Write, const ESCAPE_MAP_LEN: usize> std::fmt::Write
+    for EscapedFmtWriter<'_, W, ESCAPE_MAP_LEN>
 {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         std::io::Write::write_all(&mut self.0, s.as_bytes())
             .map_err(|_| std::fmt::Error)
     }
 }
-impl<'a, W: std::fmt::Write, const ESCAPE_MAP_LEN: usize> std::io::Write
-    for EscapedFmtWriter<'a, W, ESCAPE_MAP_LEN>
+impl<W: std::fmt::Write, const ESCAPE_MAP_LEN: usize> std::io::Write
+    for EscapedFmtWriter<'_, W, ESCAPE_MAP_LEN>
 {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.0.write(buf)
@@ -157,8 +157,8 @@ impl<'a, W: std::fmt::Write, const ESCAPE_MAP_LEN: usize> std::io::Write
     }
 }
 
-impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> std::io::Write
-    for EscapedWriter<'a, W, ESCAPE_MAP_LEN>
+impl<W: TextWrite, const ESCAPE_MAP_LEN: usize> std::io::Write
+    for EscapedWriter<'_, W, ESCAPE_MAP_LEN>
 {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let mut buf_offset = 0;
@@ -315,8 +315,8 @@ impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> std::io::Write
     }
 }
 
-impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> TextWrite
-    for EscapedWriter<'a, W, ESCAPE_MAP_LEN>
+impl<W: TextWrite, const ESCAPE_MAP_LEN: usize> TextWrite
+    for EscapedWriter<'_, W, ESCAPE_MAP_LEN>
 {
     unsafe fn write_text_unchecked(
         &mut self,
@@ -340,8 +340,8 @@ impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> TextWrite
         std::io::Write::write_all(self, buf.as_bytes())
     }
 }
-impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> MaybeTextWrite
-    for EscapedWriter<'a, W, ESCAPE_MAP_LEN>
+impl<W: TextWrite, const ESCAPE_MAP_LEN: usize> MaybeTextWrite
+    for EscapedWriter<'_, W, ESCAPE_MAP_LEN>
 {
     fn as_text_write(&mut self) -> &mut dyn TextWrite {
         self
@@ -354,8 +354,8 @@ impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> MaybeTextWrite
     }
 }
 
-impl<'a, W: TextWrite, const ESCAPE_MAP_LEN: usize> Drop
-    for EscapedWriter<'a, W, ESCAPE_MAP_LEN>
+impl<W: TextWrite, const ESCAPE_MAP_LEN: usize> Drop
+    for EscapedWriter<'_, W, ESCAPE_MAP_LEN>
 {
     fn drop(&mut self) {
         let _ = std::io::Write::flush(self);

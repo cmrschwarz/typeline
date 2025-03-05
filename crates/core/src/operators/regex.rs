@@ -493,7 +493,7 @@ trait AnyRegex {
     }
 }
 
-impl<'a> AnyRegex for TextRegex<'a> {
+impl AnyRegex for TextRegex<'_> {
     type Data = str;
     fn captures_read_at(
         &mut self,
@@ -529,7 +529,7 @@ impl<'a> AnyRegex for TextRegex<'a> {
     }
 
     fn get_byte_slice(data: &Self::Data, start: usize, end: usize) -> &[u8] {
-        data[start..end].as_bytes()
+        &data.as_bytes()[start..end]
     }
 
     fn get_str_slice(
@@ -545,7 +545,7 @@ impl<'a> AnyRegex for TextRegex<'a> {
     }
 }
 
-impl<'a> AnyRegex for BytesRegex<'a> {
+impl AnyRegex for BytesRegex<'_> {
     type Data = [u8];
     fn captures_read_at(
         &mut self,

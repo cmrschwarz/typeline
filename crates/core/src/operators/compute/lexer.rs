@@ -465,7 +465,7 @@ impl<'a> ComputeExprLexer<'a> {
     }
 }
 
-impl<'a> TokenKind<'a> {
+impl TokenKind<'_> {
     fn to_static_str(&self) -> Option<&'static str> {
         Some(match self {
             TokenKind::Literal(_) | TokenKind::Identifier(_) => return None,
@@ -526,7 +526,7 @@ impl<'a> TokenKind<'a> {
     }
 }
 
-impl<'a> Display for TokenKind<'a> {
+impl Display for TokenKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(ss) = self.to_static_str() {
             f.write_fmt(format_args!("`{ss}`"))

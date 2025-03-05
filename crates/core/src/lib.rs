@@ -24,6 +24,8 @@
 // TODO: fix these
 #![allow(clippy::needless_lifetimes)]
 #![allow(clippy::extra_unused_lifetimes)]
+#![allow(clippy::unnecessary_semicolon)]
+#![allow(clippy::elidable_lifetime_names)]
 
 // crates using macros. having this here helps out rust_analyzer
 extern crate metamatch;

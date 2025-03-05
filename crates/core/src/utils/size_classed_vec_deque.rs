@@ -29,7 +29,7 @@ impl SizeClassedVecDeque {
         if value < 2 {
             return 1;
         }
-        let bytes = (usize::BITS - value.leading_zeros() + 7) / 8;
+        let bytes = (usize::BITS - value.leading_zeros()).div_ceil(8);
         match bytes {
             1 => 8,
             2 => 16,

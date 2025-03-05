@@ -1,10 +1,9 @@
-use std::sync::atomic::AtomicU64;
+use std::sync::{atomic::AtomicU64, LazyLock};
 
 use handlebars::{
     handlebars_helper, BlockParamHolder, Context, Handlebars, Helper, Output,
     RenderContext, RenderError, RenderErrorReason, Renderable,
 };
-use once_cell::sync::Lazy;
 use serde_json::{Number, Value};
 
 handlebars_helper!(Range: |n: u64| {
@@ -15,7 +14,8 @@ handlebars_helper!(Range: |n: u64| {
 handlebars_helper!(Reindent: |n: usize, s: String| {
     reindent(true, n, s)
 });
-static UNIQUE_ID_COUNTER: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+static UNIQUE_ID_COUNTER: LazyLock<AtomicU64> =
+    LazyLock::new(|| AtomicU64::new(0));
 handlebars_helper!(UniqueId: |prefix: String| {
     let mut prefix = prefix;
     prefix.push_str(
@@ -77,7 +77,7 @@ pub fn reindent(
         if line.bytes().any(non_whitespace) {
             result.extend(std::iter::repeat(' ').take(target_ident));
             result.push_str(&line[leading_space_count..]);
-        };
+        }
     }
     if src.ends_with('\n') {
         result.push('\n');

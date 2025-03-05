@@ -43,13 +43,13 @@ impl PartialOrd for AnyNumber {
     }
 }
 
-impl<'a, 'b> PartialEq<AnyNumberRef<'b>> for AnyNumberRef<'a> {
+impl<'b> PartialEq<AnyNumberRef<'b>> for AnyNumberRef<'_> {
     fn eq(&self, other: &AnyNumberRef<'b>) -> bool {
         self.partial_cmp(other) == Some(Ordering::Equal)
     }
 }
 
-impl<'a, 'b> PartialOrd<AnyNumberRef<'b>> for AnyNumberRef<'a> {
+impl<'b> PartialOrd<AnyNumberRef<'b>> for AnyNumberRef<'_> {
     fn partial_cmp(&self, other: &AnyNumberRef<'b>) -> Option<Ordering> {
         match (self, other) {
             (AnyNumberRef::Bool(lhs), rhs) => {
@@ -135,7 +135,7 @@ impl AnyNumber {
     }
 }
 
-impl<'a> AnyNumberRef<'a> {
+impl AnyNumberRef<'_> {
     pub fn to_owned(&self) -> AnyNumber {
         match *self {
             AnyNumberRef::Bool(v) => AnyNumber::Bool(*v),

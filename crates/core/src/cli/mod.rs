@@ -289,7 +289,7 @@ pub fn complain_if_dashed_arg_after_block<'a>(
                 *span,
             ));
         }
-    };
+    }
     Ok(())
 }
 
@@ -563,7 +563,7 @@ pub fn parse_call_expr_head(
             arg_span.subslice_offsets(i, argv.len()),
             source_scope,
         ));
-    };
+    }
 
     Ok(CallExprHead {
         op_name,
@@ -1182,7 +1182,7 @@ pub fn parse_call_expr<'a>(
     if let Some(label) = head.label {
         if label.is_atom {
             todo!()
-        };
+        }
         arg = wrap_expr_in_key(label.value, label.span, arg);
     }
 
