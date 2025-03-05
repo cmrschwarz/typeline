@@ -20,7 +20,7 @@ name = "typeline_core"
 parking_lot = "0.12.3"
 
 # utils
-indexland = { path = "../indexland" }
+indexland = { path = "../indexland", features = ["nonmax"] }
 indexland_utils = { path = "../indexland_utils" }
 
 bstr = { version = "1.11.0", features = ["alloc"], default-features = false }

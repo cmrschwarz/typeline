@@ -5,8 +5,8 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use indexland::{Idx, NewtypeIdx};
-use indexland_utils::{nonmax::NonMaxU32, universe::Universe};
+use indexland::{nonmax::NonMaxU32, Idx, NewtypeIdx};
+use indexland_utils::universe::Universe;
 
 use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
 

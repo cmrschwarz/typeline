@@ -14,6 +14,11 @@ use typeline_core::{
     },
 };
 
+use indexland::nonmax::NonMaxUsize;
+use indexland_utils::{
+    universe::Universe,
+    universe_multi_ref_mut_handout::UniverseRefHandoutStack,
+};
 use typeline_core::{
     cli::call_expr::{CallExpr, ParsedArgValue, Span},
     job::{JobData, TransformManager},
@@ -60,11 +65,6 @@ use typeline_core::{
         maybe_text::{MaybeText, MaybeTextBoxed, MaybeTextCow, MaybeTextRef},
         text_write::MaybeTextWritePanicAdapter,
     },
-};
-
-use indexland_utils::{
-    nonmax::NonMaxUsize, universe::Universe,
-    universe_multi_ref_mut_handout::UniverseRefHandoutStack,
 };
 
 #[derive(Clone)]

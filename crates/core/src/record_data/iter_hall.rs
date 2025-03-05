@@ -5,10 +5,11 @@ use std::{
     collections::VecDeque,
 };
 
+use indexland::nonmax::NonMaxU32;
 use thin_vec::ThinVec;
 
 use crate::operators::transform::TransformId;
-use indexland_utils::{nonmax::NonMaxU32, universe::Universe};
+use indexland_utils::universe::Universe;
 
 use super::{
     action_buffer::ActorId,

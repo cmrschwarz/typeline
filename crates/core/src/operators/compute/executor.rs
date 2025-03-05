@@ -50,8 +50,7 @@ use crate::{
     },
 };
 
-use indexland::{index_slice::IndexSlice, NewtypeIdx};
-use indexland_utils::nonmax::NonMaxUsize;
+use indexland::{index_slice::IndexSlice, nonmax::NonMaxUsize, NewtypeIdx};
 
 use indexland_utils::{
     stable_universe::StableUniverse,

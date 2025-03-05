@@ -3,9 +3,10 @@ use std::{
     sync::{Condvar, Mutex},
 };
 
+use indexland::nonmax::NonMaxU32;
 use smallvec::SmallVec;
 
-use indexland_utils::{nonmax::NonMaxU32, universe::Universe};
+use indexland_utils::universe::Universe;
 
 use crate::utils::string_store::StringStoreEntry;
 

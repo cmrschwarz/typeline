@@ -17,8 +17,8 @@ use typeline_core::{
     },
 };
 
-use indexland::{index_vec::IndexVec, Idx, NewtypeIdx};
-use indexland_utils::{nonmax::NonMaxUsize, stable_vec::StableVec};
+use indexland::{index_vec::IndexVec, nonmax::NonMaxUsize, Idx, NewtypeIdx};
+use indexland_utils::stable_vec::StableVec;
 
 #[derive(NewtypeIdx)]
 pub(super) struct InserterIndex(pub usize);

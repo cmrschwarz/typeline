@@ -7,7 +7,6 @@ use indexland::Idx;
 pub mod counted_stable_universe;
 pub mod counted_universe;
 pub mod multi_ref_mut_handout;
-pub mod nonmax;
 pub mod offset_vec_deque;
 pub mod phantom_slot;
 pub mod random_access_container;

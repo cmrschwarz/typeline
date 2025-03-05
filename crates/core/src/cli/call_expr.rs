@@ -1,8 +1,7 @@
 use std::{borrow::Cow, fmt::Debug};
 
 use bstr::ByteSlice;
-use indexland::Idx;
-use indexland_utils::nonmax::NonMaxU32;
+use indexland::{nonmax::NonMaxU32, Idx};
 use num::PrimInt;
 
 use crate::{

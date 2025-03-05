@@ -6,11 +6,11 @@ use std::{
 use num::Integer;
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, Idx, NewtypeIdx,
+    index_slice::IndexSlice, index_vec::IndexVec, nonmax::NonMaxU32, Idx,
+    NewtypeIdx,
 };
 
 use indexland_utils::{
-    nonmax::NonMaxU32,
     random_access_container::RandomAccessContainer,
     temp_vec::{TempIndexVec, TempVec, TransmutableContainer},
     universe::Universe,

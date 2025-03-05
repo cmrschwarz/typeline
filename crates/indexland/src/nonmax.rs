@@ -1,7 +1,12 @@
-// This is similar to the nonmax crate, but makes debugging much less painful
-// by removing the optimization in debug mode to allow debuggers to report the
-// correct integer values.
-
+/// Integers with a niche value based on `NonZeroXX`, allowing for better
+/// enum layout optimizations.
+/// This is very similar to the nonmax crate, but with a few key
+/// differences:
+///  - Implements `Add`, `AddAssign`, `Sub` and `SubAssign` (required for
+///    `Idx`)
+///  - Makes using debuggers less painful by removing the optimization in
+///    debug mode (can be disabled using the `"disable_debuggable_nonmax"`
+///    feature).
 use std::{
     cmp::Ordering,
     fmt::{Debug, Display},
@@ -76,6 +81,8 @@ macro_rules! nonmax_impl {
                 self.0.get() ^ $primitive::MAX
             }
 
+            /// # Safety
+            /// Value must be in bounds.
             #[inline]
             pub const unsafe fn new_unchecked(value: $primitive) -> Self {
                 Self(unsafe {

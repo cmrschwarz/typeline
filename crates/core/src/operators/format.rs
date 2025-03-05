@@ -70,11 +70,10 @@ use crate::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, Idx, NewtypeIdx,
+    index_slice::IndexSlice, index_vec::IndexVec, nonmax::NonMaxUsize, Idx,
+    NewtypeIdx,
 };
-use indexland_utils::{
-    counted_universe::CountedUniverse, nonmax::NonMaxUsize,
-};
+use indexland_utils::counted_universe::CountedUniverse;
 
 use metamatch::metamatch;
 use smallstr::SmallString;

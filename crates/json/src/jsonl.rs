@@ -36,11 +36,10 @@ use typeline_core::{
     utils::string_store::{StringStore, StringStoreEntry},
 };
 
-use indexland::{index_vec::IndexVec, Idx};
+use indexland::{index_vec::IndexVec, nonmax::NonMaxUsize, Idx};
 
 use indexland_utils::{
-    nonmax::NonMaxUsize, stable_vec::StableVec,
-    temp_vec::TransmutableContainer,
+    stable_vec::StableVec, temp_vec::TransmutableContainer,
 };
 
 use crate::json_visitor::{
