@@ -46,10 +46,7 @@ use crate::{
     },
 };
 
-use indexland::{
-    idx::{Idx, IdxRange},
-    index_vec::IndexVec,
-};
+use indexland::{index_vec::IndexVec, Idx, IdxRange};
 
 pub struct JobDescription {
     pub operator: OperatorId,

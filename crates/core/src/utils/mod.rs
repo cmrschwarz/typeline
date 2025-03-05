@@ -154,7 +154,7 @@ pub fn slice_cow<'a>(
     cow: &Cow<'a, [u8]>,
     range: impl RangeBounds<usize>,
 ) -> Cow<'a, [u8]> {
-    use indexland::RangeBoundsAsRange;
+    use indexland::idx_range::RangeBoundsAsRange;
     let range = range.as_usize_range(cow.len());
     match cow {
         Cow::Borrowed(v) => Cow::Borrowed(&v[range]),

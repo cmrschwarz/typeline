@@ -12,11 +12,7 @@ use ref_cast::RefCast;
 use smallvec::SmallVec;
 use subenum::subenum;
 
-use indexland::{
-    idx::{Idx, IdxRange},
-    index_vec::IndexVec,
-    NewtypeIdx,
-};
+use indexland::{index_vec::IndexVec, Idx, IdxRange, NewtypeIdx};
 
 use crate::{
     chain::{Chain, ChainId},
