@@ -1480,7 +1480,6 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "derive_more 2.0.1",
- "indexland",
  "indexland_derive",
  "serde",
  "smallvec",
