@@ -11,7 +11,7 @@ use crate::{
         identity_hasher::BuildIdentityHasher, string_store::StringStoreEntry,
     },
 };
-use indexland::{nonmax::NonMaxUsize, Idx, IdxNewtype};
+use indexland::{Idx, IdxNewtype, NonMax};
 use indexland_utils::universe::Universe;
 
 use super::{
@@ -22,7 +22,7 @@ use super::{
 };
 
 #[derive(IdxNewtype)]
-pub struct MatchSetId(NonMaxUsize);
+pub struct MatchSetId(NonMax<usize>);
 
 pub struct MatchSet {
     pub dummy_field: FieldId,

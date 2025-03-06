@@ -5,7 +5,7 @@ use std::{
     collections::VecDeque,
 };
 
-use indexland::nonmax::NonMaxU32;
+use indexland::nonmax::NonMax;
 use thin_vec::ThinVec;
 
 use crate::operators::transform::TransformId;
@@ -36,7 +36,7 @@ use super::{
     varying_type_inserter::VaryingTypeInserter,
 };
 
-pub type FieldIterId = NonMaxU32;
+pub type FieldIterId = NonMax<u32>;
 
 /// A COW Field reflects the state of another field **at a certain point
 /// in time**. This means that when source or target change, the other side

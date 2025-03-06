@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fmt::Debug};
 
 use bstr::ByteSlice;
-use indexland::{nonmax::NonMaxU32, Idx};
+use indexland::{Idx, NonMax};
 use num::PrimInt;
 
 use crate::{
@@ -25,7 +25,7 @@ use crate::{
 
 use super::{try_parse_bool, CliArgumentError};
 
-pub type CliArgIdx = NonMaxU32;
+pub type CliArgIdx = NonMax<u32>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Span {
@@ -342,8 +342,8 @@ impl Span {
         offset_end: usize,
     ) -> Self {
         Span::CliArg {
-            start: NonMaxU32::from_usize(start),
-            end: NonMaxU32::from_usize(end),
+            start: NonMax::<u32>::from_usize(start),
+            end: NonMax::<u32>::from_usize(end),
             offset_start: offset_start as u16,
             offset_end: offset_end as u16,
         }

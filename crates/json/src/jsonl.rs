@@ -36,7 +36,7 @@ use typeline_core::{
     utils::string_store::{StringStore, StringStoreEntry},
 };
 
-use indexland::{index_vec::IndexVec, nonmax::NonMaxUsize, Idx};
+use indexland::{index_vec::IndexVec, Idx, NonMax};
 
 use indexland_utils::{
     stable_vec::StableVec, temp_vec::TransmutableContainer,
@@ -76,7 +76,7 @@ pub struct TfJsonl<'a> {
         InserterIndex,
         VaryingTypeInserter<RefMut<'static, FieldData>>,
     >,
-    last_field_access: IndexVec<InserterIndex, Option<NonMaxUsize>>,
+    last_field_access: IndexVec<InserterIndex, Option<NonMax<usize>>>,
     dyn_access: bool,
     inserter_map: IndexMap<StringStoreEntry, InserterIndex>,
     additional_fields: StableVec<PendingField>,
@@ -268,7 +268,7 @@ impl Operator for OpJsonl {
             last_field_access: self
                 .accessed_fields
                 .iter()
-                .map(|v| v.then_some(NonMaxUsize::ZERO))
+                .map(|v| v.then_some(NonMax::<usize>::ZERO))
                 .collect(),
             output_fields,
             inserter_map,
@@ -451,7 +451,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                             .unwrap_or(self.lines_produced);
                     inserters[idx].push_zst(self.zst_to_push, gap, true);
                     if line_idx.is_some() {
-                        *line_idx = Some(NonMaxUsize::new(line_count).unwrap())
+                        *line_idx = Some(NonMax::new(line_count).unwrap())
                     }
                 }
                 if status.lines_produced == 0 {
@@ -516,7 +516,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                                 true,
                             );
                         }
-                        *line_idx = NonMaxUsize::new(
+                        *line_idx = NonMax::new(
                             line_count + usize::from(status.incomplete_line),
                         )
                         .unwrap();
@@ -573,7 +573,7 @@ fn read_in_lines<'a>(
         VaryingTypeInserter<RefMut<'a, FieldData>>,
     >,
     additional_fields: &'a StableVec<PendingField>,
-    last_field_access: &mut IndexVec<InserterIndex, Option<NonMaxUsize>>,
+    last_field_access: &mut IndexVec<InserterIndex, Option<NonMax<usize>>>,
     opts: JsonlReadOptions,
     status: &mut ReadStatus,
 ) -> Result<(), std::io::Error> {

@@ -1,9 +1,6 @@
 use std::{any::Any, fmt::Write, sync::Arc};
 
-use indexland::{
-    nonmax::{NonMaxU32, NonMaxUsize},
-    IdxNewtype,
-};
+use indexland::{IdxNewtype, NonMax};
 use smallstr::SmallString;
 
 use crate::{
@@ -22,10 +19,10 @@ use super::operator::{OperatorId, OutputFieldKind};
 pub type DefaultTransformName = SmallString<[u8; 32]>;
 
 #[derive(IdxNewtype)]
-pub struct TransformId(NonMaxU32);
+pub struct TransformId(NonMax<u32>);
 
 #[derive(IdxNewtype)]
-pub struct StreamProducerIndex(NonMaxUsize);
+pub struct StreamProducerIndex(NonMax<usize>);
 
 pub type TransformData<'a> = Box<dyn Transform<'a> + 'a>;
 

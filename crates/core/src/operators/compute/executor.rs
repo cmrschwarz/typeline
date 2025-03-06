@@ -50,7 +50,7 @@ use crate::{
     },
 };
 
-use indexland::{index_slice::IndexSlice, nonmax::NonMaxUsize, IdxNewtype};
+use indexland::{index_slice::IndexSlice, IdxNewtype, NonMax};
 
 use indexland_utils::{
     stable_universe::StableUniverse,
@@ -67,7 +67,7 @@ use std::{
 pub struct ExternFieldTempIterId(u32);
 
 #[derive(IdxNewtype)]
-pub struct NextLowestArrayLink(NonMaxUsize);
+pub struct NextLowestArrayLink(NonMax<usize>);
 
 pub struct Executor<'a, 'b> {
     pub op_id: OperatorId,

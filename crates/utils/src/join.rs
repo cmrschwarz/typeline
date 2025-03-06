@@ -14,7 +14,7 @@ use typeline_core::{
     },
 };
 
-use indexland::nonmax::NonMaxUsize;
+use indexland::nonmax::NonMax;
 use indexland_utils::{
     universe::Universe,
     universe_multi_ref_mut_handout::UniverseRefHandoutStack,
@@ -95,7 +95,7 @@ struct GroupBatch<'a> {
     is_producer: bool,
 }
 
-type GroupBatchId = NonMaxUsize;
+type GroupBatchId = NonMax<usize>;
 
 pub struct TfJoin<'a> {
     separator: Option<MaybeTextRef<'a>>,

@@ -5,7 +5,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use indexland::{nonmax::NonMaxU32, Idx, IdxNewtype};
+use indexland::{nonmax::NonMax, Idx, IdxNewtype};
 use indexland_utils::universe::Universe;
 
 use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
@@ -28,7 +28,7 @@ pub struct GroupIdxStable(usize);
 
 pub type GroupTrackIterId = u32;
 type GroupTrackIterSortedIndex = u32;
-pub type GroupTrackId = NonMaxU32;
+pub type GroupTrackId = NonMax<u32>;
 pub const VOID_GROUP_TRACK_ID: GroupTrackId = GroupTrackId::MAX;
 
 #[derive(Clone, Copy)]

@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use indexland::{nonmax::NonMaxU32, Idx, IdxNewtype};
+use indexland::{nonmax::NonMax, Idx, IdxNewtype};
 use indexland_utils::universe::Universe;
 
 use crate::{
@@ -24,7 +24,7 @@ use super::{
 };
 
 #[derive(IdxNewtype)]
-pub struct ScopeId(NonMaxU32);
+pub struct ScopeId(NonMax<u32>);
 
 pub const DEFAULT_SCOPE_ID: ScopeId = ScopeId::ZERO;
 

@@ -70,8 +70,7 @@ use crate::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, nonmax::NonMaxUsize, Idx,
-    IdxNewtype,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxNewtype, NonMax,
 };
 use indexland_utils::counted_universe::CountedUniverse;
 
@@ -148,7 +147,7 @@ struct TfFormatStreamValueHandle {
     target_sv_id: StreamValueId,
     buffering_needed: bool,
 }
-type TfFormatStreamValueHandleId = NonMaxUsize;
+type TfFormatStreamValueHandleId = NonMax<usize>;
 
 const FINAL_OUTPUT_INDEX_NEXT_VAL: usize = usize::MAX;
 

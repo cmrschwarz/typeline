@@ -1,9 +1,9 @@
 use std::{alloc::Layout, borrow::Cow, collections::HashMap, hash::Hash};
 
-use indexland::{index_vec::IndexVec, nonmax::NonMaxU32, Idx, IdxNewtype};
+use indexland::{index_vec::IndexVec, Idx, IdxNewtype, NonMax};
 
 #[derive(IdxNewtype)]
-pub struct StringStoreEntry(NonMaxU32);
+pub struct StringStoreEntry(NonMax<u32>);
 
 pub const INVALID_STRING_STORE_ENTRY: StringStoreEntry = StringStoreEntry::MAX;
 

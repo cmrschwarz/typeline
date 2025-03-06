@@ -17,7 +17,7 @@ use typeline_core::{
     },
 };
 
-use indexland::{index_vec::IndexVec, nonmax::NonMaxUsize, Idx, IdxNewtype};
+use indexland::{index_vec::IndexVec, Idx, IdxNewtype, NonMax};
 use indexland_utils::stable_vec::StableVec;
 
 #[derive(IdxNewtype)]
@@ -48,7 +48,7 @@ pub(super) struct JsonlVisitor<'a, 'b> {
     >,
     pub additional_fields: &'b StableVec<PendingField>,
     pub field_element_count:
-        &'a mut IndexVec<InserterIndex, Option<NonMaxUsize>>,
+        &'a mut IndexVec<InserterIndex, Option<NonMax<usize>>>,
     pub opts: JsonlReadOptions<'a>,
     pub total_lines_produced: usize,
 }
@@ -59,7 +59,7 @@ impl JsonlVisitor<'_, '_> {
         else {
             return false;
         };
-        *lfa = NonMaxUsize::new(self.total_lines_produced + 1).unwrap();
+        *lfa = NonMax::<usize>::new(self.total_lines_produced + 1).unwrap();
         true
     }
 }
@@ -352,9 +352,10 @@ impl<'de> Visitor<'de> for &mut JsonlVisitor<'_, '_> {
                             gap,
                             true,
                         );
-                        *elem_count =
-                            NonMaxUsize::new(self.total_lines_produced + 1)
-                                .unwrap();
+                        *elem_count = NonMax::<usize>::new(
+                            self.total_lines_produced + 1,
+                        )
+                        .unwrap();
                         self.inserters[inserter_idx]
                             .push_field_value_unpacked(value, 1, true, false);
                     } else {
@@ -379,7 +380,7 @@ impl<'de> Visitor<'de> for &mut JsonlVisitor<'_, '_> {
                     if self.opts.dyn_access {
                         let value = map.next_value()?;
                         *self.field_element_count.last_mut().unwrap() = Some(
-                            NonMaxUsize::new(self.total_lines_produced + 1)
+                            NonMax::new(self.total_lines_produced + 1)
                                 .unwrap(),
                         );
                         self.inserters[ii].push_zst(

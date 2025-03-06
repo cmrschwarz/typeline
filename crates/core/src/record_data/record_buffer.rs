@@ -3,7 +3,7 @@ use std::{
     sync::{Condvar, Mutex},
 };
 
-use indexland::nonmax::NonMaxU32;
+use indexland::nonmax::NonMax;
 use smallvec::SmallVec;
 
 use indexland_utils::universe::Universe;
@@ -34,7 +34,7 @@ pub struct RecordBufferData {
     pub fields: Universe<RecordBufferFieldId, RecordBufferField>,
 }
 
-pub type RecordBufferFieldId = NonMaxU32;
+pub type RecordBufferFieldId = NonMax<u32>;
 
 #[derive(Default)]
 pub struct RecordBuffer {

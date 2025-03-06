@@ -6,7 +6,7 @@ use std::{
 use num::Integer;
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, nonmax::NonMaxU32, Idx,
+    index_slice::IndexSlice, index_vec::IndexVec, nonmax::NonMax, Idx,
     IdxNewtype,
 };
 
@@ -60,10 +60,10 @@ struct HeaderDropInstructions {
 }
 
 #[derive(IdxNewtype)]
-struct DataCowIndex(NonMaxU32);
+struct DataCowIndex(NonMax<u32>);
 
 #[derive(IdxNewtype)]
-struct FullCowIndex(NonMaxU32);
+struct FullCowIndex(NonMax<u32>);
 
 enum CowFieldIndex {
     Full(FullCowIndex),
