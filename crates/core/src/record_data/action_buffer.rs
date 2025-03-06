@@ -12,14 +12,14 @@ use super::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, newtype_idx, Idx, NewtypeIdx,
+    idx_newtype, index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxNewtype,
 };
 
 use indexland_utils::{offset_vec_deque::OffsetVecDeque, subslice_slice_pair};
 
 use crate::utils::launder_slice;
 
-newtype_idx! {
+idx_newtype! {
     pub struct ActorId(u16);
     pub struct SnapshotRef(pub(crate) ActionGroupId);
     pub struct ActionGroupId(u32);

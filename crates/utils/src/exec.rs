@@ -80,10 +80,10 @@ use typeline_core::{
     },
 };
 
-use indexland::{index_vec::IndexVec, Idx, NewtypeIdx};
+use indexland::{index_vec::IndexVec, Idx, IdxNewtype};
 use indexland_utils::{counted_universe::CountedUniverse, universe::Universe};
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct ExecArgIdx(u32);
 
 #[derive(Default, Clone)]
@@ -133,7 +133,7 @@ struct RunningCommand {
     poll_requested: bool,
 }
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 struct RunningCommandIdx(u32);
 
 type CommandOutputTokenId = usize;

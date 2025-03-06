@@ -27,7 +27,7 @@ use crate::{
     utils::string_store::StringStoreEntry,
 };
 
-use indexland::{index_vec::IndexVec, Idx, IdxRange, NewtypeIdx};
+use indexland::{index_vec::IndexVec, Idx, IdxNewtype, IdxRange};
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},

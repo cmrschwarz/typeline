@@ -49,7 +49,7 @@ use typeline_core::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, Idx, NewtypeIdx,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxNewtype,
 };
 use indexland_utils::{
     stable_vec::StableVec, temp_vec::TransmutableContainer,
@@ -59,7 +59,7 @@ use indexland_utils::{
 // TODO: proper dynamic field management
 const INITIAL_OUTPUT_COUNT: usize = 6;
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 struct CsvColumnIdx(u32);
 
 pub struct CsvOpts {

@@ -12,7 +12,7 @@ use ref_cast::RefCast;
 use smallvec::SmallVec;
 use subenum::subenum;
 
-use indexland::{index_vec::IndexVec, Idx, IdxRange, NewtypeIdx};
+use indexland::{index_vec::IndexVec, Idx, IdxNewtype, IdxRange};
 
 use crate::{
     chain::{Chain, ChainId},
@@ -26,13 +26,13 @@ use crate::{
 
 use derive_more::{Deref, DerefMut};
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct BasicBlockId(usize);
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct VarId(u32);
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct OpOutputIdx(u32);
 
 #[subenum(OpOutputLivenessSlotKind)]

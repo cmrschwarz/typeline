@@ -32,7 +32,7 @@ use typeline_core::{
     typeline_error::TypelineError,
 };
 
-use indexland::{nonmax::NonMaxUsize, Idx, NewtypeIdx};
+use indexland::{nonmax::NonMaxUsize, Idx, IdxNewtype};
 use indexland_utils::universe::Universe;
 
 use bstr::ByteSlice;
@@ -42,7 +42,7 @@ use metamatch::metamatch;
 #[derive(Default)]
 pub struct OpLines {}
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 struct LineStreamIdx(NonMaxUsize);
 
 struct LineStream {

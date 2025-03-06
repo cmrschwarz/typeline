@@ -5,7 +5,7 @@ use std::{
     ops::{Deref, DerefMut, Range},
 };
 
-use indexland::{nonmax::NonMaxU32, Idx, NewtypeIdx};
+use indexland::{nonmax::NonMaxU32, Idx, IdxNewtype};
 use indexland_utils::universe::Universe;
 
 use crate::utils::size_classed_vec_deque::SizeClassedVecDeque;
@@ -23,7 +23,7 @@ use super::{
 pub type GroupIdx = usize;
 pub type GroupLen = usize;
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct GroupIdxStable(usize);
 
 pub type GroupTrackIterId = u32;

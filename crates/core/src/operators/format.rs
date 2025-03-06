@@ -71,7 +71,7 @@ use crate::{
 
 use indexland::{
     index_slice::IndexSlice, index_vec::IndexVec, nonmax::NonMaxUsize, Idx,
-    NewtypeIdx,
+    IdxNewtype,
 };
 use indexland_utils::counted_universe::CountedUniverse;
 
@@ -121,10 +121,10 @@ pub enum FormatPart {
     Key(FormatKey),
 }
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct FormatKeyRefId(u32);
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct FormatPartIndex(u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]

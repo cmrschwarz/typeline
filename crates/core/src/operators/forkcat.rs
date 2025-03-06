@@ -44,7 +44,7 @@ use crate::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxRange, NewtypeIdx,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxRange, IdxNewtype,
 };
 
 use indexland_utils::{
@@ -77,13 +77,13 @@ use super::{
 //              - create / append group length
 //              - append to pseudo data column, inform comsumers
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct FcSubchainIdx(u32);
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct FcSubchainRoundRobinIdx(u32);
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct ContinuationVarIdx(u32);
 
 #[derive(Default)]

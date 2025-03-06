@@ -6,7 +6,7 @@ use std::{
 
 use smallvec::SmallVec;
 
-use indexland::{Idx, NewtypeIdx};
+use indexland::{Idx, IdxNewtype};
 use indexland_utils::universe::Universe;
 
 use super::{
@@ -59,7 +59,7 @@ pub struct Field {
     pub producing_transform_arg: String,
 }
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct FieldId(u32);
 
 // Field references don't contain the `FieldId` of their target field directly,

@@ -17,10 +17,10 @@ use typeline_core::{
     },
 };
 
-use indexland::{index_vec::IndexVec, nonmax::NonMaxUsize, Idx, NewtypeIdx};
+use indexland::{index_vec::IndexVec, nonmax::NonMaxUsize, Idx, IdxNewtype};
 use indexland_utils::stable_vec::StableVec;
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub(super) struct InserterIndex(pub usize);
 
 pub(super) struct PendingField {

@@ -14,7 +14,7 @@ use std::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, Idx, NewtypeIdx,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxNewtype,
 };
 
 use indexland_utils::{
@@ -76,7 +76,7 @@ pub struct OpCompute {
     let_bindings: IndexVec<LetBindingId, LetBindingData>,
 }
 
-#[derive(NewtypeIdx)]
+#[derive(IdxNewtype)]
 pub struct ExternFieldIdx(u32);
 
 pub struct ExternField {
