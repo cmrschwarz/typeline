@@ -3754,7 +3754,7 @@ dependencies = [
  "indexland_utils",
  "num",
  "pyo3",
- "rstest 0.24.0",
+ "rstest 0.25.0",
  "typeline_core",
  "typeline_ext_utils",
 ]
@@ -3763,12 +3763,12 @@ dependencies = [
 name = "typeline_ext_selenium"
 version = "0.1.0"
 dependencies = [
- "derive_more 1.0.0",
+ "derive_more 2.0.1",
  "dirs-next",
  "indexmap",
  "regex",
  "reqwest",
- "rstest 0.24.0",
+ "rstest 0.25.0",
  "rust-ini",
  "thirtyfour",
  "tokio",
@@ -3800,7 +3800,7 @@ dependencies = [
  "num-order",
  "primes",
  "regex",
- "rstest 0.24.0",
+ "rstest 0.25.0",
  "typeline_core",
 ]
 

@@ -1,3 +1,5 @@
+//! JSON Extension for [`typeline`](https://crates.io/crates/typeline)
+
 use jsonl::parse_op_jsonl;
 use typeline_core::{
     cli::call_expr::{Argument, CallExpr},

@@ -1,3 +1,5 @@
+//! Python Extension for [`typeline`](https://crates.io/crates/typeline)
+
 use py::build_op_py;
 use typeline_core::{
     cli::call_expr::{Argument, CallExpr},

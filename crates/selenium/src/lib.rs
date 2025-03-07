@@ -1,3 +1,5 @@
+//! Selenium Extension for [`typeline`](https://crates.io/crates/typeline)
+
 use sel::parse_op_sel;
 use sel_nav::parse_op_sel_nav;
 use sel_xpath::parse_op_sel_xpath;

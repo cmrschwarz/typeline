@@ -1,3 +1,5 @@
+//! CSV Extension for [`typeline`](https://crates.io/crates/typeline)
+
 use csv::parse_op_csv;
 use typeline_core::{
     cli::call_expr::{Argument, CallExpr},

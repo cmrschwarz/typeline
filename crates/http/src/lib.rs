@@ -1,3 +1,5 @@
+//! HTTP Extension for [`typeline`](https://crates.io/crates/typeline)
+
 pub mod http;
 pub mod tls_client;
 pub mod url;

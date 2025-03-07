@@ -25,7 +25,7 @@ package.keywords = ["tl", "pipeline", "shell", "stream"]
 indexland = "0.2.1"
 indexland_utils = { path = "crates/indexland_utils" }
 typeline_core = { version = "0.1", path = "crates/core" }
-typeline_ext_utils = { version = "0.1", path = "../utils" }
+typeline_ext_utils = { version = "0.1", path = "crates/utils" }
 
 rstest = "0.25.0"
 
@@ -124,6 +124,9 @@ extended-description = "High performance pipeline processor."
 section = "utility"
 priority = "optional"
 assets = [["target/release/tl", "usr/bin/", "755"]]
+
+[package.metadata.docs.rs]
+features = ["full"]
 
 [[test]]
 name = "bench_test"

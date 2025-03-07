@@ -1,3 +1,5 @@
+//! Utility Extension for [`typeline`](https://crates.io/crates/typeline)
+
 #![allow(clippy::too_many_arguments)]
 
 use avg::parse_op_avg;

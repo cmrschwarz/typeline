@@ -22,8 +22,7 @@ typeline_core = { workspace = true }
 thirtyfour = "0.35.0"
 # geckodriver = "0.35.0"
 tokio = "1.42.0"
-derive_more = "2.0.1"
-reqwest= "0.12.12"
+reqwest = "0.12.12"
 rust-ini = "0.21.1"
 dirs-next = "2.0.0"
 zip = "2.2.2"
@@ -31,6 +30,7 @@ indexmap = "2.7.0"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 regex = "1.11.1"
+derive_more = { version = "2.0.1", features = ["full"] }
 
 [dev-dependencies]
 rstest = { workspace = true }

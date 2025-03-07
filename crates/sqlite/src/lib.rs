@@ -1,3 +1,5 @@
+//! Sqlite Extension for [`typeline`](https://crates.io/crates/typeline)
+
 use typeline_core::{
     cli::call_expr::Argument, extension::Extension,
     operators::operator::Operator, options::session_setup::SessionSetupData,
