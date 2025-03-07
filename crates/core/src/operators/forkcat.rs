@@ -44,7 +44,7 @@ use crate::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxRange, IdxNewtype,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxNewtype, IdxRange,
 };
 
 use indexland_utils::{

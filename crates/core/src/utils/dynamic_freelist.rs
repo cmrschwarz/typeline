@@ -44,9 +44,7 @@ impl<I: Idx, T: Default + Clone> DynamicArrayFreelist<I, T> {
     }
 }
 
-impl<I: Idx, T: Default + Clone> Index<I>
-    for DynamicArrayFreelist<I, T>
-{
+impl<I: Idx, T: Default + Clone> Index<I> for DynamicArrayFreelist<I, T> {
     type Output = [T];
 
     fn index(&self, index: I) -> &Self::Output {
@@ -54,9 +52,7 @@ impl<I: Idx, T: Default + Clone> Index<I>
     }
 }
 
-impl<I: Idx, T: Default + Clone> IndexMut<I>
-    for DynamicArrayFreelist<I, T>
-{
+impl<I: Idx, T: Default + Clone> IndexMut<I> for DynamicArrayFreelist<I, T> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         self.get_mut(index)
     }
