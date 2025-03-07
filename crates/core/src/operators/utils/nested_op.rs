@@ -25,7 +25,7 @@ pub fn setup_op_outputs_for_nested_op(
     });
     let [op_base, nested_op_base] = sess
         .operator_bases
-        .get_many_mut([op_id, nested_op_id])
+        .get_disjoint_mut([op_id, nested_op_id])
         .unwrap();
     op_base.outputs_start = nested_op_base.outputs_start;
     op_base.outputs_end = nested_op_base.outputs_end;

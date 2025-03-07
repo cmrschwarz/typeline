@@ -16,7 +16,9 @@ test = false
 doctest = false
 
 [dependencies]
-typeline_core = { version = "0.1", path = "../core" }
+typeline_core = { workspace = true }
+
+
 thirtyfour = "0.35.0"
 # geckodriver = "0.35.0"
 tokio = "1.42.0"

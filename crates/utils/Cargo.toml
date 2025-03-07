@@ -18,9 +18,9 @@ doctest = false
 
 
 [dependencies]
-typeline_core = { version = "0.1", path = "../core" }
-indexland = { path = "../indexland" }
-indexland_utils = { path = "../indexland_utils" }
+typeline_core = { workspace = true }
+indexland = { workspace = true }
+indexland_utils = { workspace = true }
 
 arrayvec = "0.7.6"
 regex = "1.11.1"

@@ -18,7 +18,7 @@ description = "collections based on newtype indices"
 name = "indexland_utils"
 
 [dependencies]
-indexland = { path = "../indexland", default-features = false }
+indexland = { workspace = true }
 arrayvec = { version = "0.7.6", default-features = false }
 
 serde = { version = "1.0.218", optional = true, default-features = false }

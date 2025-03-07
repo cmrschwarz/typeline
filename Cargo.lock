@@ -90,9 +90,6 @@ name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "assert-json-diff"
@@ -1476,21 +1473,21 @@ dependencies = [
 
 [[package]]
 name = "indexland"
-version = "0.1.0"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c86b48eb07edecabb49c528d60472de510a3dd1b88d20246dbc1d8223b629cc"
 dependencies = [
  "arrayvec",
- "derive_more 2.0.1",
  "indexland_derive",
  "indexmap",
- "serde",
- "smallvec",
 ]
 
 [[package]]
 name = "indexland_derive"
-version = "0.1.0"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e28730e5d7cbff8fcfa95e95c69b0071792493e9bfdcb6ca6bbeb7db25177f35"
 dependencies = [
- "indexland",
  "proc-macro2",
  "quote",
  "syn 2.0.98",
@@ -1514,7 +1511,6 @@ checksum = "8c9c992b02b5b4c94ea26e32fe5bccb7aa7d9f390ab5c1221ff895bc7ea8b652"
 dependencies = [
  "equivalent",
  "hashbrown 0.15.2",
- "serde",
 ]
 
 [[package]]
@@ -3043,9 +3039,6 @@ name = "smallvec"
 version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fcf8323ef1faaee30a44a340193b1ac6814fd9b7b4e88e9d4519a3e4abe1cfd"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "socket2"

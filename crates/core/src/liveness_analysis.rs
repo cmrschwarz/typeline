@@ -625,8 +625,10 @@ impl LivenessData {
         bb_id: BasicBlockId,
         callee_id: BasicBlockId,
     ) -> bool {
-        let [bb, callee] =
-            self.basic_blocks.get_many_mut([bb_id, callee_id]).unwrap();
+        let [bb, callee] = self
+            .basic_blocks
+            .get_disjoint_mut([bb_id, callee_id])
+            .unwrap();
         let len_before = callee.caller_successors.len();
         callee.caller_successors.extend(&bb.successors);
         len_before != callee.caller_successors.len()

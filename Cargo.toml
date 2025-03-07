@@ -10,8 +10,6 @@ members = [
     "crates/csv",
     "crates/json",
     "crates/selenium",
-    "crates/indexland",
-    "crates/indexland/derive"
 ]
 
 package.version = "0.1.0"
@@ -22,6 +20,12 @@ package.edition = "2021"
 package.rust-version = "1.80"
 package.categories = ["command-line-utilities", "text-processing"]
 package.keywords = ["tl", "pipeline", "shell", "stream"]
+
+[workspace.dependencies]
+indexland = "0.2.1"
+indexland_utils = { path = "crates/indexland_utils" }
+typeline_core = { version = "0.1", path = "crates/core" }
+
 
 
 [profile.dev]
@@ -68,7 +72,7 @@ path = "src/main.rs" # the default, workaround https://github.com/webern/cargo-r
 
 
 [dependencies]
-indexland = { path="./crates/indexland" }
+indexland = "0.2.1"
 indexland_utils = { path="./crates/indexland_utils" }
 typeline_core = { version = "0.1.0", path= "./crates/core", default-features = false }
 typeline_ext_sqlite = { version = "0.1.0", path = "./crates/sqlite", optional = true }
