@@ -25,8 +25,9 @@ package.keywords = ["tl", "pipeline", "shell", "stream"]
 indexland = "0.2.1"
 indexland_utils = { path = "crates/indexland_utils" }
 typeline_core = { version = "0.1", path = "crates/core" }
+typeline_ext_utils = { version = "0.1", path = "../utils" }
 
-
+rstest = "0.25.0"
 
 [profile.dev]
 panic = "unwind"

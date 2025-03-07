@@ -30,6 +30,5 @@ num-bigint = "0.4.6"
 num = "0.4.3"
 
 [dev-dependencies]
-typeline_ext_utils = { version = "0.1", path = "../utils" }
-
-rstest = "0.24.0"
+typeline_ext_utils = { workspace = true }
+rstest = { workspace = true }

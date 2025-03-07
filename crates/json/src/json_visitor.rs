@@ -41,6 +41,7 @@ pub(super) struct JsonlReadOptions<'a> {
 
 pub(super) struct JsonlVisitor<'a, 'b> {
     pub ss: &'a mut StringStore,
+    // indexmap because we need the order to be preserved
     pub inserter_map: &'a mut IndexMap<StringStoreEntry, InserterIndex>,
     pub inserters: &'a mut IndexVec<
         InserterIndex,

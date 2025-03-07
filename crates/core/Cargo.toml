@@ -91,7 +91,7 @@ default-features = false
 optional = true
 
 [dev-dependencies]
-rstest = "0.24.0"
+rstest = { workspace = true }
 
 [features]
 default = []
