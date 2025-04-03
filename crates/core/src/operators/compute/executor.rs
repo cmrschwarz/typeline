@@ -275,11 +275,11 @@ fn execute_cast_int(
     inserter: &mut ExecutorInserter,
 ) {
     metamatch!(match range.base.data {
-        #[expand((REPR, ITER, VAL_BYTES, VAL_ERR) in [
-            (TextInline, RefAwareInlineTextIter, v.as_bytes(), v),
-            (TextBuffer, RefAwareTextBufferIter, v.as_bytes(), v),
-            (BytesInline, RefAwareInlineBytesIter, v, v.to_str_lossy()),
-            (BytesBuffer, RefAwareBytesBufferIter, v, v.to_str_lossy())
+        #[expand(for (REPR, ITER, VAL_BYTES, VAL_ERR) in [
+            (TextInline, RefAwareInlineTextIter, raw!(v.as_bytes()), v),
+            (TextBuffer, RefAwareTextBufferIter, raw!(v.as_bytes()), v),
+            (BytesInline, RefAwareInlineBytesIter, v, raw!(v.to_str_lossy())),
+            (BytesBuffer, RefAwareBytesBufferIter, v, raw!(v.to_str_lossy()))
         ])]
         FieldValueSlice::REPR(data) => {
             for (v, rl, _) in ITER::from_range(range, data) {
@@ -394,11 +394,11 @@ fn execute_cast_float(
     inserter: &mut ExecutorInserter,
 ) {
     metamatch!(match range.base.data {
-        #[expand((REPR, ITER, VAL_BYTES, VAL_ERR) in [
-            (TextInline, RefAwareInlineTextIter, v.as_bytes(), v),
-            (TextBuffer, RefAwareTextBufferIter, v.as_bytes(), v),
-            (BytesInline, RefAwareInlineBytesIter, v, v.to_str_lossy()),
-            (BytesBuffer, RefAwareBytesBufferIter, v, v.to_str_lossy())
+        #[expand(for (REPR, ITER, VAL_BYTES, VAL_ERR) in [
+            (TextInline, RefAwareInlineTextIter, raw!(v.as_bytes()), v),
+            (TextBuffer, RefAwareTextBufferIter, raw!(v.as_bytes()), v),
+            (BytesInline, RefAwareInlineBytesIter, v, raw!(v.to_str_lossy())),
+            (BytesBuffer, RefAwareBytesBufferIter, v, raw!(v.to_str_lossy()))
         ])]
         FieldValueSlice::REPR(data) => {
             for (v, rl, _) in ITER::from_range(range, data) {
@@ -763,7 +763,7 @@ impl Executor<'_, '_> {
                 FieldValueSlice::Error(_) => {
                     inserter.extend_from_ref_aware_range(&range, true, false);
                 }
-                #[expand_pattern(T in [
+                #[expand_pattern(for T in [
                     Null, Undefined, TextInline, TextBuffer, BytesInline,
                     BytesBuffer, Bool, Int, BigInt, Float, BigRational,
                     Array, Custom, Argument, OpDecl, StreamValueId,

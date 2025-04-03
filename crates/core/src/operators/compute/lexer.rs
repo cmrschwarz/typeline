@@ -267,7 +267,7 @@ impl<'a> ComputeExprLexer<'a> {
         let mut span = self.next_token_start();
 
         let simple_kind = metamatch!(match c {
-            #[expand((CHAR, TOK_KIND) in [
+            #[expand(for (CHAR, TOK_KIND) in [
                 ('{', LBrace),
                 ('}', RBrace),
                 ('(', LParen),
@@ -284,7 +284,7 @@ impl<'a> ComputeExprLexer<'a> {
                 Some(TokenKind::TOK_KIND)
             }
 
-            #[expand((C, BC, C_PLAIN, C_EQ, C_DOUBLE, C_DOUBLE_EQ) in [
+            #[expand(for (C, BC, C_PLAIN, C_EQ, C_DOUBLE, C_DOUBLE_EQ) in [
                 ('<', b'<', LAngleBracket, LessThanEquals, LShift, LShiftEquals),
                 ('>', b'>', RAngleBracket, GreaterThanEquals, RShift, RShiftEquals),
                 ('&', b'&', Ampersand, AmpersandEquals, DoubleAmpersand, DoubleAmpersandEquals),
@@ -314,7 +314,7 @@ impl<'a> ComputeExprLexer<'a> {
                 }
             }
 
-            #[expand((C, CNEQ, CEQ) in [
+            #[expand(for (C, CNEQ, CEQ) in [
                 ('+', Plus, PlusEquals),
                 ('-', Minus, MinusEquals),
                 ('/', Slash, SlashEquals),

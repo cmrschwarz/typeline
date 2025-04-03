@@ -976,7 +976,7 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                     );
                 }
 
-                #[expand((REP, ITER, REF) in [
+                #[expand(for (REP, ITER, REF) in [
                     (TextInline, RefAwareInlineTextIter, TextRef),
                     (TextBuffer, RefAwareTextBufferIter, TextRef),
                     (BytesInline, RefAwareInlineBytesIter, BytesRef),
@@ -992,10 +992,10 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                         );
                     }
                 }
-                #[expand((REP, CONV_FN) in [
-                    (Bool, bool_to_str(*v)),
-                    (Int, &i64_to_str(false, *v)),
-                    (Float, &f64_to_str(*v)),
+                #[expand(for (REP, CONV_FN) in [
+                    (Bool,  raw!(bool_to_str(*v))),
+                    (Int,   raw!(&i64_to_str(false, *v))),
+                    (Float, raw!(&f64_to_str(*v))),
                 ])]
                 FieldValueSlice::REP(ints) => {
                     for (v, rl) in
@@ -1039,7 +1039,7 @@ impl<'a> Transform<'a> for TfJoin<'a> {
                     todo!();
                 }
 
-                #[expand(REP in [
+                #[expand(for REP in [
                     Object, Array, Argument, OpDecl, BigRational
                 ])]
                 FieldValueSlice::REP(v) => {

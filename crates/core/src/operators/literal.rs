@@ -336,10 +336,10 @@ pub fn parse_op_bytes(
 }
 pub fn field_value_to_literal(v: FieldValueUnboxed) -> Literal {
     metamatch!(match v {
-        #[expand(REP in [Null, Undefined])]
+        #[expand(for REP in [Null, Undefined])]
         FieldValueUnboxed::REP => Literal::REP,
 
-        #[expand(REP in [
+        #[expand(for REP in [
             Bool, Int, Float, Bytes, Text, Array,  Custom,
             BigInt, BigRational, Argument, Object
         ])]
@@ -347,7 +347,7 @@ pub fn field_value_to_literal(v: FieldValueUnboxed) -> Literal {
 
         FieldValueUnboxed::Error(v) => Literal::Error(v.message().to_owned()),
 
-        #[expand_pattern(REP in [OpDecl, StreamValueId, FieldReference, SlicedFieldReference])]
+        #[expand_pattern(for REP in [OpDecl, StreamValueId, FieldReference, SlicedFieldReference])]
         FieldValueUnboxed::REP(_) => {
             panic!("{} is not a valid literal", v.kind().to_str())
         }
@@ -559,31 +559,31 @@ pub fn insert_value(
     );
     let mut output_field = jd.field_mgr.fields[of_id].borrow_mut();
     metamatch!(match lit.data {
-        #[expand(REP in [Null, Undefined])]
+        #[expand(for REP in [Null, Undefined])]
         Literal::REP => {
             output_field
                 .iter_hall
                 .push_zst(FieldValueRepr::REP, 1, true)
         }
 
-        #[expand((REP, PUSH_FN, VAL) in [
-            (Bool, push_bool, *v),
-            (Int, push_int, *v),
-            (Float, push_float, *v),
-            (Bytes, push_bytes, v),
-            (Text, push_str, v),
-            (Object, push_object, v.clone()),
-            (Array, push_array, v.clone()),
-            (BigInt, push_big_int, v.clone()),
-            (BigRational, push_big_rational, v.clone()),
-            (Custom, push_custom, v.clone()),
-            (Argument, push_fixed_size_type, v.clone()),
+        #[expand(for (REP, PUSH_FN, VAL) in [
+            (Bool, push_bool, raw!(*v)),
+            (Int, push_int, raw!(*v)),
+            (Float, push_float, raw!(*v)),
+            (Bytes, push_bytes, raw!(v)),
+            (Text, push_str, raw!(v)),
+            (Object, push_object, raw!(v.clone())),
+            (Array, push_array, raw!(v.clone())),
+            (BigInt, push_big_int, raw!(v.clone())),
+            (BigRational, push_big_rational, raw!(v.clone())),
+            (Custom, push_custom, raw!(v.clone())),
+            (Argument, push_fixed_size_type, raw!(v.clone())),
         ])]
         Literal::REP(v) => {
             output_field.iter_hall.PUSH_FN(VAL, 1, true, true)
         }
 
-        #[expand((LIT, DATA) in [(StreamString, Text), (StreamBytes, Bytes)])]
+        #[expand(for (LIT, DATA) in [(StreamString, Text), (StreamBytes, Bytes)])]
         Literal::LIT(ss) => {
             let sv_id = jd.sv_mgr.claim_stream_value(
                 StreamValue::from_data_done(StreamValueData::DATA {

@@ -244,9 +244,9 @@ impl Transform<'_> for TfToStr {
                         }
                     }
                 }
-                #[expand((REPR, CONV_FN) in [
-                    (Int, &i64_to_str(false, *v)),
-                    (Float, &f64_to_str(*v))
+                #[expand(for (REPR, CONV_FN) in [
+                    (Int,   raw!(&i64_to_str(false, *v))),
+                    (Float, raw!(&f64_to_str(*v)))
                 ])]
                 FieldValueSlice::REPR(vals) => {
                     for (v, rl) in

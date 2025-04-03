@@ -1123,7 +1123,7 @@ impl<'a> Transform<'a> for TfRegex<'a> {
                     .unwrap_or(self.input_field_ref_offset),
             };
             metamatch!(match range.base.data {
-                #[expand((REP, ITER) in [
+                #[expand(for (REP, ITER) in [
                     (TextInline, RefAwareInlineTextIter),
                     (TextBuffer, RefAwareTextBufferIter),
                 ])]
@@ -1154,7 +1154,7 @@ impl<'a> Transform<'a> for TfRegex<'a> {
                         }
                     }
                 }
-                #[expand((REP, ITER) in [
+                #[expand(for (REP, ITER) in [
                     (BytesInline, RefAwareInlineBytesIter),
                     (BytesBuffer, RefAwareBytesBufferIter),
                 ])]
@@ -1211,10 +1211,10 @@ impl<'a> Transform<'a> for TfRegex<'a> {
                         }
                     }
                 }
-                #[expand((REPR, T, TO_STR_FN) in [
-                    (Bool, bool, bool_to_str(*v)),
-                    (Int, i64, i64_to_str(false, *v).as_str()),
-                    (Float, f64, f64_to_str(*v).as_str()),
+                #[expand(for (REPR, T, TO_STR_FN) in [
+                    (Bool,  bool, raw!(bool_to_str(*v))),
+                    (Int,   i64,  raw!(i64_to_str(false, *v).as_str())),
+                    (Float, f64,  raw!(f64_to_str(*v).as_str())),
                 ])]
                 FieldValueSlice::REPR(ints) => {
                     if let Some(tr) = &mut text_regex {

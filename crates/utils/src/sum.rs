@@ -206,7 +206,7 @@ impl TfSum {
                         self.aggregate.add_rational(v, rl, fpm)
                     }
                 }
-                #[expand_pattern(REP in [
+                #[expand_pattern(for REP in [
                     Null, Undefined,
                     BytesInline, TextInline, TextBuffer, BytesBuffer,
                     Array, Object, Argument, OpDecl, Custom,

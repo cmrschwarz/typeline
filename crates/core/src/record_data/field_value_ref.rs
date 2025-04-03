@@ -218,7 +218,7 @@ impl<'a> FieldValueRef<'a> {
     ) -> Self {
         unsafe {
             metamatch!(match fmt.repr {
-                #[expand(T in [Null, Undefined])]
+                #[expand(for T in [Null, Undefined])]
                 FieldValueRepr::T => FieldValueRef::T,
 
                 FieldValueRepr::BytesInline => FieldValueRef::Bytes(to_slice(
@@ -240,7 +240,7 @@ impl<'a> FieldValueRef<'a> {
                     FieldValueRef::Text(to_ref::<String, R>(fdr, data_begin))
                 }
 
-                #[expand(REP in [
+                #[expand(for REP in [
                     Bool, Int, BigInt, Float, BigRational, StreamValueId, FieldReference,
                     SlicedFieldReference, Error, OpDecl,
                     Object, Array, Custom, Argument
@@ -255,13 +255,13 @@ impl<'a> FieldValueRef<'a> {
         use std::slice::from_ref;
 
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValueRef::REP => FieldValueSlice::REP(1),
 
-            #[expand((KIND, REP) in [(Text, TextInline), (Bytes, BytesInline)])]
+            #[expand(for (KIND, REP) in [(Text, TextInline), (Bytes, BytesInline)])]
             FieldValueRef::KIND(v) => FieldValueSlice::REP(v),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, Float, BigRational, StreamValueId,
                 FieldReference, SlicedFieldReference, Error, Argument, OpDecl,
                 Object, Array, Custom,
@@ -271,25 +271,25 @@ impl<'a> FieldValueRef<'a> {
     }
     pub fn to_field_value_unboxed(&self) -> FieldValueUnboxed {
         metamatch!(match *self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValueRef::REP => FieldValueUnboxed::REP,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Float, StreamValueId, FieldReference,
                 SlicedFieldReference,
             ])]
             FieldValueRef::REP(v) => FieldValueUnboxed::REP(*v),
 
-            #[expand(REP in [Error, Array, Custom, OpDecl])]
+            #[expand(for REP in [Error, Array, Custom, OpDecl])]
             FieldValueRef::REP(v) => FieldValueUnboxed::REP(v.clone()),
 
-            #[expand((REP, CONV_FN) in [
+            #[expand(for (REP, CONV_FN) in [
                 (Text, to_string),
                 (Bytes, to_vec)
             ])]
             FieldValueRef::REP(v) => FieldValueUnboxed::REP(v.CONV_FN()),
 
-            #[expand(REP in [BigInt, BigRational, Argument, Object])]
+            #[expand(for REP in [BigInt, BigRational, Argument, Object])]
             FieldValueRef::REP(v) => FieldValueUnboxed::REP(v.clone()),
         })
     }
@@ -305,11 +305,11 @@ impl<'a> FieldValueRef<'a> {
 
             FieldValueRef::Array(_) => todo!(),
 
-            #[expand(REP in [Text, Bytes])]
+            #[expand(for REP in [Text, Bytes])]
             FieldValueRef::REP(v) => FieldValueRef::REP(&v[range]),
 
             FieldValueRef::Null | FieldValueRef::Undefined |
-            #[expand_pattern(REP in [
+            #[expand_pattern(for REP in [
                 Bool, Int, BigInt, Float, BigRational, Object, Custom,
                 StreamValueId, Error,
                 FieldReference, SlicedFieldReference, OpDecl,
@@ -417,7 +417,7 @@ impl<'a> FieldValueSlice<'a> {
                     ))
                 }
 
-                #[expand(REP in [
+                #[expand(for REP in [
                     Bool, Int, BigInt, Float, BigRational, TextBuffer, BytesInline,
                     BytesBuffer, Object, Array, Custom, Error, StreamValueId,
                     FieldReference, SlicedFieldReference, Argument, OpDecl
@@ -437,7 +437,7 @@ impl<'a> FieldValueSlice<'a> {
                 FieldValueSlice::BytesInline(v) => v,
                 FieldValueSlice::TextInline(v) => v.as_bytes(),
 
-                #[expand(REP in [
+                #[expand(for REP in [
                     Bool, Int, BigInt, Float, BigRational, StreamValueId,
                     FieldReference, SlicedFieldReference, Error,
                     BytesBuffer, TextBuffer, Object, Array, Argument,
@@ -449,7 +449,7 @@ impl<'a> FieldValueSlice<'a> {
     }
     pub fn repr(&self) -> FieldValueRepr {
         metamatch!(match self {
-            #[expand(REP in [
+            #[expand(for REP in [
                 Undefined, Null, BytesInline, TextInline,
                 Bool, Int, BigInt, Float, BigRational,
                 StreamValueId, FieldReference, SlicedFieldReference, Error,
@@ -464,7 +464,7 @@ impl<'a> FieldValueSlice<'a> {
     pub fn len(&self) -> usize {
         metamatch!(match self {
             FieldValueSlice::Undefined(v) | FieldValueSlice::Null(v) => *v,
-            #[expand(REP in [
+            #[expand(for REP in [
                 BytesInline, TextInline,
                 Bool, Int, BigInt, Float, BigRational,
                 StreamValueId, FieldReference, SlicedFieldReference, Error,
@@ -508,11 +508,11 @@ pub unsafe fn drop_field_value_slice(
 ) {
     unsafe {
         metamatch!(match repr {
-            #[expand((REP, TYPE) in [
+            #[expand(for (REP, TYPE) in [
                 (BigInt, BigInt),
                 (BigRational, BigRational),
                 (TextBuffer, String),
-                (BytesBuffer, Vec<u8>),
+                (BytesBuffer, raw!(Vec<u8>)),
                 (Object, Object),
                 (Array, Array),
                 (Argument, Argument),
@@ -536,7 +536,7 @@ pub unsafe fn drop_field_value_slice(
                     data_size / std::mem::size_of::<TYPE>(),
                 );
             }
-            #[expand_pattern(REP in [
+            #[expand_pattern(for REP in [
                 Null, Undefined, Bool, Int, Float, TextInline, BytesInline,
                 StreamValueId, FieldReference, SlicedFieldReference,
             ])]
@@ -550,10 +550,10 @@ pub unsafe fn drop_field_value_slice(
 impl<'a> FieldValueSliceMut<'a> {
     pub fn as_const(&'a self) -> FieldValueSlice<'a> {
         metamatch!(match self {
-            #[expand(REP in [Undefined, Null])]
+            #[expand(for REP in [Undefined, Null])]
             FieldValueSliceMut::REP(len) => FieldValueSlice::REP(*len),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 BytesInline, TextInline,
                 Bool, Int, BigInt, Float, BigRational,
                 StreamValueId, FieldReference, SlicedFieldReference, Error,
@@ -576,7 +576,7 @@ impl<'a> FieldValueSliceMut<'a> {
             FieldValueSliceMut::Undefined(_) | FieldValueSliceMut::Null(_) => {
                 std::ptr::null_mut()
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 BytesInline, TextInline,
                 Bool, Int, BigInt, Float, BigRational, StreamValueId,
                 FieldReference, SlicedFieldReference, Error,
@@ -607,7 +607,7 @@ impl<'a> FieldValueSliceMut<'a> {
                     )
                 }
 
-                #[expand(REP in [
+                #[expand(for REP in [
                     Bool, Int, BigInt, Float, BigRational, TextBuffer, BytesInline,
                     BytesBuffer, Object, Array, Custom, Error, StreamValueId,
                     FieldReference, SlicedFieldReference, Argument, OpDecl

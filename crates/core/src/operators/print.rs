@@ -248,7 +248,7 @@ pub fn handle_tf_print_raw(
                 *handled_field_count += range.base.field_count;
             }
 
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValueSlice::REP(_) => {
                 let zst_str = REP::REPR.to_str().as_bytes();
                 for _ in 0..range.base.field_count {
@@ -258,11 +258,11 @@ pub fn handle_tf_print_raw(
                 }
             }
 
-            #[expand((REP, ITER, VAL) in [
-                (TextInline, RefAwareInlineTextIter, v.as_bytes()),
-                (BytesInline, RefAwareInlineBytesIter, v),
-                (TextBuffer, RefAwareTextBufferIter, v.as_bytes()),
-                (BytesBuffer, RefAwareBytesBufferIter, v),
+            #[expand(for (REP, ITER, VAL) in [
+                (TextInline,  RefAwareInlineTextIter,  raw!(v.as_bytes())),
+                (BytesInline, RefAwareInlineBytesIter, raw!(v)),
+                (TextBuffer,  RefAwareTextBufferIter,  raw!(v.as_bytes())),
+                (BytesBuffer, RefAwareBytesBufferIter, raw!(v)),
             ])]
             FieldValueSlice::REP(text) => {
                 for v in ITER::from_range(&range, text).unfold_rl() {
@@ -272,10 +272,10 @@ pub fn handle_tf_print_raw(
                 }
             }
 
-            #[expand((REP, CONV_FN) in [
-                (Bool, bool_to_str(*v)),
-                (Int, i64_to_str(false, *v)),
-                (Float, f64_to_str(*v))
+            #[expand(for (REP, CONV_FN) in [
+                (Bool,  raw!(bool_to_str(*v))),
+                (Int,   raw!(i64_to_str(false, *v))),
+                (Float, raw!(f64_to_str(*v)))
             ])]
             FieldValueSlice::REP(ints) => {
                 for (v, rl) in
@@ -317,7 +317,7 @@ pub fn handle_tf_print_raw(
                 }
             }
 
-            #[expand(REP in [Array, Object, Argument, OpDecl])]
+            #[expand(for REP in [Array, Object, Argument, OpDecl])]
             FieldValueSlice::REP(arrays) => {
                 let mut fc = FormattingContext {
                     ss: Some(&mut string_store),

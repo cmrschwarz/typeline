@@ -699,10 +699,10 @@ impl<'a, S: BufRead> TysonParser<'a, S> {
                 }
                 Ok(FieldValueUnboxed::Null)
             }
-            #[expand((FIRST, REST, VAL) in [
-                ('t', "rue", FieldValueUnboxed::Bool(true)),
-                ('f', "alse", FieldValueUnboxed::Bool(false)),
-                ('u', "ndefined", FieldValueUnboxed::Undefined),
+            #[expand(for (FIRST, REST, VAL) in [
+                ('t', "rue",      raw!(FieldValueUnboxed::Bool(true))),
+                ('f', "alse",     raw!(FieldValueUnboxed::Bool(false))),
+                ('u', "ndefined", raw!(FieldValueUnboxed::Undefined)),
             ])]
             FIRST => {
                 for expected in REST.chars() {

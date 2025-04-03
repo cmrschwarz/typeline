@@ -162,7 +162,7 @@ impl From<FieldRefOffset> for FieldReference {
 impl FieldValueKind {
     pub fn repr(&self, inline: bool) -> FieldValueRepr {
         metamatch!(match self {
-            #[expand((KIND, INLINE, BUFFERED) in [
+            #[expand(for (KIND, INLINE, BUFFERED) in [
                 (Text, TextInline, TextBuffer),
                 (Bytes, BytesInline, BytesBuffer),
                 (Int, Int, BigInt),
@@ -176,7 +176,7 @@ impl FieldValueKind {
                 }
             }
 
-            #[expand(T in [
+            #[expand(for T in [
                 Undefined, Null, Bool, Error, Object, Array,
                 Argument, OpDecl, FieldReference,
                 SlicedFieldReference, StreamValueId, Custom
@@ -229,10 +229,10 @@ impl FieldValueKind {
 impl PartialEq for FieldValueRef<'_> {
     fn eq(&self, other: &Self) -> bool {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             Self::REP => matches!(other, Self::REP),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object, Bytes, Text, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
@@ -271,7 +271,7 @@ impl FieldValue {
             FieldValue::Text(_) => FieldValueRepr::TextBuffer,
             FieldValue::Bytes(_) => FieldValueRepr::BytesBuffer,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
@@ -281,10 +281,10 @@ impl FieldValue {
     }
     pub fn downcast_ref<R: FieldValueType>(&self) -> Option<&R> {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValue::REP => <dyn Any>::downcast_ref(&REP),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object, Text, Bytes, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
@@ -300,10 +300,10 @@ impl FieldValue {
     }
     pub fn downcast_mut<R: FieldValueType>(&mut self) -> Option<&mut R> {
         metamatch!(match self {
-            #[expand(T in [Null, Undefined])]
+            #[expand(for T in [Null, Undefined])]
             v @ FieldValue::T => <dyn Any>::downcast_mut(v),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object, Text, Bytes, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
@@ -360,10 +360,10 @@ impl FieldValue {
     }
     pub fn as_ref(&self) -> FieldValueRef {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValue::REP => FieldValueRef::REP,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
@@ -376,10 +376,10 @@ impl FieldValue {
     // `as_ref()`
     pub fn as_slice(&self) -> FieldValueSlice {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValue::REP => FieldValueSlice::REP(1),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument,
@@ -387,7 +387,7 @@ impl FieldValue {
             FieldValue::REP(v) =>
                 FieldValueSlice::REP(std::slice::from_ref(v)),
 
-            #[expand((REP, TGT) in [
+            #[expand(for (REP, TGT) in [
                 (Text, TextBuffer),
                 (Bytes, BytesBuffer)])
             ]
@@ -397,17 +397,17 @@ impl FieldValue {
     }
     pub fn as_ref_mut(&mut self) -> FieldValueRefMut {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValue::REP => FieldValueRefMut::REP,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
             ])]
             FieldValue::REP(v) => FieldValueRefMut::REP(v),
 
-            #[expand((VALUE_T, REF_T) in [
+            #[expand(for (VALUE_T, REF_T) in [
                 (Text, TextBuffer),
                 (Bytes, BytesBuffer)
             ])]
@@ -434,10 +434,10 @@ impl FieldValue {
         // unsafe trait, so assuming that nobody gave us an incorrect
         // `REP` is sound.
         metamatch!(match T::REPR {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValueRepr::REP => FieldValue::REP,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
@@ -450,7 +450,7 @@ impl FieldValue {
                 }
             }
 
-            #[expand((REP_T, VALUE_T) in [
+            #[expand(for (REP_T, VALUE_T) in [
                 (TextBuffer, Text),
                 (BytesBuffer, Bytes)
             ])]
@@ -563,17 +563,17 @@ impl FieldValue {
     }
     pub fn unbox(self) -> FieldValueUnboxed {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValue::REP => FieldValueUnboxed::REP,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, OpDecl, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId,
             ])]
             FieldValue::REP(v) => FieldValueUnboxed::REP(v),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Object, BigInt, BigRational, Argument,
             ])]
             FieldValue::REP(v) => FieldValueUnboxed::REP(*v),
@@ -612,7 +612,7 @@ impl FieldValueUnboxed {
             FieldValueUnboxed::Text(_) => FieldValueRepr::TextBuffer,
             FieldValueUnboxed::Bytes(_) => FieldValueRepr::BytesBuffer,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
@@ -626,10 +626,10 @@ impl FieldValueUnboxed {
 
     pub fn as_ref(&self) -> FieldValueRef {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValueUnboxed::REP => FieldValueRef::REP,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
@@ -642,17 +642,17 @@ impl FieldValueUnboxed {
 impl From<FieldValue> for FieldValueUnboxed {
     fn from(value: FieldValue) -> Self {
         metamatch!(match value {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValue::REP => FieldValueUnboxed::REP,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, OpDecl, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId,
             ])]
             FieldValue::REP(v) => FieldValueUnboxed::REP(v),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Object, BigInt, BigRational, Argument,
             ])]
             FieldValue::REP(v) => FieldValueUnboxed::REP(*v),
@@ -663,17 +663,17 @@ impl From<FieldValue> for FieldValueUnboxed {
 impl From<FieldValueUnboxed> for FieldValue {
     fn from(value: FieldValueUnboxed) -> Self {
         metamatch!(match value {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValueUnboxed::REP => FieldValue::REP,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, OpDecl, Text, Bytes,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId,
             ])]
             FieldValueUnboxed::REP(v) => FieldValue::REP(v),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Object, BigInt, BigRational, Argument,
             ])]
             FieldValueUnboxed::REP(v) => FieldValue::REP(Box::new(v)),

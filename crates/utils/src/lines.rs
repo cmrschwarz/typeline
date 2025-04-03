@@ -138,7 +138,7 @@ impl TfLines {
 
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             metamatch!(match range.base.data {
-                #[expand_pattern(REP in [
+                #[expand_pattern(for REP in [
                     Undefined, Null, Bool, Int, Float, BigInt,
                     BigRational, Custom, Error, OpDecl, Array, Object, Argument
                 ])]
@@ -157,7 +157,7 @@ impl TfLines {
                         true,
                     );
                 }
-                #[expand((REP, ITER, PUSH_FN) in [
+                #[expand(for (REP, ITER, PUSH_FN) in [
                     (TextInline, RefAwareInlineTextIter, push_str),
                     (TextBuffer, RefAwareTextBufferIter, push_str),
                     (BytesInline,RefAwareInlineBytesIter, push_bytes),

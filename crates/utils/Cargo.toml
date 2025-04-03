@@ -21,6 +21,7 @@ doctest = false
 typeline_core = { workspace = true }
 indexland = { workspace = true }
 indexland_utils = { workspace = true }
+metamatch = { workspace = true }
 
 arrayvec = "0.7.6"
 regex = "1.11.1"
@@ -28,7 +29,6 @@ bstr = { version = "1.11.0", features = ["std"], default-features = false }
 primes = "0.4.0"
 num = "0.4.3"
 indexmap = "2.6.0"
-metamatch = "0.2.4"
 mio = { version = "1.0.2", features = ["os-ext", "os-poll"] }
 num-order = { version = "1.2", features = ["num-rational", "num-bigint"] }
 

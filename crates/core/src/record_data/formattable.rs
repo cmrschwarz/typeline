@@ -505,31 +505,31 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
             fc.rfk.opts.type_repr = TypeReprFormat::Typed;
         }
         let res = metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             Array::REP(count) => {
                 format_array(std::iter::repeat(REP).take(*count), &mut (), w)
             }
 
-            #[expand((REP, T, FC) in [
-                (Bool, bool, &mut fc.rfk),
-                (Int, i64, &mut fc.rfk),
-                (Float, f64, &mut fc.rfk),
-                (Array, Array, fc),
-                (Object, Object, fc),
-                (BigInt, BigInt, &mut fc.rfk),
-                (BigRational, BigRational, fc),
-                (Argument, Argument, fc),
-                (OpDecl, OpDeclRef, fc),
-                (Error, OperatorApplicationError, &mut fc.value_formatting_opts()),
+            #[expand(for (REP, T, FC) in [
+                (Bool,          bool,                       raw!(&mut fc.rfk)),
+                (Int,           i64,                        raw!(&mut fc.rfk)),
+                (Float,         f64,                        raw!(&mut fc.rfk)),
+                (Array,         Array,                      raw!(fc)),
+                (Object,        Object,                     raw!(fc)),
+                (BigInt,        BigInt,                     raw!(&mut fc.rfk)),
+                (BigRational,   BigRational,                raw!(fc)),
+                (Argument,      Argument,                   raw!(fc)),
+                (OpDecl,        OpDeclRef,                  raw!(fc)),
+                (Error,         OperatorApplicationError,   raw!(&mut fc.value_formatting_opts())),
             ])]
             Array::REP(v) => {
                 format_array::<T, _, _>(&**v, FC, w)
             }
 
-            #[expand((REP, T, FC) in [
-                (Text, str, &mut fc.value_formatting_opts()),
-                (Bytes, [u8], &mut fc.value_formatting_opts()),
-                (Custom, dyn CustomData, &mut fc.rfk)
+            #[expand(for (REP, T, FC) in [
+                (Text, str,     raw!(&mut fc.value_formatting_opts())),
+                (Bytes, [u8],   raw!(&mut fc.value_formatting_opts())),
+                (Custom, raw!(dyn CustomData), raw!(&mut fc.rfk)),
             ])]
             Array::REP(v) => {
                 format_array::<T, _, _>(v.iter().map(|v| &**v), FC, w)
@@ -727,28 +727,28 @@ pub fn with_formattable<'a, 'b: 'a, R>(
     mut with_fmt: impl WithFormattable<Result = R>,
 ) -> R {
     metamatch!(match v {
-        #[expand(T in [Null, Undefined])]
+        #[expand(for T in [Null, Undefined])]
         FieldValueRef::T => with_fmt.call(&T, &mut ()),
 
-        #[expand((REP, CTX) in [
-            (Bool, &mut fc.rfk),
-            (Int, &mut fc.rfk),
-            (Float, &mut fc.rfk),
-            (Array, fc),
-            (Object, fc),
-            (BigInt, &mut fc.rfk),
-            (BigRational, fc),
-            (Argument, fc),
-            (OpDecl, fc),
-            (Text, &mut fc.value_formatting_opts()),
-            (Bytes, &mut fc.value_formatting_opts()),
-            (Error, &mut fc.value_formatting_opts()),
+        #[expand(for (REP, CTX) in [
+            (Bool,         raw!(&mut fc.rfk)),
+            (Int,          raw!(&mut fc.rfk)),
+            (Float,        raw!(&mut fc.rfk)),
+            (Array,        raw!(fc)),
+            (Object,       raw!(fc)),
+            (BigInt,       raw!(&mut fc.rfk)),
+            (BigRational,  raw!(fc)),
+            (Argument,     raw!(fc)),
+            (OpDecl,       raw!(fc)),
+            (Text,         raw!(&mut fc.value_formatting_opts())),
+            (Bytes,        raw!(&mut fc.value_formatting_opts())),
+            (Error,        raw!(&mut fc.value_formatting_opts())),
         ])]
         FieldValueRef::REP(v) => with_fmt.call(v, CTX),
 
         FieldValueRef::Custom(v) => with_fmt.call(&**v, &mut fc.rfk),
 
-        #[expand(REP in [
+        #[expand(for REP in [
             StreamValueId, FieldReference, SlicedFieldReference
         ])]
         FieldValueRef::REP(_) => {

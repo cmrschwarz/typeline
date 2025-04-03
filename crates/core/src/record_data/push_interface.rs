@@ -551,7 +551,7 @@ pub unsafe trait PushInterface {
             FieldValue::Undefined => {
                 self.push_undefined(run_length, try_header_rle)
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 Float, Array, Custom, Error,
                 FieldReference, SlicedFieldReference, StreamValueId,
                 Bool, Int, OpDecl,
@@ -564,7 +564,7 @@ pub unsafe trait PushInterface {
                     try_data_rle,
                 );
             }
-            #[expand((REP, PUSH_FN) in [
+            #[expand(for (REP, PUSH_FN) in [
                 (Text, push_string_check_inline),
                 (Bytes, push_bytes_buffer_check_inline)
             ])]
@@ -572,7 +572,7 @@ pub unsafe trait PushInterface {
                 self.PUSH_FN(v, run_length, try_header_rle, try_data_rle)
             }
 
-            #[expand(REP in [BigInt, BigRational, Argument, Object])]
+            #[expand(for REP in [BigInt, BigRational, Argument, Object])]
             FieldValue::REP(v) => {
                 self.push_fixed_size_type(
                     *v,
@@ -596,7 +596,7 @@ pub unsafe trait PushInterface {
             FieldValueUnboxed::Undefined => {
                 self.push_undefined(run_length, try_header_rle)
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 Float, Array, Custom, Error,
                 FieldReference, SlicedFieldReference, StreamValueId,
                 Bool, Int, OpDecl, BigInt, BigRational, Argument, Object
@@ -609,7 +609,7 @@ pub unsafe trait PushInterface {
                     try_data_rle,
                 );
             }
-            #[expand((REP, PUSH_FN) in [
+            #[expand(for (REP, PUSH_FN) in [
                 (Text, push_string_check_inline),
                 (Bytes, push_bytes_buffer_check_inline)
             ])]
@@ -630,7 +630,7 @@ pub unsafe trait PushInterface {
             FieldValue::Undefined => {
                 self.push_undefined(run_length, try_header_rle)
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Float, FieldReference, SlicedFieldReference, StreamValueId,
             ])]
             FieldValue::REP(v) => {
@@ -641,7 +641,7 @@ pub unsafe trait PushInterface {
                     try_data_rle,
                 );
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 Array, Custom, Error,  OpDecl,
             ])]
             FieldValue::REP(v) => {
@@ -652,7 +652,7 @@ pub unsafe trait PushInterface {
                     try_data_rle,
                 );
             }
-            #[expand((REP, PUSH_FN) in [
+            #[expand(for (REP, PUSH_FN) in [
                 (Text, push_str),
                 (Bytes, push_bytes)
             ])]
@@ -660,7 +660,7 @@ pub unsafe trait PushInterface {
                 self.PUSH_FN(v, run_length, try_header_rle, try_data_rle)
             }
 
-            #[expand(REP in [BigInt, BigRational, Argument, Object])]
+            #[expand(for REP in [BigInt, BigRational, Argument, Object])]
             FieldValue::REP(v) => {
                 self.push_fixed_size_type(
                     (**v).clone(),
@@ -693,12 +693,12 @@ pub unsafe trait PushInterface {
         // PERF: this sucks
         let fc = range.base.field_count;
         metamatch!(match range.base.data {
-            #[expand(ZST in [Null, Undefined])]
+            #[expand(for ZST in [Null, Undefined])]
             FieldValueSlice::ZST(_) => {
                 self.push_zst(ZST::REPR, fc, try_header_rle)
             }
 
-            #[expand((REP, KIND, ITER, PUSH_FN) in [
+            #[expand(for (REP, KIND, ITER, PUSH_FN) in [
                 (TextInline, Text, RefAwareInlineTextIter, push_inline_str),
                 (BytesInline, Bytes, RefAwareInlineBytesIter, push_inline_bytes),
                 (TextBuffer, Text, RefAwareTextBufferIter, push_str),
@@ -710,20 +710,20 @@ pub unsafe trait PushInterface {
                 }
             }
 
-            #[expand((REP, VAL) in [
-                (Bool, *v),
-                (Int, *v),
-                (Float, *v),
-                (StreamValueId, *v),
-                (BigInt, v.clone()),
-                (BigRational, v.clone()),
-                (Custom, v.clone()),
-                (Error, v.clone()),
-                (Object, v.clone()),
-                (Argument, v.clone()),
-                (OpDecl, v.clone()),
+            #[expand(for (REP, VAL) in [
+                (Bool,          raw!(*v)),
+                (Int,           raw!(*v)),
+                (Float,         raw!(*v)),
+                (StreamValueId, raw!(*v)),
+                (BigInt,        raw!(v.clone())),
+                (BigRational,   raw!(v.clone())),
+                (Custom,        raw!(v.clone())),
+                (Error,         raw!(v.clone())),
+                (Object,        raw!(v.clone())),
+                (Argument,      raw!(v.clone())),
+                (OpDecl,        raw!(v.clone())),
+                (Array,         raw!(v.clone())),
                 //TODO: support slicing
-                (Array, v.clone()),
             ])]
             FieldValueSlice::REP(vals) => {
                 for (v, rl) in
@@ -967,10 +967,10 @@ pub unsafe trait PushInterface {
                     try_data_rle,
                 ),
 
-            #[expand((REP, CONV) in [
-                (Bool, bool_to_str(*v)),
-                (Int, i64_to_str(false, *v).as_str()),
-                (Float, f64_to_str(*v).as_str())
+            #[expand(for (REP, CONV) in [
+                (Bool,  raw!(bool_to_str(*v))),
+                (Int,   raw!(i64_to_str(false, *v).as_str())),
+                (Float, raw!(f64_to_str(*v).as_str()))
             ])]
             FieldValueSlice::REP(vals) => {
                 for (v, rl) in FieldValueRangeIter::from_range(&range, vals) {
@@ -1013,7 +1013,7 @@ pub unsafe trait PushInterface {
                         .unwrap();
                 }
             }
-            #[expand(REP in [Object, Array, Argument, OpDecl])]
+            #[expand(for REP in [Object, Array, Argument, OpDecl])]
             FieldValueSlice::REP(vals) => {
                 let mut fc = FormattingContext {
                     ss: Some(ss),

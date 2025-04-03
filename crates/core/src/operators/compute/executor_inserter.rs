@@ -24,7 +24,7 @@ unsafe impl PushInterface for ExecutorInserter<'_> {
     ) -> *mut u8 {
         metamatch! {
             match self {
-                #[expand(T in [Output, TempField])]
+                #[expand(for T in [Output, TempField])]
                 ExecutorInserter::T(inserter) => unsafe {
                     inserter.push_variable_sized_type_uninit(
                         kind,
@@ -47,7 +47,7 @@ unsafe impl PushInterface for ExecutorInserter<'_> {
     ) {
         metamatch! {
             match self {
-                #[expand(T in [Output, TempField])]
+                #[expand(for T in [Output, TempField])]
                 ExecutorInserter::T(inserter) => unsafe {
                     inserter.push_variable_sized_type_unchecked(
                         kind,
@@ -73,7 +73,7 @@ unsafe impl PushInterface for ExecutorInserter<'_> {
     ) {
         metamatch! {
             match self {
-                #[expand(T in [Output, TempField])]
+                #[expand(for T in [Output, TempField])]
                 ExecutorInserter::T(inserter) => unsafe {
                     inserter.push_fixed_size_type_unchecked(
                         repr,
@@ -96,7 +96,7 @@ unsafe impl PushInterface for ExecutorInserter<'_> {
     ) {
         metamatch! {
             match self {
-                #[expand(T in [Output, TempField])]
+                #[expand(for T in [Output, TempField])]
                 ExecutorInserter::T(inserter) => unsafe {
                     inserter.push_zst_unchecked(
                         kind,
@@ -115,7 +115,7 @@ unsafe impl PushInterface for ExecutorInserter<'_> {
     ) -> crate::record_data::bytes_insertion_stream::BytesInsertionStream {
         metamatch! {
             match self {
-                #[expand(T in [Output, TempField])]
+                #[expand(for T in [Output, TempField])]
                 ExecutorInserter::T(inserter) => {
                     inserter.bytes_insertion_stream(
                         run_length
@@ -131,7 +131,7 @@ unsafe impl PushInterface for ExecutorInserter<'_> {
     ) -> crate::record_data::bytes_insertion_stream::TextInsertionStream {
         metamatch! {
             match self {
-                #[expand(T in [Output, TempField])]
+                #[expand(for T in [Output, TempField])]
                 ExecutorInserter::T(inserter) => {
                     inserter.text_insertion_stream(
                         run_length
@@ -148,7 +148,7 @@ unsafe impl PushInterface for ExecutorInserter<'_> {
     {
         metamatch! {
             match self {
-                #[expand(T in [Output, TempField])]
+                #[expand(for T in [Output, TempField])]
                 ExecutorInserter::T(inserter) => {
                     inserter.maybe_text_insertion_stream(
                         run_length
@@ -166,7 +166,7 @@ impl ExecutorInserter<'_> {
     ) -> &mut [MaybeUninit<T>] {
         metamatch! {
             match self {
-                #[expand(T in [Output, TempField])]
+                #[expand(for T in [Output, TempField])]
                 ExecutorInserter::T(inserter) => {
                     inserter.reserve_for_fixed_size(len)
                 }
@@ -176,7 +176,7 @@ impl ExecutorInserter<'_> {
     pub unsafe fn add_count(&mut self, count: usize) {
         metamatch! {
             match self {
-                #[expand(T in [Output, TempField])]
+                #[expand(for T in [Output, TempField])]
                 ExecutorInserter::T(inserter) => unsafe {
                     inserter.add_count(count)
                 }

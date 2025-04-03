@@ -46,7 +46,7 @@ impl SizeClassedVecDeque {
     }
     pub unsafe fn get_unchecked(&self, index: usize) -> usize {
         metamatch!(match self {
-            #[expand((SC, T) in [
+            #[expand(for (SC, T) in [
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(v) => {
@@ -59,14 +59,14 @@ impl SizeClassedVecDeque {
     }
     pub fn try_get(&self, index: usize) -> Option<usize> {
         metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDeque::SC(v) => v.get(index).map(|v| *v as usize),
             SizeClassedVecDeque::Sc1(v) => v.get(index).map(usize::from),
         })
     }
     pub fn get(&self, index: usize) -> usize {
         metamatch!(match self {
-            #[expand(SC in [ Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [ Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDeque::SC(v) => v[index] as usize,
             SizeClassedVecDeque::Sc1(v) => usize::from(v[index]),
         })
@@ -83,7 +83,7 @@ impl SizeClassedVecDeque {
     }
     pub fn len(&self) -> usize {
         metamatch!(match self {
-            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDeque::SC(v) => v.len(),
         })
     }
@@ -101,7 +101,7 @@ impl SizeClassedVecDeque {
     }
     pub fn size_class_max(&self) -> usize {
         metamatch!(match self {
-            #[expand((SC, T) in [
+            #[expand(for (SC, T) in [
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(_) => T::MAX as usize,
@@ -110,7 +110,7 @@ impl SizeClassedVecDeque {
     }
     pub fn set_truncated(&mut self, index: usize, value: usize) {
         metamatch!(match self {
-            #[expand((SC, T) in [
+            #[expand(for (SC, T) in [
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(v) => v[index] = value as T,
@@ -141,7 +141,7 @@ impl SizeClassedVecDeque {
     pub fn promote_to_size_class(&mut self, sc: u32) {
         metamatch!(match sc {
             1 => (),
-            #[expand( (SIZE, T_TGT, SC_TGT, PROMOTE, KEEP) in [
+            #[expand(for  (SIZE, T_TGT, SC_TGT, PROMOTE, KEEP) in [
                 (8,  u8,  Sc8,  [],                [Sc8, Sc16, Sc32, Sc64]),
                 (16, u16, Sc16, [Sc8],             [Sc16, Sc32, Sc64]),
                 (32, u32, Sc32, [Sc8, Sc16],       [Sc32, Sc64]),
@@ -154,14 +154,14 @@ impl SizeClassedVecDeque {
                     )
                 }
 
-                #[expand(SC in PROMOTE)]
+                #[expand(for SC in PROMOTE)]
                 SizeClassedVecDeque::SC(v) => {
                     *self = SizeClassedVecDeque::SC_TGT(
                         v.iter().copied().map(T_TGT::from).collect(),
                     );
                 }
 
-                #[expand_pattern(SC in KEEP)]
+                #[expand_pattern(for SC in KEEP)]
                 SizeClassedVecDeque::SC(_) => (),
             }),
             _ => panic!("invalid size class: {sc}"),
@@ -169,13 +169,13 @@ impl SizeClassedVecDeque {
     }
     pub fn iter(&self) -> SizeClassedVecDequeIter {
         metamatch!(match self {
-            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
             Self::SC(v) => SizeClassedVecDequeIter::SC(v.iter()),
         })
     }
     pub fn push_back_truncated(&mut self, value: usize) {
         metamatch!(match self {
-            #[expand((SC, T) in [
+            #[expand(for (SC, T) in [
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(v) => v.push_back(value as T),
@@ -190,7 +190,7 @@ impl SizeClassedVecDeque {
     }
     pub fn push_front_truncated(&mut self, value: usize) {
         metamatch!(match self {
-            #[expand((SC, T) in [
+            #[expand(for (SC, T) in [
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(v) => v.push_front(value as T),
@@ -205,7 +205,7 @@ impl SizeClassedVecDeque {
     }
     pub fn drop_front(&mut self, count: usize) {
         metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDeque::SC(v) => {
                 v.drain(0..count);
             }
@@ -225,7 +225,7 @@ impl SizeClassedVecDeque {
         values: impl IntoIterator<Item = usize>,
     ) {
         metamatch!(match self {
-            #[expand((SC, T) in [
+            #[expand(for (SC, T) in [
                 (Sc8, u8), (Sc16, u16), (Sc32, u32), (Sc64, u64)
             ])]
             SizeClassedVecDeque::SC(v) =>
@@ -271,7 +271,7 @@ impl<'a> Iterator for SizeClassedVecDequeIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDequeIter::SC(it) => it.next().map(|v| *v as usize),
             SizeClassedVecDequeIter::Sc1(it) => it.next().map(usize::from),
         })
@@ -279,14 +279,14 @@ impl<'a> Iterator for SizeClassedVecDequeIter<'a> {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         metamatch!(match self {
-            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDequeIter::SC(it) => it.size_hint(),
         })
     }
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDequeIter::SC(it) => it.nth(n).map(|v| *v as usize),
             SizeClassedVecDequeIter::Sc1(it) => it.nth(n).map(usize::from),
         })
@@ -296,7 +296,7 @@ impl<'a> Iterator for SizeClassedVecDequeIter<'a> {
 impl<'a> ExactSizeIterator for SizeClassedVecDequeIter<'a> {
     fn len(&self) -> usize {
         metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc8, Sc16, Sc32, Sc64])]
             SizeClassedVecDequeIter::SC(it) => it.len(),
             SizeClassedVecDequeIter::Sc1(it) => it.len(),
         })
@@ -306,7 +306,7 @@ impl<'a> ExactSizeIterator for SizeClassedVecDequeIter<'a> {
 impl<'a> DoubleEndedIterator for SizeClassedVecDequeIter<'a> {
     fn next_back(&mut self) -> Option<usize> {
         metamatch!(match self {
-            #[expand(SC in [Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc8, Sc16, Sc32, Sc64])]
             Self::SC(it) => it.next_back().map(|v| *v as usize),
             Self::Sc1(it) => it.next_back().map(usize::from),
         })
@@ -316,7 +316,7 @@ impl<'a> DoubleEndedIterator for SizeClassedVecDequeIter<'a> {
 impl Debug for SizeClassedVecDeque {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         metamatch!(match self {
-            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
             Self::SC(v) => Debug::fmt(v, f),
         })
     }
@@ -325,7 +325,7 @@ impl Debug for SizeClassedVecDeque {
 impl PartialEq for SizeClassedVecDeque {
     fn eq(&self, other: &Self) -> bool {
         metamatch!(match (self, other) {
-            #[expand(SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
+            #[expand(for SC in [Sc1, Sc8, Sc16, Sc32, Sc64])]
             (Self::SC(lhs), Self::SC(rhs)) => lhs == rhs,
             _ => false,
         })

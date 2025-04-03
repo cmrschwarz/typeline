@@ -250,7 +250,7 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
             iter.typed_range_fwd(&jd.match_set_mgr, usize::MAX)
         {
             metamatch!(match range.base.data {
-                #[expand(REP in [Null, Undefined])]
+                #[expand(for REP in [Null, Undefined])]
                 FieldValueSlice::REP(_) => {
                     push_field_values(
                         &mut fvs,
@@ -259,11 +259,11 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
                     );
                 }
 
-                #[expand((REP, KIND, ITER, CONV) in [
-                    (TextInline, Text, RefAwareInlineTextIter, v.to_string()),
-                    (BytesInline, Bytes, RefAwareInlineBytesIter, v.to_vec()),
-                    (TextBuffer, Text, RefAwareTextBufferIter, v.to_string()),
-                    (BytesBuffer, Bytes, RefAwareBytesBufferIter, v.to_vec()),
+                #[expand(for (REP, KIND, ITER, CONV) in [
+                    (TextInline, Text, RefAwareInlineTextIter, raw!(v.to_string())),
+                    (BytesInline, Bytes, RefAwareInlineBytesIter, raw!(v.to_vec())),
+                    (TextBuffer, Text, RefAwareTextBufferIter, raw!(v.to_string())),
+                    (BytesBuffer, Bytes, RefAwareBytesBufferIter, raw!(v.to_vec())),
                 ])]
                 FieldValueSlice::REP(text) => {
                     for (v, rl, _offs) in ITER::from_range(&range, text) {
@@ -275,17 +275,17 @@ impl<'a> Transform<'a> for TfFieldValueSink<'a> {
                     }
                 }
 
-                #[expand((REP, ITER, CONV) in [
-                    (Bool, FieldValueRangeIter, *v),
-                    (Int, FieldValueRangeIter, *v),
-                    (Float, FieldValueRangeIter, *v),
-                    (BigInt, RefAwareFieldValueRangeIter, Box::new(v.clone())),
-                    (BigRational, RefAwareFieldValueRangeIter, Box::new(v.clone())),
-                    (Argument, RefAwareFieldValueRangeIter, Box::new(v.clone())),
-                    (OpDecl, RefAwareFieldValueRangeIter, v.clone()),
-                    (Array, RefAwareFieldValueRangeIter, v.clone()),
-                    (Object, RefAwareFieldValueRangeIter, Box::new(v.clone())),
-                    (Custom, RefAwareFieldValueRangeIter, v.clone()),
+                #[expand(for (REP, ITER, CONV) in [
+                    (Bool, FieldValueRangeIter, raw!(*v)),
+                    (Int, FieldValueRangeIter, raw!(*v)),
+                    (Float, FieldValueRangeIter, raw!(*v)),
+                    (BigInt, RefAwareFieldValueRangeIter, raw!(Box::new(v.clone()))),
+                    (BigRational, RefAwareFieldValueRangeIter, raw!(Box::new(v.clone()))),
+                    (Argument, RefAwareFieldValueRangeIter, raw!(Box::new(v.clone()))),
+                    (OpDecl, RefAwareFieldValueRangeIter, raw!(v.clone())),
+                    (Array, RefAwareFieldValueRangeIter, raw!(v.clone())),
+                    (Object, RefAwareFieldValueRangeIter, raw!(Box::new(v.clone()))),
+                    (Custom, RefAwareFieldValueRangeIter, raw!(v.clone())),
                 ])]
                 FieldValueSlice::REP(text) => {
                     for (v, rl) in ITER::from_range(&range, text) {

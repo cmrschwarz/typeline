@@ -351,7 +351,7 @@ impl<'a> Transform<'a> for TfStringSink<'a> {
                     );
                 }
 
-                #[expand((REP, ITER) in [
+                #[expand(for (REP, ITER) in [
                     (TextInline, RefAwareInlineTextIter),
                     (TextBuffer, RefAwareTextBufferIter),
                 ])]
@@ -361,7 +361,7 @@ impl<'a> Transform<'a> for TfStringSink<'a> {
                     }
                 }
 
-                #[expand((REP, ITER) in [
+                #[expand(for (REP, ITER) in [
                     (BytesInline, RefAwareInlineBytesIter),
                     (BytesBuffer, RefAwareBytesBufferIter),
                 ])]
@@ -371,10 +371,10 @@ impl<'a> Transform<'a> for TfStringSink<'a> {
                     }
                 }
 
-                #[expand((REP, CONV_FN) in [
-                    (Bool, bool_to_str(*v)),
-                    (Int, &i64_to_str(false, *v)),
-                    (Float, &f64_to_str(*v))
+                #[expand(for (REP, CONV_FN) in [
+                    (Bool,  raw!(bool_to_str(*v))),
+                    (Int,   raw!(&i64_to_str(false, *v))),
+                    (Float, raw!(&f64_to_str(*v)))
                 ])]
                 FieldValueSlice::REP(ints) => {
                     for (v, rl) in
@@ -399,7 +399,7 @@ impl<'a> Transform<'a> for TfStringSink<'a> {
                     }
                 }
 
-                #[expand(REP in [BigRational, Array, Object, Argument, OpDecl])]
+                #[expand(for REP in [BigRational, Array, Object, Argument, OpDecl])]
                 FieldValueSlice::REP(values) => {
                     let mut fc = FormattingContext {
                         ss: Some(&mut string_store),

@@ -183,7 +183,7 @@ fn flatten_array(
                 inserter.push_undefined(len, true)
             }
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Float, Array, Object, Argument, OpDecl,
                 BigInt, BigRational, Custom,
                 FieldReference, SlicedFieldReference,
@@ -193,7 +193,7 @@ fn flatten_array(
                 inserter.extend(vals.iter().cloned(), true, false)
             }
 
-            #[expand((REP, PUSH_FN) in  [
+            #[expand(for (REP, PUSH_FN) in  [
                 (Text, extend_from_strings),
                 (Bytes, extend_from_bytes),
             ])]
@@ -225,7 +225,7 @@ fn flatten_argument(
 ) {
     metamatch!(match &v.value {
         FieldValue::Undefined | FieldValue::Null |
-        #[expand_pattern(REP in [
+        #[expand_pattern(for REP in [
             Bool, Int, Float, StreamValueId, BigInt, OpDecl,
             BigRational, Text, Bytes,Custom, Error,
             FieldReference, SlicedFieldReference
@@ -267,7 +267,7 @@ impl TfFlatten {
         let mut field_idx = field_pos_start;
         while let Some(range) = bud.iter.next_range(bud.match_set_mgr) {
             metamatch!(match range.base.data {
-                #[expand_pattern(REP in [
+                #[expand_pattern(for REP in [
                     Undefined, Null, Bool, Int, Float, StreamValueId, BigInt,
                     BigRational, TextInline, TextBuffer, BytesInline,
                     BytesBuffer, Custom, Error, OpDecl
@@ -282,7 +282,7 @@ impl TfFlatten {
                         self.input_field_ref_offset,
                     );
                 }
-                #[expand((REP, FLATTEN_FN) in [
+                #[expand(for (REP, FLATTEN_FN) in [
                     (Array, flatten_array),
                     (Object, flatten_object),
                     (Argument, flatten_argument),

@@ -452,7 +452,7 @@ impl<'a> TfExec<'a> {
         let mut cmd_idx = cmd_offset;
         while let Some(range) = iter.typed_range_fwd(msm, usize::MAX) {
             metamatch!(match range.base.data {
-                #[expand((REP, ITER) in [
+                #[expand(for (REP, ITER) in [
                     (TextInline, RefAwareInlineTextIter),
                     (TextBuffer, RefAwareTextBufferIter),
                 ])]
@@ -463,7 +463,7 @@ impl<'a> TfExec<'a> {
                         cmd_idx += 1;
                     }
                 }
-                #[expand((REP, ITER) in [
+                #[expand(for (REP, ITER) in [
                     (BytesInline, RefAwareInlineBytesIter),
                     (BytesBuffer, RefAwareBytesBufferIter),
                 ])]
@@ -474,10 +474,10 @@ impl<'a> TfExec<'a> {
                     }
                 }
 
-                #[expand((REP, CONV_FN) in [
-                    (Bool, bool_to_str(*v)),
-                    (Int, i64_to_str(false, *v)),
-                    (Float, f64_to_str(*v)),
+                #[expand(for (REP, CONV_FN) in [
+                    (Bool,  raw!(bool_to_str(*v))),
+                    (Int,   raw!(i64_to_str(false, *v))),
+                    (Float, raw!(f64_to_str(*v))),
                 ])]
                 FieldValueSlice::REP(ints) => {
                     for (v, rl) in
@@ -574,7 +574,7 @@ impl<'a> TfExec<'a> {
                     }
                 }
 
-                #[expand(REP in [Null, Undefined, Array, Object, Argument, OpDecl])]
+                #[expand(for REP in [Null, Undefined, Array, Object, Argument, OpDecl])]
                 FieldValueSlice::REP(_) => {
                     let e = OperatorApplicationError::new_s(
                         format!(

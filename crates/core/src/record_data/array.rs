@@ -56,7 +56,7 @@ impl Array {
     pub fn clear(&mut self) {
         metamatch!(match self {
             Array::Null(len) | Array::Undefined(len) => *len = 0,
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, BigRational, Bytes, Text, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Mixed, Float,
                 StreamValueId, Argument, OpDecl
@@ -67,7 +67,7 @@ impl Array {
     pub fn len(&self) -> usize {
         metamatch!(match self {
             Array::Null(len) | Array::Undefined(len) => *len,
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, BigRational, Bytes, Text, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Mixed, Float,
                 StreamValueId, Argument, OpDecl
@@ -81,7 +81,7 @@ impl Array {
     /// returns the present variant even if the array is empty
     pub fn repr_raw(&self) -> Option<FieldValueRepr> {
         Some(metamatch!(match self {
-            #[expand(REP in [
+            #[expand(for REP in [
                 Null, Undefined,
                 Bool, Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
@@ -104,7 +104,7 @@ impl Array {
     pub fn into_cleared_vec<T>(self) -> Vec<T> {
         metamatch!(match self {
             Array::Null(_) | Array::Undefined(_) => Vec::new(),
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Argument, Mixed, Text, Bytes, OpDecl
@@ -123,7 +123,7 @@ impl Array {
             FieldValueRepr::BytesBuffer | FieldValueRepr::BytesInline => {
                 Array::Bytes(arr.into_cleared_vec())
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, BigRational, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Argument, OpDecl,
@@ -136,19 +136,19 @@ impl Array {
         *self = Array::Mixed(metamatch!(match std::mem::take(self) {
             Array::Mixed(v) => v,
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes, OpDecl
             ])]
             Array::REP(a) => a.into_iter().map(FieldValue::REP).collect(),
 
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             Array::REP(n) => {
                 std::iter::repeat(FieldValue::REP).take(n).collect()
             }
 
-            #[expand(BOX_T in [
+            #[expand(for BOX_T in [
                 BigInt, BigRational, Argument, Object
             ])]
             Array::BOX_T(a) => {
@@ -164,12 +164,12 @@ impl Array {
     }
     pub fn push_raw(&mut self, value: FieldValue) {
         metamatch!(match (self, value) {
-            #[expand_pattern(REP in [Null, Undefined])]
+            #[expand_pattern(for REP in [Null, Undefined])]
             (Array::REP(n), FieldValue::REP) => {
                 *n += 1;
             }
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Int, Error, Array,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
@@ -178,7 +178,7 @@ impl Array {
                 a.push(v);
             }
 
-            #[expand(BOX_T in [BigInt, BigRational, Argument, Object])]
+            #[expand(for BOX_T in [BigInt, BigRational, Argument, Object])]
             (Array::BOX_T(a), FieldValue::BOX_T(v)) => {
                 a.push(*v);
             }
@@ -195,12 +195,12 @@ impl Array {
     }
     pub fn push_raw_unboxed(&mut self, value: FieldValueUnboxed) {
         metamatch!(match (self, value) {
-            #[expand_pattern(REP in [Null, Undefined])]
+            #[expand_pattern(for REP in [Null, Undefined])]
             (Array::REP(n), FieldValueUnboxed::REP) => {
                 *n += 1;
             }
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Int, Error, Array,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes, BigInt, BigRational, Argument,
@@ -229,7 +229,7 @@ impl Array {
         // unsafe trait, so assuming that nobody gave us an incorrect
         // `REP` is sound.
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             Array::REP(n) => {
                 if T::REPR == FieldValueRepr::REP {
                     *n += iter.count();
@@ -237,20 +237,20 @@ impl Array {
                 }
             }
 
-            #[expand((ARRAY_T, REP_T, VALUE_T) in [
-                (Int, Int, i64),
-                (Bool, Bool, bool),
-                (Float, Float, f64),
-                (Text, TextBuffer, String),
-                (Bytes, BytesBuffer, Vec<u8>),
-                (Array, Array, Array),
-                (Object, Object, Object),
-                (Error, Error, OperatorApplicationError),
-                (OpDecl, OpDecl, OpDeclRef),
-                (FieldReference, FieldReference, FieldReference),
-                (SlicedFieldReference, SlicedFieldReference, SlicedFieldReference),
-                (Custom, Custom, CustomDataBox),
-                (StreamValueId, StreamValueId, StreamValueId),
+            #[expand(for (ARRAY_T, REP_T, VALUE_T) in [
+                (Int,                   Int,                   i64),
+                (Bool,                  Bool,                  bool),
+                (Float,                 Float,                 f64),
+                (Text,                  TextBuffer,            String),
+                (Bytes,                 BytesBuffer,           raw!(Vec<u8>)),
+                (Array,                 Array,                 Array),
+                (Object,                Object,                Object),
+                (Error,                 Error,                 OperatorApplicationError),
+                (OpDecl,                OpDecl,                OpDeclRef),
+                (FieldReference,        FieldReference,        FieldReference),
+                (SlicedFieldReference,  SlicedFieldReference,  SlicedFieldReference),
+                (Custom,                Custom,                CustomDataBox),
+                (StreamValueId,         StreamValueId,         StreamValueId),
             ])]
             Array::ARRAY_T(a) => {
                 if T::REPR == FieldValueRepr::REP_T {
@@ -262,7 +262,7 @@ impl Array {
                 }
             }
 
-            #[expand(BOX_T in [BigInt, BigRational, Argument])]
+            #[expand(for BOX_T in [BigInt, BigRational, Argument])]
             Array::BOX_T(a) => {
                 if T::REPR == FieldValueRepr::BOX_T {
                     debug_assert!(T::FIELD_VALUE_BOXED);
@@ -343,7 +343,7 @@ impl Array {
     }
     pub fn pop(&mut self) -> Option<FieldValue> {
         Some(metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             Array::REP(n) => {
                 if *n == 0 {
                     return None;
@@ -352,7 +352,7 @@ impl Array {
                 FieldValue::REP
             }
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes,
@@ -364,7 +364,7 @@ impl Array {
                 FieldValue::REP(v.pop()?)
             }
 
-            #[expand(REP in [BigInt, BigRational, Argument,  Object])]
+            #[expand(for REP in [BigInt, BigRational, Argument,  Object])]
             Array::REP(v) => {
                 debug_assert!(FieldValueRepr::REP.is_field_value_boxed());
                 FieldValue::REP(Box::new(v.pop()?))
@@ -375,14 +375,14 @@ impl Array {
     }
     pub fn get(&self, index: usize) -> Option<FieldValueRef> {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             Array::REP(len) => {
                 if *len <= index {
                     return None;
                 }
                 Some(FieldValueRef::REP)
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument
@@ -391,7 +391,7 @@ impl Array {
                 v.get(index).map(FieldValueRef::REP)
             }
 
-            #[expand(REP in [Text, Bytes])]
+            #[expand(for REP in [Text, Bytes])]
             Array::REP(v) => {
                 v.get(index).map(|v| FieldValueRef::REP(v))
             }
@@ -401,14 +401,14 @@ impl Array {
     }
     pub fn get_mut(&mut self, index: usize) -> Option<FieldValueRefMut> {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             Array::REP(len) => {
                 if *len <= index {
                     return None;
                 }
                 Some(FieldValueRefMut::REP)
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, Error, Array, Object,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, BigInt, BigRational, Argument, OpDecl
@@ -417,7 +417,7 @@ impl Array {
                 v.get_mut(index).map(FieldValueRefMut::REP)
             }
 
-            #[expand((REP, REF) in [
+            #[expand(for (REP, REF) in [
                 (Text, TextBuffer),
                 (Bytes, BytesBuffer)
             ])]
@@ -438,13 +438,13 @@ impl Array {
 
     pub fn into_iter_unboxed(self) -> ArrayIntoIterUnboxed {
         metamatch!(match self {
-            #[expand(T in [Null, Undefined])]
+            #[expand(for T in [Null, Undefined])]
             Array::T(count) => ArrayIntoIterUnboxed::T(std::iter::repeat_n(
                 FieldValueUnboxed::T,
                 count
             )),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Text, Bytes, Mixed,
                 Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
@@ -463,10 +463,10 @@ impl Array {
             return;
         }
         metamatch!(match (self, v) {
-            #[expand_pattern(REP in [Null, Undefined])]
+            #[expand_pattern(for REP in [Null, Undefined])]
             (Array::REP(_), FieldValueRef::REP) => (),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Int, Error, Array,
                 FieldReference, SlicedFieldReference, Custom, Float,
                 StreamValueId, Text, Bytes, BigInt, BigRational, Argument,
@@ -493,11 +493,11 @@ impl IntoIterator for Array {
     type Item = FieldValue;
     fn into_iter(self) -> ArrayIntoIter {
         metamatch!(match self {
-            #[expand(T in [Null, Undefined])]
+            #[expand(for T in [Null, Undefined])]
             Array::T(count) =>
                 ArrayIntoIter::T(std::iter::repeat_n(FieldValue::T, count)),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Text, Bytes, Mixed,
                 Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
@@ -552,10 +552,10 @@ impl Iterator for ArrayIntoIterUnboxed {
 
     fn next(&mut self) -> Option<Self::Item> {
         metamatch!(match self {
-            #[expand_pattern(T in [Null, Undefined])]
+            #[expand_pattern(for T in [Null, Undefined])]
             ArrayIntoIterUnboxed::T(iter) => iter.next(),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Text, Bytes,
                 Bool, Int, Error, Array, Object, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
@@ -597,10 +597,10 @@ impl Iterator for ArrayIntoIter {
 
     fn next(&mut self) -> Option<Self::Item> {
         metamatch!(match self {
-            #[expand_pattern(T in [Null, Undefined])]
+            #[expand_pattern(for T in [Null, Undefined])]
             ArrayIntoIter::T(iter) => iter.next(),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Text, Bytes,
                 Bool, Int, Error, Array, OpDecl,
                 FieldReference, SlicedFieldReference, Custom, Float,
@@ -610,7 +610,7 @@ impl Iterator for ArrayIntoIter {
                 Some(FieldValue::REP(iter.next()?))
             }
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Object, BigInt, BigRational, Argument
             ])]
             ArrayIntoIter::REP(iter) => {

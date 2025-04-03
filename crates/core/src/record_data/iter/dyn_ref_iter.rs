@@ -55,7 +55,7 @@ pub enum DynFieldValueRangeIter<'a> {
 impl<'a> DynFieldValueRangeIter<'a> {
     pub fn new(range: &ValidTypedRange<'a>) -> Self {
         metamatch!(match range.data {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             FieldValueSlice::REP(n) => DynFieldValueRangeIter::REP(n),
 
             FieldValueSlice::TextInline(vals) =>
@@ -67,7 +67,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                     InlineBytesIter::from_range(range, vals)
                 ),
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, Float, BigRational,
                 TextBuffer, BytesBuffer,
                 Object, Array, Argument, Custom, Error, OpDecl,
@@ -80,7 +80,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
     }
     pub fn peek(&self) -> Option<(FieldValueRef<'a>, RunLength)> {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             DynFieldValueRangeIter::REP(it) => {
                 if *it == 0 {
                     None
@@ -92,7 +92,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 }
             }
 
-            #[expand((REP, KIND) in [
+            #[expand(for (REP, KIND) in [
                 (TextInline, Text),
                 (TextBuffer, Text),
                 (BytesInline, Bytes),
@@ -103,7 +103,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 Some((FieldValueRef::KIND(v), rl))
             }
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, Float, BigRational,
                 Object, Array, Argument, Custom, Error, OpDecl,
                 StreamValueId, FieldReference, SlicedFieldReference,
@@ -126,7 +126,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 *count = 0;
                 res
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt,Float, BigRational, TextInline, TextBuffer,
                 BytesInline, BytesBuffer, Object, Array,
                 Argument, OpDecl, Custom, Error,
@@ -139,7 +139,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
     }
     pub fn next_block(&mut self) -> Option<DynFieldValueBlock> {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             DynFieldValueRangeIter::REP(it) => {
                 if *it == 0 {
                     None
@@ -149,7 +149,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                     Some(DynFieldValueBlock::Plain(FieldValueSlice::REP(rl)))
                 }
             }
-            #[expand((REP, KIND)  in [
+            #[expand(for (REP, KIND)  in [
                 (TextInline, Text),
                 (BytesInline, Bytes)
             ])]
@@ -165,7 +165,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 })
             }
 
-            #[expand((REP, KIND)  in [
+            #[expand(for (REP, KIND)  in [
                 (TextBuffer, Text),
                 (BytesBuffer, Bytes)
             ])]
@@ -183,7 +183,7 @@ impl<'a> DynFieldValueRangeIter<'a> {
                 })
             }
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, Float, BigRational,
                 Object, Array, Argument, OpDecl, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,
@@ -209,7 +209,7 @@ impl<'a> Iterator for DynFieldValueRangeIter<'a> {
     type Item = (FieldValueRef<'a>, RunLength);
     fn next(&mut self) -> Option<(FieldValueRef<'a>, RunLength)> {
         metamatch!(match self {
-            #[expand(REP in [Null, Undefined])]
+            #[expand(for REP in [Null, Undefined])]
             DynFieldValueRangeIter::REP(it) => {
                 if *it == 0 {
                     None
@@ -219,7 +219,7 @@ impl<'a> Iterator for DynFieldValueRangeIter<'a> {
                     Some((FieldValueRef::REP, rl as RunLength))
                 }
             }
-            #[expand((ITER, REP) in [
+            #[expand(for (ITER, REP) in [
                 (TextInline, Text),
                 (TextBuffer, Text),
                 (BytesInline, Bytes),
@@ -230,7 +230,7 @@ impl<'a> Iterator for DynFieldValueRangeIter<'a> {
                 Some((FieldValueRef::REP(v), rl))
             }
 
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, Float, BigRational,
                 Object, Array, Argument, OpDecl, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference,

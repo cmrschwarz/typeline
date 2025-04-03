@@ -584,7 +584,7 @@ impl<'a> Iterator for FieldValueSliceIter<'a> {
                     Some(FieldValueRef::Null)
                 }
             }
-            #[expand((REP, KIND) in [
+            #[expand(for (REP, KIND) in [
                 (TextInline, Text), (BytesInline, Bytes)]
             )]
             FieldValueSlice::REP(val) => {
@@ -592,7 +592,7 @@ impl<'a> Iterator for FieldValueSliceIter<'a> {
                 self.slice = FieldValueSlice::Null(0);
                 Some(res)
             }
-            #[expand((REP, KIND) in [
+            #[expand(for (REP, KIND) in [
                 (TextBuffer, Text),
                 (BytesBuffer, Bytes),
             ])]
@@ -605,7 +605,7 @@ impl<'a> Iterator for FieldValueSliceIter<'a> {
                     Some(FieldValueRef::KIND(res))
                 }
             }
-            #[expand(REP in [
+            #[expand(for REP in [
                 Bool, Int, BigInt, Float, BigRational,
                 Object, Array, Argument, OpDecl, Custom, Error,
                 StreamValueId, FieldReference, SlicedFieldReference

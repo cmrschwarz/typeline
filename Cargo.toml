@@ -29,6 +29,11 @@ typeline_ext_utils = { version = "0.1", path = "crates/utils" }
 
 rstest = "0.25.0"
 
+[workspace.dependencies.metamatch]
+# dog-food pre-release version of metatmatch for local builds
+git = "https://github.com/cmrschwarz/metamatch"
+branch = "v2"
+
 [profile.dev]
 panic = "unwind"
 debug = true
@@ -83,6 +88,9 @@ typeline_ext_utils = { version = "0.1.0", path = "./crates/utils", optional = tr
 typeline_ext_csv = { version = "0.1.0", path = "./crates/csv", optional = true }
 typeline_ext_json = { path = "./crates/json", optional = true }
 typeline_ext_selenium = { version = "0.1.0", path = "./crates/selenium", optional = true }
+
+
+
 
 
 [dev-dependencies]
