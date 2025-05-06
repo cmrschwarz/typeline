@@ -50,6 +50,7 @@ use typeline_core::{
 
 use indexland::{
     index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxNewtype,
+    IndexRangeBounds,
 };
 use indexland_utils::{
     stable_vec::StableVec, temp_vec::TransmutableContainer,
@@ -357,7 +358,7 @@ impl Operator for OpCsv {
             (base.outputs_end - base.outputs_start).into_usize(),
             self.var_names.len()
         );
-        for output in base.outputs_start.range_to(base.outputs_end) {
+        for output in (base.outputs_start..base.outputs_end).index_range() {
             let read = ld.op_outputs_data.get_slot(VarLivenessSlotKind::Reads)
                 [output.into_usize()];
             self.accessed_fields
@@ -570,10 +571,9 @@ impl<'a> Transform<'a> for TfCsv<'a> {
             Ok(()) => {
                 if status.line_started {
                     debug_assert!(status.done);
-                    for i in status
-                        .col_idx
-                        .min(inserters.len_idx())
-                        .range_to(inserters.len_idx())
+                    for i in (status.col_idx.min(inserters.len_idx())
+                        ..inserters.len_idx())
+                        .index_range()
                     {
                         inserters[i].push_null(1, true);
                     }

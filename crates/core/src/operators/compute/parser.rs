@@ -639,7 +639,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
             "`=` after let identifier",
         )?;
         let value_expr = self.parse_expression(Precedence::ZERO)?;
-        let temp_id = self.let_bindings.push_get_id(LetBindingData {
+        let temp_id = self.let_bindings.push_get_idx(LetBindingData {
             name: ident.to_owned(),
             access_count: AccessIdx::ZERO,
         });
@@ -748,7 +748,7 @@ impl<'i, 't> ComputeExprParser<'i, 't> {
                 }
             }
             Entry::Vacant(e) => {
-                let id = self.unbound_idents.push_get_id(UnboundIdentData {
+                let id = self.unbound_idents.push_get_idx(UnboundIdentData {
                     name: ident.to_owned(),
                     name_interned: INVALID_STRING_STORE_ENTRY,
                     access_count: AccessIdx::ONE,

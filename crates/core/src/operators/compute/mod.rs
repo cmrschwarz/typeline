@@ -301,7 +301,7 @@ impl Operator for OpCompute {
                 );
                 dummy_field
             };
-            let field_idx = unbound_fields.push_get_id(ExternField {
+            let field_idx = unbound_fields.push_get_idx(ExternField {
                 iter_ref: FieldIterRef {
                     field_id,
                     iter_id: jd.field_mgr.claim_iter(
@@ -339,7 +339,7 @@ impl Operator for OpCompute {
         let tf = TfCompute {
             op: self,
             extern_vars: idents,
-            temp_fields: temporaries.into_boxed_slice(),
+            temp_fields: temporaries.into_boxed_index_slice(),
             extern_field_refs: IndexVec::with_capacity(unbound_fields.len()),
             extern_field_iters: IndexVec::with_capacity(unbound_fields.len()),
             extern_field_temp_iters: StableUniverse::default(),

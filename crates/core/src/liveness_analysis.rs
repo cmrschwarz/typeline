@@ -12,7 +12,9 @@ use ref_cast::RefCast;
 use smallvec::SmallVec;
 use subenum::subenum;
 
-use indexland::{index_vec::IndexVec, Idx, IdxNewtype, IdxRange};
+use indexland::{
+    index_vec::IndexVec, Idx, IdxNewtype, IndexRange, IndexRangeBounds,
+};
 
 use crate::{
     chain::{Chain, ChainId},
@@ -481,13 +483,13 @@ impl LivenessData {
         );
 
         for bb_id in
-            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.len_idx())
+            IndexRange::new(BasicBlockId::ZERO..self.basic_blocks.len_idx())
         {
             let bb = &self.basic_blocks[bb_id];
             let chain_id = bb.chain_id;
 
             for op_offset in
-                IdxRange::new(bb.operators_start..bb.operators_end)
+                IndexRange::new(bb.operators_start..bb.operators_end)
             {
                 let op_id = sess.chains[chain_id].operators[op_offset];
                 sess.with_mut_op_data(op_id, |sess, op_data| {
@@ -555,7 +557,7 @@ impl LivenessData {
         bb.operators_end = op_n + OffsetInChain::ONE;
         if op_n + OffsetInChain::ONE != end {
             bb.successors.push(BasicBlockId::from(curr_bb_count));
-            let bb_new = self.basic_blocks.push_get_id(BasicBlock {
+            let bb_new = self.basic_blocks.push_get_idx(BasicBlock {
                 chain_id,
                 operators_start: op_n + OffsetInChain::ONE,
                 operators_end: end,
@@ -600,7 +602,7 @@ impl LivenessData {
                 key_aliases: HashMap::default(),
             });
         }
-        self.updates_stack.extend(IdxRange::new(
+        self.updates_stack.extend(IndexRange::new(
             BasicBlockId::ZERO..sess.chains.len_idx().into_bb_id(),
         ));
         while let Some(bb_id) = self.updates_stack.pop() {
@@ -635,7 +637,7 @@ impl LivenessData {
     }
     fn setup_bb_linkage_data(&mut self, sess: &SessionData) {
         for bb_id in
-            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.len_idx())
+            (BasicBlockId::ZERO..self.basic_blocks.len_idx()).index_range()
         {
             for succ_n in 0..self.basic_blocks[bb_id].successors.len() {
                 let succ_id = self.basic_blocks[bb_id].successors[succ_n];
@@ -652,9 +654,9 @@ impl LivenessData {
                 self.try_update_callee_successors(bb_id, callee_id);
             }
         }
-        self.updates_stack.extend(IdxRange::new(
-            BasicBlockId::ZERO..self.basic_blocks.len_idx(),
-        ));
+        self.updates_stack.extend(
+            (BasicBlockId::ZERO..self.basic_blocks.len_idx()).index_range(),
+        );
         while let Some(bb_id) = self.updates_stack.pop() {
             for callee_n in 0..self.basic_blocks[bb_id].calls.len() {
                 let callee_id = self.basic_blocks[bb_id].calls[callee_n];
@@ -826,7 +828,7 @@ impl LivenessData {
         let cn = &sess.chains[bb.chain_id];
         let mut input_field = BB_INPUT_VAR_OUTPUT_IDX;
         let mut op_offset_after_last_write = OffsetInChain::ZERO;
-        for op_n in IdxRange::new(bb.operators_start..bb.operators_end) {
+        for op_n in (bb.operators_start..bb.operators_end).index_range() {
             let op_id = cn.operators[op_n];
             let op_base = &sess.operator_bases[op_id];
             let op_data_id = op_base.op_data_id;
@@ -972,7 +974,8 @@ impl LivenessData {
         }
     }
     fn compute_local_liveness(&mut self, sess: &SessionData) {
-        for i in IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.len_idx())
+        for i in
+            (BasicBlockId::ZERO..self.basic_blocks.len_idx()).index_range()
         {
             self.compute_local_liveness_for_bb(sess, i);
         }
@@ -1151,9 +1154,9 @@ impl LivenessData {
         let mut calls = VarLivenessOwned::new(var_count);
         let mut global = VarLivenessOwned::new(var_count);
 
-        self.updates_stack.extend(IdxRange::new(
-            BasicBlockId::ZERO..self.basic_blocks.len_idx(),
-        ));
+        self.updates_stack.extend(
+            (BasicBlockId::ZERO..self.basic_blocks.len_idx()).index_range(),
+        );
         while let Some(bb_id) = self.updates_stack.pop() {
             self.basic_blocks[bb_id].updates_required = false;
             let bb = &self.basic_blocks[bb_id];
@@ -1227,7 +1230,7 @@ impl LivenessData {
         let var_count = self.vars.len();
         let op_output_count = self.op_outputs.len();
         for bb_id in
-            IdxRange::new(BasicBlockId::ZERO..self.basic_blocks.len_idx())
+            (BasicBlockId::ZERO..self.basic_blocks.len_idx()).index_range()
         {
             // can't use `get_var_liveness` due to brrwck
             let succ_var_data = &self.var_data[self.get_var_liveness_bounds(
@@ -1246,7 +1249,7 @@ impl LivenessData {
             {
                 let op_base = &sess.operator_bases[*op_id];
                 for op_output_id in
-                    IdxRange::new(op_base.outputs_start..op_base.outputs_end)
+                    (op_base.outputs_start..op_base.outputs_end).index_range()
                 {
                     let oo = &self.op_outputs[op_output_id];
                     for var_id in &oo.bound_vars {
@@ -1294,7 +1297,7 @@ impl LivenessData {
             for &op_id in operators {
                 let op_base = &sess.operator_bases[op_id];
                 for output_id in
-                    IdxRange::new(op_base.outputs_start..op_base.outputs_end)
+                    (op_base.outputs_start..op_base.outputs_end).index_range()
                 {
                     let mut output =
                         live_outputs.get_mut(output_id.into_usize()).unwrap();
@@ -1349,7 +1352,7 @@ impl LivenessData {
         eprintln!("bbs:");
         for (bb_id, bb) in self.basic_blocks.iter().enumerate() {
             eprint!("bb {bb_id:02}: ");
-            for op_n in IdxRange::new(bb.operators_start..bb.operators_end) {
+            for op_n in (bb.operators_start..bb.operators_end).index_range() {
                 let op_id = sess.chains[bb.chain_id].operators[op_n];
                 let op_data_id = sess.operator_bases[op_id].op_data_id;
                 eprint!(
@@ -1609,7 +1612,7 @@ impl LivenessData {
             )
             .to_owned();
         for bb_op_offset in
-            IdxRange::new(bb.operators_start..bb.operators_end).rev()
+            (bb.operators_start..bb.operators_end).index_range().rev()
         {
             let bb_op_id = chain.operators[bb_op_offset];
             if op_id == bb_op_id {

@@ -44,7 +44,8 @@ use crate::{
 };
 
 use indexland::{
-    index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxNewtype, IdxRange,
+    index_slice::IndexSlice, index_vec::IndexVec, Idx, IdxNewtype,
+    IndexRangeBounds,
 };
 
 use indexland_utils::{
@@ -913,8 +914,9 @@ impl Operator for OpForkCat {
 
         let mut subchains = IndexVec::new();
 
-        for (fc_sc_idx, sc_idx) in
-            IdxRange::new(self.subchains_start..self.subchains_end).enumerate()
+        for (fc_sc_idx, sc_idx) in (self.subchains_start..self.subchains_end)
+            .index_range()
+            .enumerate()
         {
             let sc_entry = setup_subchain(
                 self,

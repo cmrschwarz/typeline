@@ -27,7 +27,7 @@ use crate::{
     utils::string_store::StringStoreEntry,
 };
 
-use indexland::{index_vec::IndexVec, Idx, IdxNewtype, IdxRange};
+use indexland::{index_vec::IndexVec, Idx, IdxNewtype, IndexRangeBounds};
 
 use super::{
     errors::{OperatorCreationError, OperatorSetupError},
@@ -379,12 +379,12 @@ impl<'a> Transform<'a> for TfFork {
         let fork_chain_id =
             job.job_data.session_data.operator_bases[fork_op_id].chain_id;
 
-        for i in IdxRange::new(
-            SubchainIndex::ZERO
-                ..job.job_data.session_data.chains[fork_chain_id]
-                    .subchains
-                    .len_idx(),
-        ) {
+        for i in (SubchainIndex::ZERO
+            ..job.job_data.session_data.chains[fork_chain_id]
+                .subchains
+                .len_idx())
+            .index_range()
+        {
             let target = setup_fork_subchain(
                 job,
                 fork_chain_id,

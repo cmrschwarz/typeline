@@ -39,7 +39,7 @@ arrayvec = "0.7.6"
 smallstr = { version = "0.3.0", features = ["union"] }
 smallvec = { version = "1.13.2", features = ["union", "write"] }
 thin-vec = "0.2.13"
-indexmap = "2.6.0"
+indexmap = "2.9.0"
 bitbybit = "1.3.2"
 
 # features for core operators / types

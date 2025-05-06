@@ -46,7 +46,7 @@ use crate::{
     },
 };
 
-use indexland::{index_vec::IndexVec, Idx, IdxRange};
+use indexland::{index_vec::IndexVec, Idx, IndexRange};
 
 pub struct JobDescription {
     pub operator: OperatorId,
@@ -147,7 +147,7 @@ impl SessionData {
     pub fn compute_liveness(&mut self) {
         let ld = liveness_analysis::compute_liveness_data(self);
         for op_id in
-            IdxRange::new(OperatorId::ZERO..self.operator_bases.len_idx())
+            IndexRange::new(OperatorId::ZERO..self.operator_bases.len_idx())
         {
             Self::setup_op_liveness(self, &ld, op_id);
         }

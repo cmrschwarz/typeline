@@ -210,7 +210,7 @@ impl Compiler<'_> {
     }
     fn claim_ssa_temporary(&mut self) -> (SsaTemporaryId, TempFieldId) {
         let temp_id = self.claim_temporary_id();
-        let ssa_id = self.ssa_temporaries.push_get_id(SsaTemporary {
+        let ssa_id = self.ssa_temporaries.push_get_idx(SsaTemporary {
             value: temp_id,
             access_count: AccessIdx::ZERO,
             let_binding_count: 0,

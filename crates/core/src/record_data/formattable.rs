@@ -527,7 +527,7 @@ impl<'a, 'b: 'a> Formattable<'a, 'b> for Array {
             }
 
             #[expand(for (REP, T, FC) in [
-                (Text, str,     raw!(&mut fc.value_formatting_opts())),
+                (Text, raw!(str),     raw!(&mut fc.value_formatting_opts())),
                 (Bytes, [u8],   raw!(&mut fc.value_formatting_opts())),
                 (Custom, raw!(dyn CustomData), raw!(&mut fc.rfk)),
             ])]

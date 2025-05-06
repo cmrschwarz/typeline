@@ -344,7 +344,8 @@ impl FieldValueRepr {
                 (BigInt, BigInt),
                 (Float, f64),
                 (BigRational, BigRational),
-                (TextInline, str),
+                // TODO: fix metamatch, this is really dumb
+                (TextInline, raw!(str)),
                 (TextBuffer, String),
                 (BytesInline, raw!([u8])),
                 (BytesBuffer, raw!(Vec<u8>)),

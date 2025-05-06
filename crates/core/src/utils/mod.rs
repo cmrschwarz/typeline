@@ -1,9 +1,7 @@
-use std::{
-    borrow::Cow,
-    ops::{Range, RangeBounds},
-};
+use std::{borrow::Cow, ops::Range};
 
 use bstr::{ByteSlice, ByteVec, Utf8Error};
+use indexland::IndexRangeBounds;
 use smallstr::SmallString;
 
 pub mod aligned_buf;
@@ -152,10 +150,9 @@ pub fn insert_str_cow<'a>(
 
 pub fn slice_cow<'a>(
     cow: &Cow<'a, [u8]>,
-    range: impl RangeBounds<usize>,
+    range: impl IndexRangeBounds<usize>,
 ) -> Cow<'a, [u8]> {
-    use indexland::idx_range::RangeBoundsAsRange;
-    let range = range.as_usize_range(cow.len());
+    let range = range.canonicalize(cow.len());
     match cow {
         Cow::Borrowed(v) => Cow::Borrowed(&v[range]),
         Cow::Owned(v) => Cow::Owned(v[range].to_vec()),

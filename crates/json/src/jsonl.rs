@@ -36,7 +36,7 @@ use typeline_core::{
     utils::string_store::{StringStore, StringStoreEntry},
 };
 
-use indexland::{index_vec::IndexVec, Idx, NonMax};
+use indexland::{index_vec::IndexVec, Idx, IndexRangeBounds, NonMax};
 
 use indexland_utils::{
     stable_vec::StableVec, temp_vec::TransmutableContainer,
@@ -211,7 +211,7 @@ impl Operator for OpJsonl {
             (base.outputs_end - base.outputs_start).into_usize(),
             self.var_names.len() + 1
         );
-        for output in base.outputs_start.range_to(base.outputs_end) {
+        for output in (base.outputs_start..base.outputs_end).index_range() {
             let read = ld.op_outputs_data.get_slot(VarLivenessSlotKind::Reads)
                 [output.into_usize()];
             self.accessed_fields
@@ -451,7 +451,8 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                             .unwrap_or(self.lines_produced);
                     inserters[idx].push_zst(self.zst_to_push, gap, true);
                     if line_idx.is_some() {
-                        *line_idx = Some(NonMax::new(line_count).unwrap())
+                        *line_idx =
+                            Some(NonMax::<usize>::new(line_count).unwrap())
                     }
                 }
                 if status.lines_produced == 0 {
@@ -516,7 +517,7 @@ impl<'a> Transform<'a> for TfJsonl<'a> {
                                 true,
                             );
                         }
-                        *line_idx = NonMax::new(
+                        *line_idx = NonMax::<usize>::new(
                             line_count + usize::from(status.incomplete_line),
                         )
                         .unwrap();

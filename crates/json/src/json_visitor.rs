@@ -381,8 +381,10 @@ impl<'de> Visitor<'de> for &mut JsonlVisitor<'_, '_> {
                     if self.opts.dyn_access {
                         let value = map.next_value()?;
                         *self.field_element_count.last_mut().unwrap() = Some(
-                            NonMax::new(self.total_lines_produced + 1)
-                                .unwrap(),
+                            NonMax::<usize>::new(
+                                self.total_lines_produced + 1,
+                            )
+                            .unwrap(),
                         );
                         self.inserters[ii].push_zst(
                             self.opts.zst_to_push,

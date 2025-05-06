@@ -492,7 +492,7 @@ impl SessionSetupData {
         &mut self,
         op_data: Box<dyn Operator>,
     ) -> OperatorDataId {
-        self.operator_data.push_get_id(op_data)
+        self.operator_data.push_get_idx(op_data)
     }
 
     pub fn lookup_initial_chain_setting<S: ChainSetting>(
@@ -514,7 +514,7 @@ impl SessionSetupData {
     ) -> OperatorId {
         let batch_size =
             self.lookup_initial_chain_setting::<SettingBatchSize>(chain_id);
-        let op_id = self.operator_bases.push_get_id(OperatorBase {
+        let op_id = self.operator_bases.push_get_idx(OperatorBase {
             op_data_id,
             chain_id,
             offset_in_chain,
@@ -579,7 +579,7 @@ impl SessionSetupData {
         span: Span,
     ) -> Result<OperatorId, TypelineError> {
         let op_data_id =
-            self.operator_data.push_get_id(Box::new(OpNop::default()));
+            self.operator_data.push_get_idx(Box::new(OpNop::default()));
         let op_id = op_data.setup(
             self,
             op_data_id,
@@ -636,7 +636,7 @@ impl SessionSetupData {
         let subchain_idx = self.chains[parent_id].subchains.len_idx();
         let chain_name = label.map(|v| self.string_store.intern_moved(v));
 
-        let subchain_chain_id = self.chains.push_get_id(Chain {
+        let subchain_chain_id = self.chains.push_get_idx(Chain {
             parent: Some(parent_id),
             subchain_idx: Some(subchain_idx),
             label: chain_name,

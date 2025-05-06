@@ -22,17 +22,15 @@ package.categories = ["command-line-utilities", "text-processing"]
 package.keywords = ["tl", "pipeline", "shell", "stream"]
 
 [workspace.dependencies]
-indexland = "0.2.1"
+indexland = { git = "https://github.com/cmrschwarz/indexland" }
 indexland_utils = { path = "crates/indexland_utils" }
 typeline_core = { version = "0.1", path = "crates/core" }
 typeline_ext_utils = { version = "0.1", path = "crates/utils" }
+metamatch = "0.3.0"
 
 rstest = "0.25.0"
 
-[workspace.dependencies.metamatch]
-# dog-food pre-release version of metatmatch for local builds
-git = "https://github.com/cmrschwarz/metamatch"
-branch = "v2"
+
 
 [profile.dev]
 panic = "unwind"
@@ -78,8 +76,8 @@ path = "src/main.rs" # the default, workaround https://github.com/webern/cargo-r
 
 
 [dependencies]
-indexland = "0.2.1"
-indexland_utils = { path="./crates/indexland_utils" }
+indexland = { workspace = true }
+indexland_utils = { workspace = true }
 typeline_core = { version = "0.1.0", path= "./crates/core", default-features = false }
 typeline_ext_sqlite = { version = "0.1.0", path = "./crates/sqlite", optional = true }
 typeline_ext_python = { version = "0.1.0", path = "./crates/python", optional = true }
