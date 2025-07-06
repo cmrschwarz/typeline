@@ -15,6 +15,7 @@ use crate::{
         match_set::MatchSetManager,
         push_interface::PushInterface,
     },
+    utils::hwinfo::HwInfo,
 };
 
 use super::{
@@ -98,6 +99,7 @@ fn insert_binary_op_type_error_iter_rhs(
 }
 
 fn execute_binary_op_erroring<Op: BinaryOp>(
+    hwinfo: HwInfo,
     lhs_block: FieldValueBlock<Op::Lhs>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[Op::Rhs],
@@ -117,6 +119,7 @@ fn execute_binary_op_erroring<Op: BinaryOp>(
                             let res = inserter
                                 .reserve_for_fixed_size::<Op::Output>(len - i);
                             let (len, err) = Op::calc_until_error(
+                                hwinfo,
                                 &lhs_data[lhs_block_offset + i..],
                                 &rhs_data[i..],
                                 res,
@@ -145,6 +148,7 @@ fn execute_binary_op_erroring<Op: BinaryOp>(
                                 .reserve_for_fixed_size::<Op::Output>(len - i);
                             let (len, err) =
                                 Op::calc_until_error_rhs_immediate(
+                                    hwinfo,
                                     &lhs_data[lhs_block_offset + i..],
                                     rhs_val,
                                     res,
@@ -179,6 +183,7 @@ fn execute_binary_op_erroring<Op: BinaryOp>(
                                 .reserve_for_fixed_size::<Op::Output>(len - i);
                             let (len, err) =
                                 Op::calc_until_error_lhs_immediate(
+                                    hwinfo,
                                     lhs_val,
                                     &rhs_data[i..],
                                     res,
@@ -223,6 +228,7 @@ fn execute_binary_op_bigint_fallback<
     Op: BinaryOp<Lhs = i64>,
     OpBigint: BinaryOp<Lhs = BigInt, Rhs = Op::Rhs, Error = Infallible>,
 >(
+    hwinfo: HwInfo,
     lhs_block: FieldValueBlock<Op::Lhs>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[Op::Rhs],
@@ -243,6 +249,7 @@ fn execute_binary_op_bigint_fallback<
                             let res = inserter
                                 .reserve_for_fixed_size::<Op::Output>(len - i);
                             let (len, err) = Op::calc_until_error(
+                                hwinfo,
                                 &lhs_data[lhs_block_offset + i..],
                                 &rhs_data[i..],
                                 res,
@@ -275,6 +282,7 @@ fn execute_binary_op_bigint_fallback<
                                 .reserve_for_fixed_size::<Op::Output>(len - i);
                             let (len, err) =
                                 Op::calc_until_error_rhs_immediate(
+                                    hwinfo,
                                     &lhs_data[lhs_block_offset + i..],
                                     rhs_val,
                                     res,
@@ -313,6 +321,7 @@ fn execute_binary_op_bigint_fallback<
                                 .reserve_for_fixed_size::<Op::Output>(len - i);
                             let (len, err) =
                                 Op::calc_until_error_lhs_immediate(
+                                    hwinfo,
                                     &lhs_val,
                                     &rhs_data[i..],
                                     res,
@@ -358,6 +367,7 @@ fn execute_binary_op_bigint_fallback<
 }
 
 fn execute_binary_op_infallable<Op: BinaryOp<Error = Infallible>>(
+    hwinfo: HwInfo,
     lhs_block: FieldValueBlock<Op::Lhs>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[Op::Rhs],
@@ -374,6 +384,7 @@ fn execute_binary_op_infallable<Op: BinaryOp<Error = Infallible>>(
                         let res =
                             inserter.reserve_for_fixed_size::<Op::Output>(len);
                         Op::calc_until_error(
+                            hwinfo,
                             &lhs_data[lhs_block_offset..],
                             rhs_data,
                             res,
@@ -388,6 +399,7 @@ fn execute_binary_op_infallable<Op: BinaryOp<Error = Infallible>>(
                         let res =
                             inserter.reserve_for_fixed_size::<Op::Output>(len);
                         Op::calc_until_error_rhs_immediate(
+                            hwinfo,
                             &lhs_data[lhs_block_offset..],
                             rhs_val,
                             res,
@@ -408,7 +420,7 @@ fn execute_binary_op_infallable<Op: BinaryOp<Error = Infallible>>(
                         let res =
                             inserter.reserve_for_fixed_size::<Op::Output>(len);
                         Op::calc_until_error_lhs_immediate(
-                            lhs_val, rhs_data, res,
+                            hwinfo, lhs_val, rhs_data, res,
                         );
                         unsafe {
                             inserter.add_count(len);
@@ -432,6 +444,7 @@ fn execute_binary_op_infallable<Op: BinaryOp<Error = Infallible>>(
 fn execute_binary_op_double_int(
     op_id: OperatorId,
     op_kind: BinaryOpKind,
+    hwinfo: HwInfo,
     lhs_block: FieldValueBlock<i64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[i64],
@@ -440,45 +453,45 @@ fn execute_binary_op_double_int(
     match op_kind {
         BinaryOpKind::Equals => {
             execute_binary_op_infallable::<BinaryOpEqI64I64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::NotEquals => {
             execute_binary_op_infallable::<BinaryOpNeI64I64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThan => {
             execute_binary_op_infallable::<BinaryOpLtI64I64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThan => {
             execute_binary_op_infallable::<BinaryOpGtI64I64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThanEquals => {
             execute_binary_op_infallable::<BinaryOpLeI64I64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThanEquals => {
             execute_binary_op_infallable::<BinaryOpGeI64I64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Add => {
             execute_binary_op_bigint_fallback::<
                 BinaryOpAddI64I64,
                 BinaryOpAddBigIntI64,
-            >(lhs_block, rhs_range, rhs_data, inserter)
+            >(hwinfo, lhs_block, rhs_range, rhs_data, inserter)
         }
         BinaryOpKind::Subtract => {
             execute_binary_op_bigint_fallback::<
                 BinaryOpSubI64I64,
                 BinaryOpSubBigIntI64,
-            >(lhs_block, rhs_range, rhs_data, inserter)
+            >(hwinfo, lhs_block, rhs_range, rhs_data, inserter)
         }
         BinaryOpKind::AddAssign => todo!(),
         BinaryOpKind::SubtractAssign => todo!(),
@@ -486,19 +499,19 @@ fn execute_binary_op_double_int(
             execute_binary_op_bigint_fallback::<
                 BinaryOpMulI64I64,
                 BinaryOpMulBigIntI64,
-            >(lhs_block, rhs_range, rhs_data, inserter)
+            >(hwinfo, lhs_block, rhs_range, rhs_data, inserter)
         }
         BinaryOpKind::PowerOf => {
             execute_binary_op_bigint_fallback::<
                 BinaryOpPowI64I64,
                 BinaryOpPowBigIntI64,
-            >(lhs_block, rhs_range, rhs_data, inserter)
+            >(hwinfo, lhs_block, rhs_range, rhs_data, inserter)
         }
         BinaryOpKind::MultiplyAssign => todo!(),
         BinaryOpKind::PowerOfAssign => todo!(),
         BinaryOpKind::Divide => {
             execute_binary_op_erroring::<BinaryOpDivI64I64>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
         BinaryOpKind::DivideAssign => todo!(),
@@ -528,6 +541,7 @@ fn execute_binary_op_double_int(
 fn execute_binary_op_int_bigint(
     op_id: OperatorId,
     op_kind: BinaryOpKind,
+    hwinfo: HwInfo,
     lhs_block: FieldValueBlock<i64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[BigInt],
@@ -536,61 +550,61 @@ fn execute_binary_op_int_bigint(
     match op_kind {
         BinaryOpKind::Equals => {
             execute_binary_op_infallable::<BasicBinaryOpEq<i64, BigInt>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::NotEquals => {
             execute_binary_op_infallable::<BasicBinaryOpNe<i64, BigInt>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThan => {
             execute_binary_op_infallable::<BasicBinaryOpLt<i64, BigInt>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThan => {
             execute_binary_op_infallable::<BasicBinaryOpGt<i64, BigInt>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThanEquals => {
             execute_binary_op_infallable::<BasicBinaryOpLe<i64, BigInt>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThanEquals => {
             execute_binary_op_infallable::<BasicBinaryOpGe<i64, BigInt>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Add => {
             execute_binary_op_infallable::<BinaryOpAddI64BigInt>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Subtract => {
             execute_binary_op_infallable::<BinaryOpSubI64BigInt>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::AddAssign => todo!(),
         BinaryOpKind::SubtractAssign => todo!(),
         BinaryOpKind::Multiply => {
             execute_binary_op_infallable::<BinaryOpMulI64BigInt>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::PowerOf => {
             execute_binary_op_infallable::<BinaryOpPowI64BigInt>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::MultiplyAssign => todo!(),
         BinaryOpKind::PowerOfAssign => todo!(),
         BinaryOpKind::Divide => {
             execute_binary_op_erroring::<BinaryOpDivI64BigInt>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
         BinaryOpKind::DivideAssign => todo!(),
@@ -620,6 +634,7 @@ fn execute_binary_op_int_bigint(
 fn execute_binary_op_double_float(
     _op_id: OperatorId,
     op_kind: BinaryOpKind,
+    hwinfo: HwInfo,
     lhs_block: FieldValueBlock<f64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[f64],
@@ -628,59 +643,59 @@ fn execute_binary_op_double_float(
     match op_kind {
         BinaryOpKind::Equals => {
             execute_binary_op_infallable::<BinaryOpEqF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::NotEquals => {
             execute_binary_op_infallable::<BinaryOpNeF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThan => {
             execute_binary_op_infallable::<BinaryOpLtF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThan => {
             execute_binary_op_infallable::<BinaryOpGtF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThanEquals => {
             execute_binary_op_infallable::<BinaryOpLeF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThanEquals => {
             execute_binary_op_infallable::<BinaryOpGeF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Add => {
             execute_binary_op_infallable::<BinaryOpAddF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Subtract => {
             execute_binary_op_infallable::<BinaryOpSubF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Multiply => {
             execute_binary_op_infallable::<BinaryOpMulF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::PowerOf => {
             execute_binary_op_infallable::<BinaryOpPowF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::MultiplyAssign => todo!(),
         BinaryOpKind::PowerOfAssign => todo!(),
         BinaryOpKind::Divide => {
             execute_binary_op_infallable::<BinaryOpDivF64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::DivideAssign => todo!(),
@@ -712,6 +727,7 @@ fn execute_binary_op_double_float(
 fn execute_binary_op_int_float(
     op_id: OperatorId,
     op_kind: BinaryOpKind,
+    hwinfo: HwInfo,
     lhs_block: FieldValueBlock<i64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[f64],
@@ -720,59 +736,59 @@ fn execute_binary_op_int_float(
     match op_kind {
         BinaryOpKind::Equals => {
             execute_binary_op_infallable::<BinaryOpEqI64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::NotEquals => {
             execute_binary_op_infallable::<BasicBinaryOpNe<i64, f64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThan => {
             execute_binary_op_infallable::<BasicBinaryOpLt<i64, f64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThan => {
             execute_binary_op_infallable::<BasicBinaryOpGt<i64, f64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThanEquals => {
             execute_binary_op_infallable::<BasicBinaryOpLe<i64, f64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThanEquals => {
             execute_binary_op_infallable::<BasicBinaryOpGe<i64, f64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Add => {
             execute_binary_op_infallable::<BinaryOpAddI64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Subtract => {
             execute_binary_op_infallable::<BinaryOpSubI64F64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Multiply => {
             execute_binary_op_erroring::<BinaryOpMulI64F64>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
         BinaryOpKind::PowerOf => {
             execute_binary_op_erroring::<BinaryOpPowI64F64>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
         BinaryOpKind::MultiplyAssign => todo!(),
         BinaryOpKind::PowerOfAssign => todo!(),
         BinaryOpKind::Divide => {
             execute_binary_op_erroring::<BinaryOpDivI64F64>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
         BinaryOpKind::AddAssign => todo!(),
@@ -804,6 +820,7 @@ fn execute_binary_op_int_float(
 fn execute_binary_op_float_int(
     op_id: OperatorId,
     op_kind: BinaryOpKind,
+    hwinfo: HwInfo,
     lhs_block: FieldValueBlock<f64>,
     rhs_range: &RefAwareTypedRange,
     rhs_data: &[i64],
@@ -812,57 +829,57 @@ fn execute_binary_op_float_int(
     match op_kind {
         BinaryOpKind::Equals => {
             execute_binary_op_infallable::<BinaryOpEqF64I64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::NotEquals => {
             execute_binary_op_infallable::<BasicBinaryOpNe<f64, i64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThan => {
             execute_binary_op_infallable::<BasicBinaryOpLt<f64, i64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThan => {
             execute_binary_op_infallable::<BasicBinaryOpGt<f64, i64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::LessThanEquals => {
             execute_binary_op_infallable::<BasicBinaryOpLe<f64, i64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::GreaterThanEquals => {
             execute_binary_op_infallable::<BasicBinaryOpGe<f64, i64>>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Add => {
             execute_binary_op_infallable::<BinaryOpAddF64I64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Subtract => {
             execute_binary_op_infallable::<BinaryOpSubF64I64>(
-                lhs_block, rhs_range, rhs_data, inserter,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter,
             )
         }
         BinaryOpKind::Multiply => {
             execute_binary_op_erroring::<BinaryOpMulF64I64>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
         BinaryOpKind::PowerOf => {
             execute_binary_op_erroring::<BinaryOpPowF64I64>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
         BinaryOpKind::Divide => {
             execute_binary_op_erroring::<BinaryOpDivF64I64>(
-                lhs_block, rhs_range, rhs_data, inserter, op_id,
+                hwinfo, lhs_block, rhs_range, rhs_data, inserter, op_id,
             )
         }
         BinaryOpKind::MultiplyAssign => todo!(),
@@ -895,9 +912,10 @@ fn execute_binary_op_float_int(
 }
 
 fn execute_binary_op_for_int_lhs(
-    op_id: OperatorId,
     msm: &MatchSetManager,
+    op_id: OperatorId,
     op_kind: BinaryOpKind,
+    hwinfo: HwInfo,
     lhs_range: &RefAwareTypedRange,
     lhs_data: &[i64],
     rhs_iter: &mut ExecutorInputIter,
@@ -913,20 +931,20 @@ fn execute_binary_op_for_int_lhs(
             match rhs_range.base.data {
                 FieldValueSlice::Int(rhs_data) => {
                     execute_binary_op_double_int(
-                        op_id, op_kind, lhs_block, &rhs_range, rhs_data,
-                        inserter,
+                        op_id, op_kind, hwinfo, lhs_block, &rhs_range,
+                        rhs_data, inserter,
                     )
                 }
                 FieldValueSlice::Float(rhs_data) => {
                     execute_binary_op_int_float(
-                        op_id, op_kind, lhs_block, &rhs_range, rhs_data,
-                        inserter,
+                        op_id, op_kind, hwinfo, lhs_block, &rhs_range,
+                        rhs_data, inserter,
                     )
                 }
                 FieldValueSlice::BigInt(rhs_data) => {
                     execute_binary_op_int_bigint(
-                        op_id, op_kind, lhs_block, &rhs_range, rhs_data,
-                        inserter,
+                        op_id, op_kind, hwinfo, lhs_block, &rhs_range,
+                        rhs_data, inserter,
                     )
                 }
                 FieldValueSlice::BigRational(_) => todo!(),
@@ -962,9 +980,10 @@ fn execute_binary_op_for_int_lhs(
 }
 
 fn execute_binary_op_for_float_lhs(
-    op_id: OperatorId,
     msm: &MatchSetManager,
+    op_id: OperatorId,
     op_kind: BinaryOpKind,
+    hwinfo: HwInfo,
     lhs_range: &RefAwareTypedRange,
     lhs_data: &[f64],
     rhs_iter: &mut ExecutorInputIter,
@@ -979,13 +998,14 @@ fn execute_binary_op_for_float_lhs(
 
             match rhs_range.base.data {
                 FieldValueSlice::Int(rhs_data) => execute_binary_op_float_int(
-                    op_id, op_kind, lhs_block, &rhs_range, rhs_data, inserter,
+                    op_id, op_kind, hwinfo, lhs_block, &rhs_range, rhs_data,
+                    inserter,
                 ),
                 FieldValueSlice::BigInt(_) => todo!(),
                 FieldValueSlice::Float(rhs_data) => {
                     execute_binary_op_double_float(
-                        op_id, op_kind, lhs_block, &rhs_range, rhs_data,
-                        inserter,
+                        op_id, op_kind, hwinfo, lhs_block, &rhs_range,
+                        rhs_data, inserter,
                     )
                 }
                 FieldValueSlice::BigRational(_) => todo!(),
@@ -1021,19 +1041,22 @@ fn execute_binary_op_for_float_lhs(
 }
 
 pub(super) fn execute_binary_op_on_lhs_range(
-    op_id: OperatorId,
     msm: &MatchSetManager,
+    op_id: OperatorId,
     op_kind: BinaryOpKind,
+    hwinfo: HwInfo,
     lhs_range: &RefAwareTypedRange,
     rhs_iter: &mut ExecutorInputIter,
     inserter: &mut ExecutorInserter,
 ) {
     match lhs_range.base.data {
         FieldValueSlice::Int(lhs_data) => execute_binary_op_for_int_lhs(
-            op_id, msm, op_kind, lhs_range, lhs_data, rhs_iter, inserter,
+            msm, op_id, op_kind, hwinfo, lhs_range, lhs_data, rhs_iter,
+            inserter,
         ),
         FieldValueSlice::Float(lhs_data) => execute_binary_op_for_float_lhs(
-            op_id, msm, op_kind, lhs_range, lhs_data, rhs_iter, inserter,
+            msm, op_id, op_kind, hwinfo, lhs_range, lhs_data, rhs_iter,
+            inserter,
         ),
         FieldValueSlice::Bool(_) => todo!(),
         FieldValueSlice::BigInt(_)

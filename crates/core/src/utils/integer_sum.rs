@@ -1,4 +1,5 @@
-#[cfg(target_feature = "avx2")]
+use crate::utils::hwinfo::HwInfo;
+
 const AVX2_MIN_LEN: usize = 8;
 
 pub fn add_with_overflow_check(a: i64, b: i64) -> (i64, bool) {
@@ -16,7 +17,7 @@ pub fn integer_sum_with_overflow_baseline(nums: &[i64]) -> (i64, bool) {
     (sum, overflow)
 }
 
-#[cfg(target_feature = "avx2")]
+#[cfg(target_arch = "x86_64")]
 fn integer_sum_with_overflow_avx2(nums: &[i64]) -> (i64, bool) {
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_pd,
@@ -66,17 +67,20 @@ fn integer_sum_with_overflow_avx2(nums: &[i64]) -> (i64, bool) {
     (sum, of_vectored | of_agg | of_rem | of_final)
 }
 
-pub fn integer_sum_with_overflow_check(v: &[i64]) -> (i64, bool) {
-    #[cfg(target_feature = "avx2")]
-    if v.len() >= AVX2_MIN_LEN {
+pub fn integer_sum_with_overflow_check(
+    hwinfo: HwInfo,
+    v: &[i64],
+) -> (i64, bool) {
+    #[cfg(target_arch = "x86_64")]
+    if hwinfo.avx2() && v.len() >= AVX2_MIN_LEN {
         return integer_sum_with_overflow_avx2(v);
     }
 
     integer_sum_with_overflow_baseline(v)
 }
 
-pub fn try_integer_sum(nums: &[i64]) -> Option<i64> {
-    let (sum, of) = integer_sum_with_overflow_check(nums);
+pub fn try_integer_sum(hwinfo: HwInfo, nums: &[i64]) -> Option<i64> {
+    let (sum, of) = integer_sum_with_overflow_check(hwinfo, nums);
     if of {
         return None;
     }
@@ -85,29 +89,43 @@ pub fn try_integer_sum(nums: &[i64]) -> Option<i64> {
 
 #[cfg(test)]
 mod test {
-    use crate::utils::integer_sum::integer_sum_with_overflow_check;
+    use crate::utils::{
+        hwinfo::HwInfo, integer_sum::integer_sum_with_overflow_check,
+    };
 
     #[test]
     fn integer_overflow_in_avx() {
         let arr = [i64::MAX, 0, 0, 0, 1, 0, 0, 0];
-        assert_eq!(integer_sum_with_overflow_check(&arr), (i64::MIN, true));
+        assert_eq!(
+            integer_sum_with_overflow_check(HwInfo::default(), &arr),
+            (i64::MIN, true)
+        );
     }
 
     #[test]
     fn integer_underflow_in_avx() {
         let arr = [i64::MIN, 0, 0, 0, -1, 0, 0, 0];
-        assert_eq!(integer_sum_with_overflow_check(&arr), (i64::MAX, true));
+        assert_eq!(
+            integer_sum_with_overflow_check(HwInfo::default(), &arr),
+            (i64::MAX, true)
+        );
     }
 
     #[test]
     fn integer_overflow_in_overhang() {
         let arr = [0, 0, 0, 0, 0, 0, 0, 0, i64::MAX, 1];
-        assert_eq!(integer_sum_with_overflow_check(&arr), (i64::MIN, true));
+        assert_eq!(
+            integer_sum_with_overflow_check(HwInfo::default(), &arr),
+            (i64::MIN, true)
+        );
     }
 
     #[test]
     fn integer_overflow_in_final_merge() {
         let arr = [0, 0, 0, i64::MAX, 0, 0, 0, 0, 0, 1];
-        assert_eq!(integer_sum_with_overflow_check(&arr), (i64::MIN, true));
+        assert_eq!(
+            integer_sum_with_overflow_check(HwInfo::default(), &arr),
+            (i64::MIN, true)
+        );
     }
 }

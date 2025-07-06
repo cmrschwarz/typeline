@@ -8,7 +8,10 @@ use std::{
     mem::MaybeUninit,
 };
 
-use crate::record_data::field_data::FixedSizeFieldValueType;
+use crate::{
+    operators::compute::HwInfo,
+    record_data::field_data::FixedSizeFieldValueType,
+};
 use std::fmt::Debug;
 
 use super::{
@@ -556,13 +559,12 @@ unsafe impl<OP: BinaryOpAvx2Aware> BinaryOp for BinaryOpAvx2Adapter<OP> {
     }
 
     fn calc_until_error<'a>(
+        hwinfo: HwInfo,
         lhs: &[Self::Lhs],
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        if cfg!(target_feature = "avx2")
-            && res.len() >= OP::AVX2_MIN_ELEM_COUNT
-        {
+        if hwinfo.avx2() && res.len() >= OP::AVX2_MIN_ELEM_COUNT {
             OP::calc_until_error_avx2(lhs, rhs, res)
         } else {
             calc_until_error_baseline(lhs, rhs, res, OP::try_calc_single)
@@ -570,13 +572,12 @@ unsafe impl<OP: BinaryOpAvx2Aware> BinaryOp for BinaryOpAvx2Adapter<OP> {
     }
 
     fn calc_until_error_rhs_immediate<'a>(
+        hwinfo: HwInfo,
         lhs: &[Self::Lhs],
         rhs: &Self::Rhs,
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        if cfg!(target_feature = "avx2")
-            && res.len() >= OP::AVX2_MIN_ELEM_COUNT
-        {
+        if hwinfo.avx2() && res.len() >= OP::AVX2_MIN_ELEM_COUNT {
             OP::calc_until_error_rhs_immediate_avx2(lhs, rhs, res)
         } else {
             calc_until_error_rhs_immediate_baseline(
@@ -589,13 +590,12 @@ unsafe impl<OP: BinaryOpAvx2Aware> BinaryOp for BinaryOpAvx2Adapter<OP> {
     }
 
     fn calc_until_error_lhs_immediate<'a>(
+        hwinfo: HwInfo,
         lhs: &Self::Lhs,
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        if cfg!(target_feature = "avx2")
-            && res.len() >= OP::AVX2_MIN_ELEM_COUNT
-        {
+        if hwinfo.avx2() && res.len() >= OP::AVX2_MIN_ELEM_COUNT {
             OP::calc_until_error_lhs_immediate_avx2(lhs, rhs, res)
         } else {
             calc_until_error_lhs_immediate_baseline(

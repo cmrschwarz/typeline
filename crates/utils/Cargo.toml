@@ -22,7 +22,7 @@ typeline_core = { workspace = true }
 indexland = { workspace = true }
 indexland_utils = { workspace = true }
 metamatch = { workspace = true }
-
+cfg-if = "1.0.1"
 arrayvec = "0.7.6"
 regex = "1.11.1"
 bstr = { version = "1.11.0", features = ["std"], default-features = false }

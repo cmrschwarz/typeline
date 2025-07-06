@@ -25,6 +25,7 @@ use typeline_core::{
         push_interface::PushInterface,
         varying_type_inserter::VaryingTypeInserter,
     },
+    utils::hwinfo::HwInfo,
 };
 
 use metamatch::metamatch;
@@ -34,6 +35,7 @@ use typeline_core::operators::utils::any_number::AnyNumber;
 pub struct OpSum {}
 
 pub struct TfSum {
+    hwinfo: HwInfo,
     input_iter_id: FieldIterId,
     group_track_iter: GroupTrackIterRef,
     aggregate: AnyNumber,
@@ -68,6 +70,7 @@ impl Operator for OpSum {
         let iter_id = jd.claim_iter_for_tf_state(tf_state);
 
         TransformInstatiation::Single(Box::new(TfSum {
+            hwinfo: HwInfo::default(),
             group_track_iter: jd.claim_group_track_iter_for_tf_state(tf_state),
             input_iter_id: iter_id,
             aggregate: AnyNumber::Int(0),
@@ -170,7 +173,7 @@ impl TfSum {
                     while let Some(b) = iter.next_block() {
                         match b {
                             FieldValueBlock::Plain(v) => {
-                                self.aggregate.add_ints(v, fpm)
+                                self.aggregate.add_ints(self.hwinfo, v, fpm)
                             }
                             FieldValueBlock::WithRunLength(v, rl) => {
                                 self.aggregate.add_int_with_rl(*v, rl, fpm)

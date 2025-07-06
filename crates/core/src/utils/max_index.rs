@@ -1,9 +1,10 @@
 #![allow(clippy::needless_range_loop)]
 
-#[cfg(target_feature = "avx2")]
+use crate::utils::hwinfo::HwInfo;
+
 const AVX2_MIN_LEN: usize = 8;
 
-#[cfg(target_feature = "avx2")]
+#[cfg(target_arch = "x86_64")]
 pub fn max_index_i64_avx2(arr: &[i64]) -> Option<usize> {
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi64, _mm256_blendv_epi8, _mm256_cmpgt_epi64,
@@ -85,7 +86,7 @@ pub fn max_index_i64_avx2(arr: &[i64]) -> Option<usize> {
     Some(max_idx)
 }
 
-#[cfg(target_feature = "avx2")]
+#[cfg(target_arch = "x86_64")]
 pub fn max_index_f64_avx2(arr: &[f64]) -> Option<usize> {
     use std::arch::x86_64::{
         __m256d, __m256i, _mm256_add_epi64, _mm256_blendv_epi8,
@@ -211,9 +212,9 @@ pub fn max_index_bool(bools: &[bool]) -> Option<usize> {
     Some(max_idx)
 }
 
-pub fn max_index_i64(nums: &[i64]) -> Option<usize> {
-    #[cfg(target_feature = "avx2")]
-    if nums.len() >= AVX2_MIN_LEN {
+pub fn max_index_i64(hwinfo: HwInfo, nums: &[i64]) -> Option<usize> {
+    #[cfg(target_arch = "x86_64")]
+    if hwinfo.avx2() && nums.len() >= AVX2_MIN_LEN {
         return max_index_i64_avx2(nums);
     }
     if nums.is_empty() {
@@ -231,11 +232,9 @@ pub fn max_index_i64(nums: &[i64]) -> Option<usize> {
     Some(max_idx)
 }
 
-pub fn max_index_f64(nums: &[f64]) -> Option<usize> {
+pub fn max_index_f64(hwinfo: HwInfo, nums: &[f64]) -> Option<usize> {
     let len = nums.len();
-
-    #[cfg(target_feature = "avx2")]
-    if len >= AVX2_MIN_LEN {
+    if hwinfo.avx2() && len >= AVX2_MIN_LEN {
         return max_index_f64_avx2(nums);
     }
     if len == 0 {
@@ -272,42 +271,45 @@ pub fn max_index_f64(nums: &[f64]) -> Option<usize> {
 mod test {
     use core::f64;
 
-    use crate::utils::max_index::{max_index_f64, max_index_i64};
+    use crate::utils::{
+        hwinfo::HwInfo,
+        max_index::{max_index_f64, max_index_i64},
+    };
 
     #[test]
     fn i64_max_value() {
         let arr = [i64::MAX, 0, 0, 0, 1, 0, 0, -1];
-        assert_eq!(max_index_i64(&arr), Some(0));
+        assert_eq!(max_index_i64(HwInfo::default(), &arr), Some(0));
     }
 
     #[test]
     fn i64_take_first_if_same() {
         let arr = [-1, 0, 0, 0, 0, 0, 0, 0];
-        assert_eq!(max_index_i64(&arr), Some(1));
+        assert_eq!(max_index_i64(HwInfo::default(), &arr), Some(1));
     }
 
     #[test]
     fn f64_max_value() {
         let arr = [f64::MAX, 0., 0., 0., 1., 0., 0., -1.];
-        assert_eq!(max_index_f64(&arr), Some(0));
+        assert_eq!(max_index_f64(HwInfo::default(), &arr), Some(0));
     }
 
     #[test]
     fn f64_take_first_if_same() {
         let arr = [-1.0, 0., 0., 0., 0., 0., 0., 0.];
-        assert_eq!(max_index_f64(&arr), Some(1));
+        assert_eq!(max_index_f64(HwInfo::default(), &arr), Some(1));
     }
 
     #[test]
     fn f64_take_non_nan() {
         let arr = [f64::NAN, 0., 0., 0., f64::NAN, 0., 0., 0.];
-        assert_eq!(max_index_f64(&arr), Some(1));
+        assert_eq!(max_index_f64(HwInfo::default(), &arr), Some(1));
     }
 
     #[test]
     fn f64_take_non_nan_small() {
         let arr = [f64::NAN, 0., 0.];
-        assert_eq!(max_index_f64(&arr), Some(1));
+        assert_eq!(max_index_f64(HwInfo::default(), &arr), Some(1));
     }
 
     #[test]
@@ -316,25 +318,25 @@ mod test {
             .chain(std::iter::repeat_n(f64::NEG_INFINITY, 7))
             .collect::<Vec<_>>();
 
-        assert_eq!(max_index_f64(&arr), Some(1));
+        assert_eq!(max_index_f64(HwInfo::default(), &arr), Some(1));
     }
 
     #[test]
     fn f64_take_neg_inf_over_nan_small() {
         let arr = [f64::NAN, f64::NEG_INFINITY, f64::NEG_INFINITY];
-        assert_eq!(max_index_f64(&arr), Some(1));
+        assert_eq!(max_index_f64(HwInfo::default(), &arr), Some(1));
     }
 
     #[test]
     fn f64_return_zero_if_all_nan() {
         let arr = std::iter::repeat_n(f64::NAN, 10).collect::<Vec<_>>();
 
-        assert_eq!(max_index_f64(&arr), Some(0));
+        assert_eq!(max_index_f64(HwInfo::default(), &arr), Some(0));
     }
 
     #[test]
     fn f64_accept_positive_inf() {
         let arr = [f64::NEG_INFINITY, 0., 0., 0., f64::INFINITY, 0., 0., 0.];
-        assert_eq!(max_index_f64(&arr), Some(4));
+        assert_eq!(max_index_f64(HwInfo::default(), &arr), Some(4));
     }
 }

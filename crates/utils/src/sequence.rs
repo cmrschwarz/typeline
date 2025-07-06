@@ -26,8 +26,11 @@ use typeline_core::{
     record_data::{
         field::Field, variable_sized_type_inserter::VariableSizeTypeInserter,
     },
-    utils::int_string_conversions::{
-        i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
+    utils::{
+        hwinfo::HwInfo,
+        int_string_conversions::{
+            i64_to_str, parse_int_with_units, I64_MAX_DECIMAL_DIGITS,
+        },
     },
 };
 
@@ -57,6 +60,7 @@ pub enum SequenceMode {
 }
 
 pub struct SequenceGenerator {
+    pub hwinfo: HwInfo,
     pub non_string_reads: bool,
     pub ss: SequenceSpec,
     pub current_value: i64,
@@ -114,7 +118,9 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
 }
 
 const AVX2_MIN_ELEM_COUNT: usize = 8;
-unsafe fn generate_seq_avx2(
+
+#[cfg(target_arch = "x86_64")]
+fn generate_seq_avx2(
     start: i64,
     step: i64,
     iterations: usize,
@@ -138,6 +144,36 @@ unsafe fn generate_seq_avx2(
             );
         }
     }
+}
+
+fn generate_seq_plain(
+    start: i64,
+    step: i64,
+    iterations: usize,
+    out: &mut [MaybeUninit<i64>],
+) {
+    let mut v = start;
+    for i in 0..iterations {
+        out[i] = MaybeUninit::new(v);
+        v += step;
+    }
+}
+
+unsafe fn generate_seq(
+    hwinfo: HwInfo,
+    start: i64,
+    step: i64,
+    iterations: usize,
+    out: &mut [MaybeUninit<i64>],
+) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if hwinfo.avx2() {
+            generate_seq_avx2(start, step, iterations, out);
+            return;
+        }
+    }
+    generate_seq_plain(start, step, iterations, out);
 }
 
 impl GeneratorSequence for SequenceGenerator {
@@ -174,7 +210,8 @@ impl GeneratorSequence for SequenceGenerator {
                 let avx_count = iterations * AVX2_I64_ELEM_COUNT;
                 unsafe {
                     let res = inserter.claim_uninit(avx_count);
-                    generate_seq_avx2(
+                    generate_seq(
+                        self.hwinfo,
                         self.current_value,
                         self.ss.step,
                         iterations,
@@ -252,6 +289,7 @@ impl BasicGenerator for OpSequence {
 
     fn create_generator(&self) -> Self::Gen {
         SequenceGenerator {
+            hwinfo: HwInfo::default(),
             non_string_reads: self.non_string_reads,
             ss: self.ss,
             current_value: self.ss.start,

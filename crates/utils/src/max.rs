@@ -17,7 +17,10 @@ use typeline_core::{
         iter::field_value_slice_iter::FieldValueRangeIter,
         iter_hall::FieldIterId,
     },
-    utils::max_index::{max_index_bool, max_index_f64, max_index_i64},
+    utils::{
+        hwinfo::HwInfo,
+        max_index::{max_index_bool, max_index_f64, max_index_i64},
+    },
 };
 
 use typeline_core::operators::utils::any_number::AnyNumber;
@@ -26,6 +29,7 @@ use typeline_core::operators::utils::any_number::AnyNumber;
 pub struct OpMax {}
 
 pub struct TfMax {
+    hwinfo: HwInfo,
     input_iter_id: FieldIterId,
     group_track_iter: GroupTrackIterRef,
     curr_max_value: Option<AnyNumber>,
@@ -48,6 +52,7 @@ impl Operator for OpMax {
         _prebound_outputs: &PreboundOutputsMap,
     ) -> TransformInstatiation<'a> {
         TransformInstatiation::Single(Box::new(TfMax {
+            hwinfo: HwInfo::default(),
             actor_id: job.job_data.add_actor_for_tf_state(tf_state),
             group_track_iter: job
                 .job_data
@@ -212,7 +217,9 @@ impl Transform<'_> for TfMax {
                     while let Some(b) = iter.next_block() {
                         match b {
                             FieldValueBlock::Plain(v) => {
-                                if let Some(idx) = max_index_i64(v) {
+                                if let Some(idx) =
+                                    max_index_i64(self.hwinfo, v)
+                                {
                                     if v[idx] > max_val_i64 {
                                         max_val_i64 = v[idx];
                                         res_idx = field_idx + idx;
@@ -256,7 +263,9 @@ impl Transform<'_> for TfMax {
                     while let Some(b) = iter.next_block() {
                         match b {
                             FieldValueBlock::Plain(v) => {
-                                if let Some(idx) = max_index_f64(v) {
+                                if let Some(idx) =
+                                    max_index_f64(self.hwinfo, v)
+                                {
                                     if v[idx] > max_val_f64 {
                                         max_val_f64 = v[idx];
                                         res_idx = field_idx + idx;

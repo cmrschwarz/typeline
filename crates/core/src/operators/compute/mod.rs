@@ -43,6 +43,7 @@ use crate::{
         stream_value::StreamValueUpdate,
     },
     typeline_error::TypelineError,
+    utils::hwinfo::HwInfo,
 };
 use ast::{
     AccessIdx, Expr, ExternIdentId, LetBindingData, LetBindingId,
@@ -71,6 +72,7 @@ pub enum ComputeExpression {
 pub struct OpCompute {
     #[cfg(feature = "debug_state")]
     expr_str: String,
+    hwinfo: HwInfo,
     expr: ComputeExpression,
     unbound_refs: IndexVec<ExternIdentId, UnboundIdentData>,
     let_bindings: IndexVec<LetBindingId, LetBindingData>,
@@ -154,6 +156,7 @@ pub fn build_op_compute(
     Ok(Box::new(OpCompute {
         #[cfg(feature = "debug_state")]
         expr_str: escape_to_string(fmt, &ESCAPE_DOUBLE_QUOTES),
+        hwinfo: HwInfo::default(),
         expr: ComputeExpression::Ast(expr),
         unbound_refs,
         let_bindings,
@@ -394,6 +397,7 @@ impl<'a> Transform<'a> for TfCompute<'a> {
 
             let mut exec = Executor {
                 op_id,
+                hwinfo: self.op.hwinfo,
                 fm: &jd.field_mgr,
                 msm: &jd.match_set_mgr,
                 compilation,

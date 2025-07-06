@@ -46,6 +46,7 @@ use crate::{
         compare_i64_bigint::{
             convert_int_to_float, try_convert_bigint_to_i64,
         },
+        hwinfo::HwInfo,
         string_store::StringStoreEntry,
     },
 };
@@ -71,6 +72,7 @@ pub struct NextLowestArrayLink(NonMax<usize>);
 
 pub struct Executor<'a, 'b> {
     pub op_id: OperatorId,
+    pub hwinfo: HwInfo,
     pub compilation: &'a Compilation,
     pub fm: &'a FieldManager,
     pub msm: &'a MatchSetManager,
@@ -602,9 +604,10 @@ impl Executor<'_, '_> {
             count_rem -= lhs_range.base.field_count;
 
             execute_binary_op_on_lhs_range(
-                self.op_id,
                 self.msm,
+                self.op_id,
                 kind,
+                self.hwinfo,
                 &lhs_range,
                 &mut rhs_iter,
                 &mut inserter,

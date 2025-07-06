@@ -32,7 +32,7 @@ thiserror = "2.0.3"
 derive_more = { version = "1.0.0", features = ["full"] }
 ref-cast = "1.0.23"
 subenum = "1.1.2"
-
+cfg-if = "1.0.1"
 
 # small size / layout optimizations
 arrayvec = "0.7.6"
@@ -101,6 +101,7 @@ debug_state = []
 # investigate.
 debug_disable_terminator = []
 debug_reduce_field_refs = []
+debug_disable_avx2 = []
 
 debug_log = ["debug_state", "handlebars", "serde_json", "serde_derive"]
 debug_log_extern_style_sheet = ["debug_log"]
@@ -126,6 +127,7 @@ debug_logging_field_action_group_accel = ["debug_logging"]
 
 debug_logging_full = [
     "debug_logging_transform_update",
+    "debug_logging_transform_update_timestamps",
     "debug_logging_liveness_analysis",
     "debug_logging_setup",
     "debug_logging_streams",

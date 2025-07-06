@@ -19,6 +19,7 @@ use std::fmt::Debug;
 
 use std::{self, convert::Infallible, mem::MaybeUninit};
 
+use crate::operators::compute::HwInfo;
 use crate::{
     operators::{errors::OperatorApplicationError, operator::OperatorId},
     record_data::field_data::FixedSizeFieldValueType,
@@ -110,6 +111,7 @@ pub unsafe trait BinaryOp {
     ) -> Result<Self::Output, Self::Error>;
 
     fn calc_until_error<'a>(
+        _hwinfo: HwInfo,
         lhs: &[Self::Lhs],
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
@@ -118,6 +120,7 @@ pub unsafe trait BinaryOp {
     }
 
     fn calc_until_error_lhs_immediate<'a>(
+        _hwinfo: HwInfo,
         lhs: &Self::Lhs,
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
@@ -131,6 +134,7 @@ pub unsafe trait BinaryOp {
     }
 
     fn calc_until_error_rhs_immediate<'a>(
+        _hwinfo: HwInfo,
         lhs: &[Self::Lhs],
         rhs: &Self::Rhs,
         res: &'a mut [MaybeUninit<Self::Output>],
@@ -162,27 +166,30 @@ unsafe impl<Op: BinaryOp> BinaryOp for BinaryOpCommutationWrapper<Op> {
     }
 
     fn calc_until_error<'a>(
+        hwinfo: HwInfo,
         lhs: &[Self::Lhs],
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        Op::calc_until_error(rhs, lhs, res)
+        Op::calc_until_error(hwinfo, rhs, lhs, res)
     }
 
     fn calc_until_error_lhs_immediate<'a>(
+        hwinfo: HwInfo,
         lhs: &Self::Lhs,
         rhs: &[Self::Rhs],
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        Op::calc_until_error_rhs_immediate(rhs, lhs, res)
+        Op::calc_until_error_rhs_immediate(hwinfo, rhs, lhs, res)
     }
 
     fn calc_until_error_rhs_immediate<'a>(
+        hwinfo: HwInfo,
         lhs: &[Self::Lhs],
         rhs: &Self::Rhs,
         res: &'a mut [MaybeUninit<Self::Output>],
     ) -> (usize, Option<Self::Error>) {
-        Op::calc_until_error_lhs_immediate(rhs, lhs, res)
+        Op::calc_until_error_lhs_immediate(hwinfo, rhs, lhs, res)
     }
 }
 

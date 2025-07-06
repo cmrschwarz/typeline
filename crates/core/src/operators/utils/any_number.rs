@@ -7,7 +7,8 @@ use std::{
 use crate::{
     record_data::{field_data::RunLength, push_interface::PushInterface},
     utils::{
-        compare_i64_bigint::compare_i64_bigint, integer_sum::try_integer_sum,
+        compare_i64_bigint::compare_i64_bigint, hwinfo::HwInfo,
+        integer_sum::try_integer_sum,
     },
 };
 use num::{BigInt, BigRational, FromPrimitive, ToPrimitive};
@@ -281,8 +282,8 @@ impl AnyNumber {
             AnyNumber::BigRational(r) => r.add_assign(BigInt::from(v).mul(rl)),
         }
     }
-    pub fn add_ints(&mut self, v: &[i64], fpm: bool) {
-        match try_integer_sum(v) {
+    pub fn add_ints(&mut self, hwinfo: HwInfo, v: &[i64], fpm: bool) {
+        match try_integer_sum(hwinfo, v) {
             Some(res) => self.add_int(res, fpm),
             None => {
                 for &i in v {

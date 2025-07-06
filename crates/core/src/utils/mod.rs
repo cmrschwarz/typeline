@@ -11,6 +11,7 @@ pub mod counting_writer;
 pub mod dynamic_freelist;
 pub mod encoding;
 pub mod escaped_writer;
+pub mod hwinfo;
 pub mod identity_hasher;
 pub mod int_string_conversions;
 pub mod integer_sum;
