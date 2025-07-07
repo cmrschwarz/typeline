@@ -126,6 +126,7 @@ fn generate_seq_avx2(
     iterations: usize,
     out: &mut [MaybeUninit<i64>],
 ) {
+    let avx_count = iterations / AVX2_I64_ELEM_COUNT;
     unsafe {
         let stride = _mm256_set1_epi64x(4 * step);
         let mut arr = _mm256_setr_epi64x(
@@ -136,12 +137,20 @@ fn generate_seq_avx2(
         );
 
         _mm256_storeu_si256(out.as_mut_ptr().cast(), arr);
-        for i in 1..iterations {
+        for i in 1..avx_count {
             arr = _mm256_add_epi64(arr, stride);
             _mm256_storeu_si256(
                 out.as_mut_ptr().add(i * AVX2_I64_ELEM_COUNT).cast(),
                 arr,
             );
+        }
+
+        let mut arr_v = [0i64; 4];
+        _mm256_storeu_si256(arr_v.as_mut_ptr() as *mut _, arr);
+        let mut v = arr_v[3];
+        for i in avx_count * AVX2_I64_ELEM_COUNT..iterations {
+            v += step;
+            out[i] = MaybeUninit::new(v);
         }
     }
 }
@@ -200,31 +209,29 @@ impl GeneratorSequence for SequenceGenerator {
     fn advance_sequence(
         &mut self,
         output_field: &mut Self::Inserter<'_>,
-        mut count: usize,
+        count: usize,
     ) {
         let iter_hall = &mut output_field.iter_hall;
         if self.non_string_reads {
             let mut inserter = iter_hall.fixed_size_type_inserter::<i64>();
             if count >= AVX2_MIN_ELEM_COUNT {
-                let iterations = count / AVX2_I64_ELEM_COUNT;
-                let avx_count = iterations * AVX2_I64_ELEM_COUNT;
                 unsafe {
-                    let res = inserter.claim_uninit(avx_count);
+                    let res = inserter.claim_uninit(count);
                     generate_seq(
                         self.hwinfo,
                         self.current_value,
                         self.ss.step,
-                        iterations,
+                        count,
                         res,
                     );
-                    self.current_value += avx_count as i64 * self.ss.step;
+                    self.current_value += count as i64 * self.ss.step;
                 }
-                count -= avx_count;
-            }
-            inserter.reserve(count);
-            for _ in 0..count {
-                inserter.push(self.current_value);
-                self.current_value += self.ss.step;
+            } else {
+                inserter.reserve(count);
+                for _ in 0..count {
+                    inserter.push(self.current_value);
+                    self.current_value += self.ss.step;
+                }
             }
         } else {
             let mut inserter = iter_hall.inline_str_inserter();
