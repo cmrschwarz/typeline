@@ -1,10 +1,7 @@
-use std::{
-    arch::x86_64::{
-        _mm256_add_epi64, _mm256_set1_epi64x, _mm256_setr_epi64x,
-        _mm256_storeu_si256,
-    },
-    fmt::Write,
-    mem::MaybeUninit,
+use std::{fmt::Write, mem::MaybeUninit};
+
+use std::arch::x86_64::{
+    _mm256_add_epi64, _mm256_set1_epi64x, _mm256_setr_epi64x,
 };
 
 use arrayvec::ArrayVec;
@@ -119,6 +116,7 @@ pub fn increment_int_str(data: &mut ArrayVec<u8, I64_MAX_DECIMAL_DIGITS>) {
 
 const AVX2_MIN_ELEM_COUNT: usize = 8;
 
+/*
 #[cfg(target_arch = "x86_64")]
 fn generate_seq_avx2(
     start: i64,
@@ -136,13 +134,13 @@ fn generate_seq_avx2(
             start + 3 * step,
         );
 
-        _mm256_storeu_si256(out.as_mut_ptr().cast(), arr);
-        for i in 1..avx_count {
+        let mut tgt = out.as_mut_ptr();
+
+        _mm256_storeu_si256(tgt.cast(), arr);
+        for _ in 1..avx_count {
             arr = _mm256_add_epi64(arr, stride);
-            _mm256_storeu_si256(
-                out.as_mut_ptr().add(i * AVX2_I64_ELEM_COUNT).cast(),
-                arr,
-            );
+            _mm256_storeu_si256(tgt.cast(), arr);
+            tgt = tgt.add(AVX2_I64_ELEM_COUNT);
         }
 
         let mut arr_v = [0i64; 4];
@@ -151,6 +149,70 @@ fn generate_seq_avx2(
         for i in avx_count * AVX2_I64_ELEM_COUNT..iterations {
             v += step;
             out[i] = MaybeUninit::new(v);
+        }
+    }
+}
+*/
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn generate_seq_avx2(
+    start: i64,
+    step: i64,
+    iterations: usize,
+    out: &mut [MaybeUninit<i64>],
+) {
+    unsafe {
+        let mut tgt = out.as_mut_ptr();
+        let mut current_val = start;
+
+        // Handle leading unaligned elements
+        let alignment = (tgt as usize) % 32;
+        let unaligned_count = if alignment == 0 {
+            0
+        } else {
+            std::cmp::min((32 - alignment) / 8, iterations)
+        };
+
+        // Fill unaligned elements scalar
+        for i in 0..unaligned_count {
+            out[i] = MaybeUninit::new(current_val);
+            current_val += step;
+        }
+
+        let remaining = iterations - unaligned_count;
+        let avx_count = remaining / AVX2_I64_ELEM_COUNT;
+
+        if avx_count > 0 {
+            use std::arch::x86_64::_mm256_store_si256;
+
+            let stride = _mm256_set1_epi64x(4 * step);
+            let mut arr = _mm256_setr_epi64x(
+                current_val,
+                current_val + step,
+                current_val + 2 * step,
+                current_val + 3 * step,
+            );
+
+            tgt = tgt.add(unaligned_count);
+
+            _mm256_store_si256(tgt.cast(), arr);
+            for _ in 1..avx_count {
+                arr = _mm256_add_epi64(arr, stride);
+                tgt = tgt.add(AVX2_I64_ELEM_COUNT);
+                _mm256_store_si256(tgt.cast(), arr);
+            }
+
+            let mut arr_v = [0i64; 4];
+            _mm256_store_si256(arr_v.as_mut_ptr() as *mut _, arr);
+            current_val = arr_v[3] + step;
+        }
+
+        // Handle remaining elements
+        let processed = unaligned_count + avx_count * AVX2_I64_ELEM_COUNT;
+        for i in processed..iterations {
+            out[i] = MaybeUninit::new(current_val);
+            current_val += step;
         }
     }
 }
@@ -177,7 +239,7 @@ unsafe fn generate_seq(
 ) {
     #[cfg(target_arch = "x86_64")]
     {
-        if hwinfo.avx2() {
+        if hwinfo.avx2() && iterations > AVX2_MIN_ELEM_COUNT {
             generate_seq_avx2(start, step, iterations, out);
             return;
         }

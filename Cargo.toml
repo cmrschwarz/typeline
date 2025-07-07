@@ -42,7 +42,7 @@ lto = "thin"
 opt-level = 3
 strip = "symbols"
 
-[profile.profile]
+[profile.release-with-debug]
 inherits = "release"
 strip = "none"
 debug = true

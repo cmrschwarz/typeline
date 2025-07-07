@@ -18,7 +18,8 @@ pub fn integer_sum_with_overflow_baseline(nums: &[i64]) -> (i64, bool) {
 }
 
 #[cfg(target_arch = "x86_64")]
-fn integer_sum_with_overflow_avx2(nums: &[i64]) -> (i64, bool) {
+#[target_feature(enable = "avx2")]
+unsafe fn integer_sum_with_overflow_avx2(nums: &[i64]) -> (i64, bool) {
     use std::arch::x86_64::{
         __m256i, _mm256_add_epi64, _mm256_and_si256, _mm256_castsi256_pd,
         _mm256_loadu_si256, _mm256_movemask_pd, _mm256_or_si256,
@@ -73,7 +74,9 @@ pub fn integer_sum_with_overflow_check(
 ) -> (i64, bool) {
     #[cfg(target_arch = "x86_64")]
     if hwinfo.avx2() && v.len() >= AVX2_MIN_LEN {
-        return integer_sum_with_overflow_avx2(v);
+        unsafe {
+            return integer_sum_with_overflow_avx2(v);
+        }
     }
 
     integer_sum_with_overflow_baseline(v)
